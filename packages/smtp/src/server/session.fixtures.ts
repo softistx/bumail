@@ -52,6 +52,98 @@ export async function readContent(
 	return new Uint8Array(await new Response(message.content).arrayBuffer());
 }
 
+/** A Transport that records what the server does with it. */
+interface FakeTransport {
+	readonly transport: Transport;
+	/** What the server wrote since the last `take`. */
+	take(): string;
+	readonly ended: boolean;
+	readonly tlsStarts: number;
+	readonly paused: boolean;
+}
+
+function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
+	let output = '';
+	let ended = false;
+	let tlsStarts = 0;
+	let paused = false;
+	let encrypted = secure;
+	return {
+		transport: {
+			remoteAddress,
+			get secure() {
+				return encrypted;
+			},
+			write: (text) => {
+				output += text;
+			},
+			drained: () => Promise.resolve(),
+			end: () => {
+				ended = true;
+			},
+			pause: () => {
+				paused = true;
+			},
+			resume: () => {
+				paused = false;
+			},
+			startTls: () => {
+				tlsStarts++;
+				encrypted = true;
+			},
+		},
+		take() {
+			const taken = output;
+			output = '';
+			return taken;
+		},
+		get ended() {
+			return ended;
+		},
+		get tlsStarts() {
+			return tlsStarts;
+		},
+		get paused() {
+			return paused;
+		},
+	};
+}
+
+/**
+ * The options as the fake session runs them: unless `raw`, `onData` gets
+ * the message after the fake app read it to its end, as `onData` must, and
+ * what it read is kept in `received`; errors are kept in `errors`.
+ */
+function recordingOptions(
+	options: SmtpServerOptions,
+	raw: boolean,
+	received: ReadMessage[],
+	errors: unknown[],
+): SmtpServerOptions {
+	const { onData, onError } = options;
+	return {
+		...options,
+		onData: async (message, session) => {
+			if (raw) return onData(message, session);
+			const content = await readContent(message);
+			received.push({
+				id: message.id,
+				envelope: message.envelope,
+				content,
+				text: new TextDecoder().decode(content),
+			});
+			return onData(
+				{ ...message, content: new Blob([content]).stream() },
+				session,
+			);
+		},
+		onError: (error, session) => {
+			errors.push(error);
+			onError?.(error, session);
+		},
+	};
+}
+
 export async function fakeSession(
 	options: SmtpServerOptions,
 	{
@@ -65,83 +157,34 @@ export async function fakeSession(
 ): Promise<FakeSession> {
 	const received: ReadMessage[] = [];
 	const errors: unknown[] = [];
-	let output = '';
-	let ended = false;
-	let tlsStarts = 0;
-	let paused = false;
-	let encrypted = secure;
-	const transport: Transport = {
-		remoteAddress,
-		get secure() {
-			return encrypted;
-		},
-		write: (text) => {
-			output += text;
-		},
-		drained: () => Promise.resolve(),
-		end: () => {
-			ended = true;
-		},
-		pause: () => {
-			paused = true;
-		},
-		resume: () => {
-			paused = false;
-		},
-		startTls: () => {
-			tlsStarts++;
-			encrypted = true;
-		},
-	};
-	const { onData, onError } = options;
+	const fake = fakeTransport(secure, remoteAddress);
 	const connection = new Connection(
-		settingsOf({
-			...options,
-			// By default, the fake app reads every message to its end, as onData must.
-			onData: async (message, session) => {
-				if (raw) return onData(message, session);
-				const content = await readContent(message);
-				received.push({
-					id: message.id,
-					envelope: message.envelope,
-					content,
-					text: new TextDecoder().decode(content),
-				});
-				return onData(
-					{ ...message, content: new Blob([content]).stream() },
-					session,
-				);
-			},
-			onError: (error, session) => {
-				errors.push(error);
-				onError?.(error, session);
-			},
-		}),
-		transport,
+		settingsOf(recordingOptions(options, raw, received, errors)),
+		fake.transport,
 	);
 	const opening = connection.open();
 	if (early) connection.receive(new TextEncoder().encode(early));
 	await opening;
-	const greeting = output;
+	const greeting = fake.take();
 	return {
 		connection,
 		greeting,
 		received,
 		errors,
 		get ended() {
-			return ended;
+			return fake.ended;
 		},
 		get tlsStarts() {
-			return tlsStarts;
+			return fake.tlsStarts;
 		},
 		get paused() {
-			return paused;
+			return fake.paused;
 		},
 		async send(text) {
-			output = '';
+			fake.take();
 			connection.receive(new TextEncoder().encode(text));
 			await connection.idle();
-			return output;
+			return fake.take();
 		},
 	};
 }

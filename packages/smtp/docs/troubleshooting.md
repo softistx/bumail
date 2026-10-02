@@ -17,6 +17,7 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: createSmtpServer(): authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted`](#smtperror-createsmtpserver-authenticate-needs-tls--key-cert--since-auth-is-offered-only-once-encrypted)
 - [`SmtpError: createSmtpServer(): localDomains must be an array of domains or a function`](#smtperror-createsmtpserver-localdomains-must-be-an-array-of-domains-or-a-function)
 - [`SmtpError: createSmtpServer(): … must be a positive integer, not …`](#smtperror-createsmtpserver--must-be-a-positive-integer-not-)
+- [`SmtpError: createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not …`](#smtperror-createsmtpserver-greetingdelay-must-be-a-number-of-seconds-0-or-more-not-)
 - [`SmtpError: listen(): the server is already listening on …`](#smtperror-listen-the-server-is-already-listening-on-)
 
 **Relaying and authentication**
@@ -31,18 +32,25 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`501 5.5.2 Cannot decode the response`](#501-552-cannot-decode-the-response)
 - [`504 5.5.4 Unrecognized authentication type`](#504-554-unrecognized-authentication-type)
 - [`502 5.5.1 AUTH not available`](#502-551-auth-not-available)
+- [`503 5.5.1 Already authenticated`](#503-551-already-authenticated)
+- [`503 5.5.1 AUTH not allowed during a transaction`](#503-551-auth-not-allowed-during-a-transaction)
+- [`501 5.0.0 Authentication cancelled`](#501-500-authentication-cancelled)
 
 **Commands**
 
+- [`501 Syntax: EHLO hostname`](#501-syntax-ehlo-hostname)
 - [`503 Send EHLO first`](#503-send-ehlo-first)
 - [`503 5.5.1 Send MAIL first`, `503 5.5.1 Nested MAIL command`](#503-551-send-mail-first-503-551-nested-mail-command)
 - [`501 5.5.4 Syntax: …`](#501-554-syntax-)
 - [`500 5.5.2 Command unrecognized`](#500-552-command-unrecognized)
 - [`454 4.7.0 TLS not available`](#454-470-tls-not-available)
+- [`503 5.5.1 TLS already active`](#503-551-tls-already-active)
+- [`501 5.5.4 BODY is 7BIT or 8BITMIME`](#501-554-body-is-7bit-or-8bitmime)
 - [`555 5.5.4 … is not supported`](#555-554--is-not-supported)
 - [`555 … needs EHLO`](#555--needs-ehlo)
 - [`553 5.6.7 A non-ASCII address needs SMTPUTF8`](#553-567-a-non-ascii-address-needs-smtputf8)
 - [`500 5.5.6 Line too long`](#500-556-line-too-long)
+- [`252 2.5.0 Cannot VRFY user; send the message and it will be tried`](#252-250-cannot-vrfy-user-send-the-message-and-it-will-be-tried)
 
 **Messages**
 
@@ -50,13 +58,17 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`552 5.3.4 Message too big for system`](#552-534-message-too-big-for-system)
 - [`452 4.5.3 Too many recipients`](#452-453-too-many-recipients)
 - [`554 5.5.1 No valid recipients`](#554-551-no-valid-recipients)
-- [`SmtpError: The message …; do not deliver it`, from `message.content`](#smtperror-the-message--do-not-deliver-it-from-messagecontent)
+- [`SmtpError: The message is larger than maxMessageSize (… bytes); do not deliver it`](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it)
+- [`SmtpError: The message holds a bare CR or LF (SMTP smuggling); do not deliver it`](#smtperror-the-message-holds-a-bare-cr-or-lf-smtp-smuggling-do-not-deliver-it)
+- [`SmtpError: The client disconnected before the end of the message; do not deliver it`](#smtperror-the-client-disconnected-before-the-end-of-the-message-do-not-deliver-it)
+- [`SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-read-the-message-within-hooktimeout--s-do-not-deliver-it)
 
 **Hooks**
 
 - [`451 4.3.0 Local error in processing`](#451-430-local-error-in-processing)
-- [`SmtpError: … did not settle within hookTimeout (… s)`, in `onError`](#smtperror--did-not-settle-within-hooktimeout--s-in-onerror)
-- [`SmtpError: … answered …, which is not a refusal`, in `onError`](#smtperror--answered--which-is-not-a-refusal-in-onerror)
+- [`SmtpError: … did not settle within hookTimeout (… s)`](#smtperror--did-not-settle-within-hooktimeout--s)
+- [`SmtpError: … answered …, which is not a refusal: a hook refuses with a 4xx or 5xx reply, and accepts with undefined`](#smtperror--answered--which-is-not-a-refusal-a-hook-refuses-with-a-4xx-or-5xx-reply-and-accepts-with-undefined)
+- [`SmtpError: onData answered without reading the message to its end; it was not taken`](#smtperror-ondata-answered-without-reading-the-message-to-its-end-it-was-not-taken)
 - [`421 4.3.0 Local error, closing`](#421-430-local-error-closing)
 
 **Connections**
@@ -72,10 +84,18 @@ Each of these is thrown by `createSmtpServer(options)` itself, before
 anything listens, as an `SmtpError` with `code: 'INVALID_OPTION'`:
 
 ```ts
-import { SmtpError, createSmtpServer } from '@bumail/smtp';
+import { createSmtpServer, SmtpError, type SmtpServerOptions } from '@bumail/smtp';
+
+const options: SmtpServerOptions = {
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+};
 
 try {
-	createSmtpServer(options);
+	await createSmtpServer(options).listen({ port: 25 });
 } catch (error) {
 	if (error instanceof SmtpError && error.code === 'INVALID_OPTION') console.error(error.message);
 	throw error;
@@ -240,6 +260,28 @@ createSmtpServer({
 
 `timeout` and `hookTimeout` are in seconds: `300_000` is accepted, and
 means 83 hours.
+
+### `SmtpError: createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not …`
+
+**When**: `greetingDelay` is negative, `NaN` or `Infinity`.
+
+**Why**: it is how long the server holds its 220 back, in seconds; `0`,
+the default, sends the greeting at once. A fraction is accepted.
+
+**Fix**: a few seconds, well below `timeout`, or leave it out:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	greetingDelay: 6, // seconds, not milliseconds
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
 
 ### `SmtpError: listen(): the server is already listening on …`
 
@@ -499,11 +541,11 @@ three AUTH attempts.
 
 ```ts
 const response = new TextEncoder().encode('\0alice\0correct horse').toBase64();
-// AUTH PLAIN AGFsaWNlAGNvcnJlY3QgaG9yc2U=
+console.log(`AUTH PLAIN ${response}`); // AUTH PLAIN AGFsaWNlAGNvcnJlY3QgaG9yc2U=
 ```
 
 A client answering a challenge with `*` cancels instead, and gets
-`501 5.0.0 Authentication cancelled`.
+[`501 5.0.0 Authentication cancelled`](#501-500-authentication-cancelled).
 
 ### `504 5.5.4 Unrecognized authentication type`
 
@@ -526,7 +568,68 @@ AUTH. An MX usually has none.
 **Fix**, as the operator: give `authenticate` and `tls`; see
 [`AUTH` is missing from the EHLO reply](#auth-is-missing-from-the-ehlo-reply).
 
+### `503 5.5.1 Already authenticated`
+
+**When**: `AUTH` in a session that already authenticated. It counts toward
+`maxErrors`.
+
+**Why**: a session acts as one user (RFC 4954 §4); once AUTH succeeded the
+server no longer advertises it.
+
+**Fix**, as a client: authenticate once per connection; to act as another
+user, `QUIT` and connect again.
+
+### `503 5.5.1 AUTH not allowed during a transaction`
+
+**When**: `AUTH` after `MAIL FROM` was accepted and before the end of
+`DATA` or an `RSET`. It counts toward `maxErrors`.
+
+**Why**: RFC 4954 §4: AUTH is not allowed in the middle of a mail
+transaction, whose sender was already checked as the session stood.
+
+**Fix**, as a client: authenticate before `MAIL FROM`, or send `RSET`
+first:
+
+```text
+C: RSET
+S: 250 2.0.0 OK
+C: AUTH PLAIN AGFsaWNlAGNvcnJlY3QgaG9yc2U=
+S: 235 2.7.0 Authentication successful
+```
+
+### `501 5.0.0 Authentication cancelled`
+
+**When**: the client answered a `334` challenge of `AUTH` with `*`. It
+counts toward `maxErrors`, not toward the three AUTH attempts.
+
+**Why**: RFC 4954 §4: `*` is how a client gives up an exchange; the server
+confirms it and the session goes on unauthenticated.
+
+**Fix**, as a client: nothing, if it meant to cancel. Otherwise send the
+base64 response to the challenge — see
+[`501 5.5.2 Cannot decode the response`](#501-552-cannot-decode-the-response).
+
 ## Commands
+
+### `501 Syntax: EHLO hostname`
+
+**When**: `EHLO` with no argument, or with one that is neither a domain nor
+an address literal — an underscore, a space, a bare IP without brackets.
+`HELO` gets `501 Syntax: HELO hostname`. Before an EHLO was accepted the
+reply has no enhanced code; after one, it is
+`501 5.5.4 Syntax: EHLO hostname`. It counts toward `maxErrors`.
+
+**Why**: RFC 5321 §4.1.1.1: the argument is the client's own domain, or its
+address in brackets, and it goes into the `Received` field.
+
+**Fix**, as a client: send the client's fully qualified name, or its
+address literal:
+
+```text
+C: EHLO client.example.org
+C: EHLO [192.0.2.1]
+C: EHLO [IPv6:2001:db8::1]
+```
 
 ### `503 Send EHLO first`
 
@@ -553,8 +656,8 @@ C: EHLO client.example.org
 ```
 
 The same lack of EHLO turns a bad `EHLO` or `HELO` argument into
-`501 Syntax: EHLO hostname`, also without an enhanced code: give a domain
-or an address literal such as `[192.0.2.1]`.
+[`501 Syntax: EHLO hostname`](#501-syntax-ehlo-hostname), also without an
+enhanced code.
 
 ### `503 5.5.1 Send MAIL first`, `503 5.5.1 Nested MAIL command`
 
@@ -629,6 +732,35 @@ createSmtpServer({
 
 **Fix**, as a client: send in clear, or to a server that offers TLS.
 
+### `503 5.5.1 TLS already active`
+
+**When**: `STARTTLS` on a connection that is already encrypted — after a
+first STARTTLS, or on an `implicitTls` server (port 465). It counts toward
+`maxErrors`.
+
+**Why**: RFC 3207 §4: TLS is started once per connection. An encrypted
+session's EHLO reply does not list `STARTTLS`.
+
+**Fix**, as a client: send STARTTLS only when the EHLO reply lists it. On
+port 465, set the client to implicit TLS (often called "SSL/TLS"), not
+STARTTLS.
+
+### `501 5.5.4 BODY is 7BIT or 8BITMIME`
+
+**When**: `MAIL FROM:<…> BODY=` with a value other than `7BIT` or
+`8BITMIME`, such as `BINARYMIME`. It counts toward `maxErrors`.
+
+**Why**: the server announces `8BITMIME` (RFC 6152), not `BINARYMIME`
+(RFC 3030), which needs CHUNKING.
+
+**Fix**, as a client: send `BODY=8BITMIME` for 8-bit content, or no `BODY`
+at all:
+
+```text
+C: MAIL FROM:<alice@example.com> BODY=8BITMIME
+S: 250 2.1.0 OK
+```
+
 ### `555 5.5.4 … is not supported`
 
 **When**: `MAIL FROM` with a parameter other than `SIZE`, `BODY`,
@@ -682,6 +814,18 @@ the line is bounded. RFC 5321 §4.5.3.1.4 asks for 512 bytes at least.
 content sent as commands: a client that pipelines the message after a
 `DATA` that was refused, such as `554 5.5.1 No valid recipients`. Wait for
 `354` before sending the message.
+
+### `252 2.5.0 Cannot VRFY user; send the message and it will be tried`
+
+**When**: `VRFY`, whatever its argument. It is not an error, and does not
+count toward `maxErrors`.
+
+**Why**: confirming or denying a mailbox lets anyone harvest addresses, so
+the server answers neither (RFC 5321 §3.5.3); `252` says the address may
+still be valid. There is no option to answer `VRFY`.
+
+**Fix**, as a client: send the message; a recipient that does not exist is
+refused at `RCPT TO` — by `onRcptTo`, if the operator gave one.
 
 ## Messages
 
@@ -760,17 +904,11 @@ never read as commands.
 **Fix**, as a client: read the replies to `RCPT TO`; send `DATA` only once
 one was `250`.
 
-### `SmtpError: The message …; do not deliver it`, from `message.content`
+### `SmtpError: The message is larger than maxMessageSize (… bytes); do not deliver it`
 
-**When**: `onData` reads `message.content` and the read throws an
-`SmtpError` whose `code` is one of:
-
-| `code` | Message | The client gets |
-| --- | --- | --- |
-| `MESSAGE_TOO_BIG` | `The message is larger than maxMessageSize (… bytes); do not deliver it` | `552 5.3.4` |
-| `BARE_LINE_BREAK` | `The message holds a bare CR or LF (SMTP smuggling); do not deliver it` | `550 5.6.11` |
-| `CONNECTION_LOST` | `The client disconnected before the end of the message; do not deliver it` | nothing: it is gone |
-| `HOOK_TIMEOUT` | `onData did not read the message within hookTimeout (… s); do not deliver it` | `451 4.3.0` |
+**When**: `onData` reads `message.content` and the read throws this
+`SmtpError`, code `MESSAGE_TOO_BIG`. The client got
+[`552 5.3.4 Message too big for system`](#552-534-message-too-big-for-system).
 
 **Why**: the server hands the message over while it arrives, so it can
 only say at the end whether the message may be kept. The stream's error is
@@ -797,20 +935,61 @@ createSmtpServer({
 });
 ```
 
+To take larger messages, raise `maxMessageSize`.
+
+### `SmtpError: The message holds a bare CR or LF (SMTP smuggling); do not deliver it`
+
+**When**: the read of `message.content` throws this `SmtpError`, code
+`BARE_LINE_BREAK`. The client got
+[`550 5.6.11 Bare CR or LF is not allowed in a message`](#550-5611-bare-cr-or-lf-is-not-allowed-in-a-message).
+
+**Why**: the message may hide a second one; it is refused whole.
+
+**Fix**: delete what you wrote and let the error propagate, as in
+[the entry above](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it).
+
+### `SmtpError: The client disconnected before the end of the message; do not deliver it`
+
+**When**: the read of `message.content` throws this `SmtpError`, code
+`CONNECTION_LOST`: the client hung up during `DATA`.
+
+**Why**: a message cut short is not the message the client meant to send.
+It sends it again on its next attempt.
+
+**Fix**: delete what you wrote and let the error propagate, as in
+[the entry above](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it).
+
+### `SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`
+
+**When**: the read of `message.content` throws this `SmtpError`, code
+`HOOK_TIMEOUT`: `onData` read nothing for `hookTimeout` seconds while the
+client still had message to send. The client got
+`451 4.3.0 Local error in processing`, and `onError` was given
+[`SmtpError: onData did not settle within hookTimeout (… s)`](#smtperror--did-not-settle-within-hooktimeout--s).
+
+**Why**: the server holds 64 KiB of a message at most, and stops reading
+the client until `onData` reads; an `onData` that stopped reading would
+hold the connection forever.
+
+**Fix**: read the stream as it comes, and do the slow work after it ended:
+write the bytes to disk first, then parse, scan or forward them.
+
 ## Hooks
 
 ### `451 4.3.0 Local error in processing`
 
 **When**: one of the hooks threw, its promise rejected, it did not settle
 within `hookTimeout`, or it answered a reply under 400; `localDomains`
-threw or did not settle; or `onData` stopped reading the message for
-`hookTimeout` seconds:
+threw or did not settle; `onData` stopped reading the message for
+`hookTimeout` seconds; or `onData` resolved without a refusal before it
+read the message to its end, or cancelled the stream:
 
 - `onConnect`: the connection gets `451 Local error in processing` in place
   of its greeting, without an enhanced code, and is closed;
 - `onMailFrom`, `onRcptTo`, `localDomains`: that command is refused, and
   the session goes on;
-- `onData`: the message is refused, and the client keeps it.
+- `onData`: the message is refused, and the client keeps it. The `250`
+  goes out only when `onData` read `message.content` to its clean end.
 
 **Why**: a hook that fails has neither accepted nor refused, so the server
 answers with a temporary failure: a client tries again later rather than
@@ -834,12 +1013,15 @@ createSmtpServer({
 **Fix**, as a client: retry later. An MTA queues the message and does so on
 its own.
 
-### `SmtpError: … did not settle within hookTimeout (… s)`, in `onError`
+### `SmtpError: … did not settle within hookTimeout (… s)`
 
-**When**: `onError` gets an `SmtpError` of code `HOOK_TIMEOUT`: a hook,
+**When**: `onError` gets an `SmtpError` of code `HOOK_TIMEOUT`, its message
+naming what ran late: `onConnect`, `onMailFrom`, `onRcptTo`, `onData`,
 `authenticate` or `localDomains` did not settle within `hookTimeout`
-seconds (60 by default), or `onData` stopped reading the message for that
-long. The client got `451 4.3.0` (or `454 4.7.0` for `authenticate`).
+seconds (60 by default) — or `onData` stopped reading the message for that
+long, in which case its stream also ends in
+[`SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-read-the-message-within-hooktimeout--s-do-not-deliver-it).
+The client got `451 4.3.0` (or `454 4.7.0` for `authenticate`).
 
 **Why**: while a hook runs, the session waits; a hook that never settles
 would hold the connection, and the message, forever.
@@ -866,10 +1048,10 @@ createSmtpServer({
 });
 ```
 
-### `SmtpError: … answered …, which is not a refusal`, in `onError`
+### `SmtpError: … answered …, which is not a refusal: a hook refuses with a 4xx or 5xx reply, and accepts with undefined`
 
-**When**: `onError` gets an `SmtpError` of code `INVALID_HOOK_REPLY`: a
-hook returned something other than `undefined` or a `Reply` with a code
+**When**: `onError` gets an `SmtpError` of code `INVALID_HOOK_REPLY`, its
+message naming the hook and what it returned as JSON: a hook returned something other than `undefined` or a `Reply` with a code
 from 400 to 599 — a `250`, a string, a number. The client got `451 4.3.0`.
 
 **Why**: a hook accepts by returning nothing. Sending a `250` from a hook
@@ -890,6 +1072,38 @@ createSmtpServer({
 	},
 });
 ```
+
+### `SmtpError: onData answered without reading the message to its end; it was not taken`
+
+**When**: `onError` gets this `SmtpError`, code `MESSAGE_NOT_READ`: `onData`
+resolved without a refusal before it read `message.content` to its end, or
+cancelled the stream. The client got `451 4.3.0 Local error in processing`,
+never `250`, and keeps the message.
+
+**Why**: a `250` makes the server responsible for the message. An `onData`
+that stopped early has stored part of it at most, so the server does not
+claim it took it.
+
+**Fix**: read the stream to its end before returning — or refuse with a
+`Reply`, which needs no reading:
+
+```ts
+import { createSmtpServer, reply } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	async onData(message) {
+		if (message.envelope.from === '') return reply(550, '5.7.1', 'No bounces here');
+		await Bun.write(`spool/${message.id}.eml`, await new Response(message.content).bytes());
+		return undefined;
+	},
+	onError: (error, session) => console.error(`[${session.id}]`, error),
+});
+```
+
+Reading only the headers and returning is the usual cause; read the rest
+too, even to drop it.
 
 ### `421 4.3.0 Local error, closing`
 
@@ -970,11 +1184,19 @@ createSmtpServer({
 ### `554 … Talked before the greeting`
 
 **When**: on connecting, in place of the greeting, when the client sent
-anything before the server's `220`. `…` is the server's `hostname`. The
-server hangs up; nothing the client sent is run.
+anything before the server's `220` — while `onConnect` ran, or during
+`greetingDelay`. `…` is the server's `hostname`; there is no enhanced
+code, since no EHLO came. The server hangs up; nothing the client sent is
+run. When `onConnect` refuses, its own refusal is sent instead.
 
 **Why**: RFC 5321 §4.3.1: a client waits for the greeting. Spam engines
-that blast a whole transaction at once do not, and are cut off here.
+that blast a whole transaction at once do not, and are cut off here. With
+`greetingDelay`, the server holds the 220 back for that many seconds, so
+the window in which an impatient sender gives itself away is longer.
 
 **Fix**, as a client: wait for the `220` before `EHLO`. Every MTA and
 client library does; a hand-written client or a test script may not.
+
+**Fix**, as the operator: if a legitimate sender is refused, lower
+`greetingDelay`, or leave it at `0`; a test client that writes at once
+needs it at `0`.

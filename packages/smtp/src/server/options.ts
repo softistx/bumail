@@ -129,6 +129,14 @@ export interface SmtpServerOptions extends SmtpHooks {
 	/** Idle time before the server hangs up, in seconds; any byte from the client starts it again. Default 300, RFC 5321 §4.5.3.2.7's. */
 	readonly timeout?: number;
 	/**
+	 * Seconds the server waits, once `onConnect` accepted, before its 220
+	 * greeting. A client that talks in that time is refused with `554`
+	 * (RFC 5321 §4.3.1): a legitimate client waits for the greeting, many
+	 * spam senders do not. Default 0: the greeting goes out at once, and
+	 * only a client that talks before it is refused.
+	 */
+	readonly greetingDelay?: number;
+	/**
 	 * Seconds a hook, `authenticate` or `localDomains` has to settle — and
 	 * `onData` to read the next part of a message, then to answer once it
 	 * ended. Past it, the command is refused with `451 4.3.0`. Default 60.

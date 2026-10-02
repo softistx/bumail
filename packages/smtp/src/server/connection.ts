@@ -136,6 +136,9 @@ export class Connection {
 			? await this.hook('onConnect', () => options.onConnect?.(this.session))
 			: undefined;
 		if (refused) return this.close(refused);
+		const { greetingDelay } = this.settings;
+		if (greetingDelay > 0) await Bun.sleep(greetingDelay * 1000);
+		if (this.#closed) return;
 		if (this.input.early) {
 			// RFC 5321 §4.3.1: the client waits for the greeting; a spammer often does not.
 			return this.close(

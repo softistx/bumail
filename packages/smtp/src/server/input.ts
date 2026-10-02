@@ -145,7 +145,7 @@ export class Input {
 			if (this.#connection.state.waiting === 'data') {
 				// Message content pipelined right after DATA.
 				const rest = this.#lines.takeRest();
-				if (rest.length > 0) this.#input.unshift(rest.slice());
+				if (rest.length > 0) this.#unshift(rest.slice());
 				return;
 			}
 		}
@@ -159,6 +159,16 @@ export class Input {
 		this.#connection.state.waiting = 'command';
 		this.#connection.state.transaction = emptyTransaction();
 		this.#connection.send(await intake.finish());
-		if (rest.length > 0) this.#input.unshift(rest);
+		if (rest.length > 0) this.#unshift(rest);
+	}
+
+	/** Puts bytes back at the front, counted again: the pump took them off the count. */
+	#unshift(bytes: Uint8Array): void {
+		this.#input.unshift(bytes);
+		this.#queued += bytes.length;
+		if (this.#queued > INPUT_LIMIT && !this.#paused) {
+			this.#paused = true;
+			this.#connection.transport.pause();
+		}
 	}
 }

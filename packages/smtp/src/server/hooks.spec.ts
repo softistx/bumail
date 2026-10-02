@@ -163,6 +163,57 @@ describe('input is bounded', () => {
 		expect(s.paused).toBe(false);
 		expect(out.split('250 2.0.0 OK\r\n').length - 1).toBe(20_000);
 	});
+
+	test('message bytes put back after DATA still count: the server stays paused', async () => {
+		const s = await fakeSession(
+			mxOptions({ hookTimeout: 5, onData: () => new Promise(() => {}) }),
+			{ raw: true },
+		);
+		await s.send('EHLO bar.com\r\n');
+		const line = `${'x'.repeat(998)}\r\n`;
+		// DATA and 100 KiB of message in one chunk: the message goes back to the queue.
+		s.connection.receive(
+			new TextEncoder().encode(
+				`MAIL FROM:<a@bar.com>\r\nRCPT TO:<b@foo.com>\r\nDATA\r\n${line.repeat(100)}`,
+			),
+		);
+		await Bun.sleep(10);
+		const more = new TextEncoder().encode(line);
+		for (let i = 0; i < 70; i++) s.connection.receive(more);
+		await Bun.sleep(10);
+		expect(s.paused).toBe(true);
+		s.connection.close();
+	});
+});
+
+describe('the greeting can wait', () => {
+	test('greetingDelay: a client that talks before the late 220 is refused with 554 5.5.0', async () => {
+		const s = await fakeSession(mxOptions({ greetingDelay: 0.05 }), {
+			early: 'EHLO bar.com\r\n',
+		});
+		// No enhanced code before EHLO (RFC 2034 §4).
+		expect(s.greeting).toBe('554 foo.com Talked before the greeting\r\n');
+		expect(s.ended).toBe(true);
+	});
+
+	test('greetingDelay: a client that waits gets the 220 after the delay', async () => {
+		const started = performance.now();
+		const s = await fakeSession(mxOptions({ greetingDelay: 0.05 }));
+		expect(performance.now() - started).toBeGreaterThanOrEqual(45);
+		expect(s.greeting).toBe('220 foo.com ESMTP ready\r\n');
+	});
+
+	test('greetingDelay: a refusal from onConnect goes out at once', async () => {
+		const started = performance.now();
+		const s = await fakeSession(
+			mxOptions({
+				greetingDelay: 5,
+				onConnect: () => reply(554, undefined, 'Blocked'),
+			}),
+		);
+		expect(performance.now() - started).toBeLessThan(1000);
+		expect(s.greeting).toBe('554 Blocked\r\n');
+	});
 });
 
 describe('AUTH acts as the user it authenticated as', () => {

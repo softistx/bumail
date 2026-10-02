@@ -10,8 +10,10 @@ number on it.
   8BITMIME, SMTPUTF8 and ENHANCEDSTATUSCODES; STARTTLS and implicit TLS;
   AUTH PLAIN and LOGIN, offered only once encrypted; hooks where the app
   accepts or refuses a connection, a sender, a recipient or a message;
-  limits on size, recipients, connections, errors and idle time; and a
-  refusal of SMTP smuggling.
+  limits on size, recipients, connections, errors and idle time; a
+  greeting delay that turns away senders who talk before the 220; a `250`
+  only once the app read the whole message; and a refusal of SMTP
+  smuggling.
 
 ## Next
 

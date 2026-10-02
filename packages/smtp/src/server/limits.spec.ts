@@ -111,6 +111,10 @@ describe('options', () => {
 			'createSmtpServer(): hookTimeout must be a positive integer, not 0',
 		],
 		[
+			{ greetingDelay: -1 },
+			'createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not -1',
+		],
+		[
 			{ authenticate: () => true },
 			'createSmtpServer(): authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted',
 		],

@@ -6,7 +6,8 @@ export type SmtpErrorCode =
 	| 'BARE_LINE_BREAK'
 	| 'CONNECTION_LOST'
 	| 'HOOK_TIMEOUT'
-	| 'INVALID_HOOK_REPLY';
+	| 'INVALID_HOOK_REPLY'
+	| 'MESSAGE_NOT_READ';
 
 /**
  * Thrown by `createSmtpServer` and `listen` for a wrong option or call; the

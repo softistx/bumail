@@ -11,6 +11,7 @@ export interface Settings {
 	readonly maxErrors: number;
 	readonly timeout: number;
 	readonly hookTimeout: number;
+	readonly greetingDelay: number;
 	isLocal(domain: string): boolean | Promise<boolean>;
 }
 
@@ -25,6 +26,20 @@ function positive(
 	if (value === undefined) return fallback;
 	if (!Number.isSafeInteger(value) || value < 1) {
 		throw invalid(`${name} must be a positive integer, not ${value}`);
+	}
+	return value;
+}
+
+function nonNegative(
+	name: string,
+	value: number | undefined,
+	fallback: number,
+): number {
+	if (value === undefined) return fallback;
+	if (!Number.isFinite(value) || value < 0) {
+		throw invalid(
+			`${name} must be a number of seconds, 0 or more, not ${value}`,
+		);
 	}
 	return value;
 }
@@ -80,6 +95,7 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 		maxErrors: positive('maxErrors', options.maxErrors, 10),
 		timeout: positive('timeout', options.timeout, 300),
 		hookTimeout: positive('hookTimeout', options.hookTimeout, 60),
+		greetingDelay: nonNegative('greetingDelay', options.greetingDelay, 0),
 		isLocal: (domain) => isLocal(domain.toLowerCase()),
 	};
 }

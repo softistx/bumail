@@ -68,6 +68,7 @@ export interface SmtpServer {
 | `maxErrors` | `number` | `10` | failed commands before the server hangs up |
 | `timeout` | `number` | `300` | seconds since the client's last byte before the server hangs up |
 | `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0` |
+| `greetingDelay` | `number` | `0` | seconds the server waits, once `onConnect` accepted, before its 220; a client that talks meanwhile gets `554` and is hung up on. Fractions are allowed |
 | `onConnect`, `onMailFrom`, `onRcptTo` | hooks | none | see [Hooks](#hooks-and-their-order) |
 | `onData` | hook | required | receives each message, as a stream |
 | `onError` | `(error, session) => void` | none | told of what went wrong in your code: a hook, `authenticate` or `localDomains` that threw or timed out, a hook reply that is not a refusal |
@@ -90,6 +91,8 @@ const server = createSmtpServer({
 		await new Response(message.content).bytes();
 	},
 });
+
+await server.listen({ port: 25 });
 ```
 
 `createSmtpServer` checks its options once and throws an `SmtpError` with
@@ -104,6 +107,7 @@ const server = createSmtpServer({
 | `createSmtpServer(): authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted` | `authenticate` without `tls` |
 | `createSmtpServer(): localDomains must be an array of domains or a function` | `localDomains` missing, a string, or an array holding something else |
 | `createSmtpServer(): <limit> must be a positive integer, not <value>` | a limit or `hookTimeout` that is `0`, negative, fractional or `NaN` |
+| `createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not <value>` | `greetingDelay` negative, `NaN` or `Infinity` |
 
 `listen` a second time throws an `SmtpError` with `code:
 'ALREADY_LISTENING'`: create another server for another port.
@@ -156,13 +160,13 @@ Every reply the server sends of its own:
 | --- | --- |
 | `220 <hostname> ESMTP ready` | the greeting |
 | `250 <hostname> greets <name>` | EHLO or HELO accepted; either one also ends a transaction in progress |
-| `501 Syntax: EHLO hostname` / `501 Syntax: HELO hostname` | the EHLO or HELO argument is not a domain or an address literal; no enhanced code, since no EHLO is in effect |
+| `501 Syntax: EHLO hostname` / `501 Syntax: HELO hostname` | the EHLO or HELO argument is missing, or is not a domain or an address literal; no enhanced code before an EHLO was accepted, `501 5.5.4 Syntax: EHLO hostname` after one |
 | `250 2.1.0 OK` | MAIL FROM accepted |
 | `250 2.1.5 OK` | RCPT TO accepted |
 | `354 End data with <CR><LF>.<CR><LF>` | DATA: send the message |
-| `250 2.0.0 OK queued as <id>` | the message was taken: its content stream ended cleanly and `onData` resolved without refusing |
+| `250 2.0.0 OK queued as <id>` | the message was taken: `onData` read its content stream to the clean end and resolved without refusing |
 | `250 2.0.0 OK` | RSET (the transaction is forgotten) or NOOP |
-| `252 2.5.0 Cannot VRFY user; …` | VRFY: no account is confirmed nor denied (RFC 5321 §3.5.3) |
+| `252 2.5.0 Cannot VRFY user; send the message and it will be tried` | VRFY: no account is confirmed nor denied (RFC 5321 §3.5.3) |
 | `214 2.0.0 See RFC 5321` | HELP |
 | `221 2.0.0 <hostname> closing connection` | QUIT |
 | `503 Send EHLO first` | MAIL or AUTH before EHLO (or after STARTTLS); no enhanced code, since no EHLO is in effect |
@@ -180,8 +184,8 @@ Every reply the server sends of its own:
 | `452 4.5.3 Too many recipients` | past `maxRecipients`; the recipients already taken stand |
 | `552 5.3.4 Message too big for system` | SIZE= over `maxMessageSize` at MAIL, or a message over it after DATA |
 | `550 5.6.11 Bare CR or LF is not allowed in a message` | the message holds a CR or LF that is not part of a CRLF |
-| `451 4.3.0 Local error in processing` | a hook threw, timed out or answered a reply under 400; `localDomains` threw or timed out; `onData` stopped reading the message |
-| `554 <hostname> Talked before the greeting` | the client sent something before the 220 (RFC 5321 §4.3.1); the server hangs up |
+| `451 4.3.0 Local error in processing` | a hook threw, timed out or answered a reply under 400; `localDomains` threw or timed out; `onData` stopped reading the message, or answered without reading it to its end |
+| `554 <hostname> Talked before the greeting` | the client sent something before the 220 — during `onConnect` or `greetingDelay` (RFC 5321 §4.3.1); the server hangs up |
 | `500 5.5.2 Command unrecognized` | an unknown verb — EXPN, BDAT and the rest |
 | `500 5.5.6 Line too long` | a command line over 2048 bytes; the rest of it is skipped |
 | `421 4.3.2 <hostname> Too many connections, try later` | a connection past `maxConnections`, then the server hangs up |
@@ -226,7 +230,7 @@ In the order a session meets them:
 
 | Hook | Runs | After the server checked | A refusal |
 | --- | --- | --- | --- |
-| `onConnect` | when a client connects, before the greeting | the connection count | replaces the greeting; then the server hangs up. A client that talks before the greeting is refused with `554` however `onConnect` answers |
+| `onConnect` | when a client connects, before the greeting | the connection count | replaces the greeting, at once even with `greetingDelay`; then the server hangs up. When `onConnect` accepts, a client that talked before the greeting is refused with `554` |
 | `authenticate` | at AUTH | TLS, EHLO, no transaction in progress | see [Authentication](#authentication) |
 | `onMailFrom` | at each MAIL FROM | EHLO, AUTH in `submission`, syntax, parameters, SIZE, SMTPUTF8 | refuses the sender; the client may try another MAIL |
 | `onRcptTo` | at each RCPT TO | MAIL, syntax, SMTPUTF8, `maxRecipients`, **relaying** | refuses that recipient; the others stand |
@@ -245,8 +249,10 @@ A hook that throws, whose promise rejects, that does not settle within
 keeps the message and tries again. A reply under 400 is not a refusal:
 sending it would tell the client yes while the server did not take the
 command. Each of these goes to `onError`, with an `SmtpError` of code
-`HOOK_TIMEOUT` or `INVALID_HOOK_REPLY`, or the error your hook threw. Let
-`onData` throw when the message could not be stored:
+`HOOK_TIMEOUT` or `INVALID_HOOK_REPLY`, or the error your hook threw; an
+`onData` that answers without reading the message to its end, with
+`MESSAGE_NOT_READ`. Let `onData` throw when the message could not be
+stored:
 
 ```ts
 import { createSmtpServer, reply } from '@bumail/smtp';
@@ -267,6 +273,8 @@ const server = createSmtpServer({
 	},
 	onError: (error, session) => console.error(`[${session.id}]`, error),
 });
+
+await server.listen({ port: 25 });
 ```
 
 `onMailFrom` and `onRcptTo` receive the `Path` the client gave:
@@ -338,8 +346,12 @@ const server = createSmtpServer({
 		}
 		return undefined;
 	},
-	onData: () => undefined,
+	async onData(message) {
+		await Bun.write(`spool/${message.id}.eml`, await new Response(message.content).bytes());
+	},
 });
+
+await server.listen({ port: 25 });
 
 async function isListed(address: string): Promise<boolean> {
 	return address.startsWith('203.0.113.');
@@ -426,12 +438,14 @@ const server = createSmtpServer({
 		}
 	},
 });
+
+await server.listen({ port: 25 });
 ```
 
-The client is told `250` only once the stream ended cleanly **and** `onData`
-resolved without refusing. The stream errors, with an `SmtpError`, when the
-message must not be delivered — and the client is then refused whatever
-`onData` answers:
+The client is told `250` only once `onData` read the stream to its clean
+end **and** resolved without refusing. The stream errors, with an
+`SmtpError`, when the message must not be delivered — and the client is
+then refused whatever `onData` answers:
 
 | `code` | Why | The client gets |
 | --- | --- | --- |
@@ -441,14 +455,37 @@ message must not be delivered — and the client is then refused whatever
 | `HOOK_TIMEOUT` | `onData` read nothing for `hookTimeout` seconds | `451 4.3.0 Local error in processing` |
 
 The refusal goes out as soon as the stream errors; the rest of the message
-is read and dropped, and the session goes on. If `onData` returns before the
-stream ended, the server stops feeding it, drops the rest, and still answers
-by how the message ended. `onData` itself must settle within `hookTimeout`
-once the message ended, or the client gets `451 4.3.0`.
+is read and dropped, and the session goes on. `onData` itself must settle
+within `hookTimeout` once the message ended, or the client gets `451 4.3.0`.
+
+An `onData` that resolves without a refusal before it read the stream to
+its end — or that cancels the stream — has not taken the message, so the
+server does not say it did: it drops the rest, answers
+`451 4.3.0 Local error in processing`, and `onError` gets an `SmtpError` of
+code `MESSAGE_NOT_READ`. The client keeps the message and tries again. An
+`onData` that refuses may do so without reading; its refusal is sent:
+
+```ts
+import { createSmtpServer, reply } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	async onData(message) {
+		if (message.envelope.to.length > 20) return reply(550, '5.7.1', 'Too many recipients for one message');
+		await Bun.write(`spool/${message.id}.eml`, await new Response(message.content).bytes()); // read to the end
+		return undefined;
+	},
+	onError: (error, session) => console.error(`[${session.id}]`, error), // MESSAGE_NOT_READ lands here
+});
+
+await server.listen({ port: 25 });
+```
 
 To parse the message, collect it first and give the bytes to a parser.
-`@bumail/mime`, a sibling package, is [coming](roadmap.md); until it is
-published, a parser of your own takes the same bytes:
+`@bumail/mime`, a sibling package, is on the
+[bumail roadmap](https://github.com/softistx/bumail/blob/develop/docs/roadmap.md);
+until it is published, a parser of your own takes the same bytes:
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';
@@ -463,6 +500,8 @@ const server = createSmtpServer({
 		console.log(subject, 'for', message.envelope.to);
 	},
 });
+
+await server.listen({ port: 25 });
 ```
 
 ## Authentication
@@ -502,8 +541,12 @@ const server = createSmtpServer({
 		path.address === `${session.user}@example.com`
 			? undefined
 			: reply(553, '5.7.1', 'Sender address not owned by you'),
-	onData: () => undefined,
+	async onData(message) {
+		await Bun.write(`outbox/${message.id}.eml`, await new Response(message.content).bytes());
+	},
 });
+
+await server.listen({ port: 587 });
 ```
 
 `session.user` becomes the `username`. A PLAIN authorization identity
@@ -558,7 +601,16 @@ const tls = {
 	cert: await Bun.file('/etc/ssl/mx.example.com.crt').text(), // the chain, leaf first
 };
 
-const mx = createSmtpServer({ hostname: 'mx.example.com', localDomains: ['example.com'], tls, onData: () => undefined });
+const mx = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	tls,
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+
+await mx.listen({ port: 25 });
 ```
 
 For a local test, a self-signed pair:
@@ -603,8 +655,12 @@ const server = createSmtpServer({
 	tls,
 	onMailFrom: (_, session) =>
 		session.secure ? undefined : reply(530, '5.7.0', 'Must issue a STARTTLS command first'),
-	onData: () => undefined,
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
 });
+
+await server.listen({ port: 25 });
 ```
 
 To run an MX on 25, submission on 587 and implicit TLS on 465 in one
@@ -654,6 +710,31 @@ await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 
 | `maxErrors` | 10 | `421 4.7.0` and the server hangs up |
 | `timeout` | 300 seconds, RFC 5321 §4.5.3.2.7's, counted from the client's last byte | `421 4.4.2` and the server hangs up |
 | `hookTimeout` | 60 seconds | `451 4.3.0` for that command; `onError` gets an `SmtpError` `HOOK_TIMEOUT` |
+| `greetingDelay` | 0 seconds | not a limit but a wait: the 220 goes out that long after `onConnect` accepted; a client that talks in the meantime gets `554 <hostname> Talked before the greeting` and the server hangs up |
+
+`greetingDelay` is a cheap filter against spam engines that do not wait for
+the greeting (RFC 5321 §4.3.1), in the manner of Postfix's postscreen: a few
+seconds is usual. Each waiting client holds one of `maxConnections`, and
+the idle `timeout` runs during the wait, so keep the delay well below it.
+`onConnect` runs first; its refusal goes out at once, without the delay:
+
+```ts
+import { createSmtpServer, reply } from '@bumail/smtp';
+
+const blocked = new Set(['203.0.113.7']);
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	greetingDelay: 6,
+	onConnect: (session) => (blocked.has(session.remoteAddress) ? reply(554, '5.7.1', 'Go away') : undefined),
+	onData: async (message) => {
+		await Bun.write(`spool/${message.id}.eml`, await new Response(message.content).bytes());
+	},
+});
+
+await server.listen({ port: 25 });
+```
 
 Some limits are fixed: a command line is at most 2048 bytes (RFC 5321
 §4.5.3.1.4 asks for 512 at least); a session gets three AUTH attempts; and
@@ -717,6 +798,7 @@ decodePlain('AHRpbQB0YW5zdGFhZnRhbnN0YWFm');
 
 const reader = new DataReader();
 const chunk = reader.write(new TextEncoder().encode('..x\r\n.\r\nQUIT\r\n'));
+console.log(chunk.done, reader.bareLineBreaks);
 // chunk.data: '.x\r\n', chunk.done: true, chunk.rest: 'QUIT\r\n'; reader.bareLineBreaks: 0
 ```
 

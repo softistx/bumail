@@ -120,12 +120,57 @@ describe('the message reaches onData as a stream', () => {
 		expect((s.errors[0] as SmtpError).code).toBe('HOOK_TIMEOUT');
 	});
 
-	test('onData that answers without reading to the end: the rest is dropped, the reply is its answer', async () => {
+	test('onData that answers without reading to the end: 451 4.3.0 and MESSAGE_NOT_READ, never 250', async () => {
 		const s = await fakeSession(mxOptions({ onData: () => undefined }), {
 			raw: true,
 		});
 		await s.send(transaction);
 		const big = `${'x'.repeat(998)}\r\n`.repeat(200);
-		expect(await s.send(`${big}.\r\n`)).toStartWith('250 2.0.0');
+		expect(await s.send(`${big}.\r\n`)).toBe(
+			'451 4.3.0 Local error in processing\r\n',
+		);
+		expect((s.errors[0] as SmtpError).code).toBe('MESSAGE_NOT_READ');
+	});
+
+	test('a short message onData never read: 451 4.3.0, not 250', async () => {
+		const s = await fakeSession(mxOptions({ onData: () => undefined }), {
+			raw: true,
+		});
+		await s.send(transaction);
+		expect(await s.send('Subject: hi\r\n\r\nhi\r\n.\r\n')).toBe(
+			'451 4.3.0 Local error in processing\r\n',
+		);
+		expect((s.errors[0] as SmtpError).code).toBe('MESSAGE_NOT_READ');
+	});
+
+	test('onData that cancels the stream: 451 4.3.0, and the session goes on', async () => {
+		const s = await fakeSession(
+			mxOptions({
+				onData: async (message) => {
+					await message.content.cancel();
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hi\r\n.\r\n')).toBe(
+			'451 4.3.0 Local error in processing\r\n',
+		);
+		expect((s.errors[0] as SmtpError).code).toBe('MESSAGE_NOT_READ');
+		expect(await s.send('NOOP\r\n')).toBe('250 2.0.0 OK\r\n');
+	});
+
+	test('onData that reads the stream to its end gets the 250', async () => {
+		const s = await fakeSession(
+			mxOptions({
+				onData: async (message) => {
+					await readContent(message);
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hi\r\n.\r\n')).toStartWith('250 2.0.0 OK queued as');
+		expect(s.errors).toEqual([]);
 	});
 });

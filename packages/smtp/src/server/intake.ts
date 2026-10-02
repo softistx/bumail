@@ -7,27 +7,35 @@ import type { ReceivedMessage } from './options';
 import { receivedField } from './received';
 import type { Transaction } from './state';
 
-/** Bytes of message the stream holds before the server stops reading the client. */
+/** Bytes of message held for `onData` before the server stops reading the client. */
 const HIGH_WATER_MARK = 64 * 1024;
 
 /**
  * One message on its way in: the content of DATA, unstuffed, fed to
- * `onData` as a stream while the client sends it. The stream holds
- * `HIGH_WATER_MARK` bytes at most; past that the server waits for `onData`
- * to read, and so stops reading the client.
+ * `onData` as a stream while the client sends it. At most
+ * `HIGH_WATER_MARK` bytes wait to be read; past that the server waits for
+ * `onData` to read, and so stops reading the client.
  *
  * The stream ends in an `SmtpError` when the message must not be
  * delivered — too big, a bare CR or LF (SMTP smuggling), the client gone —
  * and the reply to DATA is then the refusal, whatever `onData` answered.
- * The 250 goes out only when the stream ended cleanly and `onData`
- * resolved without a refusal.
+ * The 250 goes out only when `onData` read the stream to its clean end and
+ * resolved without a refusal: an `onData` that answers before the end, or
+ * cancels the stream, gets `451 4.3.0` and a `MESSAGE_NOT_READ` report.
  */
 export class Intake {
 	readonly id = crypto.getRandomValues(new Uint8Array(10)).toHex();
 	readonly #connection: Connection;
 	readonly #reader = new DataReader();
 	#controller!: ReadableStreamDefaultController<Uint8Array>;
-	#state: 'open' | 'closed' | 'errored' | 'dropped' = 'open';
+	/** What waits for `onData` to pull. */
+	#queue: Uint8Array[] = [];
+	#queued = 0;
+	/** The end of DATA came, cleanly. */
+	#ended = false;
+	/** `onData` pulled the last byte and saw the stream close. */
+	#read = false;
+	#state: 'open' | 'errored' | 'cancelled' = 'open';
 	#failure: Reply | undefined;
 	#wakers: (() => void)[] = [];
 	readonly #delivery: Promise<Reply | undefined>;
@@ -35,23 +43,24 @@ export class Intake {
 
 	constructor(connection: Connection, transaction: Transaction) {
 		this.#connection = connection;
+		// High-water mark 0: a byte leaves the queue only when onData asks
+		// for it, so the server knows whether it read to the end.
 		const content = new ReadableStream<Uint8Array>(
 			{
 				start: (controller) => {
 					this.#controller = controller;
 				},
-				pull: () => this.#wake(),
+				pull: (controller) => this.#pull(controller),
 				cancel: () => {
-					if (this.#state === 'open') this.#state = 'dropped';
+					if (this.#state === 'open') this.#state = 'cancelled';
+					this.#queue = [];
+					this.#queued = 0;
 					this.#wake();
 				},
 			},
-			{
-				highWaterMark: HIGH_WATER_MARK,
-				size: (chunk) => chunk?.byteLength ?? 0,
-			},
+			{ highWaterMark: 0 },
 		);
-		this.#controller.enqueue(
+		this.#push(
 			new TextEncoder().encode(
 				receivedField(connection, transaction.to, this.id),
 			),
@@ -75,7 +84,7 @@ export class Intake {
 			});
 	}
 
-	/** A chunk of DATA; resolves once the stream has room for the next. */
+	/** A chunk of DATA; resolves once there is room for the next. */
 	async write(chunk: Uint8Array): Promise<{ done: boolean; rest: Uint8Array }> {
 		const { data, done, rest } = this.#reader.write(chunk);
 		const { maxMessageSize } = this.#connection.settings;
@@ -98,7 +107,7 @@ export class Intake {
 				),
 			);
 		} else if (this.#state === 'open' && data.length > 0) {
-			this.#controller.enqueue(data);
+			this.#push(data);
 			await this.#room();
 		}
 		return { done, rest };
@@ -107,17 +116,25 @@ export class Intake {
 	/** The end of DATA: the reply to send. */
 	async finish(): Promise<Reply> {
 		if (this.#failure) return this.#failure;
-		if (this.#state === 'open') {
-			this.#state = 'closed';
-			this.#controller.close();
-		}
+		this.#ended = true;
+		this.#wake();
 		const { hookTimeout: seconds } = this.#connection.settings;
 		const answer = await within(this.#delivery, seconds);
 		if (timedOut(answer)) {
 			this.#connection.report(hookTimeout('onData', seconds));
 			return LOCAL_ERROR;
 		}
-		return answer ?? reply(250, '2.0.0', `OK queued as ${this.id}`);
+		if (answer) return answer;
+		if (!this.#read) {
+			this.#connection.report(
+				new SmtpError(
+					'MESSAGE_NOT_READ',
+					'onData answered without reading the message to its end; it was not taken',
+				),
+			);
+			return LOCAL_ERROR;
+		}
+		return reply(250, '2.0.0', `OK queued as ${this.id}`);
 	}
 
 	/** The client went away mid-message. */
@@ -131,20 +148,52 @@ export class Intake {
 		);
 	}
 
+	#push(bytes: Uint8Array): void {
+		this.#queue.push(bytes);
+		this.#queued += bytes.length;
+		this.#wake();
+	}
+
+	/** onData asks for more: the next chunk, the end, or a wait for either. */
+	async #pull(
+		controller: ReadableStreamDefaultController<Uint8Array>,
+	): Promise<void> {
+		for (;;) {
+			if (this.#state !== 'open') return;
+			const next = this.#queue.shift();
+			if (next) {
+				this.#queued -= next.length;
+				controller.enqueue(next);
+				this.#wake();
+				return;
+			}
+			if (this.#ended) {
+				this.#read = true;
+				controller.close();
+				return;
+			}
+			await new Promise<void>((wake) => this.#wakers.push(wake));
+		}
+	}
+
 	#fail(answer: Reply, error: SmtpError): void {
 		this.#failure ??= answer;
 		if (this.#state === 'open') this.#controller.error(error);
 		this.#state = 'errored';
+		this.#queue = [];
+		this.#queued = 0;
 		this.#wake();
 	}
 
-	/** Waits while the stream is full; gives up on an `onData` that stopped reading. */
+	/** Waits while the queue is full; gives up on an `onData` that stopped reading. */
 	async #room(): Promise<void> {
 		const { hookTimeout: seconds } = this.#connection.settings;
-		while (this.#state === 'open' && (this.#controller.desiredSize ?? 1) <= 0) {
+		while (this.#state === 'open' && this.#queued > HIGH_WATER_MARK) {
 			if (this.#delivered) {
 				// onData answered without reading to the end: feed it no more.
-				this.#state = 'dropped';
+				this.#state = 'cancelled';
+				this.#queue = [];
+				this.#queued = 0;
 				return;
 			}
 			const woken = await within(
