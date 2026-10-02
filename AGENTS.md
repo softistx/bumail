@@ -10,6 +10,7 @@ below lists only what has landed.
 
 | package | what it is | peers |
 | --- | --- | --- |
+| `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
@@ -55,6 +56,7 @@ The repository is **private** until the owner says otherwise.
 ## Layering
 
 ```
+mime            (standalone)
 smtp            (standalone)
 ```
 
