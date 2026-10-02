@@ -9,11 +9,7 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
-- **`@bumail/mime`** — read and write e-mail messages. RFC 5322 headers,
-  encoded-words (RFC 2047) and parameter continuations (RFC 2231),
-  multipart, base64 and quoted-printable, any charset `TextDecoder` knows,
-  and a streaming parser that walks a large message without holding it in
-  memory. Its specs are the RFCs' own examples.
+Nothing scheduled yet.
 
 ## Next
 
@@ -80,4 +76,11 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Shipped
 
-Nothing yet.
+### Merged, not yet published
+
+- **`@bumail/mime`** — read and write e-mail messages. RFC 5322 headers,
+  encoded-words (RFC 2047) and parameter continuations (RFC 2231),
+  multipart, base64 and quoted-printable, any charset `TextDecoder` knows,
+  and a streaming parser that walks a large message without holding it in
+  memory. Its specs are the RFCs' own examples.
+

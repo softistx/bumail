@@ -10,7 +10,7 @@ below lists only what has landed.
 
 | package | what it is | peers |
 | --- | --- | --- |
-| — | the skeleton has landed; no package yet | — |
+| `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
@@ -54,8 +54,12 @@ The repository is **private** until the owner says otherwise.
 
 ## Layering
 
-Planned, in [docs/roadmap.md](./docs/roadmap.md). As packages land, this
-section draws their arrows. A package that uses a sibling declares it by
+```
+mime            (standalone)
+```
+
+What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
+this section draws their arrows. A package that uses a sibling declares it by
 `workspace:^`, as a peer and a devDependency, and imports it by its
 published name, which resolves through `node_modules` to the sibling's
 `dist/`. **There are no cycles.**
