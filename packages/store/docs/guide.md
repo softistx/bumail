@@ -85,7 +85,8 @@ const clients = await store.createMailbox(account.id, { name: 'Clients', parentI
 
 await store.findMailbox(account.id, 'inbox'); // by role
 await store.deleteMailbox(account.id, work.id); // INVALID: it has a child
-await store.renameMailbox(account.id, clients.id, 'Customers'); // and to the top, since no parent is given
+await store.renameMailbox(account.id, clients.id, { name: 'Customers' }); // still under Work
+await store.renameMailbox(account.id, clients.id, { parentId: null }); // to the top
 await store.deleteMailbox(account.id, work.id); // now it has none
 await store.deleteMailbox(account.id, clients.id, { removeMessages: true });
 
@@ -107,6 +108,13 @@ await store.setSubscribed(account.id, lists.id, true); // IMAP SUBSCRIBE
 - A name is unique under its parent, is trimmed, holds 1 to 255
   characters, no control character, and **no `/`**: the hierarchy is
   `parentId`, so the IMAP layer can use `/` as its delimiter.
+- `renameMailbox(accountId, id, { name?, parentId? })` changes what it is
+  given and keeps the rest, like JMAP's `Mailbox/set`: `parentId: null`
+  moves the mailbox to the top, and a change with neither field is
+  `INVALID`. The mailbox keeps its id, role, subscription, UIDVALIDITY
+  and messages.
+- `findMailbox` with a string that is not a role is `INVALID`, as
+  `createMailbox` is.
 - **`INBOX`** at the top is case-insensitive (RFC 9051 §5.1): `inbox` or
   `Inbox` there is stored as `INBOX`, and is the same name. Under a parent
   it is an ordinary name.
@@ -271,7 +279,10 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   mailboxes changed. A message created and destroyed since `since` is in
   neither list.
 - `expunged` lists every message that left a mailbox in the same range,
-  with its UID there: IMAP's `VANISHED (EARLIER)` (RFC 7162 §3.2.10).
+  with its UID there: IMAP's `VANISHED (EARLIER)` (RFC 7162 §3.2.10). It
+  leaves out a UID that came into its mailbox after `since` — added,
+  copied, linked or moved there, then gone again — since the client never
+  saw it.
 - `limit` caps the ids returned (JMAP's `maxChanges`); `hasMore` says to
   ask again from the returned `modseq`. A page cuts by when each thing was
   created, for `created`, and by its last change otherwise, so a message

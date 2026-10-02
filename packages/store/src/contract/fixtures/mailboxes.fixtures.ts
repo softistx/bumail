@@ -5,8 +5,8 @@ import { bytes, type CreateStore, rejects, setup } from './setup.fixtures';
 export function describeMailboxes(create: CreateStore): void {
 	describe('mailboxes', () => {
 		creating(create);
+		subscribing(create);
 		naming(create);
-		renaming(create);
 		deleting(create);
 	});
 }
@@ -30,6 +30,7 @@ function creating(create: CreateStore): void {
 		expect(sent.uidValidity).not.toBe(inbox.uidValidity);
 		expect(await store.findMailbox(account.id, 'sent')).toEqual(sent);
 		expect(await store.findMailbox(account.id, 'junk')).toBeUndefined();
+		await rejects(store.findMailbox(account.id, 'spam' as never), 'INVALID');
 		expect(
 			(await store.listMailboxes(account.id)).map((m) => m.name).sort(),
 		).toEqual(['INBOX', 'Sent']);
@@ -55,7 +56,9 @@ function creating(create: CreateStore): void {
 			'INVALID',
 		);
 	});
+}
 
+function subscribing(create: CreateStore): void {
 	test('RFC 9051 §6.3.7: SUBSCRIBE and UNSUBSCRIBE, each a change of the mailbox', async () => {
 		const { store, account } = await setup(create);
 		const lists = await store.createMailbox(account.id, {
@@ -87,7 +90,10 @@ function creating(create: CreateStore): void {
 		);
 		expect(await store.getMailbox(account.id, theirs.id)).toBeUndefined();
 		expect(await store.getMailbox(other.id, inbox.id)).toBeUndefined();
-		await rejects(store.renameMailbox(account.id, theirs.id, 'X'), 'NOT_FOUND');
+		await rejects(
+			store.renameMailbox(account.id, theirs.id, { name: 'X' }),
+			'NOT_FOUND',
+		);
 		await rejects(
 			store.setSubscribed(account.id, theirs.id, false),
 			'NOT_FOUND',
@@ -128,7 +134,7 @@ function naming(create: CreateStore): void {
 			parentId: work.id,
 		});
 		expect(below.name).toBe('inbox');
-		await store.renameMailbox(account.id, inbox.id, 'Old');
+		await store.renameMailbox(account.id, inbox.id, { name: 'Old' });
 		expect(
 			(await store.createMailbox(account.id, { name: 'Inbox' })).name,
 		).toBe('INBOX');
@@ -149,40 +155,6 @@ function naming(create: CreateStore): void {
 		]) {
 			await rejects(store.createMailbox(account.id, { name }), 'INVALID');
 		}
-	});
-}
-
-function renaming(create: CreateStore): void {
-	test('are renamed and moved, never inside themselves; a rename keeps the role', async () => {
-		const { store, account, inbox } = await setup(create);
-		const a = await store.createMailbox(account.id, { name: 'A' });
-		const b = await store.createMailbox(account.id, {
-			name: 'B',
-			parentId: a.id,
-		});
-		const moved = await store.renameMailbox(account.id, a.id, 'A2');
-		expect(moved).toMatchObject({ name: 'A2', uidValidity: a.uidValidity });
-		expect(moved.parentId).toBeUndefined();
-		expect(await store.renameMailbox(account.id, b.id, 'B')).not.toHaveProperty(
-			'parentId',
-		);
-		await store.renameMailbox(account.id, b.id, 'B', a.id);
-		await rejects(store.renameMailbox(account.id, a.id, 'A', b.id), 'INVALID');
-		await rejects(store.renameMailbox(account.id, a.id, 'A', a.id), 'INVALID');
-		await rejects(
-			store.renameMailbox(account.id, a.id, 'INBOX'),
-			'ALREADY_EXISTS',
-		);
-		await rejects(store.renameMailbox(account.id, 'nope', 'X'), 'NOT_FOUND');
-		await rejects(
-			store.renameMailbox(account.id, a.id, 'X', 'nope'),
-			'NOT_FOUND',
-		);
-		expect(
-			await store.renameMailbox(account.id, inbox.id, 'Received'),
-		).toMatchObject({
-			role: 'inbox',
-		});
 	});
 }
 

@@ -16,6 +16,7 @@ export type {
 	Mailbox,
 	MailboxChanges,
 	MailboxEntry,
+	MailboxRename,
 	MailboxRole,
 	Membership,
 	Message,

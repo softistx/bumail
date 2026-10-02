@@ -175,6 +175,16 @@ export interface NewMailbox {
 	readonly isSubscribed?: boolean;
 }
 
+/**
+ * What `renameMailbox` changes: a field left out keeps its value. `parentId`
+ * `null` moves the mailbox to the top (JMAP `Mailbox/set` with `parentId:
+ * null`).
+ */
+export interface MailboxRename {
+	readonly name?: string;
+	readonly parentId?: string | null;
+}
+
 export interface ListOptions {
 	/** From this UID up. */
 	readonly fromUid?: number;

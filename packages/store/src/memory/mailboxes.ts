@@ -3,7 +3,13 @@ import {
 	checkRole,
 	normalizeMailboxName,
 } from '../contract/mailbox-name';
-import type { Expunged, Mailbox, NewMailbox } from '../contract/types';
+import type {
+	Expunged,
+	Mailbox,
+	MailboxRename,
+	MailboxRole,
+	NewMailbox,
+} from '../contract/types';
 import { StoreError } from '../errors';
 import { expunge } from './membership';
 import type { MailboxState, MemoryState } from './state';
@@ -83,9 +89,10 @@ export function createMailbox(
 export function findMailbox(
 	state: MemoryState,
 	accountId: string,
-	role: string,
+	role: MailboxRole,
 ): MailboxState | undefined {
 	state.account(accountId);
+	checkRole(role);
 	for (const mailbox of state.mailboxes.values()) {
 		if (mailbox.accountId === accountId && mailbox.role === role)
 			return mailbox;
@@ -93,14 +100,43 @@ export function findMailbox(
 	return undefined;
 }
 
+/** Where a rename puts the mailbox: a field left out keeps its value. */
+function renamed(
+	mailbox: MailboxState,
+	change: MailboxRename,
+): { name: string; parentId: string | undefined } {
+	if (typeof change !== 'object' || change === null) {
+		throw new StoreError('INVALID', 'A rename is an object');
+	}
+	const { name, parentId } = change;
+	if (name === undefined && parentId === undefined) {
+		throw new StoreError(
+			'INVALID',
+			'A rename gives a name, a parentId or both',
+		);
+	}
+	if (
+		parentId !== undefined &&
+		parentId !== null &&
+		typeof parentId !== 'string'
+	) {
+		throw new StoreError('INVALID', 'parentId is a mailbox id or null');
+	}
+	return {
+		name: name ?? mailbox.name,
+		parentId:
+			parentId === undefined ? mailbox.parentId : (parentId ?? undefined),
+	};
+}
+
 export function renameMailbox(
 	state: MemoryState,
 	accountId: string,
 	id: string,
-	name: string,
-	parentId: string | undefined,
+	change: MailboxRename,
 ): Mailbox {
 	const mailbox = state.mailbox(accountId, id);
+	const { name, parentId } = renamed(mailbox, change);
 	const clean = placeOf(state, mailbox.accountId, name, parentId, id);
 	mailbox.name = clean;
 	if (parentId === undefined) delete mailbox.parentId;

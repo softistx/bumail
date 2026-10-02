@@ -99,7 +99,7 @@ follows.
 | `Account`, `Mailbox`, `MailboxRole`, `Message`, `Membership`, `MailboxEntry`, `Expunged` | what a store returns |
 | `MessagesResult`, `FlagResult`, `ExpungeResult`, `MessagePage` | what the calls on several messages return: the messages or expunges, and `notFound`; a page of `listAccountMessages` |
 | `MessageChanges`, `MailboxChanges` | what the changes return |
-| `NewMailbox`, `NewMessage`, `Content`, `FlagChange`, `FlagOptions`, `ListOptions`, `AccountListOptions`, `ChangesOptions` | what a store takes |
+| `NewMailbox`, `MailboxRename`, `NewMessage`, `Content`, `FlagChange`, `FlagOptions`, `ListOptions`, `AccountListOptions`, `ChangesOptions` | what a store takes |
 | `StoreError`, `StoreErrorCode` | `NOT_FOUND`, `ALREADY_EXISTS`, `INVALID`, `CANNOT_CALCULATE_CHANGES` |
 | `blobIdOf(bytes)` | the SHA-256 of a message's bytes, in hex; takes a `Uint8Array` only |
 | `readBlob(content)`, `ReadBlob` | content read to its end: `{ blobId, size, blob }`, a stream hashed chunk by chunk |

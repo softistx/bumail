@@ -216,6 +216,14 @@ function accounts(create: CreateStore): void {
 			expunged: [],
 			notFound: [message.id],
 		});
+		// …not even between their own mailboxes…
+		const theirs2 = await store.createMailbox(other.id, { name: 'Other' });
+		expect(
+			await store.moveMessages(other.id, [message.id], theirs.id, theirs2.id),
+		).toEqual(none);
+		expect(
+			await store.removeMessages(other.id, [message.id], theirs.id),
+		).toEqual({ expunged: [], notFound: [message.id] });
 		// …and mine does not see their mailbox.
 		await rejects(
 			store.copyMessages(account.id, [message.id], theirs.id),

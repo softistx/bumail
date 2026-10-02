@@ -4,6 +4,7 @@ import { bytes, type CreateStore, rejects, setup } from './setup.fixtures';
 export function describeChanges(create: CreateStore): void {
 	describe('changes', () => {
 		messages(create);
+		fromZero(create);
 		paging(create);
 		mailboxes(create);
 	});
@@ -50,21 +51,30 @@ function messages(create: CreateStore): void {
 		});
 	});
 
-	test('a message created and destroyed since is left out', async () => {
+	test('a message, or a UID, that came and went since is left out', async () => {
 		const { store, account, inbox } = await setup(create);
+		const a = await store.createMailbox(account.id, { name: 'A' });
+		const old = await store.addMessage(account.id, inbox.id, {
+			content: bytes('old'),
+		});
 		const { modseq } = await store.messageChanges(account.id, 0);
 		const brief = await store.addMessage(account.id, inbox.id, {
 			content: bytes('x'),
 		});
 		await store.destroyMessages(account.id, [brief.id]);
+		await store.linkMessages(account.id, [old.id], a.id);
+		await store.removeMessages(account.id, [old.id], a.id);
 		const changes = await store.messageChanges(account.id, modseq);
 		expect([
 			...changes.created,
-			...changes.updated,
 			...changes.destroyed,
+			...changes.expunged,
 		]).toEqual([]);
+		expect(changes.updated).toEqual([old.id]);
 	});
+}
 
+function fromZero(create: CreateStore): void {
 	test('since 0 is the whole state: every message created, nothing destroyed', async () => {
 		const { store, account, inbox } = await setup(create);
 		const kept = await store.addMessage(account.id, inbox.id, {
@@ -154,7 +164,7 @@ function mailboxes(create: CreateStore): void {
 			updated: [],
 			destroyed: [],
 		});
-		await store.renameMailbox(account.id, a.id, 'A2');
+		await store.renameMailbox(account.id, a.id, { name: 'A2' });
 		await store.addMessage(account.id, inbox.id, { content: bytes('x') });
 		await store.deleteMailbox(account.id, b.id);
 		const after = await store.mailboxChanges(account.id, middle.modseq);

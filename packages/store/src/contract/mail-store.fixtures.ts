@@ -6,6 +6,7 @@ import { describeGuarantees } from './fixtures/guarantees.fixtures';
 import { describeMailboxes } from './fixtures/mailboxes.fixtures';
 import { describeMessages } from './fixtures/messages.fixtures';
 import { describeMoves } from './fixtures/moves.fixtures';
+import { describeRenames } from './fixtures/renames.fixtures';
 import type { CreateStore } from './fixtures/setup.fixtures';
 
 /**
@@ -17,6 +18,7 @@ export function describeMailStore(name: string, create: CreateStore): void {
 	describe(`${name}: the MailStore contract`, () => {
 		describeAccounts(create);
 		describeMailboxes(create);
+		describeRenames(create);
 		describeMessages(create);
 		describeFlags(create);
 		describeMoves(create);

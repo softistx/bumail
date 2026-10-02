@@ -36,6 +36,8 @@ export type Tombstone =
 			messageId: string;
 			mailboxId: string;
 			uid: number;
+			/** When the UID came into the mailbox: a client synced before never saw it. */
+			joinedModseq: number;
 	  }
 	| {
 			kind: 'message' | 'mailbox';

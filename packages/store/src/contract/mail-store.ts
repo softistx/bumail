@@ -10,6 +10,7 @@ import type {
 	Mailbox,
 	MailboxChanges,
 	MailboxEntry,
+	MailboxRename,
 	MailboxRole,
 	Message,
 	MessageChanges,
@@ -75,14 +76,16 @@ export interface MailStore {
 	): Promise<Mailbox | undefined>;
 	/**
 	 * Renames or moves a mailbox; it keeps its id, role, subscription,
-	 * UIDVALIDITY and messages. Renaming the inbox keeps its role: the
-	 * store has no RFC 9051 §6.3.6 "rename INBOX" that moves its messages.
+	 * UIDVALIDITY and messages. A field left out of `change` keeps its
+	 * value, `parentId: null` moves the mailbox to the top, and a change
+	 * with neither field is `INVALID`. Renaming the inbox keeps its role:
+	 * the store has no RFC 9051 §6.3.6 "rename INBOX" that moves its
+	 * messages.
 	 */
 	renameMailbox(
 		accountId: string,
 		id: string,
-		name: string,
-		parentId?: string,
+		change: MailboxRename,
 	): Promise<Mailbox>;
 	/** IMAP SUBSCRIBE and UNSUBSCRIBE; a change of the mailbox, with its modseq. */
 	setSubscribed(
@@ -180,7 +183,9 @@ export interface MailStore {
 	 * What changed among the account's messages since a modseq: one a change
 	 * returned, or 0. Since 0 is always answered, as the account's whole
 	 * state: every message `created`, nothing destroyed or expunged — the
-	 * way to start over after `CANNOT_CALCULATE_CHANGES`.
+	 * way to start over after `CANNOT_CALCULATE_CHANGES`. `expunged` leaves
+	 * out a UID that came into its mailbox after `since`: the client never
+	 * saw it.
 	 */
 	messageChanges(
 		accountId: string,

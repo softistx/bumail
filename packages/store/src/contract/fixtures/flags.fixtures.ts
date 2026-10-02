@@ -5,6 +5,8 @@ export function describeFlags(create: CreateStore): void {
 	describe('flags', () => {
 		naming(create);
 		changing(create);
+		conditional(create);
+		sharing(create);
 	});
 }
 
@@ -103,7 +105,9 @@ function changing(create: CreateStore): void {
 		expect(result.messages[0]?.modseq).toBe(message.modseq + 1);
 		expect(result.notFound).toEqual(['gone']);
 	});
+}
 
+function conditional(create: CreateStore): void {
 	test('RFC 7162 §3.1.3: UNCHANGEDSINCE leaves a message changed since alone, and names it', async () => {
 		const { store, account, inbox } = await setup(create);
 		const a = await store.addMessage(account.id, inbox.id, {
@@ -131,7 +135,9 @@ function changing(create: CreateStore): void {
 			'INVALID',
 		);
 	});
+}
 
+function sharing(create: CreateStore): void {
 	test('flags belong to the message, in every mailbox it is in', async () => {
 		const { store, account, inbox } = await setup(create);
 		const a = await store.createMailbox(account.id, { name: 'A' });

@@ -30,6 +30,9 @@ is the group it is listed under. The parts shown as … vary.
 - [`StoreError: Mailbox "…" has run out of UIDs`](#storeerror-mailbox--has-run-out-of-uids)
 - [`StoreError: A new message is an object`](#storeerror-a-new-message-is-an-object)
 - [`StoreError: A new mailbox is an object`](#storeerror-a-new-mailbox-is-an-object)
+- [`StoreError: A rename is an object`](#storeerror-a-rename-is-an-object)
+- [`StoreError: A rename gives a name, a parentId or both`](#storeerror-a-rename-gives-a-name-a-parentid-or-both)
+- [`StoreError: parentId is a mailbox id or null`](#storeerror-parentid-is-a-mailbox-id-or-null)
 - [`StoreError: isSubscribed is true or false`](#storeerror-issubscribed-is-true-or-false)
 - [`StoreError: A message content is a Uint8Array or a ReadableStream<Uint8Array>`](#storeerror-a-message-content-is-a-uint8array-or-a-readablestreamuint8array)
 - [`StoreError: The message content stream is locked: another reader holds it`](#storeerror-the-message-content-stream-is-locked-another-reader-holds-it)
@@ -168,7 +171,7 @@ await store.createMailbox(account.id, { name: 'Clients', parentId: work.id }); /
 
 **Code**: `INVALID`.
 
-**When**: `createMailbox` was given a role that is not one of `MAILBOX_ROLES`.
+**When**: `createMailbox` or `findMailbox` was given a role that is not one of `MAILBOX_ROLES`.
 
 **Fix**: Use one of `inbox`, `all`, `archive`, `drafts`, `flagged`, `important`, `junk`, `sent`, `trash`, or no role. `isMailboxRole` checks a string read from outside, and narrows it.
 
@@ -184,10 +187,10 @@ await store.createMailbox(account.id, { name, ...(role ? { role } : {}) });
 
 **When**: `renameMailbox` was given a `parentId` that is the mailbox itself or one of its descendants.
 
-**Fix**: Move the mailbox under a parent outside its own subtree, or to the top by leaving `parentId` out.
+**Fix**: Move the mailbox under a parent outside its own subtree, or to the top with `parentId: null`.
 
 ```ts
-await store.renameMailbox(account.id, work.id, 'Work'); // to the top
+await store.renameMailbox(account.id, work.id, { parentId: null }); // to the top
 ```
 
 ## `StoreError: Only an empty mailbox can be deleted without removeMessages`
@@ -299,6 +302,42 @@ await store.addMessage(account.id, inbox.id, { content: raw });
 
 ```ts
 await store.createMailbox(account.id, { name: 'Lists' });
+```
+
+## `StoreError: A rename is an object`
+
+**Code**: `INVALID`.
+
+**When**: `renameMailbox` was given a string as its third argument, such as a bare name, or `null`.
+
+**Fix**: Pass `{ name }`, `{ parentId }` or both.
+
+```ts
+await store.renameMailbox(account.id, work.id, { name: 'Projects' });
+```
+
+## `StoreError: A rename gives a name, a parentId or both`
+
+**Code**: `INVALID`.
+
+**When**: `renameMailbox` was given `{}`, or a change whose `name` and `parentId` are both `undefined`.
+
+**Fix**: Give what changes. Leaving a field out keeps it; `parentId: null` moves the mailbox to the top.
+
+```ts
+await store.renameMailbox(account.id, clients.id, { parentId: null });
+```
+
+## `StoreError: parentId is a mailbox id or null`
+
+**Code**: `INVALID`.
+
+**When**: `renameMailbox` was given a `parentId` that is neither a string nor `null`.
+
+**Fix**: Pass the parent's `id`, `null` for the top, or leave `parentId` out to keep the parent.
+
+```ts
+await store.renameMailbox(account.id, clients.id, { parentId: work.id });
 ```
 
 ## `StoreError: isSubscribed is true or false`

@@ -11,6 +11,7 @@ import type {
 	Mailbox,
 	MailboxChanges,
 	MailboxEntry,
+	MailboxRename,
 	MailboxRole,
 	Message,
 	MessageChanges,
@@ -119,10 +120,9 @@ export class MemoryMailStore implements MailStore {
 	async renameMailbox(
 		accountId: string,
 		id: string,
-		name: string,
-		parentId?: string,
+		change: MailboxRename,
 	): Promise<Mailbox> {
-		return renameMailbox(this.#state, accountId, id, name, parentId);
+		return renameMailbox(this.#state, accountId, id, change);
 	}
 
 	async setSubscribed(

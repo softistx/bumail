@@ -69,7 +69,8 @@ export async function addMessage(
 	if (!Number.isFinite(receivedAt)) {
 		throw new StoreError('INVALID', 'receivedAt is not a valid date');
 	}
-	checkThreadId(input.threadId);
+	const threadId = input.threadId;
+	checkThreadId(threadId);
 	const blob = await readBlob(input.content);
 	// Everything from here on runs in one go: the mailbox is looked up again.
 	const mailbox = state.mailbox(accountId, mailboxId);
@@ -80,7 +81,7 @@ export async function addMessage(
 	const message: MessageState = {
 		id,
 		accountId: mailbox.accountId,
-		threadId: input.threadId ?? id,
+		threadId: threadId ?? id,
 		blobId: blob.blobId,
 		size: blob.size,
 		flags,
