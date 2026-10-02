@@ -1,0 +1,5 @@
+# Registry configuration lives here, never in a .npmrc: an unset $NPM_TOKEN
+# is simply omitted by Bun, where a .npmrc would send an empty token.
+# Installing needs no token; it is only read to publish.
+[install.scopes]
+"@bumail" = { url = "https://registry.npmjs.org", token = "$NPM_TOKEN" }
