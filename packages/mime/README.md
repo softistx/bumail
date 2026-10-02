@@ -34,7 +34,7 @@ Every part is a `MimePart`: `headers`, `contentType`, `children`, and
 ```ts
 import { createTransferDecoder, parseMimeStream } from '@bumail/mime';
 
-for await (const event of parseMimeStream(request.body)) {
+for await (const event of parseMimeStream(Bun.file('message.eml').stream())) {
 	if (event.type === 'headers') console.log(event.part.path, event.part.contentType.mediaType);
 	if (event.type === 'body') save(event.part.path, event.data); // raw, still encoded
 }

@@ -43,6 +43,7 @@ export {
 	type MessageContent,
 	MimePart,
 	parseMessage,
+	parseMimeStream,
 } from './parse/message';
-export { MimeParser, parseMimeStream } from './parse/stream';
+export { MimeParser } from './parse/stream';
 export type { MimeEvent, MimeParserOptions, PartInfo } from './parse/types';

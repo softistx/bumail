@@ -1,3 +1,5 @@
+import { MimeError } from '../errors';
+
 const MONTHS = [
 	'jan',
 	'feb',
@@ -77,6 +79,9 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 /** A date as RFC 5322 §3.3 writes it, in UTC: `Fri, 02 Oct 2026 22:00:00 +0000`. */
 export function formatDate(date: Date): string {
+	if (Number.isNaN(date.getTime())) {
+		throw new MimeError('INVALID_OPTION', 'formatDate(): the date is invalid');
+	}
 	return (
 		`${DAYS[date.getUTCDay()]}, ${pad(date.getUTCDate())} ` +
 		`${(MONTHS[date.getUTCMonth()] as string).replace(/^./, (c) => c.toUpperCase())} ` +

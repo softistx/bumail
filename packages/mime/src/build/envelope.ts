@@ -20,18 +20,34 @@ export function list(
 	return Array.isArray(input) ? [...input] : [input as AddressInput];
 }
 
-/** A mailbox from a string or an object, its address checked for headers and SMTP alike. */
-export function toMailbox(input: AddressInput, caller: string): Mailbox {
-	const mailbox =
-		typeof input === 'string' ? mailboxesOf(parseAddressList(input))[0] : input;
-	if (!mailbox) {
+/**
+ * The mailboxes of a string or an object, each address checked for headers
+ * and SMTP alike. A string may list several, groups included: none is
+ * dropped.
+ */
+export function toMailboxes(input: AddressInput, caller: string): Mailbox[] {
+	const mailboxes =
+		typeof input === 'string' ? mailboxesOf(parseAddressList(input)) : [input];
+	if (mailboxes.length === 0) {
 		throw new MimeError(
 			'INVALID_ADDRESS',
 			`${caller}: "${JSON.stringify(input).slice(1, -1)}" is not an e-mail address`,
 		);
 	}
-	checkAddress(mailbox.address, caller);
-	return mailbox;
+	for (const mailbox of mailboxes) checkAddress(mailbox.address, caller);
+	return mailboxes;
+}
+
+/** The one mailbox of `from` or `sender`: a string listing several is refused. */
+export function toMailbox(input: AddressInput, caller: string): Mailbox {
+	const mailboxes = toMailboxes(input, caller);
+	if (mailboxes.length > 1) {
+		throw new MimeError(
+			'INVALID_ADDRESS',
+			`${caller}: "${JSON.stringify(input).slice(1, -1)}" holds ${mailboxes.length} addresses where one is expected`,
+		);
+	}
+	return mailboxes[0] as Mailbox;
 }
 
 /**
@@ -44,7 +60,9 @@ export function envelopeOf(options: MessageOptions): Envelope {
 		...list(options.to),
 		...list(options.cc),
 		...list(options.bcc),
-	].map((input) => toMailbox(input, 'envelopeOf()').address);
+	].flatMap((input) =>
+		toMailboxes(input, 'envelopeOf()').map((mailbox) => mailbox.address),
+	);
 	return {
 		from: toMailbox(options.from, 'envelopeOf()').address,
 		to: [...new Set(to)],

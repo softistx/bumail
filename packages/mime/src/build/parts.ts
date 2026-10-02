@@ -39,9 +39,13 @@ export function textPart(content: string, subtype: 'plain' | 'html'): Part {
 	};
 }
 
+/** `type/subtype`, each an RFC 2045 §5.1 token: no parameter, no quote. */
+const MEDIA_TYPE =
+	/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+\/[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
 export function attachmentPart(attachment: Attachment): Part {
 	const type = attachment.contentType ?? 'application/octet-stream';
-	if (!/^[\x21-\x7e]+\/[\x21-\x7e]+$/.test(type)) {
+	if (!MEDIA_TYPE.test(type)) {
 		throw new MimeError(
 			'INVALID_OPTION',
 			`"${JSON.stringify(type).slice(1, -1)}" is not a media type`,

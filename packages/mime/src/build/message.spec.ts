@@ -311,4 +311,77 @@ describe('buildMessage on hostile input', () => {
 			}),
 		).toThrow('A file name cannot hold a control character');
 	});
+
+	test('an attachment type with a parameter or a quote is refused (RFC 2045 §5.1 tokens)', () => {
+		for (const contentType of [
+			'text/plain;name=a.exe',
+			'text/plain"',
+			'a b/c',
+		]) {
+			expect(() =>
+				buildMessage({
+					from: 'a@b.test',
+					attachments: [{ contentType, content: '' }],
+				}),
+			).toThrow('is not a media type');
+		}
+	});
+
+	test('an address with a comma, a semicolon, a comment or a stray quote is refused', () => {
+		for (const address of [
+			'a@b.test,victim@evil.test',
+			'a;b:c@d.test',
+			'a(@b.test',
+			'"@x.test',
+			'a@b.test (c)',
+		]) {
+			expect(() =>
+				buildMessage({ from: 'a@b.test', to: { name: '', address } }),
+			).toThrow('is not an e-mail address');
+			expect(() =>
+				envelopeOf({ from: 'a@b.test', to: { name: '', address } }),
+			).toThrow('is not an e-mail address');
+		}
+	});
+
+	test('a string listing several recipients keeps them all, groups included', () => {
+		const options = {
+			from: 'a@b.test',
+			to: 'x@y.test, w@v.test',
+			cc: 'team: c@d.test, e@f.test;',
+			date: DATE,
+		};
+		expect(envelopeOf(options).to).toEqual([
+			'x@y.test',
+			'w@v.test',
+			'c@d.test',
+			'e@f.test',
+		]);
+		const headers = parseMessage(buildMessage(options)).headers;
+		expect(mailboxesOf(parseAddressList(headers.get('to') ?? ''))).toHaveLength(
+			2,
+		);
+		expect(mailboxesOf(parseAddressList(headers.get('cc') ?? ''))).toHaveLength(
+			2,
+		);
+	});
+
+	test('a from or sender string listing several addresses is refused', () => {
+		expect(() => buildMessage({ from: 'a@b.test, c@d.test' })).toThrow(
+			'holds 2 addresses where one is expected',
+		);
+		expect(() =>
+			buildMessage({ from: 'a@b.test', sender: 'g: a@b.test, c@d.test;' }),
+		).toThrow('holds 2 addresses where one is expected');
+	});
+
+	test('an invalid date is refused with INVALID_OPTION', () => {
+		try {
+			buildMessage({ from: 'a@b.test', date: new Date(Number.NaN) });
+			throw new Error('not thrown');
+		} catch (error) {
+			expect(error).toBeInstanceOf(MimeError);
+			expect((error as MimeError).code).toBe('INVALID_OPTION');
+		}
+	});
 });

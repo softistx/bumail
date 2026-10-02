@@ -2,7 +2,7 @@ import { MimeError } from '../errors';
 import { formatMailbox } from '../headers/addresses';
 import { formatDate } from '../headers/date';
 import { encodeHeaderValue } from '../headers/encoded-words';
-import { list, toMailbox } from './envelope';
+import { list, toMailbox, toMailboxes } from './envelope';
 import type { MessageOptions } from './options';
 import {
 	attachmentPart,
@@ -52,7 +52,7 @@ function unstructured(name: string, value: string): string {
 export function buildMessage(options: MessageOptions): string {
 	const caller = 'buildMessage()';
 	const from = toMailbox(options.from, caller);
-	for (const input of list(options.bcc)) toMailbox(input, caller);
+	for (const input of list(options.bcc)) toMailboxes(input, caller);
 	const domain = from.address.slice(from.address.lastIndexOf('@') + 1);
 	const fields: [string, string][] = [
 		['Date', formatDate(options.date ?? new Date())],
@@ -62,7 +62,7 @@ export function buildMessage(options: MessageOptions): string {
 		fields.push(['Sender', formatMailbox(toMailbox(options.sender, caller))]);
 	}
 	const addresses = (name: string, input: MessageOptions['to']) => {
-		const mailboxes = list(input).map((item) => toMailbox(item, caller));
+		const mailboxes = list(input).flatMap((item) => toMailboxes(item, caller));
 		if (mailboxes.length > 0)
 			fields.push([name, mailboxes.map(formatMailbox).join(', ')]);
 	};

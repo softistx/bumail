@@ -157,3 +157,18 @@ export function extractContent(root: MimePart): MessageContent {
 		attachments,
 	};
 }
+
+/**
+ * Parses a message from a stream, yielding events as they complete. The
+ * stream is read once, in bounded memory.
+ */
+export async function* parseMimeStream(
+	source: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
+	options?: MimeParserOptions,
+): AsyncGenerator<MimeEvent> {
+	const parser = new MimeParser(options);
+	for await (const chunk of source as AsyncIterable<Uint8Array>) {
+		yield* parser.write(chunk);
+	}
+	yield* parser.end();
+}

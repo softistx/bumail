@@ -50,18 +50,20 @@ function decodeLine(line: Uint8Array, out: number[]): boolean {
 /**
  * Decodes the start of a line whose end has not come: every byte but an
  * `=` in the last two, which may open an escape the next chunk completes.
- * White space is kept, since it is only trailing once the line ends.
+ * White space is kept, since it is only trailing once the line ends. A
+ * final CR is held too: the next chunk's LF may make it a line break.
  * Returns how many bytes it consumed.
  */
 function decodePartial(line: Uint8Array, out: number[]): number {
+	const end = line[line.length - 1] === CR ? line.length - 1 : line.length;
 	let i = 0;
-	for (; i < line.length; i++) {
+	for (; i < end; i++) {
 		const byte = line[i] as number;
 		if (byte !== EQUALS) {
 			out.push(byte);
 			continue;
 		}
-		if (i + 2 >= line.length) break;
+		if (i + 2 >= end) break;
 		const high = hexValue(line[i + 1] as number);
 		const low = hexValue(line[i + 2] as number);
 		if (high >= 0 && low >= 0) {

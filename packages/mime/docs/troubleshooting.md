@@ -118,23 +118,41 @@ delimiters.
 
 ## `MimeError: buildMessage(): "…" is not an e-mail address`
 
-**When**: `buildMessage`, `envelopeOf` or `formatMailbox`, with
-`error.code === 'INVALID_ADDRESS'`. The message starts with the function
-that refused it: `buildMessage():`, `envelopeOf():`, `formatMailbox():`.
-Control characters show escaped, as `\r\n`.
+**When**: `buildMessage`, `envelopeOf`, `formatMailbox` or
+`checkAddress(address, caller)`, with `error.code === 'INVALID_ADDRESS'`.
+The message starts with the function that refused it: `buildMessage():`,
+`envelopeOf():`, `formatMailbox():`, or the `caller` you gave
+`checkAddress`. Control characters show escaped, as `\r\n`.
 
-**Why**: an address — Bcc included — held no `@`, nothing
-`parseAddressList` could read, a control character, an angle bracket, or
-white space outside a quoted local part. Any of them would let the value
-reach a header or an SMTP command it does not belong in.
+**Why**: an address — Bcc included — is not RFC 5322 §3.4.1's `addr-spec`:
+its local part is neither a dot-atom (`jo.e+tag`) nor a quoted string
+(`"john doe"`), or its domain is neither dot-separated labels nor an
+address literal (`[192.0.2.1]`). A comma, a semicolon, a parenthesis, a
+stray quote, white space, an empty label or a control character are all
+refused: each would let the value add a recipient, or reach a header or an
+SMTP command it does not belong in. Non-ASCII letters (RFC 6532) pass.
 
 **Fix**: pass `'Name <user@example.com>'`, `'user@example.com'`, or
 `{ name, address }`, and strip what you take from user input.
 
+## `MimeError: buildMessage(): "…" holds 2 addresses where one is expected`
+
+**When**: `from` or `sender` is a string that lists several mailboxes, or
+a group, with `error.code === 'INVALID_ADDRESS'`. The message starts with
+`buildMessage():` or `envelopeOf():`.
+
+**Why**: a message has one author address in `From` for SMTP's `MAIL FROM`,
+and one `Sender`. Keeping the first and dropping the rest would hide the
+mistake. A string in `to`, `cc`, `bcc` or `replyTo` may list several: each
+one is kept, a group's members included.
+
+**Fix**: give `from` one address; put the others in `replyTo` or `cc`.
+
 ## `MimeError: formatMailbox(): a display name cannot hold a line break or a control character`
 
 **When**: a `{ name, address }` whose name holds CR, LF or another control
-character, from `buildMessage` or `formatMailbox`.
+character, from `buildMessage` or `formatMailbox`, with
+`error.code === 'INVALID_ADDRESS'`.
 
 **Why**: a line break in a header is how a header is injected.
 
@@ -154,7 +172,8 @@ break inside an encoded-word.
 ## `MimeError: The value of … holds a word too long for a header line (RFC 5322 §2.1.1: 998)`
 
 **When**: a header value has a word — a run without white space — so long
-that no folding keeps its line within 998 characters.
+that no folding keeps its line within 998 characters, with
+`error.code === 'INVALID_OPTION'`.
 
 **Why**: RFC 5322 caps a line at 998 characters, and many servers refuse a
 message that does not keep to it.
@@ -164,7 +183,7 @@ message that does not keep to it.
 ## `MimeError: "…" is not a header field name`
 
 **When**: a key of `headers` holds a space, a colon or a character outside
-printable ASCII.
+printable ASCII, with `error.code === 'INVALID_OPTION'`.
 
 **Fix**: use a field name: `X-Campaign`, not `X Campaign`.
 
@@ -172,7 +191,8 @@ printable ASCII.
 
 **When**: `headers` holds `From`, `Sender`, `To`, `Cc`, `Bcc`, `Reply-To`,
 `Subject`, `Date`, `Message-ID`, `In-Reply-To`, `References`,
-`MIME-Version` or any `Content-*` field, in any case.
+`MIME-Version` or any `Content-*` field, in any case, with
+`error.code === 'INVALID_OPTION'`.
 
 **Why**: the builder writes these itself; a second `Content-Transfer-Encoding`
 or `From` makes readers disagree about the message.
@@ -183,7 +203,8 @@ or `From` makes readers disagree about the message.
 
 **When**: `messageId`, `inReplyTo`, an entry of `references` or an
 attachment's `contentId` holds an angle bracket, white space or a control
-character. The message starts with the option's name.
+character, with `error.code === 'INVALID_OPTION'`. The message starts
+with the option's name.
 
 **Why**: an id is written between angle brackets (RFC 5322 §3.6.4); a
 bracket inside would end it early and start another.
@@ -192,16 +213,34 @@ bracket inside would end it early and start another.
 
 ## `MimeError: "…" is not a media type`
 
-**When**: an attachment's `contentType` is not `type/subtype` in printable
-ASCII — a line break or a parameter in it, for one.
+**When**: an attachment's `contentType` is not `type/subtype`, each an
+RFC 2045 §5.1 token, with `error.code === 'INVALID_OPTION'`: a parameter
+(`text/plain;name=a.exe`), a quote, a space or a line break in it, for one.
+
+**Why**: the builder writes the parameters itself — `name=` from
+`filename` — so one smuggled into the type would make readers disagree
+about the file.
 
 **Fix**: pass the media type alone, such as `'application/pdf'`.
 
 ## `MimeError: A file name cannot hold a control character`
 
-**When**: an attachment's `filename` holds a control character.
+**When**: an attachment's `filename` holds a control character, with
+`error.code === 'INVALID_OPTION'`.
 
 **Fix**: strip control characters from names taken from user input.
+
+## `MimeError: formatDate(): the date is invalid`
+
+**When**: `buildMessage` with a `date` that is an Invalid Date —
+`new Date('not a date')`, `new Date(NaN)` — or `formatDate` given one, with
+`error.code === 'INVALID_OPTION'`.
+
+**Why**: an Invalid Date has no day, month or time to write in a `Date`
+field.
+
+**Fix**: check `Number.isNaN(date.getTime())` on dates parsed from user
+input, or leave `date` out to use the current time.
 
 ## The Bcc recipients are missing from the message
 

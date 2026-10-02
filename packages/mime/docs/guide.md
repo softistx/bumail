@@ -212,7 +212,7 @@ formatMailbox({ name: 'Doe, John', address: 'jdoe@example.com' }); // '"Doe, Joh
 routes, white space around dots, comments anywhere, the name in a trailing
 comment — and never throws: what it cannot read is left out.
 `formatMailbox` quotes a name that holds a special, encodes one that is not
-ASCII, and refuses a line break or an address without `@`.
+ASCII, and refuses an address that `checkAddress` refuses.
 
 ## Content-Type and Content-Disposition
 
@@ -324,18 +324,25 @@ The result is 7-bit ASCII with CRLF line breaks: it goes to any SMTP server
 as it is, 8BITMIME or not.
 
 Addresses are given as `'Name <address>'` strings, bare addresses, or
-`{ name, address }` objects. Every value is checked, Bcc included, and a
-`MimeError` is thrown for:
+`{ name, address }` objects. A string in `to`, `cc`, `bcc` or `replyTo` may
+list several, groups included, and every one is kept; `from` and `sender`
+take one. Every value is checked, Bcc included, and a `MimeError` is thrown
+for:
 
-- an address without `@`, or with a control character, an angle bracket or
-  white space outside a quoted local part — it would reach an SMTP command;
+- an address that is not RFC 5322 §3.4.1's `addr-spec` — a dot-atom or
+  quoted local part, `@`, and a domain or `[literal]`: a comma, semicolon,
+  parenthesis, stray quote, white space or control character would add a
+  recipient or reach an SMTP command;
+- a `from` or `sender` string that lists several addresses;
+- an Invalid Date as `date`;
 - a line break in a header value, a name that is not a header name, or a
   word that would leave a line over RFC 5322's 998 characters;
 - a `headers` key the builder writes itself: the address fields,
   `Subject`, `Date`, the ids, `MIME-Version`, any `Content-*`;
 - an id (`messageId`, `inReplyTo`, `references`, `contentId`) with angle
   brackets, white space or a control character;
-- an attachment `contentType` that is not `type/subtype`, or a file name
+- an attachment `contentType` that is not `type/subtype` of RFC 2045
+  tokens — no parameter, no quote — or a file name
   with a control character.
 
 ## What each part follows

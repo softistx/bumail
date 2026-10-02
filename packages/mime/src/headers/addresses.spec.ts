@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { MimeError } from '../errors';
-import { formatMailbox, mailboxesOf, parseAddressList } from './addresses';
+import {
+	checkAddress,
+	formatMailbox,
+	mailboxesOf,
+	parseAddressList,
+} from './addresses';
 
 describe('parseAddressList', () => {
 	// RFC 5322 Appendix A, its examples.
@@ -189,5 +194,40 @@ describe('formatMailbox', () => {
 		expect(() =>
 			formatMailbox({ name: 'x\r\ny', address: 'a@b.test' }),
 		).toThrow('cannot hold a line break');
+	});
+});
+
+describe('checkAddress', () => {
+	test('dot-atoms, quoted local parts, non-ASCII (RFC 6532) and address literals pass', () => {
+		for (const address of [
+			'jdoe@example.org',
+			'jo.e+tag@sub.example.org',
+			'"john doe"@example.org',
+			'"a\\"b"@example.org',
+			'José@exämple.fr',
+			'u@[192.0.2.1]',
+		]) {
+			expect(checkAddress(address, 't()')).toBe(address);
+		}
+	});
+
+	test('a comma, semicolon, comment, stray quote, space or empty label is refused', () => {
+		for (const address of [
+			'a@b.test,victim@evil.test',
+			'a;b:c@d.test',
+			'a(@b.test',
+			'"@x.test',
+			'a b@c.test',
+			'a@b c',
+			'a..b@c.test',
+			'.a@b.test',
+			'a@-b.test',
+			'a@b..test',
+			'a@b.test\r\nRCPT TO:<x@y.test>',
+			'a@',
+			'@b.test',
+		]) {
+			expect(() => checkAddress(address, 'mine()')).toThrow('mine(): ');
+		}
 	});
 });

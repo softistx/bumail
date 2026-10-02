@@ -117,4 +117,15 @@ describe('QuotedPrintableDecoder', () => {
 		parts.push(...decoder.end());
 		expect(text(Uint8Array.from(parts))).toBe('é'.repeat(20));
 	});
+
+	test('a long line ending in a CR split from its LF gives one CRLF, not CR CR LF', () => {
+		const decoder = new QuotedPrintableDecoder(100);
+		const encoder = new TextEncoder();
+		const out = [
+			...decoder.write(encoder.encode(`${'x'.repeat(200)}\r`)),
+			...decoder.write(encoder.encode('\ny')),
+			...decoder.end(),
+		];
+		expect(text(Uint8Array.from(out))).toBe(`${'x'.repeat(200)}\r\ny`);
+	});
 });

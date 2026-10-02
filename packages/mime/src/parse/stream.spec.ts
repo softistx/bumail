@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { MimeError } from '../errors';
-import { MimeParser, parseMimeStream } from './stream';
+import { parseMimeStream } from './message';
+import { MimeParser } from './stream';
 import type { MimeEvent } from './types';
 
 const MESSAGE = new TextEncoder().encode(

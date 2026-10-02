@@ -140,21 +140,31 @@ export function mailboxesOf(addresses: readonly Address[]): Mailbox[] {
 
 const PLAIN_PHRASE = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]*$/;
 
+/** RFC 5322 §3.2.3's atext, with RFC 6532's non-ASCII. */
+const ATEXT = "[A-Za-z0-9!#$%&'*+\\-/=?^_`{|}~\\u0080-\\u{10FFFF}]";
+const DOT_ATOM = new RegExp(`^${ATEXT}+(?:\\.${ATEXT}+)*$`, 'u');
+/** A quoted-string local part (§3.2.4): printable ASCII and spaces, `"` and `\\` escaped. */
+const QUOTED =
+	/^"(?:[\x20\x21\x23-\x5b\x5d-\x7e\u0080-\u{10FFFF}]|\\[\x20-\x7e])*"$/u;
+/** A domain: dot-separated labels, or an address literal in brackets (§3.4.1). */
+const DOMAIN =
+	/^(?:[A-Za-z0-9_\u0080-\u{10FFFF}](?:[A-Za-z0-9_\-\u0080-\u{10FFFF}]*[A-Za-z0-9_\u0080-\u{10FFFF}])?(?:\.[A-Za-z0-9_\u0080-\u{10FFFF}](?:[A-Za-z0-9_\-\u0080-\u{10FFFF}]*[A-Za-z0-9_\u0080-\u{10FFFF}])?)*|\[[\x21-\x5a\x5e-\x7e]+\])$/u;
+
 /**
  * Throws unless `address` can go into a header or an SMTP command as it is:
- * an `@`, no control character, no white space outside a quoted local part,
- * no angle bracket.
+ * a dot-atom or quoted-string local part, an `@`, and a domain or an
+ * address literal (RFC 5322 §3.4.1). Nothing else gets through: no comma
+ * that would add a recipient, no bracket, comment, quote or line break.
  */
 export function checkAddress(address: string, caller: string): string {
 	const at = address.lastIndexOf('@');
 	const local = address.slice(0, at);
-	const quoted = /^"[^"\\]*(?:\\.[^"\\]*)*"$/.test(local);
+	const domain = address.slice(at + 1);
 	if (
 		at <= 0 ||
-		at === address.length - 1 ||
 		hasControl(address) ||
-		/[<>]/.test(address) ||
-		/\s/.test(quoted ? address.slice(at) : address)
+		!(DOT_ATOM.test(local) || QUOTED.test(local)) ||
+		!DOMAIN.test(domain)
 	) {
 		throw new MimeError(
 			'INVALID_ADDRESS',

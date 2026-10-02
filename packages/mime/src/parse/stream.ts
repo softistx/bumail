@@ -2,13 +2,15 @@ import { join } from '../encoding/bytes';
 import { MimeError } from '../errors';
 import { parseHeaderBlock } from '../headers/fields';
 import { parseContentType } from '../headers/parameters';
+import { BodyGatherer } from './body';
 import {
 	DASH,
 	DELIMITER_MAX,
 	delimiter,
-	LF,
+	LineAssembler,
 	limit,
 	lineBreakLength,
+	lineBreakOf,
 } from './lines';
 import type { MimeEvent, MimeParserOptions, PartInfo } from './types';
 
@@ -43,13 +45,10 @@ export class MimeParser {
 	readonly #maxDepth: number;
 	readonly #maxLineBytes: number;
 	readonly #stack: Frame[] = [];
-	/** The line in progress: the chunks since the last LF, joined only once it ends. */
-	#pending: Uint8Array[] = [];
-	#pendingSize = 0;
+	readonly #lines = new LineAssembler();
 	/** The current line was already passed on in part: it cannot be a delimiter. */
 	#midLine = false;
-	/** Body bytes of one part, gathered into one event per `write`. */
-	#body: { part: PartInfo; pieces: Uint8Array[] } | undefined;
+	readonly #body = new BodyGatherer();
 	#events: MimeEvent[] = [];
 	#ended = false;
 
@@ -80,37 +79,22 @@ export class MimeParser {
 	write(chunk: Uint8Array): MimeEvent[] {
 		if (this.#ended)
 			throw new Error('MimeParser.write(): the parser has ended');
-		let start = 0;
-		for (;;) {
-			const lf = chunk.indexOf(LF, start);
-			if (lf < 0) break;
-			let line = chunk.subarray(start, lf + 1);
-			if (this.#pendingSize > 0) {
-				line = join([...this.#pending, line]);
-				this.#pending = [];
-				this.#pendingSize = 0;
-			}
+		this.#lines.push(chunk, (line) => {
 			this.#line(line);
 			this.#midLine = false;
-			start = lf + 1;
-		}
-		if (start < chunk.length) {
-			// Copied: the caller may reuse its buffer once write returns.
-			this.#pending.push(chunk.slice(start));
-			this.#pendingSize += chunk.length - start;
+		});
+		// A held line break is a view of `chunk`: swap it for a constant.
+		for (const frame of this.#stack) {
+			if (frame.held) frame.held = lineBreakOf(frame.held);
 		}
 		if (
-			this.#pendingSize > this.#maxLineBytes &&
+			this.#lines.size > this.#maxLineBytes &&
 			this.#top().state !== 'headers'
 		) {
-			const line = join(this.#pending);
-			// Keep the last byte: it may be the CR of a CRLF split across chunks.
-			this.#line(line.subarray(0, line.length - 1));
+			this.#line(this.#lines.takeAllButLast());
 			this.#midLine = true;
-			this.#pending = [line.subarray(line.length - 1)];
-			this.#pendingSize = 1;
 		}
-		this.#checkHeaderSize(this.#pendingSize);
+		this.#checkHeaderSize(this.#lines.size);
 		this.#flushBody();
 		return this.#take();
 	}
@@ -118,9 +102,8 @@ export class MimeParser {
 	/** Ends the message; returns the last events, the end of every open part included. */
 	end(): MimeEvent[] {
 		if (this.#ended) return [];
-		if (this.#pendingSize > 0) this.#line(join(this.#pending));
-		this.#pending = [];
-		this.#pendingSize = 0;
+		const rest = this.#lines.takeAll();
+		if (rest) this.#line(rest);
 		this.#ended = true;
 		while (this.#stack.length > 0) this.#close(true);
 		this.#flushBody();
@@ -176,7 +159,7 @@ export class MimeParser {
 				const part = top.part as PartInfo;
 				if (top.held) this.#emitBody(part, top.held);
 				if (content.length > 0) this.#emitBody(part, content);
-				top.held = breakLength > 0 ? line.slice(content.length) : undefined;
+				top.held = breakLength > 0 ? line.subarray(content.length) : undefined;
 				return;
 			}
 			default:
@@ -186,17 +169,13 @@ export class MimeParser {
 	}
 
 	#emitBody(part: PartInfo, data: Uint8Array): void {
-		if (this.#body && this.#body.part !== part) this.#flushBody();
-		this.#body ??= { part, pieces: [] };
-		this.#body.pieces.push(data);
+		const flushed = this.#body.add(part, data);
+		if (flushed) this.#events.push(flushed);
 	}
 
-	/** The gathered body bytes as one event, copied out of the caller's chunks. */
 	#flushBody(): void {
-		if (!this.#body) return;
-		const { part, pieces } = this.#body;
-		this.#body = undefined;
-		this.#events.push({ type: 'body', part, data: join(pieces) });
+		const flushed = this.#body.flush();
+		if (flushed) this.#events.push(flushed);
 	}
 
 	/** Handles a delimiter line of any enclosing multipart; `false` when it is none. */
@@ -224,14 +203,7 @@ export class MimeParser {
 	}
 
 	#headersDone(frame: Frame): void {
-		const size = frame.header.reduce((sum, line) => sum + line.length, 0);
-		const block = new Uint8Array(size);
-		let offset = 0;
-		for (const line of frame.header) {
-			block.set(line, offset);
-			offset += line.length;
-		}
-		const headers = parseHeaderBlock(block);
+		const headers = parseHeaderBlock(join(frame.header));
 		frame.header = [];
 		const part: PartInfo = {
 			path: frame.path,
@@ -264,19 +236,4 @@ export class MimeParser {
 		this.#flushBody();
 		this.#events.push({ type: 'end', part });
 	}
-}
-
-/**
- * Parses a message from a stream, yielding events as they complete. The
- * stream is read once, in bounded memory.
- */
-export async function* parseMimeStream(
-	source: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
-	options?: MimeParserOptions,
-): AsyncGenerator<MimeEvent> {
-	const parser = new MimeParser(options);
-	for await (const chunk of source as AsyncIterable<Uint8Array>) {
-		yield* parser.write(chunk);
-	}
-	yield* parser.end();
 }
