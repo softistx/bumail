@@ -14,14 +14,9 @@ Nothing scheduled yet.
 ## Next
 
 - **`@bumail/store`, its contract and memory store** — accounts, mailboxes,
-  messages, flags, UIDs and modseqs, behind one interface. It comes before
-  SMTP because the first SMTP slice needs somewhere to deliver.
-- **`@bumail/smtp`, the server** — RFC 5321 on `Bun.listen`: EHLO with
-  PIPELINING, SIZE, 8BITMIME, SMTPUTF8 and ENHANCEDSTATUSCODES; STARTTLS and
-  implicit TLS; AUTH PLAIN and LOGIN, offered only once encrypted; hooks for
-  connect, MAIL FROM, RCPT TO and DATA where the app accepts or refuses;
-  size limits and timeouts. The first slice receives into the memory store,
-  and **refuses to relay without AUTH** in every default.
+  messages, flags, UIDs and modseqs, behind one interface. The SMTP server
+  ships first, delivering through its `onData` hook; once the store lands,
+  it is where those messages go.
 - **`@bumail/dns`** — the DNS answers the other packages need (MX, TXT, A,
   AAAA, PTR) behind one small interface: `node:dns` in production, a fixture
   in specs, with a cache that honours TTLs. *Its own package*: SPF,
@@ -83,4 +78,10 @@ Nothing scheduled yet.
   multipart, base64 and quoted-printable, any charset `TextDecoder` knows,
   and a streaming parser that walks a large message without holding it in
   memory. Its specs are the RFCs' own examples.
-
+- **`@bumail/smtp`, the server** — RFC 5321 on `Bun.listen`: EHLO with
+  PIPELINING, SIZE, 8BITMIME, SMTPUTF8 and ENHANCEDSTATUSCODES; STARTTLS and
+  implicit TLS; AUTH PLAIN and LOGIN, offered only once encrypted; hooks for
+  connect, MAIL FROM, RCPT TO and DATA where the app accepts or refuses;
+  size limits and timeouts. Delivery goes through the `onData` hook — into
+  `@bumail/store` once it lands — and the server **refuses to relay without
+  AUTH** in every default.
