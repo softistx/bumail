@@ -7,8 +7,12 @@ package has a runtime dependency. The server app at the end is built on
 
 ## Status
 
-The repository's skeleton has landed; no package has yet. What comes, in
-what order and why, is in [docs/roadmap.md](./docs/roadmap.md).
+| package | what it is |
+| --- | --- |
+| [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
+
+Nothing is published yet. What comes, in what order and why, is in
+[docs/roadmap.md](./docs/roadmap.md).
 
 ## Development
 

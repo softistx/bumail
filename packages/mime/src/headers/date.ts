@@ -1,0 +1,84 @@
+const MONTHS = [
+	'jan',
+	'feb',
+	'mar',
+	'apr',
+	'may',
+	'jun',
+	'jul',
+	'aug',
+	'sep',
+	'oct',
+	'nov',
+	'dec',
+];
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** The obsolete zone names of RFC 5322 §4.3, in minutes east of UTC. */
+const ZONES: Readonly<Record<string, number>> = {
+	ut: 0,
+	gmt: 0,
+	z: 0,
+	edt: -240,
+	est: -300,
+	cdt: -300,
+	cst: -360,
+	mdt: -360,
+	mst: -420,
+	pdt: -420,
+	pst: -480,
+};
+
+/**
+ * Parses an RFC 5322 date-time (§3.3), with §4.3's obsolete forms: two- and
+ * three-digit years, named zones, and comments. A military zone letter
+ * other than `Z` is read as UTC, as §4.3 asks, since senders got their sign
+ * wrong. `undefined` for what is not a date.
+ */
+export function parseDate(value: string): Date | undefined {
+	const text = value
+		.replace(/\([^)]*\)/g, ' ')
+		.replace(/^\s*[A-Za-z]+\s*,/, ' ')
+		.trim();
+	const match =
+		/^(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([+-]\d{4}|[A-Za-z]+)?/.exec(
+			text,
+		);
+	if (!match) return undefined;
+	const [, day, monthName, yearText, hour, minute, second, zone] = match;
+	const month = MONTHS.indexOf((monthName as string).toLowerCase());
+	if (month < 0) return undefined;
+	let year = Number(yearText);
+	if ((yearText as string).length === 2) year += year < 50 ? 2000 : 1900;
+	else if ((yearText as string).length === 3) year += 1900;
+	let offset = 0;
+	if (zone && /^[+-]\d{4}$/.test(zone)) {
+		const sign = zone[0] === '-' ? -1 : 1;
+		offset = sign * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(3, 5)));
+	} else if (zone) {
+		offset = ZONES[zone.toLowerCase()] ?? 0;
+	}
+	const utc = Date.UTC(
+		year,
+		month,
+		Number(day),
+		Number(hour),
+		Number(minute),
+		Number(second ?? 0),
+	);
+	const date = new Date(utc - offset * 60_000);
+	return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** A date as RFC 5322 §3.3 writes it, in UTC: `Fri, 02 Oct 2026 22:00:00 +0000`. */
+export function formatDate(date: Date): string {
+	return (
+		`${DAYS[date.getUTCDay()]}, ${pad(date.getUTCDate())} ` +
+		`${(MONTHS[date.getUTCMonth()] as string).replace(/^./, (c) => c.toUpperCase())} ` +
+		`${date.getUTCFullYear()} ${pad(date.getUTCHours())}:` +
+		`${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())} +0000`
+	);
+}
