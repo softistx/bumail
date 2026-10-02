@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+    # `feat/**` too: an effort built with large-feature-branch-workflow merges
+    # each slice into its integration branch `feat/<slug>`, and those slices
+    # are merged without waiting for a human. Without this they merged with no
+    # CI at all — no tests, no artifact check.
+    branches: [develop, main, 'feat/**']
+
+# A pull request's new push supersedes its run in progress. A push to
+# `develop` never would: each one is in a group of its own, by run id.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref != 'refs/heads/develop' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: CI
+    # GitHub-hosted, as every softistx repository. This one is private, so its
+    # minutes count against the account's quota: keep the job short.
+    runs-on: ubuntu-latest
+    # alxia's job, on the same skeleton, takes 1 to 2 minutes. Past 8 it is
+    # hung, and the six-hour default would hold the runner for nothing.
+    timeout-minutes: 8
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # `changeset status --since=origin/develop` needs the base branch.
+          fetch-depth: 0
+      - name: Setup
+        uses: ./.github/actions/setup
+      # The Biome bun.lock resolved, as `bun run check` runs it locally: one
+      # version, the one biome.json's $schema names, and never `latest`.
+      - name: Lint code
+        run: bunx biome ci
+      # Build FIRST. Every package's `exports` points at `./dist/*`, so on a
+      # clean checkout `@bumail/mime` resolves to nothing for `@bumail/smtp` and
+      # typecheck reports phantom TS2307s. A developer's tree always has a
+      # stale `dist/` lying around, which hides this locally — it only ever
+      # shows up in CI. `bun run build` goes through scripts/workspace.ts,
+      # which builds each package after the siblings it depends on, so
+      # building from nothing works.
+      - name: Build packages
+        run: bun run build
+      - name: Type checking
+        run: bun run typecheck
+      # Per package, not one `bun test` for the whole workspace: each package's
+      # specs run after the siblings they import are built.
+      - name: Run tests
+        run: bun run test
+      # The build exits 0 on packages that throw the instant they are imported —
+      # it happened three times in nxgt-core. This packs them, installs them as a consumer
+      # does and imports every declared subpath.
+      - name: Verify the built artifacts load
+        run: bun run verify:artifacts
+      # A change to a package without a changeset is a change that never
+      # reaches a consumer: the release workflow has nothing to version.
+      #
+      # Except on the release branch itself. "Version packages" is the PR that
+      # *consumes* the changesets: it rewrites every version, deletes the
+      # `.changeset/*.md` that justified them, and so trips this check on its
+      # own output. Requiring a changeset there would mean requiring one for
+      # the act of releasing.
+      - name: Changeset present
+        if: github.head_ref != 'changeset-release/develop'
+        run: bun run changeset:status

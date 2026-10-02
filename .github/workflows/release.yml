@@ -1,0 +1,70 @@
+name: Release
+
+# Every consumer of these packages installs a published version, so a merge to
+# develop that changes a package is only half a change until it is on the
+# registry. This workflow is the other half: it turns the changesets sitting in
+# .changeset/ into version bumps, then publishes.
+#
+# It opens a "Version Packages" pull request rather than publishing straight
+# from develop; merging that PR is what releases. That keeps the version bump
+# and the changelog reviewable, and keeps an accidental merge from publishing.
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    name: Release
+    # Off until the owner approves the first publish. With no changeset
+    # pending, changesets/action runs the publish script, which publishes
+    # every version the registry does not have yet — a fresh package's
+    # included. The repository variable RELEASE_ENABLED=true turns it on;
+    # nobody but the owner sets it.
+    if: vars.RELEASE_ENABLED == 'true'
+    # The owner creates this environment before setting RELEASE_ENABLED —
+    # GitHub would create a missing one unprotected — with themself as
+    # required reviewer and NPM_TOKEN as its only secret: every run that could
+    # publish then waits for the owner, and a PR that edits this file cannot
+    # reach the token without that approval.
+    environment: npm
+    # GitHub-hosted, as ci.yml.
+    runs-on: ubuntu-latest
+    # alxia's, on the same skeleton, takes under a minute and a half.
+    # Generous on purpose: a publish killed half-way is worse than one waited
+    # on, and the concurrency group above never cancels one under way — this
+    # only stops a run that has hung.
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup
+        uses: ./.github/actions/setup
+      - name: Build packages
+        run: bun run build
+      # No npmrc step: `bunfig.toml` reads $NPM_TOKEN from the environment.
+      # v2 of the action no longer writes one from NPM_TOKEN either.
+      - name: Version or publish
+        uses: changesets/action@v2
+        with:
+          version-script: bun run changeset:version
+          publish-script: bun run changeset:publish
+          pr-title: 'chore: Version packages'
+          commit-message: 'chore: Version packages'
+          # v2 ignores GITHUB_TOKEN in env for its own GitHub API calls.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          # changelog-github still reads GITHUB_TOKEN while versioning.
+          # NPM_TOKEN publishes, read through bunfig.toml.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
