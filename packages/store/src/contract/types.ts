@@ -6,10 +6,13 @@ export interface Account {
 }
 
 /**
- * The special use of a mailbox: `inbox`, and the IANA registry of IMAP
- * mailbox name attributes RFC 8621 §2 draws its roles from — RFC 6154's
- * `\All`, `\Archive`, `\Drafts`, `\Flagged`, `\Junk`, `\Sent`,
- * `\Trash`, and RFC 8457's `\Important`.
+ * The special use of a mailbox: `inbox`, RFC 6154's `\All`, `\Archive`,
+ * `\Drafts`, `\Flagged`, `\Junk`, `\Sent` and `\Trash`, and RFC 8457's
+ * `\Important` — the roles here, not the whole IANA registry of IMAP
+ * mailbox name attributes RFC 8621 §2 draws on.
+ *
+ * A closed union: a role the registry adds comes in a minor release, so a
+ * `switch` over it keeps a `default` case.
  */
 export type MailboxRole =
 	| 'inbox'

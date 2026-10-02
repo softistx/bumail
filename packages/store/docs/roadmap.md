@@ -10,7 +10,8 @@ only number on it.
   publish. Accounts; mailboxes with the IANA roles, a hierarchy and a
   subscription; messages that keep one id across mailboxes (JMAP's Email),
   a thread, and a UID in each mailbox (IMAP); content given and read as a
-  stream, kept per account; every message of an account, a page at a
+  stream, kept per account; every call scoped to one account, so an id is
+  no key to another's mail; every message of an account, a page at a
   time; flags with RFC 7162's conditional store; copies, links and moves
   that skip and name the ids already gone; and the message and mailbox
   changes since a modseq, paged, for IMAP's CONDSTORE and QRESYNC and

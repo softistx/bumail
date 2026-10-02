@@ -3,7 +3,6 @@ import type {
 	ExpungeResult,
 	MessagesResult,
 } from '../contract/types';
-import { StoreError } from '../errors';
 import { join } from './messages';
 import type { MemoryState, MessageState } from './state';
 
@@ -33,19 +32,14 @@ export function expunge(
 
 export function moveMessages(
 	state: MemoryState,
+	accountId: string,
 	ids: readonly string[],
 	from: string,
 	to: string,
 ): MessagesResult {
-	const source = state.mailbox(from);
-	const target = state.mailbox(to);
-	if (source.accountId !== target.accountId) {
-		throw new StoreError(
-			'INVALID',
-			'Messages only move between mailboxes of their own account',
-		);
-	}
-	const { found, notFound } = state.messagesOf(ids, target.accountId, (m) =>
+	state.mailbox(accountId, from);
+	const target = state.mailbox(accountId, to);
+	const { found, notFound } = state.messagesOf(accountId, ids, (m) =>
 		m.mailboxes.has(from),
 	);
 	const view = () => ({
@@ -73,11 +67,12 @@ export function moveMessages(
 
 export function removeMessages(
 	state: MemoryState,
+	accountId: string,
 	ids: readonly string[],
 	mailboxId: string,
 ): ExpungeResult {
-	const mailbox = state.mailbox(mailboxId);
-	const { found, notFound } = state.messagesOf(ids, mailbox.accountId, (m) =>
+	state.mailbox(accountId, mailboxId);
+	const { found, notFound } = state.messagesOf(accountId, ids, (m) =>
 		m.mailboxes.has(mailboxId),
 	);
 	return {
@@ -88,9 +83,10 @@ export function removeMessages(
 
 export function destroyMessages(
 	state: MemoryState,
+	accountId: string,
 	ids: readonly string[],
 ): ExpungeResult {
-	const { found, notFound } = state.messagesOf(ids);
+	const { found, notFound } = state.messagesOf(accountId, ids);
 	return {
 		expunged: found.flatMap((message) =>
 			[...message.mailboxes.keys()].map((mailboxId) =>

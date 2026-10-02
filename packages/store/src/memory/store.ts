@@ -90,9 +90,15 @@ export class MemoryMailStore implements MailStore {
 		return createMailbox(this.#state, accountId, mailbox);
 	}
 
-	async getMailbox(id: string): Promise<Mailbox | undefined> {
+	async getMailbox(
+		accountId: string,
+		id: string,
+	): Promise<Mailbox | undefined> {
+		this.#state.account(accountId);
 		const mailbox = this.#state.mailboxes.get(id);
-		return mailbox && this.#state.mailboxView(mailbox);
+		return mailbox?.accountId === accountId
+			? this.#state.mailboxView(mailbox)
+			: undefined;
 	}
 
 	async listMailboxes(accountId: string): Promise<Mailbox[]> {
@@ -111,38 +117,57 @@ export class MemoryMailStore implements MailStore {
 	}
 
 	async renameMailbox(
+		accountId: string,
 		id: string,
 		name: string,
 		parentId?: string,
 	): Promise<Mailbox> {
-		return renameMailbox(this.#state, id, name, parentId);
+		return renameMailbox(this.#state, accountId, id, name, parentId);
 	}
 
-	async setSubscribed(id: string, subscribed: boolean): Promise<Mailbox> {
-		return setSubscribed(this.#state, id, subscribed);
+	async setSubscribed(
+		accountId: string,
+		id: string,
+		subscribed: boolean,
+	): Promise<Mailbox> {
+		return setSubscribed(this.#state, accountId, id, subscribed);
 	}
 
 	async deleteMailbox(
+		accountId: string,
 		id: string,
 		options: { readonly removeMessages?: boolean } = {},
 	): Promise<void> {
-		deleteMailbox(this.#state, id, options?.removeMessages === true);
+		deleteMailbox(this.#state, accountId, id, options?.removeMessages === true);
 	}
 
-	addMessage(mailboxId: string, message: NewMessage): Promise<Message> {
-		return messages.addMessage(this.#state, mailboxId, message);
+	addMessage(
+		accountId: string,
+		mailboxId: string,
+		message: NewMessage,
+	): Promise<Message> {
+		return messages.addMessage(this.#state, accountId, mailboxId, message);
 	}
 
-	async getMessage(id: string): Promise<Message | undefined> {
-		const message = this.#state.messages.get(id);
+	async getMessage(
+		accountId: string,
+		id: string,
+	): Promise<Message | undefined> {
+		const message = this.#state.message(accountId, id);
 		return message && this.#state.messageView(message);
 	}
 
 	async listMessages(
+		accountId: string,
 		mailboxId: string,
 		options: ListOptions = {},
 	): Promise<MailboxEntry[]> {
-		return messages.listMessages(this.#state, mailboxId, options ?? {});
+		return messages.listMessages(
+			this.#state,
+			accountId,
+			mailboxId,
+			options ?? {},
+		);
 	}
 
 	async listAccountMessages(
@@ -156,49 +181,64 @@ export class MemoryMailStore implements MailStore {
 		accountId: string,
 		blobId: string,
 	): Promise<Blob | undefined> {
+		this.#state.account(accountId);
 		// A Blob cannot be changed: the store's own is handed out.
 		return this.#state.blob(accountId, blobId);
 	}
 
 	async setFlags(
+		accountId: string,
 		ids: readonly string[],
 		change: FlagChange,
 		options: FlagOptions = {},
 	): Promise<FlagResult> {
-		return messages.setFlags(this.#state, ids, change, options?.unchangedSince);
+		return messages.setFlags(
+			this.#state,
+			accountId,
+			ids,
+			change,
+			options?.unchangedSince,
+		);
 	}
 
 	async copyMessages(
+		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
 	): Promise<MessagesResult> {
-		return messages.copyMessages(this.#state, ids, mailboxId);
+		return messages.copyMessages(this.#state, accountId, ids, mailboxId);
 	}
 
 	async linkMessages(
+		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
 	): Promise<MessagesResult> {
-		return messages.linkMessages(this.#state, ids, mailboxId);
+		return messages.linkMessages(this.#state, accountId, ids, mailboxId);
 	}
 
 	async moveMessages(
+		accountId: string,
 		ids: readonly string[],
 		from: string,
 		to: string,
 	): Promise<MessagesResult> {
-		return membership.moveMessages(this.#state, ids, from, to);
+		return membership.moveMessages(this.#state, accountId, ids, from, to);
 	}
 
 	async removeMessages(
+		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
 	): Promise<ExpungeResult> {
-		return membership.removeMessages(this.#state, ids, mailboxId);
+		return membership.removeMessages(this.#state, accountId, ids, mailboxId);
 	}
 
-	async destroyMessages(ids: readonly string[]): Promise<ExpungeResult> {
-		return membership.destroyMessages(this.#state, ids);
+	async destroyMessages(
+		accountId: string,
+		ids: readonly string[],
+	): Promise<ExpungeResult> {
+		return membership.destroyMessages(this.#state, accountId, ids);
 	}
 
 	async messageChanges(

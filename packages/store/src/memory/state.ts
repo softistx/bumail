@@ -80,21 +80,37 @@ export class MemoryState {
 		return state;
 	}
 
-	mailbox(id: string): MailboxState {
+	/**
+	 * The account's mailbox with this id. An unknown account, and a mailbox
+	 * of another account, are both `NOT_FOUND`: an id is no key to someone
+	 * else's mail.
+	 */
+	mailbox(accountId: string, id: string): MailboxState {
+		this.account(accountId);
 		const state = this.mailboxes.get(id);
-		if (!state) throw new StoreError('NOT_FOUND', `No mailbox "${id}"`);
+		if (!state || state.accountId !== accountId) {
+			throw new StoreError('NOT_FOUND', `No mailbox "${id}"`);
+		}
 		return state;
 	}
 
+	/** The account's message with this id, or `undefined`. */
+	message(accountId: string, id: string): MessageState | undefined {
+		this.account(accountId);
+		const state = this.messages.get(id);
+		return state?.accountId === accountId ? state : undefined;
+	}
+
 	/**
-	 * The messages for these ids, each once, and the ids that name none: no
-	 * such message, another account's, or not passing `keep`.
+	 * The account's messages for these ids, each once, and the ids that name
+	 * none: no such message, another account's, or not passing `keep`.
 	 */
 	messagesOf(
+		accountId: string,
 		ids: readonly string[],
-		accountId?: string,
 		keep: (message: MessageState) => boolean = () => true,
 	): { found: MessageState[]; notFound: string[] } {
+		this.account(accountId);
 		if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
 			throw new StoreError('INVALID', 'ids must be an array of strings');
 		}
@@ -102,11 +118,7 @@ export class MemoryState {
 		const notFound: string[] = [];
 		for (const id of new Set(ids)) {
 			const message = this.messages.get(id);
-			if (
-				message &&
-				(accountId === undefined || message.accountId === accountId) &&
-				keep(message)
-			) {
+			if (message && message.accountId === accountId && keep(message)) {
 				found.push(message);
 			} else {
 				notFound.push(id);

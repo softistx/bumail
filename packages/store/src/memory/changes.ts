@@ -29,7 +29,7 @@ function checkSince(
 	if (since > 0 && since < account.floor) {
 		throw new StoreError(
 			'CANNOT_CALCULATE_CHANGES',
-			`Changes since ${since} are forgotten; ask for the changes since 0, which lists every message as created`,
+			`Changes since ${since} are forgotten; ask for the changes since 0, which lists every item as created`,
 		);
 	}
 	const limit = options.limit;
@@ -48,7 +48,8 @@ function checkSince(
  * then lists that change as an update (RFC 8620 §5.2's intermediate
  * states). A thing created and destroyed since is left out. A cut never
  * splits items of one modseq: a page goes over `limit` only when one
- * modseq alone holds more.
+ * modseq alone holds more, or to reach the account's floor, below which
+ * the next page could not be answered.
  */
 function page(
 	account: AccountState,
@@ -94,6 +95,12 @@ function page(
 			kept = before;
 			last = (before.at(-1) as Item).modseq;
 		}
+	}
+	// The next page asks since `last`: one below the floor would be
+	// CANNOT_CALCULATE_CHANGES, so a since-0 page reaches the floor at least.
+	if (last < account.floor) {
+		last = account.floor;
+		kept = items.filter((item) => item.modseq <= last);
 	}
 	if (kept.length === items.length) {
 		return { items, modseq: account.modseq, hasMore: false };

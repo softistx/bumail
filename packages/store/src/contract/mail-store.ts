@@ -44,11 +44,18 @@ import type {
  * and to what it returns. A store written outside this package follows
  * those versions.
  *
- * Errors are `StoreError`s, and only those: `NOT_FOUND` for an id that names nothing,
- * `ALREADY_EXISTS` for a duplicate login, mailbox name or role, `INVALID`
- * for a value the contract refuses, `CANNOT_CALCULATE_CHANGES` for a
- * `since` the store no longer remembers. A method that takes an account id
- * throws `NOT_FOUND` for an unknown one; `get…(id)` answers `undefined`.
+ * **One account at a time.** Every method past the account's own takes
+ * the account it acts in, first. Another account's mailbox or message is
+ * treated as an id that names nothing — `NOT_FOUND`, `notFound` or
+ * `undefined` — and is never acted on: an id is no key to someone else's
+ * mail.
+ *
+ * Errors are `StoreError`s, and only those: `NOT_FOUND` for an id that
+ * names nothing, `ALREADY_EXISTS` for a duplicate login, mailbox name or
+ * role, `INVALID` for a value the contract refuses,
+ * `CANNOT_CALCULATE_CHANGES` for a `since` the store no longer remembers.
+ * A method that takes an account id throws `NOT_FOUND` for an unknown
+ * one; `get…(accountId, id)` answers `undefined` for an unknown id.
  */
 export interface MailStore {
 	createAccount(name: string): Promise<Account>;
@@ -59,7 +66,7 @@ export interface MailStore {
 	deleteAccount(id: string): Promise<void>;
 
 	createMailbox(accountId: string, mailbox: NewMailbox): Promise<Mailbox>;
-	getMailbox(id: string): Promise<Mailbox | undefined>;
+	getMailbox(accountId: string, id: string): Promise<Mailbox | undefined>;
 	listMailboxes(accountId: string): Promise<Mailbox[]>;
 	/** The account's mailbox with this role, such as `inbox`. */
 	findMailbox(
@@ -71,9 +78,18 @@ export interface MailStore {
 	 * UIDVALIDITY and messages. Renaming the inbox keeps its role: the
 	 * store has no RFC 9051 §6.3.6 "rename INBOX" that moves its messages.
 	 */
-	renameMailbox(id: string, name: string, parentId?: string): Promise<Mailbox>;
+	renameMailbox(
+		accountId: string,
+		id: string,
+		name: string,
+		parentId?: string,
+	): Promise<Mailbox>;
 	/** IMAP SUBSCRIBE and UNSUBSCRIBE; a change of the mailbox, with its modseq. */
-	setSubscribed(id: string, subscribed: boolean): Promise<Mailbox>;
+	setSubscribed(
+		accountId: string,
+		id: string,
+		subscribed: boolean,
+	): Promise<Mailbox>;
 	/**
 	 * Deletes a mailbox with no children: one that has children is
 	 * `INVALID` — the store keeps no `\Noselect` name (RFC 9051 §6.3.4).
@@ -81,15 +97,21 @@ export interface MailStore {
 	 * it in the same step (JMAP's `onDestroyRemoveEmails`).
 	 */
 	deleteMailbox(
+		accountId: string,
 		id: string,
 		options?: { readonly removeMessages?: boolean },
 	): Promise<void>;
 
 	/** Adds a message: the next UID of the mailbox, the next modseq of the account. */
-	addMessage(mailboxId: string, message: NewMessage): Promise<Message>;
-	getMessage(id: string): Promise<Message | undefined>;
+	addMessage(
+		accountId: string,
+		mailboxId: string,
+		message: NewMessage,
+	): Promise<Message>;
+	getMessage(accountId: string, id: string): Promise<Message | undefined>;
 	/** The mailbox's messages in UID order. */
 	listMessages(
+		accountId: string,
 		mailboxId: string,
 		options?: ListOptions,
 	): Promise<MailboxEntry[]>;
@@ -106,6 +128,7 @@ export interface MailStore {
 	readContent(accountId: string, blobId: string): Promise<Blob | undefined>;
 	/** Changes the flags of messages; each one changed takes a new modseq. */
 	setFlags(
+		accountId: string,
 		ids: readonly string[],
 		change: FlagChange,
 		options?: FlagOptions,
@@ -116,11 +139,13 @@ export interface MailStore {
 	 * on.
 	 */
 	copyMessages(
+		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
 	): Promise<MessagesResult>;
 	/** Puts messages in one more mailbox, keeping their ids: JMAP's `mailboxIds`. Already there: unchanged. */
 	linkMessages(
+		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
 	): Promise<MessagesResult>;
@@ -131,6 +156,7 @@ export interface MailStore {
 	 * names that UID. One not in `from` is `notFound`.
 	 */
 	moveMessages(
+		accountId: string,
 		ids: readonly string[],
 		from: string,
 		to: string,
@@ -140,11 +166,15 @@ export interface MailStore {
 	 * is destroyed. One not in the mailbox is `notFound`.
 	 */
 	removeMessages(
+		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
 	): Promise<ExpungeResult>;
 	/** Destroys messages, from every mailbox. A blob no message uses any more is dropped. */
-	destroyMessages(ids: readonly string[]): Promise<ExpungeResult>;
+	destroyMessages(
+		accountId: string,
+		ids: readonly string[],
+	): Promise<ExpungeResult>;
 
 	/**
 	 * What changed among the account's messages since a modseq: one a change

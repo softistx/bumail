@@ -19,14 +19,14 @@ export function describeAccounts(create: CreateStore): void {
 
 		test('deleting one deletes its mailboxes, messages and blobs', async () => {
 			const { store, account, inbox } = await setup(create);
-			const message = await store.addMessage(inbox.id, { content: bytes('x') });
+			const message = await store.addMessage(account.id, inbox.id, {
+				content: bytes('x'),
+			});
 			await store.deleteAccount(account.id);
 			expect(await store.getAccount(account.id)).toBeUndefined();
-			expect(await store.getMailbox(inbox.id)).toBeUndefined();
-			expect(await store.getMessage(message.id)).toBeUndefined();
-			expect(
-				await store.readContent(account.id, message.blobId),
-			).toBeUndefined();
+			await rejects(store.getMailbox(account.id, inbox.id), 'NOT_FOUND');
+			await rejects(store.getMessage(account.id, message.id), 'NOT_FOUND');
+			await rejects(store.readContent(account.id, message.blobId), 'NOT_FOUND');
 			await rejects(store.deleteAccount(account.id), 'NOT_FOUND');
 		});
 
@@ -38,6 +38,10 @@ export function describeAccounts(create: CreateStore): void {
 			await rejects(store.messageChanges('nope', 0), 'NOT_FOUND');
 			await rejects(store.mailboxChanges('nope', 0), 'NOT_FOUND');
 			await rejects(store.listAccountMessages('nope'), 'NOT_FOUND');
+			await rejects(store.readContent('nope', 'x'), 'NOT_FOUND');
+			await rejects(store.getMailbox('nope', 'x'), 'NOT_FOUND');
+			await rejects(store.getMessage('nope', 'x'), 'NOT_FOUND');
+			await rejects(store.destroyMessages('nope', []), 'NOT_FOUND');
 		});
 	});
 }

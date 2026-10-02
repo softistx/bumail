@@ -53,10 +53,11 @@ export function join(
 
 export async function addMessage(
 	state: MemoryState,
+	accountId: string,
 	mailboxId: string,
 	input: NewMessage,
 ): Promise<Message> {
-	state.mailbox(mailboxId);
+	state.mailbox(accountId, mailboxId);
 	if (typeof input !== 'object' || input === null) {
 		throw new StoreError('INVALID', 'A new message is an object');
 	}
@@ -71,7 +72,7 @@ export async function addMessage(
 	checkThreadId(input.threadId);
 	const blob = await readBlob(input.content);
 	// Everything from here on runs in one go: the mailbox is looked up again.
-	const mailbox = state.mailbox(mailboxId);
+	const mailbox = state.mailbox(accountId, mailboxId);
 	state.checkUids(mailbox, 1);
 	state.retain(mailbox.accountId, blob.blobId, blob.blob);
 	const modseq = state.bump(mailbox.accountId);
@@ -95,10 +96,11 @@ export async function addMessage(
 
 export function listMessages(
 	state: MemoryState,
+	accountId: string,
 	mailboxId: string,
 	options: ListOptions,
 ): MailboxEntry[] {
-	state.mailbox(mailboxId);
+	state.mailbox(accountId, mailboxId);
 	checkCount('changedSince', options.changedSince);
 	checkCount('fromUid', options.fromUid);
 	const fromUid = options.fromUid ?? 1;
@@ -139,13 +141,14 @@ export function listAccountMessages(
 
 export function setFlags(
 	state: MemoryState,
+	accountId: string,
 	ids: readonly string[],
 	change: FlagChange,
 	unchangedSince: number | undefined,
 ): FlagResult {
 	checkCount('unchangedSince', unchangedSince);
 	const clean = normalizeChange(change);
-	const { found, notFound } = state.messagesOf(ids);
+	const { found, notFound } = state.messagesOf(accountId, ids);
 	const result: Message[] = [];
 	const modified: string[] = [];
 	for (const message of found) {
@@ -165,11 +168,12 @@ export function setFlags(
 
 export function copyMessages(
 	state: MemoryState,
+	accountId: string,
 	ids: readonly string[],
 	mailboxId: string,
 ): MessagesResult {
-	const target = state.mailbox(mailboxId);
-	const { found, notFound } = state.messagesOf(ids, target.accountId);
+	const target = state.mailbox(accountId, mailboxId);
+	const { found, notFound } = state.messagesOf(accountId, ids);
 	state.checkUids(target, found.length);
 	const messages = found.map((original) => {
 		state.retain(original.accountId, original.blobId);
@@ -191,11 +195,12 @@ export function copyMessages(
 
 export function linkMessages(
 	state: MemoryState,
+	accountId: string,
 	ids: readonly string[],
 	mailboxId: string,
 ): MessagesResult {
-	const target = state.mailbox(mailboxId);
-	const { found, notFound } = state.messagesOf(ids, target.accountId);
+	const target = state.mailbox(accountId, mailboxId);
+	const { found, notFound } = state.messagesOf(accountId, ids);
 	const joining = found.filter((message) => !message.mailboxes.has(mailboxId));
 	state.checkUids(target, joining.length);
 	for (const message of joining) join(target, message, state.touch(message));

@@ -21,7 +21,7 @@ const NOT_CONTENT =
  * chunk by chunk, counted, and copied into a `Blob` as it goes, so nothing
  * the caller changes afterwards reaches the store. A stream that fails, or
  * yields something other than bytes, is cancelled and rejects with
- * `INVALID`.
+ * `INVALID`; so does one already locked by another reader.
  */
 export async function readBlob(content: Content): Promise<ReadBlob> {
 	const hasher = new Bun.CryptoHasher('sha256');
@@ -34,6 +34,12 @@ export async function readBlob(content: Content): Promise<ReadBlob> {
 	}
 	if (!(content instanceof ReadableStream)) {
 		throw new StoreError('INVALID', NOT_CONTENT);
+	}
+	if (content.locked) {
+		throw new StoreError(
+			'INVALID',
+			'The message content stream is locked: another reader holds it',
+		);
 	}
 	const parts: Blob[] = [];
 	let size = 0;

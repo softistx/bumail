@@ -22,17 +22,20 @@ const account = await store.createAccount('mary@example.net');
 const inbox = await store.createMailbox(account.id, { name: 'INBOX', role: 'inbox' });
 
 const raw = new TextEncoder().encode('Subject: Hello\r\n\r\nHi Mary\r\n');
-const message = await store.addMessage(inbox.id, { content: raw }); // or a ReadableStream
+const message = await store.addMessage(account.id, inbox.id, { content: raw }); // or a ReadableStream
 message.mailboxes[0]?.uid; // 1, then 2, 3… — never reused in this mailbox
-await store.setFlags([message.id], { add: ['\\Seen'] });
+await store.setFlags(account.id, [message.id], { add: ['\\Seen'] });
 
 const content = await store.readContent(account.id, message.blobId); // a Blob
 await content?.text();
 ```
 
-Content is kept per account: another account holding the same bytes has
-its own blob, and `readContent` with another account's id returns
-`undefined`.
+Every method but the account's own takes the account first, and acts
+only in it: another account's mailbox is `NOT_FOUND`, its message lands in
+`notFound`, and `getMessage` or `getMailbox` returns `undefined` for it.
+Content is kept per account too: `readContent` reads only the given
+account's blobs, so the same bytes elsewhere are another blob, and a blob
+id from someone else's mail gives `undefined`.
 
 ## Messages and mailboxes
 
@@ -42,14 +45,14 @@ mailbox it is in, with a UID there.
 
 ```ts
 const archive = await store.createMailbox(account.id, { name: 'Archive', role: 'archive' });
-await store.moveMessages([message.id], inbox.id, archive.id); // same id, new UID in Archive
-await store.linkMessages([message.id], inbox.id); // in both now
-await store.copyMessages([message.id], archive.id); // IMAP COPY: a new message
-const { expunged, notFound } = await store.removeMessages([message.id], inbox.id);
+await store.moveMessages(account.id, [message.id], inbox.id, archive.id); // same id, new UID in Archive
+await store.linkMessages(account.id, [message.id], inbox.id); // in both now
+await store.copyMessages(account.id, [message.id], archive.id); // IMAP COPY: a new message
+const { expunged, notFound } = await store.removeMessages(account.id, [message.id], inbox.id);
 // out of INBOX, still in Archive; an id already gone lands in notFound
 
 await store.listAccountMessages(account.id, { offset: 0, limit: 50 }); // every mailbox
-await store.setSubscribed(archive.id, false); // IMAP UNSUBSCRIBE
+await store.setSubscribed(account.id, archive.id, false); // IMAP UNSUBSCRIBE
 ```
 
 A call given several ids acts on those that exist and lists the others in
@@ -101,7 +104,7 @@ follows.
 | `blobIdOf(bytes)` | the SHA-256 of a message's bytes, in hex; takes a `Uint8Array` only |
 | `readBlob(content)`, `ReadBlob` | content read to its end: `{ blobId, size, blob }`, a stream hashed chunk by chunk |
 | `normalizeFlag(flag)`, `SYSTEM_FLAGS` | a flag as stores keep it: `\Seen`, `\Answered`, `\Flagged`, `\Deleted`, `\Draft`, and keywords in lowercase |
-| `MAILBOX_ROLES`, `isMailboxRole(value)` | `inbox`, `all`, `archive`, `drafts`, `flagged`, `important`, `junk`, `sent`, `trash`; whether a string is one |
+| `MAILBOX_ROLES`, `isMailboxRole(value)` | `inbox`, `all`, `archive`, `drafts`, `flagged`, `important`, `junk`, `sent`, `trash`; whether a string is one. A role the IANA registry adds comes in a minor release: a `switch` keeps a `default` |
 
 ## Documentation
 

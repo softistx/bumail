@@ -18,12 +18,7 @@ function placeOf(
 ): string {
 	const clean = normalizeMailboxName(name, parentId);
 	if (parentId !== undefined) {
-		if (state.mailbox(parentId).accountId !== accountId) {
-			throw new StoreError(
-				'INVALID',
-				'A parent mailbox must be in the same account',
-			);
-		}
+		state.mailbox(accountId, parentId);
 		if (self !== undefined) {
 			checkNoCycle(self, parentId, (id) => state.mailboxes.get(id)?.parentId);
 		}
@@ -100,11 +95,12 @@ export function findMailbox(
 
 export function renameMailbox(
 	state: MemoryState,
+	accountId: string,
 	id: string,
 	name: string,
 	parentId: string | undefined,
 ): Mailbox {
-	const mailbox = state.mailbox(id);
+	const mailbox = state.mailbox(accountId, id);
 	const clean = placeOf(state, mailbox.accountId, name, parentId, id);
 	mailbox.name = clean;
 	if (parentId === undefined) delete mailbox.parentId;
@@ -115,10 +111,11 @@ export function renameMailbox(
 
 export function setSubscribed(
 	state: MemoryState,
+	accountId: string,
 	id: string,
 	subscribed: boolean,
 ): Mailbox {
-	const mailbox = state.mailbox(id);
+	const mailbox = state.mailbox(accountId, id);
 	if (typeof subscribed !== 'boolean') {
 		throw new StoreError('INVALID', 'isSubscribed is true or false');
 	}
@@ -131,10 +128,11 @@ export function setSubscribed(
 
 export function deleteMailbox(
 	state: MemoryState,
+	accountId: string,
 	id: string,
 	removeMessages: boolean,
 ): Expunged[] {
-	const mailbox = state.mailbox(id);
+	const mailbox = state.mailbox(accountId, id);
 	for (const other of state.mailboxes.values()) {
 		if (other.parentId === id) {
 			throw new StoreError(

@@ -12,8 +12,12 @@ export function describeChanges(create: CreateStore): void {
 function messages(create: CreateStore): void {
 	test('RFC 8620 §5.2: created, updated and destroyed since a modseq', async () => {
 		const { store, account, inbox } = await setup(create);
-		const kept = await store.addMessage(inbox.id, { content: bytes('kept') });
-		const gone = await store.addMessage(inbox.id, { content: bytes('gone') });
+		const kept = await store.addMessage(account.id, inbox.id, {
+			content: bytes('kept'),
+		});
+		const gone = await store.addMessage(account.id, inbox.id, {
+			content: bytes('gone'),
+		});
 		const start = await store.messageChanges(account.id, 0);
 		expect(start).toMatchObject({
 			created: [kept.id, gone.id],
@@ -21,11 +25,13 @@ function messages(create: CreateStore): void {
 			destroyed: [],
 			hasMore: false,
 		});
-		const added = await store.addMessage(inbox.id, { content: bytes('new') });
-		await store.setFlags([kept.id], { add: ['\\Seen'] });
+		const added = await store.addMessage(account.id, inbox.id, {
+			content: bytes('new'),
+		});
+		await store.setFlags(account.id, [kept.id], { add: ['\\Seen'] });
 		const {
 			expunged: [expunged],
-		} = await store.destroyMessages([gone.id]);
+		} = await store.destroyMessages(account.id, [gone.id]);
 		const changes = await store.messageChanges(account.id, start.modseq);
 		expect(changes).toMatchObject({
 			created: [added.id],
@@ -47,8 +53,10 @@ function messages(create: CreateStore): void {
 	test('a message created and destroyed since is left out', async () => {
 		const { store, account, inbox } = await setup(create);
 		const { modseq } = await store.messageChanges(account.id, 0);
-		const brief = await store.addMessage(inbox.id, { content: bytes('x') });
-		await store.destroyMessages([brief.id]);
+		const brief = await store.addMessage(account.id, inbox.id, {
+			content: bytes('x'),
+		});
+		await store.destroyMessages(account.id, [brief.id]);
 		const changes = await store.messageChanges(account.id, modseq);
 		expect([
 			...changes.created,
@@ -59,9 +67,13 @@ function messages(create: CreateStore): void {
 
 	test('since 0 is the whole state: every message created, nothing destroyed', async () => {
 		const { store, account, inbox } = await setup(create);
-		const kept = await store.addMessage(inbox.id, { content: bytes('a') });
-		const gone = await store.addMessage(inbox.id, { content: bytes('b') });
-		await store.removeMessages([gone.id], inbox.id);
+		const kept = await store.addMessage(account.id, inbox.id, {
+			content: bytes('a'),
+		});
+		const gone = await store.addMessage(account.id, inbox.id, {
+			content: bytes('b'),
+		});
+		await store.removeMessages(account.id, [gone.id], inbox.id);
 		expect(await store.messageChanges(account.id, 0)).toMatchObject({
 			created: [kept.id],
 			updated: [],
@@ -77,7 +89,10 @@ function paging(create: CreateStore): void {
 		const { modseq } = await store.messageChanges(account.id, 0);
 		const ids: string[] = [];
 		for (const text of ['a', 'b', 'c'])
-			ids.push((await store.addMessage(inbox.id, { content: bytes(text) })).id);
+			ids.push(
+				(await store.addMessage(account.id, inbox.id, { content: bytes(text) }))
+					.id,
+			);
 		const first = await store.messageChanges(account.id, modseq, {
 			limit: 2,
 		});
@@ -92,10 +107,16 @@ function paging(create: CreateStore): void {
 	test('RFC 8620 §5.2: a page lists a message as created even when it changed again later', async () => {
 		const { store, account, inbox } = await setup(create);
 		const { modseq } = await store.messageChanges(account.id, 0);
-		const a = await store.addMessage(inbox.id, { content: bytes('a') });
-		const b = await store.addMessage(inbox.id, { content: bytes('b') });
-		const c = await store.addMessage(inbox.id, { content: bytes('c') });
-		await store.setFlags([a.id], { add: ['\\Seen'] });
+		const a = await store.addMessage(account.id, inbox.id, {
+			content: bytes('a'),
+		});
+		const b = await store.addMessage(account.id, inbox.id, {
+			content: bytes('b'),
+		});
+		const c = await store.addMessage(account.id, inbox.id, {
+			content: bytes('c'),
+		});
+		await store.setFlags(account.id, [a.id], { add: ['\\Seen'] });
 		const seen = { created: [] as string[], updated: [] as string[] };
 		let since = modseq;
 		for (let more = true; more; ) {
@@ -133,9 +154,9 @@ function mailboxes(create: CreateStore): void {
 			updated: [],
 			destroyed: [],
 		});
-		await store.renameMailbox(a.id, 'A2');
-		await store.addMessage(inbox.id, { content: bytes('x') });
-		await store.deleteMailbox(b.id);
+		await store.renameMailbox(account.id, a.id, 'A2');
+		await store.addMessage(account.id, inbox.id, { content: bytes('x') });
+		await store.deleteMailbox(account.id, b.id);
 		const after = await store.mailboxChanges(account.id, middle.modseq);
 		expect(after).toMatchObject({ created: [], destroyed: [b.id] });
 		expect([...after.updated].sort()).toEqual([a.id, inbox.id].sort());
@@ -144,7 +165,7 @@ function mailboxes(create: CreateStore): void {
 	test('accounts count their changes apart', async () => {
 		const { store, account, inbox } = await setup(create);
 		const other = await store.createAccount('john@example.net');
-		await store.addMessage(inbox.id, { content: bytes('x') });
+		await store.addMessage(account.id, inbox.id, { content: bytes('x') });
 		expect(await store.messageChanges(other.id, 0)).toMatchObject({
 			modseq: 0,
 			created: [],

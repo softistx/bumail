@@ -23,7 +23,7 @@ async function deliver(store: MailStore, login: string, raw: ReadableStream<Uint
 	if (!account) return false;
 	const inbox = await store.findMailbox(account.id, 'inbox');
 	if (!inbox) return false;
-	await store.addMessage(inbox.id, { content: raw });
+	await store.addMessage(account.id, inbox.id, { content: raw });
 	return true;
 }
 ```
@@ -46,12 +46,22 @@ What every store promises:
 - **Copies.** What a store returns is yours: changing a returned `Date`,
   array or object, or the `Date` or bytes you gave it, never changes what
   it keeps.
+- **One account at a time.** Every method but the account's own takes
+  the account it acts in, first: `getMessage(accountId, id)`,
+  `setFlags(accountId, ids, change)`. Another account's mailbox or message
+  is treated as an id that names nothing, and never acted on: a mailbox id
+  is `NOT_FOUND`, a message id lands in `notFound`, and `getMailbox`,
+  `getMessage` and `readContent` return `undefined`. An id is no key to
+  someone else's mail.
 - **Errors.** Every refusal is a `StoreError` with a `code`: `NOT_FOUND`,
   `ALREADY_EXISTS`, `INVALID` or `CANNOT_CALCULATE_CHANGES` — never a
-  `TypeError` from a wrong argument, nor a stream's own error. A method
-  given an unknown account or mailbox id throws `NOT_FOUND`;
-  `getAccount`, `getMailbox`, `getMessage`, `findAccount` and
-  `readContent` return `undefined` instead.
+  `TypeError` from a wrong argument, nor a stream's own error. An unknown
+  account id is `NOT_FOUND` for every method that takes one, `readContent`
+  and the `get…` methods included; so is an unknown mailbox id. An
+  unknown mailbox or message id given to `getMailbox` or `getMessage`,
+  and an unknown blob id given to `readContent`, return `undefined`;
+  `getAccount` and `findAccount` return `undefined` for an unknown
+  account.
 - **Growth.** In 0.x, a minor version may add methods to `MailStore` and
   fields to what it returns. A store written outside this package follows
   those versions.
@@ -74,13 +84,13 @@ const work = await store.createMailbox(account.id, { name: 'Work' });
 const clients = await store.createMailbox(account.id, { name: 'Clients', parentId: work.id });
 
 await store.findMailbox(account.id, 'inbox'); // by role
-await store.deleteMailbox(work.id); // INVALID: it has a child
-await store.renameMailbox(clients.id, 'Customers'); // and to the top, since no parent is given
-await store.deleteMailbox(work.id); // now it has none
-await store.deleteMailbox(clients.id, { removeMessages: true });
+await store.deleteMailbox(account.id, work.id); // INVALID: it has a child
+await store.renameMailbox(account.id, clients.id, 'Customers'); // and to the top, since no parent is given
+await store.deleteMailbox(account.id, work.id); // now it has none
+await store.deleteMailbox(account.id, clients.id, { removeMessages: true });
 
 const lists = await store.createMailbox(account.id, { name: 'Lists', isSubscribed: false });
-await store.setSubscribed(lists.id, true); // IMAP SUBSCRIBE
+await store.setSubscribed(account.id, lists.id, true); // IMAP SUBSCRIBE
 ```
 
 - A mailbox has a `name`, an optional `parentId` for a hierarchy, and an
@@ -88,7 +98,9 @@ await store.setSubscribed(lists.id, true); // IMAP SUBSCRIBE
   JMAP draws on (RFC 8621 §2) — `all`, `archive`, `drafts`, `flagged`,
   `junk`, `sent`, `trash` (RFC 6154) and `important` (RFC 8457). A role is
   unique in its account. `isMailboxRole(value)` checks one read from
-  outside.
+  outside. `MailboxRole` is a closed union of these: a role the registry
+  adds later comes in a minor release, so a `switch` over a role keeps a
+  `default` case.
 - `isSubscribed` is IMAP's subscription (RFC 9051 §6.3.7) and JMAP's
   property of that name: `true` unless created otherwise, changed with
   `setSubscribed`, which takes a modseq like any change of the mailbox.
@@ -116,7 +128,7 @@ await store.setSubscribed(lists.id, true); // IMAP SUBSCRIBE
 ## Messages
 
 ```ts
-const message = await store.addMessage(inbox.id, {
+const message = await store.addMessage(account.id, inbox.id, {
 	content: raw, // a Uint8Array, or a ReadableStream<Uint8Array>
 	flags: ['\\Seen'],
 	receivedAt: new Date(),
@@ -125,9 +137,9 @@ const message = await store.addMessage(inbox.id, {
 // { id, accountId, threadId, blobId, size, flags, receivedAt, createdModseq,
 //   modseq, mailboxes: [{ mailboxId, uid, modseq }] }
 
-await store.listMessages(inbox.id); // [{ uid, message }] in UID order
-await store.listMessages(inbox.id, { fromUid: 120 });
-await store.listMessages(inbox.id, { changedSince: 4711 }); // RFC 7162 CHANGEDSINCE
+await store.listMessages(account.id, inbox.id); // [{ uid, message }] in UID order
+await store.listMessages(account.id, inbox.id, { fromUid: 120 });
+await store.listMessages(account.id, inbox.id, { changedSince: 4711 }); // RFC 7162 CHANGEDSINCE
 await store.listAccountMessages(account.id, { offset: 0, limit: 50 }); // { messages, total }
 
 const blob = await store.readContent(account.id, message.blobId);
@@ -152,13 +164,14 @@ mailbox through a `MailboxEntry`, with its UID there; its MODSEQ is
   `Email/query`; searching and sorting come later.
 - **Content.** Content given as a stream is read to its end, hashed and
   counted as it goes. A stream that fails, or yields something other than
-  `Uint8Array` chunks, is cancelled, and nothing is added (`INVALID`).
+  `Uint8Array` chunks, is cancelled, and nothing is added (`INVALID`); a
+  stream another reader already holds (`stream.locked`) is `INVALID` too.
   Content is kept once per distinct bytes **in an account**: `blobId` is
   the SHA-256 of the content in hex, shared by equal contents and by
   copies in the account, and dropped when no message of the account uses
-  it any more. `readContent` takes the account: the same bytes in another
-  account are another blob, and a blob id is no key to another account's
-  mail.
+  it any more. `readContent` takes the account and reads only that
+  account's blobs: the same bytes in another account are another blob, so
+  a blob id from someone else's mail gives `undefined`.
 
 The store does not parse a message: it keeps bytes. Parse them with
 `@bumail/mime` when you need headers.
@@ -179,11 +192,11 @@ The store does not parse a message: it keeps bytes. Parse them with
 ## Flags
 
 ```ts
-await store.setFlags([message.id], { add: ['\\Flagged'], remove: ['\\Seen'] });
-await store.setFlags([message.id], { set: ['$Forwarded'] }); // replaces every flag
+await store.setFlags(account.id, [message.id], { add: ['\\Flagged'], remove: ['\\Seen'] });
+await store.setFlags(account.id, [message.id], { set: ['$Forwarded'] }); // replaces every flag
 
 // RFC 7162 STORE (UNCHANGEDSINCE 4711)
-const { messages, modified } = await store.setFlags(ids, { add: ['\\Deleted'] }, { unchangedSince: 4711 });
+const { messages, modified } = await store.setFlags(account.id, ids, { add: ['\\Deleted'] }, { unchangedSince: 4711 });
 ```
 
 - A flag is a **system flag** — `\Seen`, `\Answered`, `\Flagged`,
@@ -204,11 +217,11 @@ const { messages, modified } = await store.setFlags(ids, { add: ['\\Deleted'] },
 
 ```ts
 const archive = await store.createMailbox(account.id, { name: 'Archive', role: 'archive' });
-const { messages: [copy] } = await store.copyMessages([message.id], archive.id); // a new message
-await store.linkMessages([message.id], archive.id); // the same message, in one more mailbox
-await store.moveMessages([message.id], inbox.id, archive.id); // leaves INBOX; keeps its UID in Archive
-await store.removeMessages([message.id], archive.id); // out of Archive; in none left, destroyed
-if (copy) await store.destroyMessages([copy.id]); // out of every mailbox
+const { messages: [copy] } = await store.copyMessages(account.id, [message.id], archive.id); // a new message
+await store.linkMessages(account.id, [message.id], archive.id); // the same message, in one more mailbox
+await store.moveMessages(account.id, [message.id], inbox.id, archive.id); // leaves INBOX; keeps its UID in Archive
+await store.removeMessages(account.id, [message.id], archive.id); // out of Archive; in none left, destroyed
+if (copy) await store.destroyMessages(account.id, [copy.id]); // out of every mailbox
 ```
 
 - **Copy** is IMAP COPY (RFC 9051 §6.4.7): a new message with a new id,
@@ -229,15 +242,15 @@ if (copy) await store.destroyMessages([copy.id]); // out of every mailbox
 Each returns what it did and the ids it skipped:
 
 ```ts
-const { messages, notFound } = await store.moveMessages(ids, inbox.id, archive.id);
-const { expunged, notFound: gone } = await store.removeMessages(ids, inbox.id);
+const { messages, notFound } = await store.moveMessages(account.id, ids, inbox.id, archive.id);
+const { expunged, notFound: gone } = await store.removeMessages(account.id, ids, inbox.id);
 // expunged: [{ messageId, mailboxId, uid, modseq }]
 ```
 
 `moveMessages` and `removeMessages` count a message that is not in the
 mailbox it should leave as not found. Messages never leave their account:
-another account's message is not found, and a move between two accounts'
-mailboxes is `INVALID`.
+another account's message is in `notFound`, and another account's mailbox
+is `NOT_FOUND`, so nothing moves between accounts.
 
 ## Changes
 
@@ -273,8 +286,10 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   a full QRESYNC): ask again from 0. **Since 0 is always answered**, as the
   account's whole state: every message that exists is in `created`, and
   `destroyed` and `expunged` are empty, so whatever a client holds that is
-  not in `created` is gone. `MemoryMailStore` remembers every removal
-  unless given `maxTombstones`.
+  not in `created` is gone. A page since 0 never ends below the oldest
+  `since` the store still answers, so its `hasMore` pages can always be
+  asked for: it may go past `limit` to get there. `MemoryMailStore`
+  remembers every removal unless given `maxTombstones`.
 
 ## Writing a store
 
@@ -296,7 +311,7 @@ A store of your own implements `MailStore` and:
 import { readBlob } from '@bumail/store';
 
 const { blobId, size, blob } = await readBlob(input.content); // INVALID on a bad stream
-await Bun.write(`blobs/${accountId}/${blobId}`, blob);
+await Bun.write(`blobs/${account.id}/${blobId}`, blob);
 ```
 
 The contract's specs, `describeMailStore`, live next to the stores in this

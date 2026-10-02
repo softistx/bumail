@@ -23,11 +23,11 @@ function adding(create: CreateStore): void {
 	test('get ascending UIDs and modseqs, and their content back', async () => {
 		const { store, account, inbox } = await setup(create);
 		const when = new Date('2026-01-02T03:04:05Z');
-		const first = await store.addMessage(inbox.id, {
+		const first = await store.addMessage(account.id, inbox.id, {
 			content: bytes('Subject: a\r\n\r\nA\r\n'),
 			receivedAt: when,
 		});
-		const second = await store.addMessage(inbox.id, {
+		const second = await store.addMessage(account.id, inbox.id, {
 			content: bytes('Subject: b\r\n\r\nB\r\n'),
 			flags: ['\\seen'],
 		});
@@ -42,8 +42,8 @@ function adding(create: CreateStore): void {
 		expect(await textOf(store, account.id, first.blobId)).toBe(
 			'Subject: a\r\n\r\nA\r\n',
 		);
-		expect(await store.getMessage(first.id)).toEqual(first);
-		expect(await store.getMailbox(inbox.id)).toMatchObject({
+		expect(await store.getMessage(account.id, first.id)).toEqual(first);
+		expect(await store.getMailbox(account.id, inbox.id)).toMatchObject({
 			uidNext: 3,
 			messages: 2,
 			unseen: 1,
@@ -52,10 +52,14 @@ function adding(create: CreateStore): void {
 	});
 
 	test('RFC 9051 §2.3.1.1: a UID is never reused, even after a removal', async () => {
-		const { store, inbox } = await setup(create);
-		const first = await store.addMessage(inbox.id, { content: bytes('1') });
-		await store.removeMessages([first.id], inbox.id);
-		const second = await store.addMessage(inbox.id, { content: bytes('2') });
+		const { store, account, inbox } = await setup(create);
+		const first = await store.addMessage(account.id, inbox.id, {
+			content: bytes('1'),
+		});
+		await store.removeMessages(account.id, [first.id], inbox.id);
+		const second = await store.addMessage(account.id, inbox.id, {
+			content: bytes('2'),
+		});
 		expect(second.mailboxes[0]?.uid).toBe(2);
 	});
 
@@ -63,20 +67,23 @@ function adding(create: CreateStore): void {
 		const { store, account, inbox } = await setup(create);
 		for (const receivedAt of [new Date(Number.NaN), '2020' as never]) {
 			await rejects(
-				store.addMessage(inbox.id, { content: bytes('x'), receivedAt }),
+				store.addMessage(account.id, inbox.id, {
+					content: bytes('x'),
+					receivedAt,
+				}),
 				'INVALID',
 			);
 		}
 		await rejects(
-			store.addMessage('nope', { content: bytes('x') }),
+			store.addMessage(account.id, 'nope', { content: bytes('x') }),
 			'NOT_FOUND',
 		);
-		await rejects(store.listMessages('nope'), 'NOT_FOUND');
+		await rejects(store.listMessages(account.id, 'nope'), 'NOT_FOUND');
 		await rejects(
-			store.listMessages(inbox.id, { changedSince: -1 }),
+			store.listMessages(account.id, inbox.id, { changedSince: -1 }),
 			'INVALID',
 		);
-		expect(await store.getMessage('nope')).toBeUndefined();
+		expect(await store.getMessage(account.id, 'nope')).toBeUndefined();
 		expect(await store.readContent(account.id, 'nope')).toBeUndefined();
 	});
 }
@@ -85,7 +92,7 @@ function content(create: CreateStore): void {
 	test('content may come as a stream, hashed and counted as it reads', async () => {
 		const { store, account, inbox } = await setup(create);
 		const parts = ['Subject: s\r\n', '\r\n', 'streamed\r\n'];
-		const message = await store.addMessage(inbox.id, {
+		const message = await store.addMessage(account.id, inbox.id, {
 			content: streamOf(parts.map(bytes)),
 		});
 		const whole = parts.join('');
@@ -94,22 +101,29 @@ function content(create: CreateStore): void {
 		const blob = await store.readContent(account.id, message.blobId);
 		expect(await blob?.slice(0, 10).text()).toBe('Subject: s');
 		await rejects(
-			store.addMessage(inbox.id, { content: 'text' as never }),
+			store.addMessage(account.id, inbox.id, { content: 'text' as never }),
 			'INVALID',
 		);
 	});
 
-	test('a stream that fails, or yields what is not bytes, adds nothing', async () => {
+	test('a stream that fails, yields what is not bytes or is locked adds nothing', async () => {
 		const { store, account, inbox } = await setup(create);
 		const before = await store.messageChanges(account.id, 0);
+		const locked = streamOf([bytes('x')]);
+		const reader = locked.getReader();
 		await rejects(
-			store.addMessage(inbox.id, {
+			store.addMessage(account.id, inbox.id, { content: locked }),
+			'INVALID',
+		);
+		reader.releaseLock();
+		await rejects(
+			store.addMessage(account.id, inbox.id, {
 				content: streamOf([bytes('half')], new Error('connection reset')),
 			}),
 			'INVALID',
 		);
 		await rejects(
-			store.addMessage(inbox.id, {
+			store.addMessage(account.id, inbox.id, {
 				content: streamOf([bytes('a'), 'not bytes']),
 			}),
 			'INVALID',
@@ -117,7 +131,7 @@ function content(create: CreateStore): void {
 		expect((await store.messageChanges(account.id, 0)).modseq).toBe(
 			before.modseq,
 		);
-		expect((await store.getMailbox(inbox.id))?.messages).toBe(0);
+		expect((await store.getMailbox(account.id, inbox.id))?.messages).toBe(0);
 	});
 
 	test('a mailbox deleted while its content is read: NOT_FOUND, nothing kept', async () => {
@@ -130,9 +144,9 @@ function content(create: CreateStore): void {
 					chunk ? controller.enqueue(chunk) : controller.close();
 			},
 		});
-		const adding = store.addMessage(box.id, { content: stream });
+		const adding = store.addMessage(account.id, box.id, { content: stream });
 		push(bytes('slow'));
-		await store.deleteMailbox(box.id);
+		await store.deleteMailbox(account.id, box.id);
 		push(null);
 		await rejects(adding, 'NOT_FOUND');
 		expect(
@@ -144,15 +158,19 @@ function content(create: CreateStore): void {
 function blobs(create: CreateStore): void {
 	test('the blob id is the SHA-256 of the content, shared by equal contents', async () => {
 		const { store, account, inbox } = await setup(create);
-		const a = await store.addMessage(inbox.id, { content: bytes('same') });
-		const b = await store.addMessage(inbox.id, { content: bytes('same') });
+		const a = await store.addMessage(account.id, inbox.id, {
+			content: bytes('same'),
+		});
+		const b = await store.addMessage(account.id, inbox.id, {
+			content: bytes('same'),
+		});
 		expect(a.blobId).toBe(
 			'0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5',
 		);
 		expect(b.blobId).toBe(a.blobId);
-		await store.destroyMessages([a.id]);
+		await store.destroyMessages(account.id, [a.id]);
 		expect(await textOf(store, account.id, a.blobId)).toBe('same');
-		await store.destroyMessages([b.id]);
+		await store.destroyMessages(account.id, [b.id]);
 		expect(await store.readContent(account.id, a.blobId)).toBeUndefined();
 	});
 
@@ -160,29 +178,37 @@ function blobs(create: CreateStore): void {
 		const { store, account, inbox } = await setup(create);
 		const other = await store.createAccount('john@example.net');
 		const theirs = await store.createMailbox(other.id, { name: 'INBOX' });
-		const mine = await store.addMessage(inbox.id, { content: bytes('secret') });
-		expect(await store.readContent(other.id, mine.blobId)).toBeUndefined();
-		const same = await store.addMessage(theirs.id, {
+		const mine = await store.addMessage(account.id, inbox.id, {
 			content: bytes('secret'),
 		});
-		await store.destroyMessages([same.id]);
+		expect(await store.readContent(other.id, mine.blobId)).toBeUndefined();
+		const same = await store.addMessage(other.id, theirs.id, {
+			content: bytes('secret'),
+		});
+		await store.destroyMessages(other.id, [same.id]);
 		expect(await textOf(store, account.id, mine.blobId)).toBe('secret');
 	});
 }
 
 function listing(create: CreateStore): void {
 	test('a mailbox lists in UID order; RFC 7162 §3.1.4 CHANGEDSINCE', async () => {
-		const { store, inbox } = await setup(create);
-		const a = await store.addMessage(inbox.id, { content: bytes('a') });
-		const b = await store.addMessage(inbox.id, { content: bytes('b') });
-		const entries = await store.listMessages(inbox.id);
+		const { store, account, inbox } = await setup(create);
+		const a = await store.addMessage(account.id, inbox.id, {
+			content: bytes('a'),
+		});
+		const b = await store.addMessage(account.id, inbox.id, {
+			content: bytes('b'),
+		});
+		const entries = await store.listMessages(account.id, inbox.id);
 		expect(entries.map((entry) => entry.uid)).toEqual([1, 2]);
 		expect(entries[1]?.message).toEqual(b);
 		expect(
-			(await store.listMessages(inbox.id, { fromUid: 2 })).map((e) => e.uid),
+			(await store.listMessages(account.id, inbox.id, { fromUid: 2 })).map(
+				(e) => e.uid,
+			),
 		).toEqual([2]);
-		await store.setFlags([a.id], { add: ['\\Seen'] });
-		const changed = await store.listMessages(inbox.id, {
+		await store.setFlags(account.id, [a.id], { add: ['\\Seen'] });
+		const changed = await store.listMessages(account.id, inbox.id, {
 			changedSince: b.modseq,
 		});
 		expect(changed.map((entry) => entry.message.id)).toEqual([a.id]);
@@ -192,9 +218,11 @@ function listing(create: CreateStore): void {
 		const { store, account, inbox } = await setup(create);
 		const box = await store.createMailbox(account.id, { name: 'Other' });
 		const ids = [
-			(await store.addMessage(inbox.id, { content: bytes('a') })).id,
-			(await store.addMessage(box.id, { content: bytes('b') })).id,
-			(await store.addMessage(inbox.id, { content: bytes('c') })).id,
+			(await store.addMessage(account.id, inbox.id, { content: bytes('a') }))
+				.id,
+			(await store.addMessage(account.id, box.id, { content: bytes('b') })).id,
+			(await store.addMessage(account.id, inbox.id, { content: bytes('c') }))
+				.id,
 		];
 		const all = await store.listAccountMessages(account.id);
 		expect(all.messages.map((m) => m.id)).toEqual(ids);
@@ -216,20 +244,25 @@ function threads(create: CreateStore): void {
 	test('RFC 8621 §4.1.1: a thread id, its own by default, kept by a copy', async () => {
 		const { store, account, inbox } = await setup(create);
 		const box = await store.createMailbox(account.id, { name: 'Other' });
-		const first = await store.addMessage(inbox.id, { content: bytes('a') });
+		const first = await store.addMessage(account.id, inbox.id, {
+			content: bytes('a'),
+		});
 		expect(first.threadId).toBe(first.id);
-		const reply = await store.addMessage(inbox.id, {
+		const reply = await store.addMessage(account.id, inbox.id, {
 			content: bytes('b'),
 			threadId: first.threadId,
 		});
 		expect(reply.threadId).toBe(first.id);
 		const {
 			messages: [copy],
-		} = await store.copyMessages([reply.id], box.id);
+		} = await store.copyMessages(account.id, [reply.id], box.id);
 		expect(copy?.threadId).toBe(first.id);
 		for (const threadId of ['', 'a b', 7 as never]) {
 			await rejects(
-				store.addMessage(inbox.id, { content: bytes('x'), threadId }),
+				store.addMessage(account.id, inbox.id, {
+					content: bytes('x'),
+					threadId,
+				}),
 				'INVALID',
 			);
 		}
