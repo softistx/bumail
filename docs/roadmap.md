@@ -14,12 +14,12 @@ No dates. Each entry says what someone running or embedding the server gets.
   multipart, base64 and quoted-printable, any charset `TextDecoder` knows,
   and a streaming parser that walks a large message without holding it in
   memory. Its specs are the RFCs' own examples.
-
-## Next
-
 - **`@bumail/store`, its contract and memory store** — accounts, mailboxes,
   messages, flags, UIDs and modseqs, behind one interface. It comes before
   SMTP because the first SMTP slice needs somewhere to deliver.
+
+## Next
+
 - **`@bumail/smtp`, the server** — RFC 5321 on `Bun.listen`: EHLO with
   PIPELINING, SIZE, 8BITMIME, SMTPUTF8 and ENHANCEDSTATUSCODES; STARTTLS and
   implicit TLS; AUTH PLAIN and LOGIN, offered only once encrypted; hooks for
