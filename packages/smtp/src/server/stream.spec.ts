@@ -173,4 +173,40 @@ describe('the message reaches onData as a stream', () => {
 		expect(await s.send('hi\r\n.\r\n')).toStartWith('250 2.0.0 OK queued as');
 		expect(s.errors).toEqual([]);
 	});
+
+	test('onData that answers after hookTimeout: 451, and a late read errors with HOOK_TIMEOUT', async () => {
+		let late: Awaited<ReturnType<typeof outcome>> | undefined;
+		const s = await fakeSession(
+			mxOptions({
+				hookTimeout: 1,
+				onData: async (message) => {
+					await Bun.sleep(1200);
+					late = await outcome(message.content);
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hi\r\n.\r\n')).toBe(
+			'451 4.3.0 Local error in processing\r\n',
+		);
+		await Bun.sleep(300);
+		expect(late?.error?.code).toBe('HOOK_TIMEOUT');
+	});
+
+	test('onData that leaves a read running and answers: 451, even if the read ends first', async () => {
+		const s = await fakeSession(
+			mxOptions({
+				onData: (message) => {
+					void new Response(message.content).text();
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hello\r\n.\r\n')).toBe(
+			'451 4.3.0 Local error in processing\r\n',
+		);
+		expect((s.errors[0] as SmtpError).code).toBe('MESSAGE_NOT_READ');
+	});
 });

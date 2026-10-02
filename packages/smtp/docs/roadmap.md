@@ -35,3 +35,7 @@ number on it.
   relay is a spam source within hours of going online.
 - **AUTH on a clear connection** — the password would cross the network in
   base64. Use STARTTLS or implicit TLS.
+
+## Shipped
+
+Nothing yet.

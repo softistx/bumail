@@ -45,7 +45,7 @@ export interface ReceivedMessage {
 	 *
 	 * It ends in an `SmtpError` when the message must not be delivered:
 	 * `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK` (SMTP smuggling),
-	 * `CONNECTION_LOST` or `HOOK_TIMEOUT`. Read it to its end before keeping
+	 * `CONNECTION_LOST`, `HOOK_TIMEOUT` or `MESSAGE_NOT_READ`. Read it to its end before keeping
 	 * anything: a message is taken only when the stream ended cleanly and
 	 * `onData` resolved without a refusal.
 	 */

@@ -62,7 +62,10 @@ function localLookup(
 }
 
 export function settingsOf(options: SmtpServerOptions): Settings {
-	if (!/^[A-Za-z0-9.-]+$/.test(options.hostname)) {
+	if (
+		typeof options.hostname !== 'string' ||
+		!/^[A-Za-z0-9.-]+$/.test(options.hostname)
+	) {
 		throw invalid(`"${options.hostname}" is not a host name`);
 	}
 	if (typeof options.onData !== 'function') {
@@ -82,6 +85,13 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 		);
 	}
 	const isLocal = localLookup(options.localDomains);
+	const timeout = positive('timeout', options.timeout, 300);
+	const greetingDelay = nonNegative('greetingDelay', options.greetingDelay, 0);
+	if (greetingDelay >= timeout) {
+		throw invalid(
+			`greetingDelay (${greetingDelay} s) must be shorter than timeout (${timeout} s), or every client times out before the greeting`,
+		);
+	}
 	return {
 		options,
 		mode: options.mode ?? 'mx',
@@ -93,9 +103,9 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 		maxRecipients: positive('maxRecipients', options.maxRecipients, 100),
 		maxConnections: positive('maxConnections', options.maxConnections, 1000),
 		maxErrors: positive('maxErrors', options.maxErrors, 10),
-		timeout: positive('timeout', options.timeout, 300),
+		timeout,
 		hookTimeout: positive('hookTimeout', options.hookTimeout, 60),
-		greetingDelay: nonNegative('greetingDelay', options.greetingDelay, 0),
+		greetingDelay,
 		isLocal: (domain) => isLocal(domain.toLowerCase()),
 	};
 }

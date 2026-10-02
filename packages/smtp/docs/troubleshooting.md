@@ -18,6 +18,7 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: createSmtpServer(): localDomains must be an array of domains or a function`](#smtperror-createsmtpserver-localdomains-must-be-an-array-of-domains-or-a-function)
 - [`SmtpError: createSmtpServer(): … must be a positive integer, not …`](#smtperror-createsmtpserver--must-be-a-positive-integer-not-)
 - [`SmtpError: createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not …`](#smtperror-createsmtpserver-greetingdelay-must-be-a-number-of-seconds-0-or-more-not-)
+- [`SmtpError: createSmtpServer(): greetingDelay (… s) must be shorter than timeout (… s), or every client times out before the greeting`](#smtperror-createsmtpserver-greetingdelay--s-must-be-shorter-than-timeout--s-or-every-client-times-out-before-the-greeting)
 - [`SmtpError: listen(): the server is already listening on …`](#smtperror-listen-the-server-is-already-listening-on-)
 
 **Relaying and authentication**
@@ -62,6 +63,7 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: The message holds a bare CR or LF (SMTP smuggling); do not deliver it`](#smtperror-the-message-holds-a-bare-cr-or-lf-smtp-smuggling-do-not-deliver-it)
 - [`SmtpError: The client disconnected before the end of the message; do not deliver it`](#smtperror-the-client-disconnected-before-the-end-of-the-message-do-not-deliver-it)
 - [`SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-read-the-message-within-hooktimeout--s-do-not-deliver-it)
+- [`SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it)
 
 **Hooks**
 
@@ -277,6 +279,31 @@ createSmtpServer({
 	hostname: 'mx.example.com',
 	localDomains: ['example.com'],
 	greetingDelay: 6, // seconds, not milliseconds
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+### `SmtpError: createSmtpServer(): greetingDelay (… s) must be shorter than timeout (… s), or every client times out before the greeting`
+
+**When**: `greetingDelay` is as long as `timeout` or longer — `timeout`'s
+default, 300, included.
+
+**Why**: a client waiting for the 220 sends nothing, so the idle timer
+runs out first: every client would get `421 4.4.2 … Idle too long,
+closing` and never a greeting.
+
+**Fix**: keep the delay to a few seconds, well below `timeout`:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	greetingDelay: 6,
+	timeout: 300,
 	onData: async (message) => {
 		await new Response(message.content).bytes();
 	},
@@ -974,6 +1001,21 @@ hold the connection forever.
 **Fix**: read the stream as it comes, and do the slow work after it ended:
 write the bytes to disk first, then parse, scan or forward them.
 
+### `SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`
+
+**When**: the read of `message.content` throws this `SmtpError`, code
+`HOOK_TIMEOUT`, in an `onData` that read past the end of DATA too late:
+the client had sent the whole message, and `onData` neither read it to
+the end nor answered within `hookTimeout` seconds. The client got
+`451 4.3.0 Local error in processing`, and `onError` was given
+[`SmtpError: onData did not settle within hookTimeout (… s)`](#smtperror--did-not-settle-within-hooktimeout--s).
+
+**Why**: the client was told 451 and will send the message again; a read
+that ended cleanly after that would deliver it twice.
+
+**Fix**: read the stream first and answer once it ended; do the slow work
+— a scan, a forward — after `onData` answered, or raise `hookTimeout`.
+
 ## Hooks
 
 ### `451 4.3.0 Local error in processing`
@@ -1077,8 +1119,10 @@ createSmtpServer({
 
 **When**: `onError` gets this `SmtpError`, code `MESSAGE_NOT_READ`: `onData`
 resolved without a refusal before it read `message.content` to its end, or
-cancelled the stream. The client got `451 4.3.0 Local error in processing`,
-never `250`, and keeps the message.
+cancelled the stream. A read it left running counts as not read, even if
+it reaches the end later; such a read can also throw this same error. The
+client got `451 4.3.0 Local error in processing`, never `250`, and keeps
+the message.
 
 **Why**: a `250` makes the server responsible for the message. An `onData`
 that stopped early has stored part of it at most, so the server does not

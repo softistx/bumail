@@ -35,11 +35,13 @@ export class Intake {
 	#ended = false;
 	/** `onData` pulled the last byte and saw the stream close. */
 	#read = false;
-	#state: 'open' | 'errored' | 'cancelled' = 'open';
+	#state: 'open' | 'closed' | 'errored' | 'cancelled' = 'open';
 	#failure: Reply | undefined;
 	#wakers: (() => void)[] = [];
 	readonly #delivery: Promise<Reply | undefined>;
 	#delivered = false;
+	/** Whether `onData` had read to the end when it answered. */
+	#readWhenAnswered = false;
 
 	constructor(connection: Connection, transaction: Transaction) {
 		this.#connection = connection;
@@ -79,6 +81,7 @@ export class Intake {
 		this.#delivery = connection
 			.hook('onData', () => options.onData(message, connection.session), false)
 			.finally(() => {
+				this.#readWhenAnswered = this.#read;
 				this.#delivered = true;
 				this.#wake();
 			});
@@ -122,10 +125,18 @@ export class Intake {
 		const answer = await within(this.#delivery, seconds);
 		if (timedOut(answer)) {
 			this.#connection.report(hookTimeout('onData', seconds));
+			// The client is told 451 and will try again: a late read must not take it.
+			this.#fail(
+				LOCAL_ERROR,
+				new SmtpError(
+					'HOOK_TIMEOUT',
+					`onData did not answer within hookTimeout (${seconds} s); do not deliver it`,
+				),
+			);
 			return LOCAL_ERROR;
 		}
 		if (answer) return answer;
-		if (!this.#read) {
+		if (!this.#readWhenAnswered) {
 			this.#connection.report(
 				new SmtpError(
 					'MESSAGE_NOT_READ',
@@ -169,6 +180,7 @@ export class Intake {
 			}
 			if (this.#ended) {
 				this.#read = true;
+				this.#state = 'closed';
 				controller.close();
 				return;
 			}
@@ -191,6 +203,12 @@ export class Intake {
 		while (this.#state === 'open' && this.#queued > HIGH_WATER_MARK) {
 			if (this.#delivered) {
 				// onData answered without reading to the end: feed it no more.
+				this.#controller.error(
+					new SmtpError(
+						'MESSAGE_NOT_READ',
+						'onData answered without reading the message to its end; it was not taken',
+					),
+				);
 				this.#state = 'cancelled';
 				this.#queue = [];
 				this.#queued = 0;

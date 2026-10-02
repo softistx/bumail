@@ -115,6 +115,14 @@ describe('options', () => {
 			'createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not -1',
 		],
 		[
+			{ greetingDelay: 300 },
+			'createSmtpServer(): greetingDelay (300 s) must be shorter than timeout (300 s), or every client times out before the greeting',
+		],
+		[
+			{ hostname: undefined as unknown as string },
+			'createSmtpServer(): "undefined" is not a host name',
+		],
+		[
 			{ authenticate: () => true },
 			'createSmtpServer(): authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted',
 		],

@@ -108,6 +108,7 @@ await server.listen({ port: 25 });
 | `createSmtpServer(): localDomains must be an array of domains or a function` | `localDomains` missing, a string, or an array holding something else |
 | `createSmtpServer(): <limit> must be a positive integer, not <value>` | a limit or `hookTimeout` that is `0`, negative, fractional or `NaN` |
 | `createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not <value>` | `greetingDelay` negative, `NaN` or `Infinity` |
+| `createSmtpServer(): greetingDelay (<n> s) must be shorter than timeout (<n> s), or every client times out before the greeting` | `greetingDelay` as long as `timeout`, or longer |
 
 `listen` a second time throws an `SmtpError` with `code:
 'ALREADY_LISTENING'`: create another server for another port.
@@ -452,7 +453,8 @@ then refused whatever `onData` answers:
 | `MESSAGE_TOO_BIG` | the message passed `maxMessageSize` | `552 5.3.4 Message too big for system` |
 | `BARE_LINE_BREAK` | a CR or LF that is not part of a CRLF: SMTP smuggling | `550 5.6.11 Bare CR or LF is not allowed in a message` |
 | `CONNECTION_LOST` | the client hung up before the end | nothing: it is gone |
-| `HOOK_TIMEOUT` | `onData` read nothing for `hookTimeout` seconds | `451 4.3.0 Local error in processing` |
+| `MESSAGE_NOT_READ` | `onData` answered before the end, and a read it left running reaches the part the server stopped feeding | `451 4.3.0 Local error in processing` |
+| `HOOK_TIMEOUT` | `onData` read nothing for `hookTimeout` seconds, or did not answer within `hookTimeout` once the message ended — a late read must not keep a message the client will send again | `451 4.3.0 Local error in processing` |
 
 The refusal goes out as soon as the stream errors; the rest of the message
 is read and dropped, and the session goes on. `onData` itself must settle
@@ -715,7 +717,7 @@ await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 
 `greetingDelay` is a cheap filter against spam engines that do not wait for
 the greeting (RFC 5321 §4.3.1), in the manner of Postfix's postscreen: a few
 seconds is usual. Each waiting client holds one of `maxConnections`, and
-the idle `timeout` runs during the wait, so keep the delay well below it.
+the idle `timeout` runs during the wait, so keep the delay well below it: `createSmtpServer` refuses a delay as long as `timeout`.
 `onConnect` runs first; its refusal goes out at once, without the delay:
 
 ```ts
