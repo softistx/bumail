@@ -43,6 +43,11 @@ function printable(text: string): string {
 	return out;
 }
 
+/** Whether an address can go into the `for` clause as it is: printable, and no `;` to end the clause early. */
+function plain(address: string): boolean {
+	return printable(address) === address && !address.includes(';');
+}
+
 /**
  * The Received field the server puts on top (RFC 5321 §4.4): who sent the
  * message, from where, how, to whom when there is one recipient, and when.
@@ -58,7 +63,10 @@ export function receivedField(
 		`Received: from ${printable(state.helo ?? 'unknown')} ([${printable(transport.remoteAddress)}])`,
 		`\tby ${settings.options.hostname} with ${protocolOf(state.esmtp, state.secure, state.user !== undefined)} id ${id}`,
 	];
-	if (recipients.length === 1) lines.push(`\tfor <${recipients[0]}>`);
+	const [recipient] = recipients;
+	if (recipients.length === 1 && recipient !== undefined && plain(recipient)) {
+		lines.push(`\tfor <${recipient}>`);
+	}
 	lines[lines.length - 1] += `; ${dateTime(now)}`;
 	return `${lines.join('\r\n')}\r\n`;
 }

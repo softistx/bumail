@@ -1,3 +1,4 @@
+import { SmtpError } from '../errors';
 import type { SmtpServerOptions } from './options';
 
 /** The options with their defaults, checked once. */
@@ -9,8 +10,12 @@ export interface Settings {
 	readonly maxConnections: number;
 	readonly maxErrors: number;
 	readonly timeout: number;
-	isLocal(domain: string): Promise<boolean>;
+	readonly hookTimeout: number;
+	isLocal(domain: string): boolean | Promise<boolean>;
 }
+
+const invalid = (message: string) =>
+	new SmtpError('INVALID_OPTION', `createSmtpServer(): ${message}`);
 
 function positive(
 	name: string,
@@ -19,35 +24,49 @@ function positive(
 ): number {
 	if (value === undefined) return fallback;
 	if (!Number.isSafeInteger(value) || value < 1) {
-		throw new TypeError(
-			`createSmtpServer(): ${name} must be a positive integer, not ${value}`,
-		);
+		throw invalid(`${name} must be a positive integer, not ${value}`);
 	}
 	return value;
 }
 
+/** `localDomains` as a lookup; the domain it is given is lower case. */
+function localLookup(
+	local: SmtpServerOptions['localDomains'],
+): (domain: string) => boolean | Promise<boolean> {
+	if (typeof local === 'function') return local;
+	if (
+		Array.isArray(local) &&
+		local.every((domain: unknown) => typeof domain === 'string')
+	) {
+		const domains = new Set(
+			(local as readonly string[]).map((domain) => domain.toLowerCase()),
+		);
+		return (domain) => domains.has(domain);
+	}
+	throw invalid('localDomains must be an array of domains or a function');
+}
+
 export function settingsOf(options: SmtpServerOptions): Settings {
 	if (!/^[A-Za-z0-9.-]+$/.test(options.hostname)) {
-		throw new TypeError(
-			`createSmtpServer(): "${options.hostname}" is not a host name`,
-		);
+		throw invalid(`"${options.hostname}" is not a host name`);
+	}
+	if (typeof options.onData !== 'function') {
+		throw invalid('onData must be a function: it is where messages go');
 	}
 	if (options.implicitTls && !options.tls) {
-		throw new TypeError(
-			'createSmtpServer(): implicitTls needs tls: { key, cert }',
-		);
+		throw invalid('implicitTls needs tls: { key, cert }');
 	}
 	if (options.mode === 'submission' && !options.authenticate) {
-		throw new TypeError(
-			'createSmtpServer(): submission takes mail only from authenticated users, so it needs authenticate',
+		throw invalid(
+			'submission takes mail only from authenticated users, so it needs authenticate',
 		);
 	}
-	const local = options.localDomains;
-	const domains = Array.isArray(local)
-		? new Set(
-				(local as readonly string[]).map((domain) => domain.toLowerCase()),
-			)
-		: undefined;
+	if (options.authenticate && !options.tls) {
+		throw invalid(
+			'authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted',
+		);
+	}
+	const isLocal = localLookup(options.localDomains);
 	return {
 		options,
 		mode: options.mode ?? 'mx',
@@ -60,11 +79,7 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 		maxConnections: positive('maxConnections', options.maxConnections, 1000),
 		maxErrors: positive('maxErrors', options.maxErrors, 10),
 		timeout: positive('timeout', options.timeout, 300),
-		isLocal: async (domain) =>
-			domains
-				? domains.has(domain.toLowerCase())
-				: (local as (domain: string) => boolean | Promise<boolean>)(
-						domain.toLowerCase(),
-					),
+		hookTimeout: positive('hookTimeout', options.hookTimeout, 60),
+		isLocal: (domain) => isLocal(domain.toLowerCase()),
 	};
 }

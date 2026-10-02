@@ -12,8 +12,9 @@ bun add @bumail/smtp
 
 ## An MX on port 25
 
-Mail for your domains, from anyone; `onData` gets each message once it has
-arrived, and the client is told `250` only after it returns.
+Mail for your domains, from anyone. `onData` gets each message as a
+stream while the client sends it; the client is told `250` only once the
+stream ended cleanly and `onData` returned.
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';
@@ -27,8 +28,10 @@ const server = createSmtpServer({
 	},
 	async onData(message) {
 		// message.envelope: { from, to, smtputf8, body }
-		// message.content: the bytes, with this server's Received field on top
-		await Bun.write(`spool/${message.id}.eml`, message.content);
+		// message.content: a ReadableStream, this server's Received field on top.
+		// Reading it to its end throws if the message must not be delivered.
+		const bytes = await new Response(message.content).bytes();
+		await Bun.write(`spool/${message.id}.eml`, bytes);
 	},
 });
 
@@ -61,7 +64,8 @@ const server = createSmtpServer({
 		return hash !== undefined && (await Bun.password.verify(password, hash));
 	},
 	async onData(message, session) {
-		console.log(`${session.user} sent ${message.id} to ${message.envelope.to.join(', ')}`);
+		const bytes = await new Response(message.content).bytes();
+		console.log(`${session.user} sent ${message.id} (${bytes.length} bytes) to ${message.envelope.to.join(', ')}`);
 	},
 });
 
@@ -86,7 +90,10 @@ const server = createSmtpServer({
 		cert: await Bun.file('/etc/ssl/smtp.example.com.crt').text(),
 	},
 	authenticate: ({ username, password }) => username === 'alice' && password === Bun.env['ALICE_PASSWORD'],
-	onData: (message) => console.log('received', message.id),
+	async onData(message) {
+		const text = await new Response(message.content).text();
+		console.log('received', message.id, text.length);
+	},
 });
 
 await server.listen({ port: 465 });
@@ -95,8 +102,9 @@ await server.listen({ port: 465 });
 ## Hooks for policy
 
 A hook returns nothing to accept, or a `reply(code, status, text)` with a
-4xx or 5xx code to refuse. A hook that throws refuses with `451 4.3.0`, a
-temporary failure, so the sender tries again later.
+4xx or 5xx code to refuse. A hook that throws, answers anything else, or
+does not settle within `hookTimeout` refuses with `451 4.3.0`, a temporary
+failure, so the sender tries again later; `onError` is told why.
 
 ```ts
 import { createSmtpServer, reply } from '@bumail/smtp';
@@ -114,8 +122,9 @@ const server = createSmtpServer({
 	onRcptTo: (path) =>
 		mailboxes.has(path.address.toLowerCase()) ? undefined : reply(550, '5.1.1', 'No such user here'),
 	async onData(message) {
-		await Bun.write(`spool/${message.id}.eml`, message.content);
+		await Bun.write(`spool/${message.id}.eml`, await new Response(message.content).bytes());
 	},
+	onError: (error, session) => console.error(session.id, error),
 });
 ```
 
@@ -125,7 +134,7 @@ recipient the server already refused, relaying included.
 ## Limits
 
 Every limit has a default; each must be a positive integer, or
-`createSmtpServer` throws a `TypeError`.
+`createSmtpServer` throws an `SmtpError` with code `INVALID_OPTION`.
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';
@@ -137,8 +146,11 @@ const server = createSmtpServer({
 	maxRecipients: 50, // per message; default 100 → 452 4.5.3
 	maxConnections: 200, // at once; default 1000 → 421 4.3.2
 	maxErrors: 5, // failed commands before hanging up; default 10 → 421 4.7.0
-	timeout: 120, // idle seconds; default 300 → 421 4.4.2
-	onData: () => undefined,
+	timeout: 120, // idle seconds, counted from the client's last byte; default 300 → 421 4.4.2
+	hookTimeout: 20, // seconds a hook has to settle; default 60 → 451 4.3.0
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
 });
 
 const { port } = await server.listen({ port: 2525, hostname: '127.0.0.1' });
@@ -158,33 +170,48 @@ console.log(`listening on ${port}, ${server.connections} open`);
   failed attempts and the server hangs up.
 - **SMTP smuggling is refused.** Only the exact `<CRLF>.<CRLF>` ends a
   message. A message holding a bare LF or a bare CR is refused whole with
-  `550 5.6.11 Bare CR or LF is not allowed in a message`, and nothing is
-  handed to `onData`.
+  `550 5.6.11 Bare CR or LF is not allowed in a message`, and its content
+  stream ends in an `SmtpError` (`BARE_LINE_BREAK`), so `onData` never
+  reads it to a clean end.
 - **Commands pipelined after STARTTLS are dropped.** Whatever the client
   sent in clear behind `STARTTLS` is discarded, never run (CVE-2011-0411),
   and the session starts over: EHLO again, no transaction, no user.
+- **A client that talks before the greeting is refused** with `554` and the
+  connection closed (RFC 5321 §4.3.1); nothing it sent runs, `onConnect`'s
+  answer included.
+- **Bounded memory.** The server holds 64 KiB of a client's input and of a
+  message at most, and stops reading the client past that; replies to a
+  client that reads slowly wait in the server, none is lost.
 
 ## Traps
 
-- `mode: 'submission'` without `tls` accepts no mail: AUTH needs TLS, and
-  MAIL needs AUTH. Give it `tls`.
+- **Read `message.content` to its end before keeping anything.** The stream
+  ends in an `SmtpError` when the message must not be delivered — too big,
+  smuggled, the client gone — and the client is then refused whatever
+  `onData` answers. Something written before the stream ended may be a
+  message the server refused: delete it when the read throws.
+- `authenticate` needs `tls`, and so does `mode: 'submission'`:
+  `createSmtpServer` throws without it.
 - Ports 25, 465 and 587 are below 1024: binding them needs the privilege to,
   or a port forward from a higher one.
-- `onData` receives the whole message as a `Uint8Array`, held in memory up
-  to `maxMessageSize`; set the limit to what you are ready to hold per
-  connection.
+- A PLAIN authorization identity other than the username is refused with
+  `535`: a session acts as the user it authenticated as.
+- `Path.local` is kept as written: `<"v@x.example"@example.com>` and
+  `<v%x.example@example.com>` are local parts of `example.com`. Never split
+  an address on its first `@`.
 
 ## API
 
 | export | |
 | --- | --- |
-| `createSmtpServer(options)` | the server; throws a `TypeError` on a bad option |
-| `SmtpServer` | `listen({ port, hostname? })`, `stop(closeConnections?)`, `connections` |
-| `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits, and the hooks |
+| `createSmtpServer(options)` | the server; throws an `SmtpError` (`INVALID_OPTION`) on a bad option |
+| `SmtpServer` | `listen({ port, hostname? })` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)`, `connections` |
+| `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits, `hookTimeout`, `onError`, and the hooks |
+| `SmtpError`, `SmtpErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and what a content stream or `onError` can get: `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `CONNECTION_LOST`, `HOOK_TIMEOUT`, `INVALID_HOOK_REPLY` |
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |
 | `HookResult` | what a hook returns: `undefined` to accept, a `Reply` to refuse |
 | `Session` | `id`, `remoteAddress`, `secure`, `helo`, `esmtp`, `user`, and `data` for your own state |
-| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`) and `content` |
+| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`) and `content`, a `ReadableStream<Uint8Array>` |
 | `TlsOptions` | `key` and `cert`, as `Bun.listen` takes them |
 | `Credentials` | what `authenticate` receives: `mechanism`, `username`, `password`, `authorizationId?` |
 | `reply(code, status, text)`, `Reply` | a reply, for a hook to refuse with |
@@ -197,6 +224,8 @@ console.log(`listening on ${port}, ${server.connections} open`);
 
 ## Documentation
 
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md): the session and every reply, hooks and their order, `Session.data`, what `onData` receives, TLS, the RFCs implemented and what is not.
-- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/troubleshooting.md): every error, and the replies a client reports.
-- [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/roadmap.md): what is coming, and what is not planned.
+These pages ship in the package, under `docs/`.
+
+- [Guide](docs/guide.md): the session and every reply, hooks and their order, `Session.data`, what `onData` receives, TLS, the RFCs implemented and what is not.
+- [Troubleshooting](docs/troubleshooting.md): every error, and the replies a client reports.
+- [Roadmap](docs/roadmap.md): what is coming, and what is not planned.

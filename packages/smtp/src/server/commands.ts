@@ -1,14 +1,9 @@
-import { parseCommand, parsePathCommand } from '../protocol/command';
-import { DataReader } from '../protocol/data';
+import { parseCommand } from '../protocol/command';
 import { reply } from '../protocol/reply';
 import { authenticate, continueAuth } from './auth';
-import { type Connection, emptyTransaction } from './connection';
-
-function nonAscii(text: string): boolean {
-	for (let i = 0; i < text.length; i++)
-		if (text.charCodeAt(i) > 0x7f) return true;
-	return false;
-}
+import type { Connection } from './connection';
+import { emptyTransaction } from './state';
+import { mail, rcpt } from './transaction';
 
 function ehloLines(connection: Connection): string[] {
 	const { settings, state } = connection;
@@ -62,97 +57,6 @@ async function hello(
 	);
 }
 
-async function mail(connection: Connection, argument: string): Promise<void> {
-	const { state, settings } = connection;
-	if (state.helo === undefined)
-		return connection.fail(reply(503, '5.5.1', 'Send EHLO first'));
-	if (state.transaction.from !== undefined) {
-		return connection.fail(reply(503, '5.5.1', 'Nested MAIL command'));
-	}
-	if (settings.mode === 'submission' && state.user === undefined) {
-		return connection.fail(reply(530, '5.7.0', 'Authentication required'));
-	}
-	const command = parsePathCommand(argument, 'FROM');
-	if (!command)
-		return connection.fail(reply(501, '5.5.4', 'Syntax: MAIL FROM:<address>'));
-	const { path, parameters } = command;
-	let body: '7BIT' | '8BITMIME' = '7BIT';
-	let smtputf8 = false;
-	for (const [key, value] of Object.entries(parameters)) {
-		if (!state.esmtp)
-			return connection.fail(reply(555, '5.5.4', `${key} needs EHLO`));
-		if (key === 'SIZE') {
-			if (!/^\d+$/.test(value))
-				return connection.fail(reply(501, '5.5.4', 'Syntax: SIZE=<bytes>'));
-			if (Number(value) > settings.maxMessageSize) {
-				return connection.fail(
-					reply(552, '5.3.4', 'Message too big for system'),
-				);
-			}
-		} else if (key === 'BODY') {
-			const kind = value.toUpperCase();
-			if (kind !== '7BIT' && kind !== '8BITMIME') {
-				return connection.fail(reply(501, '5.5.4', 'BODY is 7BIT or 8BITMIME'));
-			}
-			body = kind;
-		} else if (key === 'SMTPUTF8' && value === '') {
-			smtputf8 = true;
-		} else if (key === 'AUTH') {
-			// RFC 4954 §5: the original submitter; taken and not passed on.
-		} else {
-			return connection.fail(reply(555, '5.5.4', `${key} is not supported`));
-		}
-	}
-	if (!smtputf8 && nonAscii(path.address)) {
-		return connection.fail(
-			reply(553, '5.6.7', 'A non-ASCII address needs SMTPUTF8'),
-		);
-	}
-	const options = settings.options;
-	const refused = options.onMailFrom
-		? await connection.hook(() =>
-				options.onMailFrom?.(path, connection.session),
-			)
-		: undefined;
-	if (refused) return connection.send(refused);
-	state.transaction = { from: path.address, to: [], smtputf8, body };
-	connection.send(reply(250, '2.1.0', 'OK'));
-}
-
-async function rcpt(connection: Connection, argument: string): Promise<void> {
-	const { state, settings } = connection;
-	if (state.transaction.from === undefined)
-		return connection.fail(reply(503, '5.5.1', 'Send MAIL first'));
-	const command = parsePathCommand(argument, 'TO');
-	if (!command)
-		return connection.fail(reply(501, '5.5.4', 'Syntax: RCPT TO:<address>'));
-	const { path, parameters } = command;
-	if (Object.keys(parameters).length > 0) {
-		return connection.fail(
-			reply(555, '5.5.4', `${Object.keys(parameters)[0]} is not supported`),
-		);
-	}
-	if (!state.transaction.smtputf8 && nonAscii(path.address)) {
-		return connection.fail(
-			reply(553, '5.6.7', 'A non-ASCII address needs SMTPUTF8'),
-		);
-	}
-	if (state.transaction.to.length >= settings.maxRecipients) {
-		return connection.send(reply(452, '4.5.3', 'Too many recipients'));
-	}
-	// Never an open relay: a domain this server does not host takes AUTH.
-	if (state.user === undefined && !(await settings.isLocal(path.domain))) {
-		return connection.fail(reply(554, '5.7.1', 'Relay access denied'));
-	}
-	const options = settings.options;
-	const refused = options.onRcptTo
-		? await connection.hook(() => options.onRcptTo?.(path, connection.session))
-		: undefined;
-	if (refused) return connection.send(refused);
-	state.transaction.to.push(path.address);
-	connection.send(reply(250, '2.1.5', 'OK'));
-}
-
 function data(connection: Connection, argument: string): void {
 	const { state } = connection;
 	const refusal =
@@ -165,16 +69,20 @@ function data(connection: Connection, argument: string): void {
 					: undefined;
 	if (refusal) {
 		connection.fail(refusal);
+		// What the client pipelined after a refused DATA is message content,
+		// not commands: running it would let a message smuggle commands in.
+		connection.input.drop();
 		return;
 	}
-	connection.reader = new DataReader();
-	connection.content = [];
-	state.waiting = 'data';
 	connection.send(reply(354, undefined, 'End data with <CR><LF>.<CR><LF>'));
+	connection.input.beginData();
 }
 
-function startTls(connection: Connection, argument: string): void {
-	const { state, settings, transport } = connection;
+async function startTls(
+	connection: Connection,
+	argument: string,
+): Promise<void> {
+	const { state, settings } = connection;
 	const refusal = !settings.options.tls
 		? reply(454, '4.7.0', 'TLS not available')
 		: state.secure
@@ -187,8 +95,12 @@ function startTls(connection: Connection, argument: string): void {
 		return;
 	}
 	connection.send(reply(220, '2.0.0', 'Ready to start TLS'));
-	connection.discardInput();
-	transport.startTls();
+	connection.input.ignore();
+	// The 220 must reach the client in clear before the handshake starts.
+	await connection.transport.drained();
+	if (connection.closed) return;
+	connection.transport.startTls();
+	connection.input.accept();
 	// RFC 3207 §4.2: everything learnt before TLS is forgotten.
 	state.secure = true;
 	state.helo = undefined;

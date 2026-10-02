@@ -3,7 +3,10 @@ export interface Credentials {
 	readonly mechanism: 'PLAIN' | 'LOGIN';
 	readonly username: string;
 	readonly password: string;
-	/** PLAIN's authorization identity, when it differs from the username. */
+	/**
+	 * PLAIN's authorization identity, when it differs from the username.
+	 * The server refuses such credentials before `authenticate` is asked.
+	 */
 	readonly authorizationId?: string;
 }
 

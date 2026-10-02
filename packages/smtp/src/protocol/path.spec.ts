@@ -66,4 +66,31 @@ describe('parsePath (RFC 5321 §4.1.2)', () => {
 			expect(parsePath(text, true)).toBeUndefined();
 		}
 	});
+
+	test('C1 controls, format characters and line separators are refused, even under SMTPUTF8', () => {
+		for (const char of [
+			'\u0085',
+			'\u009b',
+			'\u2028',
+			'\u2029',
+			'\u200b',
+			'\u202e',
+			'\ufeff',
+		]) {
+			expect(parsePath(`<a${char}b@foo.com>`, false)).toBeUndefined();
+			expect(parsePath(`<"a${char}b"@foo.com>`, false)).toBeUndefined();
+			expect(parsePath(`<ab@fo${char}o.com>`, false)).toBeUndefined();
+		}
+	});
+
+	test('a quoted @ or a % stays in the local part, of the domain after the last @', () => {
+		expect(parsePath('<"v@evil.example"@foo.com>', false)).toEqual({
+			address: '"v@evil.example"@foo.com',
+			local: '"v@evil.example"',
+			domain: 'foo.com',
+		});
+		expect(parsePath('<v%evil.example@foo.com>', false)?.domain).toBe(
+			'foo.com',
+		);
+	});
 });

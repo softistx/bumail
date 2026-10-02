@@ -14,7 +14,11 @@ export interface Session {
 	readonly esmtp: boolean;
 	/** The username the client authenticated as. */
 	readonly user?: string;
-	/** For the app's own state across hooks. */
+	/**
+	 * For the app's own state across hooks. It lasts the whole connection,
+	 * STARTTLS included: what the server learnt before TLS is forgotten, but
+	 * what the app keeps here is the app's to judge.
+	 */
 	readonly data: Record<string, unknown>;
 }
 
@@ -29,18 +33,30 @@ export interface Envelope {
 	readonly body: '7BIT' | '8BITMIME';
 }
 
-/** A message received, ready to deliver. */
+/** A message on its way in, handed to `onData` as the client sends it. */
 export interface ReceivedMessage {
 	/** The id the server gave it, also in its Received field and the 250 reply. */
 	readonly id: string;
 	readonly envelope: Envelope;
-	/** The message as received, dot-unstuffed, with the server's Received field first. */
-	readonly content: Uint8Array;
+	/**
+	 * The message as the client sends it, dot-unstuffed, with the server's
+	 * Received field first. It holds 64 KiB at most: the server reads the
+	 * client only as fast as this stream is read.
+	 *
+	 * It ends in an `SmtpError` when the message must not be delivered:
+	 * `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK` (SMTP smuggling),
+	 * `CONNECTION_LOST` or `HOOK_TIMEOUT`. Read it to its end before keeping
+	 * anything: a message is taken only when the stream ended cleanly and
+	 * `onData` resolved without a refusal.
+	 */
+	readonly content: ReadableStream<Uint8Array>;
 }
 
 /**
  * What a hook answers: nothing to accept, or a reply — a 4xx or 5xx code —
- * to refuse with. A hook that throws refuses with `451 4.3.0`.
+ * to refuse with. A hook that throws, answers anything else, or does not
+ * settle within `hookTimeout` refuses with `451 4.3.0`, and the error goes
+ * to `onError`.
  */
 export type HookResult = Reply | undefined | void;
 
@@ -52,9 +68,10 @@ export interface SmtpHooks {
 	/** After the server's own checks of RCPT TO, relaying included. */
 	onRcptTo?(path: Path, session: Session): HookResult | Promise<HookResult>;
 	/**
-	 * The whole message arrived: deliver or queue it before answering. The
-	 * reply to DATA waits for this hook, so the client knows whether the
-	 * message was taken.
+	 * A message is coming: read `message.content` to its end, then deliver
+	 * or queue it before resolving. The reply to DATA waits for this hook
+	 * and for the end of the content, so the client knows whether the
+	 * message was taken. If the stream errors, do not deliver.
 	 */
 	onData(
 		message: ReceivedMessage,
@@ -78,9 +95,11 @@ export interface SmtpServerOptions extends SmtpHooks {
 	 */
 	readonly mode?: 'mx' | 'submission';
 	/**
-	 * The domains this server receives mail for. A recipient anywhere else
-	 * is relaying, and is refused unless the session authenticated: there is
-	 * no option to relay without AUTH.
+	 * The domains this server receives mail for, matched whole and without
+	 * case. A recipient anywhere else is relaying, and is refused unless the
+	 * session authenticated: there is no option to relay without AUTH. A
+	 * function is given the domain in lower case; if it throws or times out,
+	 * that recipient gets `451 4.3.0`.
 	 */
 	readonly localDomains:
 		| readonly string[]
@@ -91,7 +110,9 @@ export interface SmtpServerOptions extends SmtpHooks {
 	readonly implicitTls?: boolean;
 	/**
 	 * Checks credentials; turns on AUTH PLAIN and LOGIN (RFC 4954), offered
-	 * and accepted only over TLS.
+	 * and accepted only over TLS, so it needs `tls`. Only `true` accepts. A
+	 * PLAIN authorization identity other than the username is refused before
+	 * this is called: a session acts as the user it authenticated as.
 	 */
 	authenticate?(
 		credentials: Credentials,
@@ -105,6 +126,18 @@ export interface SmtpServerOptions extends SmtpHooks {
 	readonly maxConnections?: number;
 	/** Commands that fail before the server hangs up. Default 10. */
 	readonly maxErrors?: number;
-	/** Idle time before the server hangs up, in seconds. Default 300, RFC 5321 §4.5.3.2.7's. */
+	/** Idle time before the server hangs up, in seconds; any byte from the client starts it again. Default 300, RFC 5321 §4.5.3.2.7's. */
 	readonly timeout?: number;
+	/**
+	 * Seconds a hook, `authenticate` or `localDomains` has to settle — and
+	 * `onData` to read the next part of a message, then to answer once it
+	 * ended. Past it, the command is refused with `451 4.3.0`. Default 60.
+	 */
+	readonly hookTimeout?: number;
+	/**
+	 * Told of what went wrong in the app's code: a hook, `authenticate` or
+	 * `localDomains` that threw or timed out, or a hook reply that is not a
+	 * refusal. The client only sees a 451 or 454.
+	 */
+	onError?(error: unknown, session: Session): void;
 }

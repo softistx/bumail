@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import type { Socket } from 'bun';
-import type { ReceivedMessage } from './options';
+import { Client } from './client.fixtures';
 import { createSmtpServer, type SmtpServer } from './server';
 import { mxOptions } from './session.fixtures';
 
@@ -11,79 +10,6 @@ const tls = {
 	cert: await fixture('localhost.crt').text(),
 };
 
-/** A line-reading client over a real socket, able to STARTTLS. */
-class Client {
-	#socket!: Socket<undefined>;
-	#buffer = '';
-	#waiters: (() => void)[] = [];
-	#encrypted = false;
-	closed = false;
-
-	static async connect(port: number, secure = false): Promise<Client> {
-		const client = new Client();
-		client.#socket = await Bun.connect({
-			hostname: '127.0.0.1',
-			port,
-			...(secure
-				? { tls: { rejectUnauthorized: false, serverName: 'localhost' } }
-				: {}),
-			socket: client.#handler(),
-		});
-		return client;
-	}
-
-	#handler(tls = false) {
-		return {
-			data: (_: Socket<undefined>, chunk: Uint8Array) => {
-				// After STARTTLS, the clear socket sees the TLS records themselves.
-				if (this.#encrypted !== tls) return;
-				this.#buffer += new TextDecoder().decode(chunk);
-				for (const wake of this.#waiters.splice(0)) wake();
-			},
-			close: () => {
-				this.closed = true;
-				for (const wake of this.#waiters.splice(0)) wake();
-			},
-		};
-	}
-
-	/** The next complete reply: lines up to one with a space after the code. */
-	async reply(): Promise<string> {
-		for (;;) {
-			const match = /^(?:\d{3}-[^\n]*\n)*\d{3} [^\n]*\n/.exec(this.#buffer);
-			if (match) {
-				this.#buffer = this.#buffer.slice(match[0].length);
-				return match[0];
-			}
-			if (this.closed) return '';
-			await new Promise<void>((wake) => this.#waiters.push(wake));
-		}
-	}
-
-	async command(line: string): Promise<string> {
-		this.#socket.write(`${line}\r\n`);
-		return this.reply();
-	}
-
-	startTls(): Promise<void> {
-		this.#encrypted = true;
-		return new Promise((done, fail) => {
-			const [, encrypted] = this.#socket.upgradeTLS({
-				tls: { rejectUnauthorized: false, serverName: 'localhost' },
-				socket: {
-					...this.#handler(true),
-					handshake: (_, ok, error) => (ok ? done() : fail(error)),
-				},
-			});
-			this.#socket = encrypted;
-		});
-	}
-
-	end(): void {
-		this.#socket.end();
-	}
-}
-
 let server: SmtpServer | undefined;
 afterEach(() => {
 	server?.stop(true);
@@ -91,14 +17,14 @@ afterEach(() => {
 });
 
 async function start(overrides = {}) {
-	const received: ReceivedMessage[] = [];
+	const received: string[] = [];
 	server = createSmtpServer(
 		mxOptions({
 			tls,
 			authenticate: ({ username, password }) =>
 				username === 'alice' && password === 'secret',
-			onData: (message) => {
-				received.push(message);
+			onData: async (message) => {
+				received.push(await new Response(message.content).text());
 			},
 			...overrides,
 		}),
@@ -123,9 +49,7 @@ describe('createSmtpServer on Bun.listen', () => {
 		);
 		expect(await client.command('QUIT')).toStartWith('221');
 		expect(received).toHaveLength(1);
-		expect(new TextDecoder().decode(received[0]?.content)).toEndWith(
-			'Subject: hi\r\n\r\nhello\r\n',
-		);
+		expect(received[0] ?? '').toEndWith('Subject: hi\r\n\r\nhello\r\n');
 	});
 
 	test('STARTTLS, then AUTH, then a relayed message (RFC 3207, RFC 4954)', async () => {
@@ -153,9 +77,7 @@ describe('createSmtpServer on Bun.listen', () => {
 		await client.command('DATA');
 		expect(await client.command('hi\r\n.')).toStartWith('250');
 		client.end();
-		expect(new TextDecoder().decode(received[0]?.content)).toContain(
-			'with ESMTPSA id',
-		);
+		expect(received[0] ?? '').toContain('with ESMTPSA id');
 	});
 
 	test('without AUTH, the real server refuses to relay', async () => {
@@ -199,4 +121,56 @@ describe('createSmtpServer on Bun.listen', () => {
 		await client.reply();
 		expect(await client.reply()).toBe('421 foo.com Idle too long, closing\r\n');
 	}, 8000);
+
+	test('the idle time starts again with every command', async () => {
+		const { port } = await start({ timeout: 2 });
+		const client = await Client.connect(port);
+		await client.reply();
+		for (let i = 0; i < 7; i++) {
+			expect(await client.command('NOOP')).toBe('250 OK\r\n');
+			await Bun.sleep(500);
+		}
+		expect(client.closed).toBe(false);
+		client.end();
+	}, 10_000);
+
+	test('a client that reads slowly loses no reply', async () => {
+		const { port } = await start();
+		const client = await Client.connect(port);
+		await client.reply();
+		await client.command('EHLO bar.com');
+		const count = 100_000;
+		client.pause();
+		client.write('NOOP\r\n'.repeat(count));
+		await Bun.sleep(300);
+		client.resume();
+		const all = await client.until(
+			(text) => text.split('250 2.0.0 OK\r\n').length - 1 === count,
+			10,
+		);
+		expect(all).toBe(true);
+		client.end();
+	}, 15_000);
+
+	test('a session that went through STARTTLS is counted out when it closes', async () => {
+		const { port } = await start();
+		const client = await Client.connect(port);
+		await client.reply();
+		await client.command('EHLO bar.com');
+		await client.command('STARTTLS');
+		await client.startTls();
+		await client.command('EHLO bar.com');
+		expect(server?.connections).toBe(1);
+		client.end();
+		for (let i = 0; i < 50 && server?.connections !== 0; i++)
+			await Bun.sleep(20);
+		expect(server?.connections).toBe(0);
+	});
+
+	test('listen twice throws ALREADY_LISTENING', async () => {
+		await start();
+		expect(server?.listen({ port: 0, hostname: '127.0.0.1' })).rejects.toThrow(
+			'listen(): the server is already listening on 127.0.0.1:',
+		);
+	});
 });

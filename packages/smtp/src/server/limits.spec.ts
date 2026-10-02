@@ -1,61 +1,10 @@
 import { describe, expect, test } from 'bun:test';
+import { SmtpError } from '../errors';
 import { createSmtpServer } from './server';
 import { FAKE_TLS, fakeSession, mxOptions } from './session.fixtures';
 
 const transaction =
 	'EHLO bar.com\r\nMAIL FROM:<a@bar.com>\r\nRCPT TO:<b@foo.com>\r\nDATA\r\n';
-
-describe('STARTTLS (RFC 3207)', () => {
-	test('220, then TLS, then the session starts over: EHLO again (§4.2)', async () => {
-		const s = await fakeSession(mxOptions({ tls: FAKE_TLS }));
-		await s.send('EHLO bar.com\r\n');
-		expect(await s.send('STARTTLS\r\n')).toBe(
-			'220 2.0.0 Ready to start TLS\r\n',
-		);
-		expect(s.tlsStarts).toBe(1);
-		expect(s.connection.session).toMatchObject({ secure: true, esmtp: false });
-		expect(s.connection.session.helo).toBeUndefined();
-		expect(await s.send('MAIL FROM:<a@bar.com>\r\n')).toBe(
-			'503 Send EHLO first\r\n',
-		);
-	});
-
-	test('commands pipelined behind STARTTLS in clear are dropped, never run (CVE-2011-0411)', async () => {
-		const s = await fakeSession(mxOptions({ tls: FAKE_TLS }));
-		await s.send('EHLO bar.com\r\n');
-		expect(
-			await s.send('STARTTLS\r\nMAIL FROM:<injected@evil.example>\r\nNOOP\r\n'),
-		).toBe('220 2.0.0 Ready to start TLS\r\n');
-		await s.send('EHLO bar.com\r\n');
-		expect(await s.send('RCPT TO:<b@foo.com>\r\n')).toBe(
-			'503 5.5.1 Send MAIL first\r\n',
-		);
-	});
-
-	test('not offered without tls; not twice', async () => {
-		const clear = await fakeSession(mxOptions());
-		await clear.send('EHLO bar.com\r\n');
-		expect(await clear.send('STARTTLS\r\n')).toBe(
-			'454 4.7.0 TLS not available\r\n',
-		);
-		const secure = await fakeSession(mxOptions({ tls: FAKE_TLS }), {
-			secure: true,
-		});
-		await secure.send('EHLO bar.com\r\n');
-		expect(await secure.send('STARTTLS\r\n')).toBe(
-			'503 5.5.1 TLS already active\r\n',
-		);
-	});
-
-	test('the transaction in progress is forgotten', async () => {
-		const s = await fakeSession(mxOptions({ tls: FAKE_TLS }));
-		await s.send('EHLO bar.com\r\nMAIL FROM:<a@bar.com>\r\nSTARTTLS\r\n');
-		await s.send('EHLO bar.com\r\n');
-		expect(await s.send('RCPT TO:<b@foo.com>\r\n')).toBe(
-			'503 5.5.1 Send MAIL first\r\n',
-		);
-	});
-});
 
 describe('SMTP smuggling', () => {
 	test('a message with a bare LF is refused: 550 5.6.11, nothing delivered', async () => {
@@ -114,6 +63,15 @@ describe('limits', () => {
 		expect(await s.send('NOOP\r\n')).toBe('');
 	});
 
+	test('content pipelined after a refused DATA is dropped, never run as commands', async () => {
+		const s = await fakeSession(mxOptions());
+		await s.send('EHLO bar.com\r\nMAIL FROM:<a@bar.com>\r\n');
+		expect(await s.send('DATA\r\nRSET\r\nMAIL FROM:<x@evil.example>\r\n')).toBe(
+			'554 5.5.1 No valid recipients\r\n',
+		);
+		expect(await s.send('RCPT TO:<b@foo.com>\r\n')).toBe('250 2.1.5 OK\r\n');
+	});
+
 	test('a command line over 2048 bytes: 500 5.5.6, and the rest of it is skipped', async () => {
 		const s = await fakeSession(mxOptions());
 		await s.send('EHLO bar.com\r\n');
@@ -148,7 +106,49 @@ describe('options', () => {
 			{ maxMessageSize: Number.NaN },
 			'createSmtpServer(): maxMessageSize must be a positive integer, not NaN',
 		],
+		[
+			{ hookTimeout: 0 },
+			'createSmtpServer(): hookTimeout must be a positive integer, not 0',
+		],
+		[
+			{ authenticate: () => true },
+			'createSmtpServer(): authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted',
+		],
+		[
+			{ localDomains: 'foo.com' as unknown as string[] },
+			'createSmtpServer(): localDomains must be an array of domains or a function',
+		],
+		[
+			{ localDomains: [1] as unknown as string[] },
+			'createSmtpServer(): localDomains must be an array of domains or a function',
+		],
+		[
+			{ onData: undefined as unknown as () => undefined },
+			'createSmtpServer(): onData must be a function: it is where messages go',
+		],
 	])('%o is refused', (overrides, message) => {
 		expect(() => createSmtpServer(mxOptions(overrides))).toThrow(message);
+	});
+
+	test('the error is an SmtpError with code INVALID_OPTION', () => {
+		try {
+			createSmtpServer(mxOptions({ maxErrors: -1 }));
+			throw new Error('not refused');
+		} catch (error) {
+			expect(error).toBeInstanceOf(SmtpError);
+			expect((error as SmtpError).code).toBe('INVALID_OPTION');
+		}
+	});
+
+	test('submission with authenticate and tls is taken', () => {
+		expect(() =>
+			createSmtpServer(
+				mxOptions({
+					mode: 'submission',
+					tls: FAKE_TLS,
+					authenticate: () => true,
+				}),
+			),
+		).not.toThrow();
 	});
 });

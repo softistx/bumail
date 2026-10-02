@@ -19,28 +19,44 @@ async function check(
 	if (credentials === undefined) {
 		return connection.fail(reply(501, '5.5.2', 'Cannot decode the response'));
 	}
-	let ok: boolean;
-	try {
-		ok =
-			(await settings.options.authenticate?.(
-				credentials,
-				connection.session,
-			)) === true;
-	} catch {
+	if (
+		credentials.authorizationId !== undefined &&
+		credentials.authorizationId !== credentials.username
+	) {
+		// A session acts as the user it authenticated as, never as another.
+		return refuse(connection);
+	}
+	const { authenticate } = settings.options;
+	const answer = await connection.check('authenticate', () =>
+		authenticate?.(credentials, connection.session),
+	);
+	if (answer.failed) {
 		// RFC 4954 §6: a failure of the server's own, not of the credentials.
 		return connection.send(
 			reply(454, '4.7.0', 'Temporary authentication failure'),
 		);
 	}
+	const ok = answer.value === true;
 	if (ok) {
 		state.user = credentials.username;
 		return connection.send(reply(235, '2.7.0', 'Authentication successful'));
 	}
+	refuse(connection);
+}
+
+function refuse(connection: Connection): void {
+	const { state, settings } = connection;
 	state.authFailures++;
 	if (state.authFailures >= MAX_AUTH_FAILURES) {
-		return connection.close(
-			reply(421, '4.7.0', 'Too many failed authentications, closing'),
+		const { hostname } = settings.options;
+		connection.close(
+			reply(
+				421,
+				'4.7.0',
+				`${hostname} Too many failed authentications, closing`,
+			),
 		);
+		return;
 	}
 	connection.fail(reply(535, '5.7.8', 'Authentication credentials invalid'));
 }

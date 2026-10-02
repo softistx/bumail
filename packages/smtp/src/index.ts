@@ -1,3 +1,4 @@
+export { SmtpError, type SmtpErrorCode } from './errors';
 export {
 	type Command,
 	type PathCommand,

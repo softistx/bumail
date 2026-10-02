@@ -121,7 +121,7 @@ describe('AUTH PLAIN (RFC 4616) and LOGIN', () => {
 		expect(await s.send(wrong)).toStartWith('535');
 		expect(await s.send(wrong)).toStartWith('535');
 		expect(await s.send(wrong)).toBe(
-			'421 4.7.0 Too many failed authentications, closing\r\n',
+			'421 4.7.0 foo.com Too many failed authentications, closing\r\n',
 		);
 		expect(s.ended).toBe(true);
 	});

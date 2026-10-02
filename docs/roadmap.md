@@ -25,8 +25,9 @@ No dates. Each entry says what someone running or embedding the server gets.
 ## Next
 
 - **`@bumail/store`, its contract and memory store** — accounts, mailboxes,
-  messages, flags, UIDs and modseqs, behind one interface. It comes before
-  SMTP because the first SMTP slice needs somewhere to deliver.
+  messages, flags, UIDs and modseqs, behind one interface. The SMTP server
+  ships first, delivering through its `onData` hook; once the store lands,
+  it is where those messages go.
 - **`@bumail/dns`** — the DNS answers the other packages need (MX, TXT, A,
   AAAA, PTR) behind one small interface: `node:dns` in production, a fixture
   in specs, with a cache that honours TTLs. *Its own package*: SPF,
