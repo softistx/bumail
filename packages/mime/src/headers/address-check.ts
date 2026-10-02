@@ -23,12 +23,13 @@ const DOMAIN =
  * shows: C1 controls, every format character (Unicode's Cf: zero-width and
  * joiners, soft hyphen, bidirectional marks, overrides and isolates, the
  * BOM), every space separator but the ASCII space (no-break, em, ideographic…), the line
- * and paragraph separators, the fillers that render blank, the default
- * ignorables, and a lone surrogate, which UTF-8 cannot carry. Each lets an
+ * and paragraph separators, the fillers that render blank (Hangul fillers,
+ * the blank Braille pattern), the default ignorables (variation selectors
+ * among them), and a lone surrogate, which UTF-8 cannot carry. Each lets an
  * address pass for another.
  */
 const INVISIBLE_CLASS =
-	'[\\u0080-\\u009f\\p{Cf}\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000\\u2028\\u2029\\u115f\\u1160\\u3164\\uffa0\\p{Default_Ignorable_Code_Point}\\p{Cs}]';
+	'[\\u0080-\\u009f\\p{Cf}\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000\\u2028\\u2029\\u115f\\u1160\\u2800\\u3164\\uffa0\\p{Default_Ignorable_Code_Point}\\p{Cs}]';
 const INVISIBLE = new RegExp(INVISIBLE_CLASS, 'u');
 const INVISIBLE_ALL = new RegExp(INVISIBLE_CLASS, 'gu');
 
@@ -44,16 +45,6 @@ export function shown(value: string): string {
 		});
 }
 
-/**
- * Whether an address list holds text a reader would drop or misread: after
- * a mailbox's `<addr>` (`A <a@b.c> B <v@x.y>`, `<a@b.c> v@x.y`,
- * `<a@b.c>; v@x.y`), an address in the phrase before `<` (`a@b.c <v@x.y>`),
- * a `:` that would open a group where none can start, a `;` that closes no
- * group, a comment, quote or literal left open (it would swallow the rest),
- * or two words of an address with nothing between them (`a b@c.d`, which a
- * reader glues into `ab@c.d`). It follows `parseAddressList`'s grouping, so
- * whatever it lets through parses to every mailbox written.
- */
 /**
  * Whether what is inside `<…>` is an addr-spec, with at most an RFC 5322
  * §4.4 obs-route before it: `@domain` pieces separated by commas, then `:`.
@@ -98,6 +89,16 @@ function isAngleSpec(tokens: readonly Token[]): boolean {
 	return pieceOk();
 }
 
+/**
+ * Whether an address list holds text a reader would drop or misread: after
+ * a mailbox's `<addr>` (`A <a@b.c> B <v@x.y>`, `<a@b.c> v@x.y`,
+ * `<a@b.c>; v@x.y`), an address in the phrase before `<` (`a@b.c <v@x.y>`),
+ * a `:` that would open a group where none can start, a `;` that closes no
+ * group, a comment, quote or literal left open (it would swallow the rest),
+ * or two words of an address with nothing between them (`a b@c.d`, which a
+ * reader glues into `ab@c.d`). It follows `parseAddressList`'s grouping, so
+ * whatever it lets through parses to every mailbox written.
+ */
 export function hasStrayText(value: string): boolean {
 	let angle: Token[] = [];
 	let inAngle = false;

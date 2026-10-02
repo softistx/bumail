@@ -170,7 +170,8 @@ header or an SMTP command it does not belong in. So are the characters
 that hide or reorder text — C1 controls, every Unicode format character
 (zero-width spaces and joiners, the soft hyphen, bidirectional marks,
 overrides and isolates, the BOM), the non-ASCII spaces (no-break, em,
-ideographic…), the fillers that render blank, lone surrogates, U+2028 and
+ideographic…), the fillers that render blank (Hangul fillers, U+2800),
+variation selectors (so an emoji with VS16 is refused), lone surrogates, U+2028 and
 U+2029 — which let an
 address pass for another. That includes the zero-width joiner and
 non-joiner (U+200C, U+200D), which some scripts use inside words: they are

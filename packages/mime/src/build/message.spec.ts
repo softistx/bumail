@@ -394,6 +394,7 @@ describe('buildMessage on hostile input', () => {
 			'a@b.test, c@d\u2003.test',
 			'c\u3164@d.test',
 			'a\ud800@b.test',
+			'c\u2800@d.test',
 		]) {
 			expect(() => envelopeOf({ from: 'x@y.test', to })).toThrow(MimeError);
 			expect(() => buildMessage({ from: 'x@y.test', to })).toThrow(
@@ -413,6 +414,16 @@ describe('buildMessage on hostile input', () => {
 				to: 'A: a@b.test, <c@d.test>;, B: e@f.test;, g@h.test',
 			}).to,
 		).toEqual(['a@b.test', 'c@d.test', 'e@f.test', 'g@h.test']);
+		// An obs-route (RFC 5322 §4.4, Appendix A.6.1) is read past, not refused.
+		expect(
+			envelopeOf({
+				from: 'x@y.test',
+				to: 'Mary Smith <@node.test:mary@example.net>, , jdoe@test  . example',
+			}).to,
+		).toEqual(['mary@example.net', 'jdoe@test.example']);
+		expect(
+			envelopeOf({ from: 'x@y.test', to: '<@a.test,@b.test:u@c.test>' }).to,
+		).toEqual(['u@c.test']);
 	});
 
 	test('a from or sender string listing several addresses is refused', () => {
