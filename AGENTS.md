@@ -22,7 +22,9 @@ The repository is **private** until the owner says otherwise.
 ## Principles
 
 - **No package has a dependency.** What one needs at runtime is a peer: a
-  sibling `@bumail/*`, or `@alxia/core` for what speaks HTTP. Bun's and the
+  sibling `@bumail/*`, or `@alxia/core` for what speaks HTTP — once it is on
+  npm: `verify:artifacts` refuses a required peer that is on no registry, so
+  nothing here peers on alxia before its first publish. Bun's and the
   web platform's own APIs — `Bun.listen`, `socket.upgradeTLS`, `bun:sqlite`,
   `Bun.file`, Web Crypto, `TextDecoder`, `node:dns` — are not dependencies.
   `verify:artifacts` fails a manifest with a `dependencies` field that lists
@@ -89,7 +91,10 @@ Changesets, independent versions. A change under `packages/` needs one.
 when the repository variable `RELEASE_ENABLED` is `true`, and only the owner
 sets it: with no changeset pending, `changesets/action` runs the publish
 script, which publishes every version the registry lacks — a package's
-first included. Once on:
+first included. The job runs in the `npm` environment, which holds
+`NPM_TOKEN` as its only secret and the owner as its required reviewer, so
+every run that could publish waits for the owner, and a PR that edits the
+workflow cannot reach the token. Once on:
 
 - merging to `develop` opens a "Version packages" PR; merging that publishes
   with `bun publish`, in dependency order;
@@ -98,7 +103,16 @@ first included. Once on:
 - releases are batched: weekdays, at 18:00 Eastern or later.
 
 Registry configuration lives in `bunfig.toml`, never in `.npmrc`; publishing
-reads `$NPM_TOKEN`. Every package is MIT, with its own copy of `LICENSE`.
+reads `$NPM_TOKEN`, which must be an npm **granular** access token: npm no
+longer accepts a classic token for publishing, and says "two-factor
+authentication is required".
+
+Every package is **public on npm** — the repository's privacy is a separate
+matter — and MIT, with its own copy of `LICENSE`. Its manifest sets
+`publishConfig: { "registry": "https://registry.npmjs.org", "access":
+"public" }`: `bun publish` never reads the changeset config's `access`, and
+publishes a scoped package as restricted without it. `verify:artifacts`
+refuses a manifest that lacks it.
 
 ## Pull requests
 

@@ -20,7 +20,6 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
-  packages: write
 
 jobs:
   release:
@@ -31,6 +30,11 @@ jobs:
     # included. The repository variable RELEASE_ENABLED=true turns it on;
     # nobody but the owner sets it.
     if: vars.RELEASE_ENABLED == 'true'
+    # NPM_TOKEN is a secret of this environment only, which the owner
+    # protects as its required reviewer: every run that could
+    # publish waits for the owner, and a PR that edits this file cannot reach the
+    # token without that approval.
+    environment: npm
     # GitHub-hosted, as ci.yml.
     runs-on: ubuntu-latest
     # alxia's, on the same skeleton, takes under a minute and a half.

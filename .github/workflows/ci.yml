@@ -47,7 +47,7 @@ jobs:
       - name: Type checking
         run: bun run typecheck
       # Per package, not one `bun test` for the whole workspace: each package's
-      # `test` script writes the generated fixtures its specs import first.
+      # specs run after the siblings they import are built.
       - name: Run tests
         run: bun run test
       # The build exits 0 on packages that throw the instant they are imported —

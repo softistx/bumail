@@ -9,14 +9,14 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
-- **The repository's skeleton**: the Bun workspace, the build, the artifact
-  check, CI and a release workflow that stays off until the first publish is
-  approved.
 - **`@bumail/mime`** — read and write e-mail messages. RFC 5322 headers,
   encoded-words (RFC 2047) and parameter continuations (RFC 2231),
   multipart, base64 and quoted-printable, any charset `TextDecoder` knows,
   and a streaming parser that walks a large message without holding it in
   memory. Its specs are the RFCs' own examples.
+
+## Next
+
 - **`@bumail/store`, its contract and memory store** — accounts, mailboxes,
   messages, flags, UIDs and modseqs, behind one interface. It comes before
   SMTP because the first SMTP slice needs somewhere to deliver.
@@ -26,12 +26,9 @@ No dates. Each entry says what someone running or embedding the server gets.
   connect, MAIL FROM, RCPT TO and DATA where the app accepts or refuses;
   size limits and timeouts. The first slice receives into the memory store,
   and **refuses to relay without AUTH** in every default.
-
-## Next
-
 - **`@bumail/dns`** — the DNS answers the other packages need (MX, TXT, A,
   AAAA, PTR) behind one small interface: `node:dns` in production, a fixture
-  in specs, with a cache that honours TTLs. *Added to the proposal*: SPF,
+  in specs, with a cache that honours TTLs. *Its own package*: SPF,
   DKIM, DMARC, the SMTP client and MTA-STS all query DNS, and each spec
   needs a deterministic answer instead of the Internet.
 - **`@bumail/auth`** — DKIM signing and verifying (RSA-SHA256 and Ed25519
@@ -50,7 +47,7 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
   mail), as an alxia app. *JMAP before IMAP*: it is HTTP and JSON, so alxia
   gives it routing, validation and its typed client for free.
-- **The server app** (`apps/server`) — SMTP on 25 and submission on 587,
+- **The server app** — SMTP on 25 and submission on 587,
   the queue, the store and JMAP wired together; an admin API for domains,
   accounts, aliases and DKIM keys; health and metrics. It starts once
   `@alxia/core` is on npm: it consumes alxia's published packages, not a

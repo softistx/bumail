@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { manifestShapeProblems } from './manifest';
+import { accessProblems, manifestShapeProblems } from './manifest';
 
 describe('manifestShapeProblems', () => {
 	const httpyz = { name: '@bumail/mime', version: '0.4.0' };
@@ -66,6 +66,23 @@ describe('manifestShapeProblems', () => {
 			]),
 		).toEqual([
 			'@bumail/mime: declares dependencies (zod); every bumail package has none — what it needs at runtime is a peer, chosen and installed by the app',
+		]);
+	});
+});
+
+describe('accessProblems', () => {
+	test('accepts a scoped package published as public', () => {
+		expect(
+			accessProblems({
+				name: '@bumail/mime',
+				publishConfig: { access: 'public' },
+			}),
+		).toEqual([]);
+	});
+
+	test('refuses a scoped package with no publishConfig', () => {
+		expect(accessProblems({ name: '@bumail/mime' })).toEqual([
+			'@bumail/mime: publishConfig.access is not "public"; bun publish would publish this scoped package as restricted',
 		]);
 	});
 });
