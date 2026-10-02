@@ -1,4 +1,8 @@
-import type { Expunged, Message } from '../contract/types';
+import type {
+	Expunged,
+	ExpungeResult,
+	MessagesResult,
+} from '../contract/types';
 import { StoreError } from '../errors';
 import { join } from './messages';
 import type { MemoryState, MessageState } from './state';
@@ -16,7 +20,7 @@ export function expunge(
 	state.bury(message.accountId, { kind: 'expunged', ...expunged });
 	if (message.mailboxes.size === 0) {
 		state.messages.delete(message.id);
-		state.release(message.blobId);
+		state.release(message.accountId, message.blobId);
 		state.bury(message.accountId, {
 			kind: 'message',
 			modseq,
@@ -27,23 +31,12 @@ export function expunge(
 	return expunged;
 }
 
-function inMailbox(messages: MessageState[], mailboxId: string): void {
-	for (const message of messages) {
-		if (!message.mailboxes.has(mailboxId)) {
-			throw new StoreError(
-				'NOT_FOUND',
-				`Message "${message.id}" is not in mailbox "${mailboxId}"`,
-			);
-		}
-	}
-}
-
 export function moveMessages(
 	state: MemoryState,
 	ids: readonly string[],
 	from: string,
 	to: string,
-): Message[] {
+): MessagesResult {
 	const source = state.mailbox(from);
 	const target = state.mailbox(to);
 	if (source.accountId !== target.accountId) {
@@ -52,12 +45,17 @@ export function moveMessages(
 			'Messages only move between mailboxes of their own account',
 		);
 	}
-	const messages = state.messagesOf(ids, target.accountId);
-	inMailbox(messages, from);
-	if (from === to) return messages.map((message) => state.messageView(message));
-	const joining = messages.filter((message) => !message.mailboxes.has(to));
+	const { found, notFound } = state.messagesOf(ids, target.accountId, (m) =>
+		m.mailboxes.has(from),
+	);
+	const view = () => ({
+		messages: found.map((message) => state.messageView(message)),
+		notFound,
+	});
+	if (from === to) return view();
+	const joining = found.filter((message) => !message.mailboxes.has(to));
 	state.checkUids(target, joining.length);
-	for (const message of messages) {
+	for (const message of found) {
 		const uid = (message.mailboxes.get(from) as { uid: number }).uid;
 		message.mailboxes.delete(from);
 		const modseq = state.touch(message, from);
@@ -70,28 +68,35 @@ export function moveMessages(
 			modseq,
 		});
 	}
-	return messages.map((message) => state.messageView(message));
+	return view();
 }
 
 export function removeMessages(
 	state: MemoryState,
 	ids: readonly string[],
 	mailboxId: string,
-): Expunged[] {
+): ExpungeResult {
 	const mailbox = state.mailbox(mailboxId);
-	const messages = state.messagesOf(ids, mailbox.accountId);
-	inMailbox(messages, mailboxId);
-	return messages.map((message) => expunge(state, message, mailboxId));
+	const { found, notFound } = state.messagesOf(ids, mailbox.accountId, (m) =>
+		m.mailboxes.has(mailboxId),
+	);
+	return {
+		expunged: found.map((message) => expunge(state, message, mailboxId)),
+		notFound,
+	};
 }
 
 export function destroyMessages(
 	state: MemoryState,
 	ids: readonly string[],
-): Expunged[] {
-	const messages = state.messagesOf(ids);
-	return messages.flatMap((message) =>
-		[...message.mailboxes.keys()].map((mailboxId) =>
-			expunge(state, message, mailboxId),
+): ExpungeResult {
+	const { found, notFound } = state.messagesOf(ids);
+	return {
+		expunged: found.flatMap((message) =>
+			[...message.mailboxes.keys()].map((mailboxId) =>
+				expunge(state, message, mailboxId),
+			),
 		),
-	);
+		notFound,
+	};
 }

@@ -6,42 +6,57 @@ export function blobIdOf(content: Uint8Array): string {
 	return new Bun.CryptoHasher('sha256').update(content).digest('hex');
 }
 
-/** Content read to its end: hashed chunk by chunk, counted, copied. */
+/** Content read to its end: its id, its size, and the bytes as an immutable `Blob`. */
 export interface ReadBlob {
 	readonly blobId: string;
 	readonly size: number;
-	readonly chunks: readonly Uint8Array[];
+	readonly blob: Blob;
 }
 
-/** Reads content given whole or as a stream; the caller's bytes are copied, never kept. */
+const NOT_CONTENT =
+	'A message content is a Uint8Array or a ReadableStream<Uint8Array>';
+
+/**
+ * Reads content given whole or as a stream, as every store must: hashed
+ * chunk by chunk, counted, and copied into a `Blob` as it goes, so nothing
+ * the caller changes afterwards reaches the store. A stream that fails, or
+ * yields something other than bytes, is cancelled and rejects with
+ * `INVALID`.
+ */
 export async function readBlob(content: Content): Promise<ReadBlob> {
 	const hasher = new Bun.CryptoHasher('sha256');
 	if (content instanceof Uint8Array) {
-		const copy = content.slice();
 		return {
-			blobId: hasher.update(copy).digest('hex'),
-			size: copy.length,
-			chunks: [copy],
+			blobId: hasher.update(content).digest('hex'),
+			size: content.length,
+			blob: new Blob([content as Uint8Array<ArrayBuffer>]),
 		};
 	}
 	if (!(content instanceof ReadableStream)) {
+		throw new StoreError('INVALID', NOT_CONTENT);
+	}
+	const parts: Blob[] = [];
+	let size = 0;
+	const reader = content.getReader();
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			if (!(value instanceof Uint8Array)) {
+				throw new StoreError('INVALID', NOT_CONTENT);
+			}
+			hasher.update(value);
+			// A Blob copies the chunk now: the stream may reuse its buffer.
+			parts.push(new Blob([value as Uint8Array<ArrayBuffer>]));
+			size += value.length;
+		}
+	} catch (error) {
+		await reader.cancel().catch(() => undefined);
+		if (error instanceof StoreError) throw error;
 		throw new StoreError(
 			'INVALID',
-			'A message content is a Uint8Array or a ReadableStream<Uint8Array>',
+			`The message content could not be read: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
-	const chunks: Uint8Array[] = [];
-	let size = 0;
-	for await (const chunk of content) {
-		if (!(chunk instanceof Uint8Array)) {
-			throw new StoreError(
-				'INVALID',
-				'A message content is a Uint8Array or a ReadableStream<Uint8Array>',
-			);
-		}
-		hasher.update(chunk);
-		chunks.push(chunk.slice());
-		size += chunk.length;
-	}
-	return { blobId: hasher.digest('hex'), size, chunks };
+	return { blobId: hasher.digest('hex'), size, blob: new Blob(parts) };
 }

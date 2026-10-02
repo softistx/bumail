@@ -1,7 +1,8 @@
 import type {
 	Account,
+	AccountListOptions,
 	ChangesOptions,
-	Expunged,
+	ExpungeResult,
 	FlagChange,
 	FlagOptions,
 	FlagResult,
@@ -12,6 +13,8 @@ import type {
 	MailboxRole,
 	Message,
 	MessageChanges,
+	MessagePage,
+	MessagesResult,
 	NewMailbox,
 	NewMessage,
 } from './types';
@@ -26,7 +29,9 @@ import type {
  * **All or nothing.** A call that rejects changed nothing, and concurrent
  * calls behave as if they ran one after the other: two creates of one name
  * give one `ALREADY_EXISTS`. A method given a list of ids takes each id
- * once, however often it is listed.
+ * once, however often it is listed, and skips an id that names no message
+ * of the account — listing it in `notFound` — rather than failing the rest:
+ * another session may have just destroyed it.
  *
  * **Copies.** What a store returns is the caller's: changing it, or the
  * `Date` or bytes given in, never changes what the store holds.
@@ -35,7 +40,11 @@ import type {
  * value, one per message changed: an add, a flag change, a mailbox joined
  * or left, a mailbox created, renamed or deleted.
  *
- * Errors are `StoreError`s: `NOT_FOUND` for an id that names nothing,
+ * **Growth.** In 0.x, a minor version may add members to this interface
+ * and to what it returns. A store written outside this package follows
+ * those versions.
+ *
+ * Errors are `StoreError`s, and only those: `NOT_FOUND` for an id that names nothing,
  * `ALREADY_EXISTS` for a duplicate login, mailbox name or role, `INVALID`
  * for a value the contract refuses, `CANNOT_CALCULATE_CHANGES` for a
  * `since` the store no longer remembers. A method that takes an account id
@@ -57,12 +66,19 @@ export interface MailStore {
 		accountId: string,
 		role: MailboxRole,
 	): Promise<Mailbox | undefined>;
-	/** Renames or moves a mailbox; it keeps its id, role, UIDVALIDITY and messages. */
-	renameMailbox(id: string, name: string, parentId?: string): Promise<Mailbox>;
 	/**
-	 * Deletes a mailbox with no children. One holding messages needs
-	 * `removeMessages`, which removes them from it in the same step (RFC
-	 * 9051 §6.3.4, JMAP's `onDestroyRemoveEmails`).
+	 * Renames or moves a mailbox; it keeps its id, role, subscription,
+	 * UIDVALIDITY and messages. Renaming the inbox keeps its role: the
+	 * store has no RFC 9051 §6.3.6 "rename INBOX" that moves its messages.
+	 */
+	renameMailbox(id: string, name: string, parentId?: string): Promise<Mailbox>;
+	/** IMAP SUBSCRIBE and UNSUBSCRIBE; a change of the mailbox, with its modseq. */
+	setSubscribed(id: string, subscribed: boolean): Promise<Mailbox>;
+	/**
+	 * Deletes a mailbox with no children: one that has children is
+	 * `INVALID` — the store keeps no `\Noselect` name (RFC 9051 §6.3.4).
+	 * One holding messages needs `removeMessages`, which removes them from
+	 * it in the same step (JMAP's `onDestroyRemoveEmails`).
 	 */
 	deleteMailbox(
 		id: string,
@@ -77,8 +93,17 @@ export interface MailStore {
 		mailboxId: string,
 		options?: ListOptions,
 	): Promise<MailboxEntry[]>;
-	/** A message's content; `blob.slice(start, end)` reads a range. */
-	readContent(blobId: string): Promise<Blob | undefined>;
+	/** The account's messages, in every mailbox, oldest added first. */
+	listAccountMessages(
+		accountId: string,
+		options?: AccountListOptions,
+	): Promise<MessagePage>;
+	/**
+	 * A message's content, in the account that holds it; `blob.slice(start,
+	 * end)` reads a range. Another account's blob is `undefined`, even with
+	 * the same bytes: a blob id is no key to someone else's mail.
+	 */
+	readContent(accountId: string, blobId: string): Promise<Blob | undefined>;
 	/** Changes the flags of messages; each one changed takes a new modseq. */
 	setFlags(
 		ids: readonly string[],
@@ -87,29 +112,46 @@ export interface MailStore {
 	): Promise<FlagResult>;
 	/**
 	 * IMAP COPY (RFC 9051 §6.4.7): new messages in the mailbox, with the
-	 * same content, flags and date, and flags of their own from then on.
+	 * same content, flags, date and thread, and flags of their own from then
+	 * on.
 	 */
-	copyMessages(ids: readonly string[], mailboxId: string): Promise<Message[]>;
+	copyMessages(
+		ids: readonly string[],
+		mailboxId: string,
+	): Promise<MessagesResult>;
 	/** Puts messages in one more mailbox, keeping their ids: JMAP's `mailboxIds`. Already there: unchanged. */
-	linkMessages(ids: readonly string[], mailboxId: string): Promise<Message[]>;
+	linkMessages(
+		ids: readonly string[],
+		mailboxId: string,
+	): Promise<MessagesResult>;
 	/**
 	 * IMAP MOVE (RFC 6851): messages leave `from` and join `to`, keeping
-	 * their ids. A message already in `to` keeps its UID there.
+	 * their ids. A message already in `to` keeps the UID it has there, so
+	 * its UID in `to` is below `uidNext`: a COPYUID built from the result
+	 * names that UID. One not in `from` is `notFound`.
 	 */
 	moveMessages(
 		ids: readonly string[],
 		from: string,
 		to: string,
-	): Promise<Message[]>;
-	/** Takes messages out of a mailbox (IMAP EXPUNGE); one left in no mailbox is destroyed. */
+	): Promise<MessagesResult>;
+	/**
+	 * Takes messages out of a mailbox (IMAP EXPUNGE); one left in no mailbox
+	 * is destroyed. One not in the mailbox is `notFound`.
+	 */
 	removeMessages(
 		ids: readonly string[],
 		mailboxId: string,
-	): Promise<Expunged[]>;
+	): Promise<ExpungeResult>;
 	/** Destroys messages, from every mailbox. A blob no message uses any more is dropped. */
-	destroyMessages(ids: readonly string[]): Promise<Expunged[]>;
+	destroyMessages(ids: readonly string[]): Promise<ExpungeResult>;
 
-	/** What changed among the account's messages since a modseq: one a change returned, or 0. */
+	/**
+	 * What changed among the account's messages since a modseq: one a change
+	 * returned, or 0. Since 0 is always answered, as the account's whole
+	 * state: every message `created`, nothing destroyed or expunged — the
+	 * way to start over after `CANNOT_CALCULATE_CHANGES`.
+	 */
 	messageChanges(
 		accountId: string,
 		since: number,

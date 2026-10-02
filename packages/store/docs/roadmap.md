@@ -6,12 +6,15 @@ only number on it.
 
 ## Now
 
-- **The contract and its memory store** — accounts, mailboxes with roles
-  and a hierarchy, messages that keep one id across mailboxes (JMAP's
-  Email) and a UID in each (IMAP), content given and read as a stream,
-  flags with RFC 7162's conditional store, copies, links and moves, and
-  the message and mailbox changes since a modseq, paged, for IMAP's
-  CONDSTORE and QRESYNC and JMAP's `/changes` to sync from.
+- **The contract and its memory store** — waiting for the owner's first
+  publish. Accounts; mailboxes with the IANA roles, a hierarchy and a
+  subscription; messages that keep one id across mailboxes (JMAP's Email),
+  a thread, and a UID in each mailbox (IMAP); content given and read as a
+  stream, kept per account; every message of an account, a page at a
+  time; flags with RFC 7162's conditional store; copies, links and moves
+  that skip and name the ids already gone; and the message and mailbox
+  changes since a modseq, paged, for IMAP's CONDSTORE and QRESYNC and
+  JMAP's `/changes` to sync from.
 
 ## Next
 
@@ -19,6 +22,10 @@ only number on it.
   files addressed by their hash, held to the same specs.
 - **Searching and sorting** what IMAP's `SEARCH` and JMAP's `Email/query`
   need, once those protocols land.
+- **The contract's specs, exported**, so a store written outside this
+  package can hold itself to them.
+- **Uploaded blobs** — content stored before it is a message, as JMAP's
+  upload and `Email/import` need.
 
 ## Later
 

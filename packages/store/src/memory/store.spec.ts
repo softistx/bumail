@@ -24,6 +24,24 @@ describe('MemoryMailStore: maxTombstones', () => {
 		expect(latest.destroyed).toEqual([ids[2] as string]);
 	});
 
+	test('since 0 is still answered once tombstones are forgotten: the whole state', async () => {
+		const store = new MemoryMailStore({ maxTombstones: 0 });
+		const account = await store.createAccount('mary@example.net');
+		const inbox = await store.createMailbox(account.id, { name: 'INBOX' });
+		const content = new TextEncoder().encode('x');
+		const kept = await store.addMessage(inbox.id, { content });
+		const gone = await store.addMessage(inbox.id, { content });
+		await store.destroyMessages([gone.id]);
+		expect(await store.messageChanges(account.id, 0)).toMatchObject({
+			created: [kept.id],
+			destroyed: [],
+			expunged: [],
+		});
+		expect((await store.mailboxChanges(account.id, 0)).created).toEqual([
+			inbox.id,
+		]);
+	});
+
 	test('refuses a bad count', () => {
 		expect(() => new MemoryMailStore({ maxTombstones: -1 })).toThrow(
 			'maxTombstones',

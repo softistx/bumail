@@ -9,6 +9,7 @@ import type { AccountState, MemoryState } from './state';
 
 interface Item {
 	id: string;
+	/** Where it sorts: its creation for a created item, else its last change. */
 	modseq: number;
 	kind: 'created' | 'updated' | 'destroyed';
 }
@@ -24,10 +25,11 @@ function checkSince(
 			`since must be a modseq the account has given, from 0 to ${account.modseq}, not ${since}`,
 		);
 	}
-	if (since < account.floor) {
+	// Since 0 needs no tombstone: everything that exists is created.
+	if (since > 0 && since < account.floor) {
 		throw new StoreError(
 			'CANNOT_CALCULATE_CHANGES',
-			`Changes since ${since} are forgotten; start again from 0`,
+			`Changes since ${since} are forgotten; ask for the changes since 0, which lists every message as created`,
 		);
 	}
 	const limit = options.limit;
@@ -41,7 +43,12 @@ function checkSince(
 
 /**
  * The live items and the tombstones after `since`, oldest first, cut at
- * `limit`. A thing created and destroyed since is left out.
+ * `limit`. A created item sorts by its creation, so a page that ends past
+ * it lists it as created even when it changed again later; the next page
+ * then lists that change as an update (RFC 8620 §5.2's intermediate
+ * states). A thing created and destroyed since is left out. A cut never
+ * splits items of one modseq: a page goes over `limit` only when one
+ * modseq alone holds more.
  */
 function page(
 	account: AccountState,
@@ -53,10 +60,11 @@ function page(
 	const items: Item[] = [];
 	for (const thing of live) {
 		if (thing.modseq <= since) continue;
+		const created = thing.createdModseq > since;
 		items.push({
 			id: thing.id,
-			modseq: thing.modseq,
-			kind: thing.createdModseq > since ? 'created' : 'updated',
+			modseq: created ? thing.createdModseq : thing.modseq,
+			kind: created ? 'created' : 'updated',
 		});
 	}
 	for (const tombstone of account.tombstones) {
@@ -76,8 +84,21 @@ function page(
 	if (limit === undefined || items.length <= limit) {
 		return { items, modseq: account.modseq, hasMore: false };
 	}
-	const kept = items.slice(0, limit);
-	return { items: kept, modseq: (kept.at(-1) as Item).modseq, hasMore: true };
+	let last = (items[limit - 1] as Item).modseq;
+	let kept = items.filter((item) => item.modseq <= last);
+	if (kept.length > limit) {
+		// Items of one modseq straddle the limit: stop before them, unless
+		// they alone fill the page.
+		const before = items.filter((item) => item.modseq < last);
+		if (before.length > 0) {
+			kept = before;
+			last = (before.at(-1) as Item).modseq;
+		}
+	}
+	if (kept.length === items.length) {
+		return { items, modseq: account.modseq, hasMore: false };
+	}
+	return { items: kept, modseq: last, hasMore: true };
 }
 
 const ids = (items: Item[], kind: Item['kind']) =>
@@ -102,7 +123,8 @@ export function messageChanges(
 		options.limit,
 	);
 	const expunged: Expunged[] = [];
-	for (const tombstone of account.tombstones) {
+	// Since 0, the client holds nothing that could have vanished.
+	for (const tombstone of since === 0 ? [] : account.tombstones) {
 		if (
 			tombstone.kind === 'expunged' &&
 			tombstone.modseq > since &&

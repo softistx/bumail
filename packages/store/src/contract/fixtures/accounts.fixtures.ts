@@ -24,7 +24,9 @@ export function describeAccounts(create: CreateStore): void {
 			expect(await store.getAccount(account.id)).toBeUndefined();
 			expect(await store.getMailbox(inbox.id)).toBeUndefined();
 			expect(await store.getMessage(message.id)).toBeUndefined();
-			expect(await store.readContent(message.blobId)).toBeUndefined();
+			expect(
+				await store.readContent(account.id, message.blobId),
+			).toBeUndefined();
 			await rejects(store.deleteAccount(account.id), 'NOT_FOUND');
 		});
 
@@ -35,6 +37,7 @@ export function describeAccounts(create: CreateStore): void {
 			await rejects(store.createMailbox('nope', { name: 'A' }), 'NOT_FOUND');
 			await rejects(store.messageChanges('nope', 0), 'NOT_FOUND');
 			await rejects(store.mailboxChanges('nope', 0), 'NOT_FOUND');
+			await rejects(store.listAccountMessages('nope'), 'NOT_FOUND');
 		});
 	});
 }

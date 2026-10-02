@@ -43,11 +43,17 @@ export function normalizeFlag(flag: string): string {
 
 /** Flags, normalised, without duplicates, sorted. */
 export function normalizeFlags(flags: readonly string[]): string[] {
+	if (!Array.isArray(flags)) {
+		throw new StoreError('INVALID', 'Flags are an array of strings');
+	}
 	return [...new Set(flags.map(normalizeFlag))].sort();
 }
 
 /** A change with its flags normalised, so applying it cannot throw. */
 export function normalizeChange(change: FlagChange): FlagChange {
+	if (typeof change !== 'object' || change === null) {
+		throw new StoreError('INVALID', 'A flag change is an object');
+	}
 	return {
 		...(change.set === undefined ? {} : { set: normalizeFlags(change.set) }),
 		add: normalizeFlags(change.add ?? []),

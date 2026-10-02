@@ -1,12 +1,14 @@
-export { blobIdOf } from './contract/blob';
+export { blobIdOf, type ReadBlob, readBlob } from './contract/blob';
 export { normalizeFlag, SYSTEM_FLAGS } from './contract/flags';
 export type { MailStore } from './contract/mail-store';
-export { MAILBOX_ROLES } from './contract/mailbox-name';
+export { isMailboxRole, MAILBOX_ROLES } from './contract/mailbox-name';
 export type {
 	Account,
+	AccountListOptions,
 	ChangesOptions,
 	Content,
 	Expunged,
+	ExpungeResult,
 	FlagChange,
 	FlagOptions,
 	FlagResult,
@@ -18,6 +20,8 @@ export type {
 	Membership,
 	Message,
 	MessageChanges,
+	MessagePage,
+	MessagesResult,
 	NewMailbox,
 	NewMessage,
 } from './contract/types';

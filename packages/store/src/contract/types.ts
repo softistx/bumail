@@ -5,14 +5,22 @@ export interface Account {
 	readonly name: string;
 }
 
-/** The special use of a mailbox (RFC 6154, RFC 8621 §2). */
+/**
+ * The special use of a mailbox: `inbox`, and the IANA registry of IMAP
+ * mailbox name attributes RFC 8621 §2 draws its roles from — RFC 6154's
+ * `\All`, `\Archive`, `\Drafts`, `\Flagged`, `\Junk`, `\Sent`,
+ * `\Trash`, and RFC 8457's `\Important`.
+ */
 export type MailboxRole =
 	| 'inbox'
+	| 'all'
+	| 'archive'
 	| 'drafts'
-	| 'sent'
-	| 'trash'
+	| 'flagged'
+	| 'important'
 	| 'junk'
-	| 'archive';
+	| 'sent'
+	| 'trash';
 
 export interface Mailbox {
 	readonly id: string;
@@ -22,6 +30,8 @@ export interface Mailbox {
 	/** The parent mailbox, for a hierarchy; `undefined` at the top. */
 	readonly parentId?: string;
 	readonly role?: MailboxRole;
+	/** IMAP SUBSCRIBE (RFC 9051 §6.3.7), JMAP's `isSubscribed`. */
+	readonly isSubscribed: boolean;
 	/** IMAP's UIDVALIDITY (RFC 9051 §2.3.1.1): fixed for the mailbox's life, never given twice. */
 	readonly uidValidity: number;
 	/** The UID the next message added to this mailbox gets. */
@@ -49,7 +59,9 @@ export interface Membership {
 export interface Message {
 	readonly id: string;
 	readonly accountId: string;
-	/** The content's blob: the SHA-256 of its bytes, in hex. */
+	/** The thread it belongs to (JMAP's `threadId`); fixed for its life. */
+	readonly threadId: string;
+	/** The content's blob, in its account: the SHA-256 of its bytes, in hex. */
 	readonly blobId: string;
 	/** The size of the content in bytes. */
 	readonly size: number;
@@ -109,6 +121,8 @@ export type Content = Uint8Array | ReadableStream<Uint8Array>;
 
 export interface NewMessage {
 	readonly content: Content;
+	/** The thread to put it in; by default, a thread of its own: its own id. */
+	readonly threadId?: string;
 	readonly flags?: readonly string[];
 	/** Default: now. */
 	readonly receivedAt?: Date;
@@ -126,17 +140,36 @@ export interface FlagOptions {
 	readonly unchangedSince?: number;
 }
 
-export interface FlagResult {
-	/** Every message asked for that passed `unchangedSince`, changed or not. */
+/**
+ * What a call given several ids did. An id that names no message — never
+ * did, was destroyed meanwhile, belongs to another account, or is not in
+ * the mailbox the call works on — is skipped and listed in `notFound`, so
+ * the rest still happens: IMAP acts on the messages that remain, JMAP
+ * answers `notFound` per id.
+ */
+export interface MessagesResult {
+	/** The messages, as they are after the call; each once. */
 	readonly messages: readonly Message[];
-	/** The ids `unchangedSince` refused (RFC 7162 MODIFIED). */
+	readonly notFound: readonly string[];
+}
+
+export interface FlagResult extends MessagesResult {
+	/** The ids `unchangedSince` refused (RFC 7162 MODIFIED); not in `messages`. */
 	readonly modified: readonly string[];
+}
+
+/** What a removal did: what left which mailbox, and the ids skipped. */
+export interface ExpungeResult {
+	readonly expunged: readonly Expunged[];
+	readonly notFound: readonly string[];
 }
 
 export interface NewMailbox {
 	readonly name: string;
 	readonly parentId?: string;
 	readonly role?: MailboxRole;
+	/** Default: `true`. */
+	readonly isSubscribed?: boolean;
 }
 
 export interface ListOptions {
@@ -144,6 +177,20 @@ export interface ListOptions {
 	readonly fromUid?: number;
 	/** Only messages changed after this modseq (RFC 7162 CHANGEDSINCE). */
 	readonly changedSince?: number;
+}
+
+export interface AccountListOptions {
+	/** Skip this many. Default 0. */
+	readonly offset?: number;
+	/** At most this many. Default: all. */
+	readonly limit?: number;
+}
+
+/** A page of an account's messages, oldest added first (JMAP `Email/query`). */
+export interface MessagePage {
+	readonly messages: readonly Message[];
+	/** Every message of the account, whatever the page. */
+	readonly total: number;
 }
 
 export interface ChangesOptions {

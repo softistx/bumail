@@ -50,8 +50,17 @@ export function createMailbox(
 	input: NewMailbox,
 ): Mailbox {
 	state.account(accountId);
+	if (typeof input !== 'object' || input === null) {
+		throw new StoreError('INVALID', 'A new mailbox is an object');
+	}
 	const name = placeOf(state, accountId, input.name, input.parentId);
 	checkRole(input.role);
+	if (
+		input.isSubscribed !== undefined &&
+		typeof input.isSubscribed !== 'boolean'
+	) {
+		throw new StoreError('INVALID', 'isSubscribed is true or false');
+	}
 	if (input.role !== undefined && findMailbox(state, accountId, input.role)) {
 		throw new StoreError(
 			'ALREADY_EXISTS',
@@ -65,6 +74,7 @@ export function createMailbox(
 		name,
 		...(input.parentId === undefined ? {} : { parentId: input.parentId }),
 		...(input.role === undefined ? {} : { role: input.role }),
+		isSubscribed: input.isSubscribed ?? true,
 		uidValidity: state.nextUidValidity(),
 		uidNext: 1,
 		createdModseq: modseq,
@@ -100,6 +110,22 @@ export function renameMailbox(
 	if (parentId === undefined) delete mailbox.parentId;
 	else mailbox.parentId = parentId;
 	mailbox.modseq = state.bump(mailbox.accountId);
+	return state.mailboxView(mailbox);
+}
+
+export function setSubscribed(
+	state: MemoryState,
+	id: string,
+	subscribed: boolean,
+): Mailbox {
+	const mailbox = state.mailbox(id);
+	if (typeof subscribed !== 'boolean') {
+		throw new StoreError('INVALID', 'isSubscribed is true or false');
+	}
+	if (mailbox.isSubscribed !== subscribed) {
+		mailbox.isSubscribed = subscribed;
+		mailbox.modseq = state.bump(mailbox.accountId);
+	}
 	return state.mailboxView(mailbox);
 }
 

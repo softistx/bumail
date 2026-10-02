@@ -16,9 +16,24 @@ export async function setup(create: CreateStore) {
 	return { store, account, inbox };
 }
 
-/** The text of a blob. */
-export async function textOf(store: MailStore, blobId: string) {
-	return (await store.readContent(blobId))?.text();
+/** The text of a blob of the account. */
+export async function textOf(
+	store: MailStore,
+	accountId: string,
+	blobId: string,
+) {
+	return (await store.readContent(accountId, blobId))?.text();
+}
+
+/** A stream of these parts, then `end`: closing, or failing with an error. */
+export function streamOf(parts: readonly unknown[], end?: Error) {
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const part of parts) controller.enqueue(part as Uint8Array);
+			if (end) controller.error(end);
+			else controller.close();
+		},
+	});
 }
 
 /** Expects a promise to reject with a StoreError of this code. */

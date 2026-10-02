@@ -9,14 +9,18 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
+- **`@bumail/store`, its contract and memory store** — waiting for the
+  owner's first publish. Accounts, mailboxes with the IANA roles and a
+  subscription, messages with one id across mailboxes, a thread and a UID
+  in each, flags, and the changes since a modseq, behind one interface. It
+  comes before SMTP because the first SMTP slice needs somewhere to
+  deliver.
+
 - **`@bumail/mime`** — read and write e-mail messages. RFC 5322 headers,
   encoded-words (RFC 2047) and parameter continuations (RFC 2231),
   multipart, base64 and quoted-printable, any charset `TextDecoder` knows,
   and a streaming parser that walks a large message without holding it in
   memory. Its specs are the RFCs' own examples.
-- **`@bumail/store`, its contract and memory store** — accounts, mailboxes,
-  messages, flags, UIDs and modseqs, behind one interface. It comes before
-  SMTP because the first SMTP slice needs somewhere to deliver.
 
 ## Next
 

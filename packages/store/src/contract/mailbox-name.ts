@@ -5,12 +5,20 @@ import type { MailboxRole } from './types';
 /** The roles a mailbox may have. */
 export const MAILBOX_ROLES: readonly MailboxRole[] = [
 	'inbox',
+	'all',
+	'archive',
 	'drafts',
+	'flagged',
+	'important',
+	'junk',
 	'sent',
 	'trash',
-	'junk',
-	'archive',
 ];
+
+/** Whether a string is a role, narrowing it: for a role read from outside. */
+export function isMailboxRole(value: unknown): value is MailboxRole {
+	return (MAILBOX_ROLES as readonly unknown[]).includes(value);
+}
 
 /**
  * A mailbox name as stored: trimmed, and `INBOX` at the top whatever its
@@ -37,7 +45,7 @@ export function normalizeMailboxName(
 }
 
 export function checkRole(role: MailboxRole | undefined): void {
-	if (role !== undefined && !MAILBOX_ROLES.includes(role)) {
+	if (role !== undefined && !isMailboxRole(role)) {
 		throw new StoreError('INVALID', `"${role}" is not a mailbox role`);
 	}
 }

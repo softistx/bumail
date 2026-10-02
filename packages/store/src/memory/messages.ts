@@ -6,22 +6,38 @@ import {
 	sameFlags,
 } from '../contract/flags';
 import type {
+	AccountListOptions,
 	FlagChange,
 	FlagResult,
 	ListOptions,
 	MailboxEntry,
 	Message,
+	MessagePage,
+	MessagesResult,
 	NewMessage,
 } from '../contract/types';
 import { StoreError } from '../errors';
 import type { MailboxState, MemoryState, MessageState } from './state';
 
-function checkModseq(name: string, value: number | undefined): void {
-	if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+function checkCount(name: string, value: number | undefined, least = 0): void {
+	if (value !== undefined && (!Number.isSafeInteger(value) || value < least)) {
 		throw new StoreError(
 			'INVALID',
-			`${name} must be an integer of at least 0, not ${value}`,
+			`${name} must be an integer of at least ${least}, not ${value}`,
 		);
+	}
+}
+
+/** A thread id given in: a non-empty string of printable characters. */
+function checkThreadId(threadId: unknown): void {
+	if (
+		threadId !== undefined &&
+		(typeof threadId !== 'string' ||
+			threadId === '' ||
+			threadId.length > 255 ||
+			/[^\x21-\x7e]/.test(threadId))
+	) {
+		throw new StoreError('INVALID', `"${threadId}" is not a thread id`);
 	}
 }
 
@@ -41,26 +57,29 @@ export async function addMessage(
 	input: NewMessage,
 ): Promise<Message> {
 	state.mailbox(mailboxId);
+	if (typeof input !== 'object' || input === null) {
+		throw new StoreError('INVALID', 'A new message is an object');
+	}
 	const flags = normalizeFlags(input.flags ?? []);
+	if (input.receivedAt !== undefined && !(input.receivedAt instanceof Date)) {
+		throw new StoreError('INVALID', 'receivedAt is not a valid date');
+	}
 	const receivedAt = input.receivedAt?.getTime() ?? Date.now();
 	if (!Number.isFinite(receivedAt)) {
 		throw new StoreError('INVALID', 'receivedAt is not a valid date');
 	}
+	checkThreadId(input.threadId);
 	const blob = await readBlob(input.content);
 	// Everything from here on runs in one go: the mailbox is looked up again.
 	const mailbox = state.mailbox(mailboxId);
 	state.checkUids(mailbox, 1);
-	const bytes = new Uint8Array(blob.size);
-	let offset = 0;
-	for (const chunk of blob.chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.length;
-	}
-	state.retain(blob.blobId, bytes);
+	state.retain(mailbox.accountId, blob.blobId, blob.blob);
 	const modseq = state.bump(mailbox.accountId);
+	const id = crypto.randomUUID();
 	const message: MessageState = {
-		id: crypto.randomUUID(),
+		id,
 		accountId: mailbox.accountId,
+		threadId: input.threadId ?? id,
 		blobId: blob.blobId,
 		size: blob.size,
 		flags,
@@ -80,7 +99,8 @@ export function listMessages(
 	options: ListOptions,
 ): MailboxEntry[] {
 	state.mailbox(mailboxId);
-	checkModseq('changedSince', options.changedSince);
+	checkCount('changedSince', options.changedSince);
+	checkCount('fromUid', options.fromUid);
 	const fromUid = options.fromUid ?? 1;
 	const since = options.changedSince ?? -1;
 	const entries: { uid: number; state: MessageState }[] = [];
@@ -98,18 +118,37 @@ export function listMessages(
 		}));
 }
 
+export function listAccountMessages(
+	state: MemoryState,
+	accountId: string,
+	options: AccountListOptions,
+): MessagePage {
+	state.account(accountId);
+	checkCount('offset', options.offset);
+	checkCount('limit', options.limit, 1);
+	const all = [...state.messages.values()]
+		.filter((message) => message.accountId === accountId)
+		.sort((a, b) => a.createdModseq - b.createdModseq);
+	const offset = options.offset ?? 0;
+	const end = options.limit === undefined ? undefined : offset + options.limit;
+	return {
+		messages: all.slice(offset, end).map((m) => state.messageView(m)),
+		total: all.length,
+	};
+}
+
 export function setFlags(
 	state: MemoryState,
 	ids: readonly string[],
 	change: FlagChange,
 	unchangedSince: number | undefined,
 ): FlagResult {
-	checkModseq('unchangedSince', unchangedSince);
+	checkCount('unchangedSince', unchangedSince);
 	const clean = normalizeChange(change);
-	const messages = state.messagesOf(ids);
+	const { found, notFound } = state.messagesOf(ids);
 	const result: Message[] = [];
 	const modified: string[] = [];
-	for (const message of messages) {
+	for (const message of found) {
 		if (unchangedSince !== undefined && message.modseq > unchangedSince) {
 			modified.push(message.id);
 			continue;
@@ -121,19 +160,19 @@ export function setFlags(
 		}
 		result.push(state.messageView(message));
 	}
-	return { messages: result, modified };
+	return { messages: result, notFound, modified };
 }
 
 export function copyMessages(
 	state: MemoryState,
 	ids: readonly string[],
 	mailboxId: string,
-): Message[] {
+): MessagesResult {
 	const target = state.mailbox(mailboxId);
-	const messages = state.messagesOf(ids, target.accountId);
-	state.checkUids(target, messages.length);
-	return messages.map((original) => {
-		state.retain(original.blobId);
+	const { found, notFound } = state.messagesOf(ids, target.accountId);
+	state.checkUids(target, found.length);
+	const messages = found.map((original) => {
+		state.retain(original.accountId, original.blobId);
 		const modseq = state.bump(target.accountId);
 		const copy: MessageState = {
 			...original,
@@ -147,19 +186,21 @@ export function copyMessages(
 		state.messages.set(copy.id, copy);
 		return state.messageView(copy);
 	});
+	return { messages, notFound };
 }
 
 export function linkMessages(
 	state: MemoryState,
 	ids: readonly string[],
 	mailboxId: string,
-): Message[] {
+): MessagesResult {
 	const target = state.mailbox(mailboxId);
-	const messages = state.messagesOf(ids, target.accountId);
-	const joining = messages.filter(
-		(message) => !message.mailboxes.has(mailboxId),
-	);
+	const { found, notFound } = state.messagesOf(ids, target.accountId);
+	const joining = found.filter((message) => !message.mailboxes.has(mailboxId));
 	state.checkUids(target, joining.length);
 	for (const message of joining) join(target, message, state.touch(message));
-	return messages.map((message) => state.messageView(message));
+	return {
+		messages: found.map((message) => state.messageView(message)),
+		notFound,
+	};
 }

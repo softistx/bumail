@@ -1,8 +1,9 @@
 import type { MailStore } from '../contract/mail-store';
 import type {
 	Account,
+	AccountListOptions,
 	ChangesOptions,
-	Expunged,
+	ExpungeResult,
 	FlagChange,
 	FlagOptions,
 	FlagResult,
@@ -13,16 +14,20 @@ import type {
 	MailboxRole,
 	Message,
 	MessageChanges,
+	MessagePage,
+	MessagesResult,
 	NewMailbox,
 	NewMessage,
 } from '../contract/types';
 import { StoreError } from '../errors';
+import * as accounts from './accounts';
 import { mailboxChanges, messageChanges } from './changes';
 import {
 	createMailbox,
 	deleteMailbox,
 	findMailbox,
 	renameMailbox,
+	setSubscribed,
 } from './mailboxes';
 import * as membership from './membership';
 import * as messages from './messages';
@@ -61,32 +66,8 @@ export class MemoryMailStore implements MailStore {
 		this.#state = new MemoryState(max);
 	}
 
-	#find(name: string): Account | undefined {
-		const key = String(name).trim().toLowerCase();
-		for (const { account } of this.#state.accounts.values()) {
-			if (account.name.toLowerCase() === key) return { ...account };
-		}
-		return undefined;
-	}
-
 	async createAccount(name: string): Promise<Account> {
-		const login = typeof name === 'string' ? name.trim() : '';
-		if (login === '')
-			throw new StoreError('INVALID', 'An account needs a name');
-		if (this.#find(login)) {
-			throw new StoreError(
-				'ALREADY_EXISTS',
-				`An account "${login}" already exists`,
-			);
-		}
-		const account = { id: crypto.randomUUID(), name: login };
-		this.#state.accounts.set(account.id, {
-			account,
-			modseq: 0,
-			floor: 0,
-			tombstones: [],
-		});
-		return { ...account };
+		return accounts.createAccount(this.#state, name);
 	}
 
 	async getAccount(id: string): Promise<Account | undefined> {
@@ -95,21 +76,11 @@ export class MemoryMailStore implements MailStore {
 	}
 
 	async findAccount(name: string): Promise<Account | undefined> {
-		return this.#find(name);
+		return accounts.findAccount(this.#state, name);
 	}
 
 	async deleteAccount(id: string): Promise<void> {
-		const state = this.#state;
-		state.account(id);
-		for (const message of [...state.messages.values()]) {
-			if (message.accountId !== id) continue;
-			state.messages.delete(message.id);
-			state.release(message.blobId);
-		}
-		for (const mailbox of [...state.mailboxes.values()]) {
-			if (mailbox.accountId === id) state.mailboxes.delete(mailbox.id);
-		}
-		state.accounts.delete(id);
+		accounts.deleteAccount(this.#state, id);
 	}
 
 	async createMailbox(
@@ -147,11 +118,15 @@ export class MemoryMailStore implements MailStore {
 		return renameMailbox(this.#state, id, name, parentId);
 	}
 
+	async setSubscribed(id: string, subscribed: boolean): Promise<Mailbox> {
+		return setSubscribed(this.#state, id, subscribed);
+	}
+
 	async deleteMailbox(
 		id: string,
 		options: { readonly removeMessages?: boolean } = {},
 	): Promise<void> {
-		deleteMailbox(this.#state, id, options.removeMessages === true);
+		deleteMailbox(this.#state, id, options?.removeMessages === true);
 	}
 
 	addMessage(mailboxId: string, message: NewMessage): Promise<Message> {
@@ -167,12 +142,22 @@ export class MemoryMailStore implements MailStore {
 		mailboxId: string,
 		options: ListOptions = {},
 	): Promise<MailboxEntry[]> {
-		return messages.listMessages(this.#state, mailboxId, options);
+		return messages.listMessages(this.#state, mailboxId, options ?? {});
 	}
 
-	async readContent(blobId: string): Promise<Blob | undefined> {
-		const blob = this.#state.blobs.get(blobId);
-		return blob && new Blob([blob.bytes.slice()]);
+	async listAccountMessages(
+		accountId: string,
+		options: AccountListOptions = {},
+	): Promise<MessagePage> {
+		return messages.listAccountMessages(this.#state, accountId, options ?? {});
+	}
+
+	async readContent(
+		accountId: string,
+		blobId: string,
+	): Promise<Blob | undefined> {
+		// A Blob cannot be changed: the store's own is handed out.
+		return this.#state.blob(accountId, blobId);
 	}
 
 	async setFlags(
@@ -180,20 +165,20 @@ export class MemoryMailStore implements MailStore {
 		change: FlagChange,
 		options: FlagOptions = {},
 	): Promise<FlagResult> {
-		return messages.setFlags(this.#state, ids, change, options.unchangedSince);
+		return messages.setFlags(this.#state, ids, change, options?.unchangedSince);
 	}
 
 	async copyMessages(
 		ids: readonly string[],
 		mailboxId: string,
-	): Promise<Message[]> {
+	): Promise<MessagesResult> {
 		return messages.copyMessages(this.#state, ids, mailboxId);
 	}
 
 	async linkMessages(
 		ids: readonly string[],
 		mailboxId: string,
-	): Promise<Message[]> {
+	): Promise<MessagesResult> {
 		return messages.linkMessages(this.#state, ids, mailboxId);
 	}
 
@@ -201,18 +186,18 @@ export class MemoryMailStore implements MailStore {
 		ids: readonly string[],
 		from: string,
 		to: string,
-	): Promise<Message[]> {
+	): Promise<MessagesResult> {
 		return membership.moveMessages(this.#state, ids, from, to);
 	}
 
 	async removeMessages(
 		ids: readonly string[],
 		mailboxId: string,
-	): Promise<Expunged[]> {
+	): Promise<ExpungeResult> {
 		return membership.removeMessages(this.#state, ids, mailboxId);
 	}
 
-	async destroyMessages(ids: readonly string[]): Promise<Expunged[]> {
+	async destroyMessages(ids: readonly string[]): Promise<ExpungeResult> {
 		return membership.destroyMessages(this.#state, ids);
 	}
 
@@ -221,7 +206,7 @@ export class MemoryMailStore implements MailStore {
 		since: number,
 		options: ChangesOptions = {},
 	): Promise<MessageChanges> {
-		return messageChanges(this.#state, accountId, since, options);
+		return messageChanges(this.#state, accountId, since, options ?? {});
 	}
 
 	async mailboxChanges(
@@ -229,6 +214,6 @@ export class MemoryMailStore implements MailStore {
 		since: number,
 		options: ChangesOptions = {},
 	): Promise<MailboxChanges> {
-		return mailboxChanges(this.#state, accountId, since, options);
+		return mailboxChanges(this.#state, accountId, since, options ?? {});
 	}
 }

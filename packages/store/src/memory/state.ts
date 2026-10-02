@@ -7,6 +7,7 @@ export interface MailboxState {
 	name: string;
 	parentId?: string;
 	role?: MailboxRole;
+	isSubscribed: boolean;
 	uidValidity: number;
 	uidNext: number;
 	createdModseq: number;
@@ -18,6 +19,7 @@ export interface MailboxState {
 export interface MessageState {
 	id: string;
 	accountId: string;
+	threadId: string;
 	blobId: string;
 	size: number;
 	flags: string[];
@@ -59,7 +61,8 @@ export class MemoryState {
 	readonly accounts = new Map<string, AccountState>();
 	readonly mailboxes = new Map<string, MailboxState>();
 	readonly messages = new Map<string, MessageState>();
-	readonly blobs = new Map<string, { bytes: Uint8Array; uses: number }>();
+	/** Keyed by account and blob id: a blob is shared within an account only. */
+	readonly blobs = new Map<string, { blob: Blob; uses: number }>();
 	readonly maxTombstones: number;
 	#uidValidity = Math.floor(Date.now() / 1000);
 
@@ -83,19 +86,33 @@ export class MemoryState {
 		return state;
 	}
 
-	/** The messages for these ids, each once; `NOT_FOUND` before anything changes. */
-	messagesOf(ids: readonly string[], accountId?: string): MessageState[] {
-		return [...new Set(ids)].map((id) => {
+	/**
+	 * The messages for these ids, each once, and the ids that name none: no
+	 * such message, another account's, or not passing `keep`.
+	 */
+	messagesOf(
+		ids: readonly string[],
+		accountId?: string,
+		keep: (message: MessageState) => boolean = () => true,
+	): { found: MessageState[]; notFound: string[] } {
+		if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
+			throw new StoreError('INVALID', 'ids must be an array of strings');
+		}
+		const found: MessageState[] = [];
+		const notFound: string[] = [];
+		for (const id of new Set(ids)) {
 			const message = this.messages.get(id);
-			if (!message) throw new StoreError('NOT_FOUND', `No message "${id}"`);
-			if (accountId !== undefined && message.accountId !== accountId) {
-				throw new StoreError(
-					'INVALID',
-					'Messages only move between mailboxes of their own account',
-				);
+			if (
+				message &&
+				(accountId === undefined || message.accountId === accountId) &&
+				keep(message)
+			) {
+				found.push(message);
+			} else {
+				notFound.push(id);
 			}
-			return message;
-		});
+		}
+		return { found, notFound };
 	}
 
 	/** Refuses a mailbox that has no room for `count` more UIDs. */
@@ -137,15 +154,22 @@ export class MemoryState {
 		}
 	}
 
-	retain(blobId: string, bytes?: Uint8Array): void {
-		const blob = this.blobs.get(blobId);
-		if (blob) blob.uses++;
-		else if (bytes) this.blobs.set(blobId, { bytes, uses: 1 });
+	/** One more message uses this blob of the account; `blob` when it is new. */
+	retain(accountId: string, blobId: string, blob?: Blob): void {
+		const key = `${accountId}/${blobId}`;
+		const held = this.blobs.get(key);
+		if (held) held.uses++;
+		else if (blob) this.blobs.set(key, { blob, uses: 1 });
 	}
 
-	release(blobId: string): void {
-		const blob = this.blobs.get(blobId);
-		if (blob && --blob.uses === 0) this.blobs.delete(blobId);
+	release(accountId: string, blobId: string): void {
+		const key = `${accountId}/${blobId}`;
+		const held = this.blobs.get(key);
+		if (held && --held.uses === 0) this.blobs.delete(key);
+	}
+
+	blob(accountId: string, blobId: string): Blob | undefined {
+		return this.blobs.get(`${accountId}/${blobId}`)?.blob;
 	}
 
 	/** A copy of the mailbox, with its counts. */
@@ -163,6 +187,7 @@ export class MemoryState {
 			name: state.name,
 			...(state.parentId === undefined ? {} : { parentId: state.parentId }),
 			...(state.role === undefined ? {} : { role: state.role }),
+			isSubscribed: state.isSubscribed,
 			uidValidity: state.uidValidity,
 			uidNext: state.uidNext,
 			highestModseq: state.highestModseq,
@@ -176,6 +201,7 @@ export class MemoryState {
 		return {
 			id: state.id,
 			accountId: state.accountId,
+			threadId: state.threadId,
 			blobId: state.blobId,
 			size: state.size,
 			flags: [...state.flags],

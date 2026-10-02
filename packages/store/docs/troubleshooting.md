@@ -7,8 +7,6 @@ is the group it is listed under. The parts shown as … vary.
 
 - [`StoreError: No account "…"`](#storeerror-no-account-)
 - [`StoreError: No mailbox "…"`](#storeerror-no-mailbox-)
-- [`StoreError: No message "…"`](#storeerror-no-message-)
-- [`StoreError: Message "…" is not in mailbox "…"`](#storeerror-message--is-not-in-mailbox-)
 
 **ALREADY_EXISTS**
 
@@ -27,17 +25,25 @@ is the group it is listed under. The parts shown as … vary.
 - [`StoreError: Only an empty mailbox can be deleted without removeMessages`](#storeerror-only-an-empty-mailbox-can-be-deleted-without-removemessages)
 - [`StoreError: A mailbox with children cannot be deleted`](#storeerror-a-mailbox-with-children-cannot-be-deleted)
 - [`StoreError: "…" is not a flag a store keeps`](#storeerror--is-not-a-flag-a-store-keeps)
+- [`StoreError: Flags are an array of strings`](#storeerror-flags-are-an-array-of-strings)
+- [`StoreError: A flag change is an object`](#storeerror-a-flag-change-is-an-object)
+- [`StoreError: ids must be an array of strings`](#storeerror-ids-must-be-an-array-of-strings)
 - [`StoreError: Messages only move between mailboxes of their own account`](#storeerror-messages-only-move-between-mailboxes-of-their-own-account)
 - [`StoreError: Mailbox "…" has run out of UIDs`](#storeerror-mailbox--has-run-out-of-uids)
+- [`StoreError: A new message is an object`](#storeerror-a-new-message-is-an-object)
+- [`StoreError: A new mailbox is an object`](#storeerror-a-new-mailbox-is-an-object)
+- [`StoreError: isSubscribed is true or false`](#storeerror-issubscribed-is-true-or-false)
 - [`StoreError: A message content is a Uint8Array or a ReadableStream<Uint8Array>`](#storeerror-a-message-content-is-a-uint8array-or-a-readablestreamuint8array)
+- [`StoreError: The message content could not be read: …`](#storeerror-the-message-content-could-not-be-read-)
 - [`StoreError: receivedAt is not a valid date`](#storeerror-receivedat-is-not-a-valid-date)
-- [`StoreError: … must be an integer of at least 0, not …`](#storeerror--must-be-an-integer-of-at-least-0-not-)
+- [`StoreError: "…" is not a thread id`](#storeerror--is-not-a-thread-id)
+- [`StoreError: … must be an integer of at least …, not …`](#storeerror--must-be-an-integer-of-at-least--not-)
 - [`StoreError: since must be a modseq the account has given, from 0 to …, not …`](#storeerror-since-must-be-a-modseq-the-account-has-given-from-0-to--not-)
 - [`StoreError: limit must be a positive integer, not …`](#storeerror-limit-must-be-a-positive-integer-not-)
 
 **CANNOT_CALCULATE_CHANGES**
 
-- [`StoreError: Changes since … are forgotten; start again from 0`](#storeerror-changes-since--are-forgotten-start-again-from-0)
+- [`StoreError: Changes since … are forgotten; ask for the changes since 0, which lists every message as created`](#storeerror-changes-since--are-forgotten-ask-for-the-changes-since-0-which-lists-every-message-as-created)
 
 ## `StoreError: No account "…"`
 
@@ -65,32 +71,15 @@ const inbox = await store.findMailbox(account.id, 'inbox');
 if (inbox) await store.addMessage(inbox.id, { content });
 ```
 
-## `StoreError: No message "…"`
-
-**Code**: `NOT_FOUND`.
-
-**When**: one of the ids given to `setFlags`, `copyMessages`, `linkMessages`, `moveMessages`, `removeMessages` or `destroyMessages` names no message. Nothing was changed, even for the ids that were good.
-
-**Fix**: Drop the ids that are gone — `getMessage(id)` returns `undefined` for them — and call again.
+A message id that names nothing is not an error: `setFlags`,
+`copyMessages`, `linkMessages`, `moveMessages`, `removeMessages` and
+`destroyMessages` skip it, act on the others, and list it in the result's
+`notFound` — a message gone, another account's, or not in the mailbox the
+call works on.
 
 ```ts
-const live = [];
-for (const id of ids) if (await store.getMessage(id)) live.push(id);
-await store.setFlags(live, { add: ['\\Seen'] });
-```
-
-## `StoreError: Message "…" is not in mailbox "…"`
-
-**Code**: `NOT_FOUND`.
-
-**When**: `moveMessages` or `removeMessages` was given a message that is not in the mailbox it should leave: already moved or removed, maybe by another client.
-
-**Fix**: Check `message.mailboxes`, or list the mailbox, before moving or removing.
-
-```ts
-const entries = await store.listMessages(inbox.id);
-const here = entries.map((entry) => entry.message.id);
-await store.removeMessages(ids.filter((id) => here.includes(id)), inbox.id);
+const { messages, notFound } = await store.setFlags(ids, { add: ['\\Seen'] });
+if (notFound.length > 0) reload(); // another session removed them
 ```
 
 ## `StoreError: An account "…" already exists`
@@ -175,11 +164,12 @@ await store.createMailbox(account.id, { name: 'Clients', parentId: work.id }); /
 
 **When**: `createMailbox` was given a role that is not one of `MAILBOX_ROLES`.
 
-**Fix**: Use one of `inbox`, `drafts`, `sent`, `trash`, `junk`, `archive`, or no role.
+**Fix**: Use one of `inbox`, `all`, `archive`, `drafts`, `flagged`, `important`, `junk`, `sent`, `trash`, or no role. `isMailboxRole` checks a string read from outside, and narrows it.
 
 ```ts
-import { MAILBOX_ROLES } from '@bumail/store';
-const role = MAILBOX_ROLES.includes(given) ? given : undefined;
+import { isMailboxRole } from '@bumail/store';
+const role = isMailboxRole(given) ? given : undefined;
+await store.createMailbox(account.id, { name, ...(role ? { role } : {}) });
 ```
 
 ## `StoreError: A parent mailbox must be in the same account`
@@ -246,16 +236,52 @@ await store.deleteMailbox(work.id, { removeMessages: true });
 await store.setFlags([message.id], { add: ['$label1'] }); // not 'label 1' or 'étiquette'
 ```
 
+## `StoreError: Flags are an array of strings`
+
+**Code**: `INVALID`.
+
+**When**: `flags` of `addMessage`, or `set`, `add` or `remove` of a `setFlags` change, is not an array — often one flag given as a string.
+
+**Fix**: Wrap it in an array.
+
+```ts
+await store.setFlags([message.id], { add: ['\\Seen'] });
+```
+
+## `StoreError: A flag change is an object`
+
+**Code**: `INVALID`.
+
+**When**: `setFlags` was given `null` or something other than an object as its change.
+
+**Fix**: Pass `{ set }`, `{ add }`, `{ remove }`, or several of them.
+
+```ts
+await store.setFlags(ids, { add: ['\\Flagged'], remove: ['\\Seen'] });
+```
+
+## `StoreError: ids must be an array of strings`
+
+**Code**: `INVALID`.
+
+**When**: a method taking message ids was given one id as a string, or an array holding something else.
+
+**Fix**: Pass an array of ids.
+
+```ts
+await store.destroyMessages([message.id]);
+```
+
 ## `StoreError: Messages only move between mailboxes of their own account`
 
 **Code**: `INVALID`.
 
-**When**: `copyMessages`, `linkMessages`, `moveMessages` or `removeMessages` was given a message and a mailbox of different accounts.
+**When**: `moveMessages` was given a source and a target mailbox of different accounts. (A message of another account given to any call is skipped and listed in `notFound`.)
 
 **Fix**: Add the message to the other account instead, from its content.
 
 ```ts
-const blob = await store.readContent(message.blobId);
+const blob = await store.readContent(message.accountId, message.blobId);
 if (blob) await store.addMessage(theirInbox.id, { content: blob.stream() });
 ```
 
@@ -271,11 +297,47 @@ if (blob) await store.addMessage(theirInbox.id, { content: blob.stream() });
 const fresh = await store.createMailbox(account.id, { name: 'Archive 2' });
 ```
 
+## `StoreError: A new message is an object`
+
+**Code**: `INVALID`.
+
+**When**: `addMessage` was given `null` or something other than an object.
+
+**Fix**: Pass `{ content }`, with any of `flags`, `receivedAt` and `threadId`.
+
+```ts
+await store.addMessage(inbox.id, { content: raw });
+```
+
+## `StoreError: A new mailbox is an object`
+
+**Code**: `INVALID`.
+
+**When**: `createMailbox` was given `null` or something other than an object.
+
+**Fix**: Pass `{ name }`, with any of `parentId`, `role` and `isSubscribed`.
+
+```ts
+await store.createMailbox(account.id, { name: 'Lists' });
+```
+
+## `StoreError: isSubscribed is true or false`
+
+**Code**: `INVALID`.
+
+**When**: `createMailbox` was given an `isSubscribed`, or `setSubscribed` a value, that is not a boolean — such as the string `"true"` from a form.
+
+**Fix**: Convert it first.
+
+```ts
+await store.setSubscribed(mailbox.id, form.get('subscribed') === 'on');
+```
+
 ## `StoreError: A message content is a Uint8Array or a ReadableStream<Uint8Array>`
 
 **Code**: `INVALID`.
 
-**When**: `addMessage` was given content of another type — a string, a `Buffer` view of something else, or a stream of strings.
+**When**: `addMessage` was given content of another type — a string, or a stream that yields strings or anything else than `Uint8Array` chunks. The stream is cancelled, and nothing is added.
 
 **Fix**: Encode text, or pass a byte stream.
 
@@ -284,11 +346,28 @@ await store.addMessage(inbox.id, { content: new TextEncoder().encode(text) });
 await store.addMessage(inbox.id, { content: Bun.file('message.eml').stream() });
 ```
 
+## `StoreError: The message content could not be read: …`
+
+**Code**: `INVALID`.
+
+**When**: the stream given to `addMessage` failed before its end — a connection reset, a size limit the stream's source enforced. The rest of the message is the stream's own error. Nothing was added.
+
+**Fix**: Nothing to undo; accept the message again once its source is whole. An SMTP server answers with a 4xx so the sender retries.
+
+```ts
+try {
+	await store.addMessage(inbox.id, { content: stream });
+} catch (error) {
+	if (!(error instanceof StoreError)) throw error;
+	reply(451, 'Requested action aborted: local error in processing');
+}
+```
+
 ## `StoreError: receivedAt is not a valid date`
 
 **Code**: `INVALID`.
 
-**When**: `addMessage` was given a `receivedAt` that is an invalid `Date`, such as `new Date('not a date')`.
+**When**: `addMessage` was given a `receivedAt` that is an invalid `Date`, such as `new Date('not a date')`, or not a `Date` at all, such as a string or a timestamp.
 
 **Fix**: Pass a valid date, or leave it out for now.
 
@@ -297,16 +376,29 @@ await store.addMessage(inbox.id, { content, receivedAt: new Date(header) }); // 
 // if (Number.isNaN(date.getTime())) leave receivedAt out
 ```
 
-## `StoreError: … must be an integer of at least 0, not …`
+## `StoreError: "…" is not a thread id`
 
 **Code**: `INVALID`.
 
-**When**: `changedSince` (`listMessages`) or `unchangedSince` (`setFlags`) is negative, fractional or not a number; or `maxTombstones` was so given to `new MemoryMailStore`.
+**When**: `addMessage` was given a `threadId` that is empty, longer than 255 characters, holds a space or a character outside printable ASCII, or is not a string.
 
-**Fix**: Pass a modseq the store gave, or 0.
+**Fix**: Pass the `threadId` of a message already in the thread, or leave it out for a thread of its own.
+
+```ts
+await store.addMessage(inbox.id, { content: reply, threadId: original.threadId });
+```
+
+## `StoreError: … must be an integer of at least …, not …`
+
+**Code**: `INVALID`.
+
+**When**: `changedSince` or `fromUid` (`listMessages`), `unchangedSince` (`setFlags`) or `offset` (`listAccountMessages`) is negative, fractional or not a number; `limit` of `listAccountMessages` is below 1; or `maxTombstones` was so given to `new MemoryMailStore`.
+
+**Fix**: Pass a modseq or a UID the store gave, 0, or a positive count.
 
 ```ts
 await store.listMessages(inbox.id, { changedSince: message.modseq });
+await store.listAccountMessages(account.id, { offset: 50, limit: 50 });
 ```
 
 ## `StoreError: since must be a modseq the account has given, from 0 to …, not …`
@@ -333,19 +425,21 @@ const { modseq } = await store.messageChanges(account.id, 0);
 await store.messageChanges(account.id, since, { limit: 500 });
 ```
 
-## `StoreError: Changes since … are forgotten; start again from 0`
+## `StoreError: Changes since … are forgotten; ask for the changes since 0, which lists every message as created`
 
 **Code**: `CANNOT_CALCULATE_CHANGES`.
 
-**When**: the store no longer remembers removals as old as `since`: `MemoryMailStore` with `maxTombstones`, or a store that prunes them.
+**When**: the store no longer remembers removals as old as `since`: `MemoryMailStore` with `maxTombstones`, or a store that prunes them. A `since` of 0 never throws it.
 
-**Fix**: Start again: read everything as of now, and keep the returned `modseq`. This is JMAP's `cannotCalculateChanges` and a full QRESYNC.
+**Fix**: Start over from 0. The changes since 0 are the account's whole state: every message that exists is in `created`, and `destroyed` and `expunged` are empty — whatever the client holds that is not in `created` is gone. This is JMAP's `cannotCalculateChanges` and a full QRESYNC.
 
 ```ts
 try {
-	await store.messageChanges(account.id, since);
+	return await store.messageChanges(account.id, since);
 } catch (error) {
 	if ((error as StoreError).code !== 'CANNOT_CALCULATE_CHANGES') throw error;
-	since = (await store.messageChanges(account.id, 0)).modseq; // and reload every mailbox
+	const all = await store.messageChanges(account.id, 0); // page it with limit and hasMore
+	forgetEverythingBut(all.created);
+	return all;
 }
 ```
