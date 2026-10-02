@@ -146,8 +146,11 @@ Also when a string in `to`, `cc`, `bcc` or `replyTo` holds no mailbox at
 all — an empty string, or an empty group such as
 `undisclosed-recipients:;` — or holds text after an `<address>` that is not
 a comma and the next mailbox: `A <a@b.test> B <v@c.test>`,
-`<a@b.test>; v@c.test`, `<a@b.test>: v@c.test`, or an address before the
-`<`, as in `a@b.test <v@c.test>`.
+`<a@b.test>; v@c.test`, `<a@b.test>: v@c.test`, an address before the
+`<`, as in `a@b.test <v@c.test>`, a comment, quote or `[` left open (it
+would swallow every address after it), or two words of an address with
+nothing between them, as in `a b@c.test`, which a reader would glue into
+`ab@c.test`.
 The message starts with the function that refused it: `buildMessage():`,
 `envelopeOf():`, `formatMailbox():`, or the `caller` you gave
 `checkAddress`. Control and invisible characters show escaped — `\r\n`,
@@ -164,7 +167,10 @@ header or an SMTP command it does not belong in. So are the characters
 that hide or reorder text — C1 controls, every Unicode format character
 (zero-width spaces and joiners, the soft hyphen, bidirectional marks,
 overrides and isolates, the BOM), U+2028 and U+2029 — which let an
-address pass for another. Non-ASCII letters (RFC 6532) pass. Text after an `<address>`
+address pass for another. That includes the zero-width joiner and
+non-joiner (U+200C, U+200D), which some scripts use inside words: they are
+refused on purpose, since an address that holds them looks the same as one
+that does not. Non-ASCII letters (RFC 6532) pass. Text after an `<address>`
 is refused rather than dropped, so no recipient is lost unseen.
 
 **Fix**: pass `'Name <user@example.com>'`, `'user@example.com'`, or

@@ -5,6 +5,7 @@ import {
 	type Mailbox,
 	mailboxesOf,
 	parseAddressList,
+	shown,
 } from '../headers/addresses';
 import type { AddressInput, MessageOptions } from './options';
 
@@ -35,7 +36,7 @@ export function toMailboxes(input: AddressInput, caller: string): Mailbox[] {
 	) {
 		throw new MimeError(
 			'INVALID_ADDRESS',
-			`${caller}: "${JSON.stringify(input).slice(1, -1)}" is not an e-mail address`,
+			`${caller}: "${shown(typeof input === 'string' ? input : input.address)}" is not an e-mail address`,
 		);
 	}
 	for (const mailbox of mailboxes) checkAddress(mailbox.address, caller);
@@ -48,7 +49,7 @@ export function toMailbox(input: AddressInput, caller: string): Mailbox {
 	if (mailboxes.length > 1) {
 		throw new MimeError(
 			'INVALID_ADDRESS',
-			`${caller}: "${JSON.stringify(input).slice(1, -1)}" holds ${mailboxes.length} addresses where one is expected`,
+			`${caller}: "${shown(typeof input === 'string' ? input : input.address)}" holds ${mailboxes.length} addresses where one is expected`,
 		);
 	}
 	return mailboxes[0] as Mailbox;

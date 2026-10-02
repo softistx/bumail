@@ -1,9 +1,21 @@
 /** A lexical token of a structured header field (RFC 5322 §3.2). */
 export type Token =
 	| { readonly kind: 'atom'; readonly value: string }
-	| { readonly kind: 'quoted'; readonly value: string }
-	| { readonly kind: 'comment'; readonly value: string }
-	| { readonly kind: 'literal'; readonly value: string }
+	| {
+			readonly kind: 'quoted';
+			readonly value: string;
+			readonly unterminated?: true;
+	  }
+	| {
+			readonly kind: 'comment';
+			readonly value: string;
+			readonly unterminated?: true;
+	  }
+	| {
+			readonly kind: 'literal';
+			readonly value: string;
+			readonly unterminated?: true;
+	  }
 	| { readonly kind: 'special'; readonly value: string }
 	| { readonly kind: 'space'; readonly value: string };
 
@@ -12,7 +24,7 @@ export type Token =
  * end an atom: RFC 5322's for addresses, RFC 2045's tspecials for MIME
  * parameters. Quoted-strings and comments lose their delimiters and their
  * quoted-pairs; comments nest. An unterminated one runs to the end of the
- * value rather than failing.
+ * value rather than failing, and says so with `unterminated`.
  */
 export function tokenize(value: string, specials: string): Token[] {
 	const tokens: Token[] = [];
@@ -33,8 +45,13 @@ export function tokenize(value: string, specials: string): Token[] {
 				text += value[i];
 				i++;
 			}
+			const closed = i < value.length;
 			i++;
-			tokens.push({ kind: 'quoted', value: text });
+			tokens.push(
+				closed
+					? { kind: 'quoted', value: text }
+					: { kind: 'quoted', value: text, unterminated: true },
+			);
 		} else if (char === '(') {
 			let depth = 1;
 			let text = '';
@@ -51,11 +68,19 @@ export function tokenize(value: string, specials: string): Token[] {
 				if (depth > 0) text += c;
 				i++;
 			}
-			tokens.push({ kind: 'comment', value: text });
+			tokens.push(
+				depth === 0
+					? { kind: 'comment', value: text }
+					: { kind: 'comment', value: text, unterminated: true },
+			);
 		} else if (char === '[' && specials.includes('[')) {
 			const end = value.indexOf(']', i);
 			const stop = end < 0 ? value.length : end + 1;
-			tokens.push({ kind: 'literal', value: value.slice(i, stop) });
+			tokens.push(
+				end < 0
+					? { kind: 'literal', value: value.slice(i, stop), unterminated: true }
+					: { kind: 'literal', value: value.slice(i, stop) },
+			);
 			i = stop;
 		} else if (specials.includes(char)) {
 			tokens.push({ kind: 'special', value: char });

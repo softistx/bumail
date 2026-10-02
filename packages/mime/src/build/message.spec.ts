@@ -378,6 +378,14 @@ describe('buildMessage on hostile input', () => {
 			'a@b.test <v@evil.test>',
 			'a@b.test; v@evil.test',
 			'g: h: a@b.test;;',
+			'a@b.test (note, c@d.test',
+			'<a@b.test> (x, c@d.test',
+			'A <a@b.test> (x\\), c@d.test',
+			'<a@b.test (c@d.test>',
+			'a b@c.test',
+			'a@b.test c',
+			'<a b@c.test>',
+			'"unterminated <a@b.test>',
 		]) {
 			expect(() => envelopeOf({ from: 'x@y.test', to })).toThrow(MimeError);
 			expect(() => buildMessage({ from: 'x@y.test', to })).toThrow(

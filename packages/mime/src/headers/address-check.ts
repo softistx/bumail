@@ -28,43 +28,68 @@ const INVISIBLE = /[\u0080-\u009f\p{Cf}\u2028\u2029]/u;
 const INVISIBLE_ALL = /[\u0080-\u009f\p{Cf}\u2028\u2029]/gu;
 
 /** The value for an error message: controls and invisible characters shown as escapes. */
-function shown(value: string): string {
+export function shown(value: string): string {
 	return JSON.stringify(value)
 		.slice(1, -1)
-		.replace(
-			INVISIBLE_ALL,
-			(char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`,
-		);
+		.replace(INVISIBLE_ALL, (char) => {
+			const code = char.codePointAt(0) ?? 0;
+			return code > 0xffff
+				? `\\u{${code.toString(16)}}`
+				: `\\u${code.toString(16).padStart(4, '0')}`;
+		});
 }
 
 /**
  * Whether an address list holds text a reader would drop or misread: after
  * a mailbox's `<addr>` (`A <a@b.c> B <v@x.y>`, `<a@b.c> v@x.y`,
  * `<a@b.c>; v@x.y`), an address in the phrase before `<` (`a@b.c <v@x.y>`),
- * a `:` that would open a group where none can start, or a `;` that closes
- * no group. It follows `parseAddressList`'s grouping, so whatever it lets
- * through parses to every mailbox written.
+ * a `:` that would open a group where none can start, a `;` that closes no
+ * group, a comment, quote or literal left open (it would swallow the rest),
+ * or two words of an address with nothing between them (`a b@c.d`, which a
+ * reader glues into `ab@c.d`). It follows `parseAddressList`'s grouping, so
+ * whatever it lets through parses to every mailbox written.
  */
 export function hasStrayText(value: string): boolean {
 	let inAngle = false;
 	let closed = false;
 	let inGroup = false;
 	let phraseHasAt = false;
+	/** The element so far: whether two words touch, and whether it has `<…>`. */
+	let wordLast = false;
+	let wordsTouch = false;
+	let angled = false;
+	const elementEnds = () => {
+		const bareGlued = wordsTouch && !angled;
+		wordLast = false;
+		wordsTouch = false;
+		angled = false;
+		return bareGlued;
+	};
 	for (const token of tokenize(value, ADDRESS_SPECIALS)) {
+		if ('unterminated' in token && token.unterminated) return true;
 		if (token.kind === 'space' || token.kind === 'comment') continue;
+		const word = token.kind === 'atom' || token.kind === 'quoted';
+		if (word && wordLast) {
+			if (inAngle) return true;
+			wordsTouch = true;
+		}
+		wordLast = word;
 		const special = token.kind === 'special' && !inAngle ? token.value : '';
 		if (special === ',') {
+			if (elementEnds()) return true;
 			closed = false;
 			phraseHasAt = false;
 			continue;
 		}
 		if (special === ':') {
 			if (inGroup || closed || phraseHasAt) return true;
+			// A group's name is a phrase: its words may touch.
+			elementEnds();
 			inGroup = true;
 			continue;
 		}
 		if (special === ';') {
-			if (!inGroup) return true;
+			if (!inGroup || elementEnds()) return true;
 			inGroup = false;
 			closed = false;
 			phraseHasAt = false;
@@ -75,13 +100,15 @@ export function hasStrayText(value: string): boolean {
 		if (special === '<') {
 			if (phraseHasAt) return true;
 			inAngle = true;
+			angled = true;
+			wordLast = false;
 		}
 		if (token.kind === 'special' && token.value === '>' && inAngle) {
 			inAngle = false;
 			closed = true;
 		}
 	}
-	return false;
+	return inAngle || elementEnds();
 }
 
 /**

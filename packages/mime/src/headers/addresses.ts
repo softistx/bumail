@@ -2,7 +2,7 @@ import { hasControl } from '../encoding/bytes';
 import { MimeError } from '../errors';
 import { checkAddress } from './address-check';
 
-export { checkAddress, hasStrayText } from './address-check';
+export { checkAddress, hasStrayText, shown } from './address-check';
 
 import { decodeEncodedWords, encodeWord } from './encoded-words';
 import { ADDRESS_SPECIALS, type Token, tokenize } from './tokens';

@@ -276,6 +276,12 @@ describe('checkAddress', () => {
 		}
 	});
 
+	test('an astral format character is escaped whole', () => {
+		expect(() => checkAddress('a\u{e0001}@b.test', 'mine()')).toThrow(
+			'mine(): "a\\u{e0001}@b.test" is not an e-mail address',
+		);
+	});
+
 	test('the error shows an invisible character as an escape, so the address does not look valid', () => {
 		expect(() => checkAddress('a\u200b@b.test', 'mine()')).toThrow(
 			'mine(): "a\\u200b@b.test" is not an e-mail address',
