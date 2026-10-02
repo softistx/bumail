@@ -42,4 +42,9 @@ export interface MimeParserOptions {
 	 * is always read whole.
 	 */
 	readonly maxLineBytes?: number;
+	/**
+	 * How many parts a message may hold, nested ones included, before the
+	 * parser throws. Default 1000.
+	 */
+	readonly maxParts?: number;
 }

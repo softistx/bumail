@@ -44,6 +44,8 @@ export class MimeParser {
 	readonly #maxHeaderBytes: number;
 	readonly #maxDepth: number;
 	readonly #maxLineBytes: number;
+	readonly #maxParts: number;
+	#parts = 0;
 	readonly #stack: Frame[] = [];
 	readonly #lines = new LineAssembler();
 	/** The current line was already passed on in part: it cannot be a delimiter. */
@@ -61,6 +63,7 @@ export class MimeParser {
 			64 * 1024,
 			DELIMITER_MAX,
 		);
+		this.#maxParts = limit(options, 'maxParts', 1000, 1);
 		this.#stack.push(this.#frame('', 0));
 	}
 
@@ -189,6 +192,12 @@ export class MimeParser {
 			if (kind === 'close') {
 				frame.state = 'epilogue';
 			} else {
+				if (++this.#parts > this.#maxParts) {
+					throw new MimeError(
+						'TOO_MANY_PARTS',
+						`The message has more than ${this.#maxParts} parts`,
+					);
+				}
 				frame.state = 'parts';
 				frame.children++;
 				const path =

@@ -136,6 +136,34 @@ describe('MimeParser', () => {
 		expect(() => new MimeParser({ maxLineBytes: 8 })).toThrow(
 			'maxLineBytes must be an integer of at least 1000',
 		);
+		expect(() => new MimeParser({ maxParts: 0 })).toThrow(
+			'MimeParser: maxParts must be an integer of at least 1, not 0',
+		);
+		expect(() => new MimeParser({ maxParts: 1.5 })).toThrow('maxParts');
+	});
+
+	test('maxParts: a message of many tiny parts throws TOO_MANY_PARTS', () => {
+		const head = 'Content-Type: multipart/mixed; boundary=b\r\n\r\n';
+		const message = (parts: number) =>
+			new TextEncoder().encode(
+				`${head}${'--b\r\n\r\n'.repeat(parts)}--b--\r\n`,
+			);
+		expect(() =>
+			new MimeParser({ maxParts: 3 }).write(message(3)),
+		).not.toThrow();
+		try {
+			new MimeParser({ maxParts: 3 }).write(message(4));
+			throw new Error('not thrown');
+		} catch (error) {
+			expect((error as MimeError).code).toBe('TOO_MANY_PARTS');
+			expect((error as MimeError).message).toBe(
+				'The message has more than 3 parts',
+			);
+		}
+		// The default bounds the hostile case: 838,860 empty parts in 4 MiB.
+		expect(() => new MimeParser().write(message(1001))).toThrow(
+			'more than 1000 parts',
+		);
 	});
 
 	test('a body is never held: a long line is passed on before its end', () => {

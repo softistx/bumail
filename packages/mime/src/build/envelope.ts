@@ -1,6 +1,7 @@
 import { MimeError } from '../errors';
 import {
 	checkAddress,
+	hasStrayText,
 	type Mailbox,
 	mailboxesOf,
 	parseAddressList,
@@ -28,7 +29,10 @@ export function list(
 export function toMailboxes(input: AddressInput, caller: string): Mailbox[] {
 	const mailboxes =
 		typeof input === 'string' ? mailboxesOf(parseAddressList(input)) : [input];
-	if (mailboxes.length === 0) {
+	if (
+		mailboxes.length === 0 ||
+		(typeof input === 'string' && hasStrayText(input))
+	) {
 		throw new MimeError(
 			'INVALID_ADDRESS',
 			`${caller}: "${JSON.stringify(input).slice(1, -1)}" is not an e-mail address`,

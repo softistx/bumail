@@ -94,7 +94,7 @@ is checked: nothing given can add a header, an address or an SMTP command.
 | `MimePart` | `path`, `headers`, `contentType`, `children`, `raw`, `content`, `text`, `disposition`, `filename`, `contentId`, `walk()` |
 | `MimeParser` | the streaming parser: `write(chunk)` and `end()` return `MimeEvent[]` |
 | `parseMimeStream(stream, options?)` | the parser over a `ReadableStream` or an async iterable |
-| `MimeEvent`, `PartInfo`, `MimeParserOptions` | `headers` / `body` / `end` events; `maxHeaderBytes`, `maxDepth`, `maxLineBytes` |
+| `MimeEvent`, `PartInfo`, `MimeParserOptions` | `headers` / `body` / `end` events; `maxHeaderBytes`, `maxDepth`, `maxLineBytes`, `maxParts` |
 | `buildMessage(options)` | a message as a 7-bit string with CRLF |
 | `envelopeOf(options)` | `{ from, to }` for SMTP |
 | `MessageOptions`, `Attachment`, `AddressInput`, `Envelope` | the options of `buildMessage` |
@@ -112,7 +112,7 @@ is checked: nothing given can add a header, an address or an SMTP command.
 | `encodeQuotedPrintable`, `decodeQuotedPrintable`, `QuotedPrintableDecoder` | RFC 2045 §6.7 |
 | `createTransferDecoder(encoding)`, `decodeTransfer(body, encoding)`, `TransferDecoder` | by `Content-Transfer-Encoding` |
 | `decodeCharset(bytes, charset)`, `charsetLabel(charset)` | charsets through `TextDecoder` |
-| `MimeError`, `MimeErrorCode` | `HEADER_TOO_LARGE`, `INVALID_ADDRESS`, `INVALID_OPTION` |
+| `MimeError`, `MimeErrorCode` | `HEADER_TOO_LARGE`, `INVALID_ADDRESS`, `INVALID_OPTION`, `TOO_MANY_PARTS` |
 
 ## Documentation
 

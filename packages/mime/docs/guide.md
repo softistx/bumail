@@ -126,6 +126,7 @@ The parser keeps one header block and one line, never a body:
 | `maxHeaderBytes` | 64 KiB | one part's header block; past it, `MimeError` `HEADER_TOO_LARGE` |
 | `maxLineBytes` | 64 KiB | a body line without a line break is passed on in pieces past this; at least 1000, so a delimiter line is always read whole |
 | `maxDepth` | 32 | a multipart nested deeper is read as an opaque body |
+| `maxParts` | 1000 | parts in the whole message, nested ones included; past it, `MimeError` `TOO_MANY_PARTS` |
 
 Each must be an integer — `NaN` would switch a limit off — or the
 constructor throws a `MimeError` `INVALID_OPTION`. The parser copies what
@@ -332,9 +333,14 @@ for:
 - an address that is not RFC 5322 §3.4.1's `addr-spec` — a dot-atom or
   quoted local part, `@`, and a domain or `[literal]`: a comma, semicolon,
   parenthesis, stray quote, white space or control character would add a
-  recipient or reach an SMTP command;
+  recipient or reach an SMTP command; so would `<`, `>` or `,` inside a
+  `[literal]`, which must be IPv4, `IPv6:…` or `tag:content`; and C1
+  controls, zero-width characters and bidirectional overrides are refused
+  because they let an address pass for another;
+- a string with text after an `<address>` other than a comma and the next
+  mailbox, or with no mailbox at all, such as `undisclosed-recipients:;`;
 - a `from` or `sender` string that lists several addresses;
-- an Invalid Date as `date`;
+- an Invalid Date as `date`, or one whose year is outside 1900–9999;
 - a line break in a header value, a name that is not a header name, or a
   word that would leave a line over RFC 5322's 998 characters;
 - a `headers` key the builder writes itself: the address fields,

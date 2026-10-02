@@ -11,6 +11,7 @@ thrown, or, for a trap that prints nothing, the symptom.
 - [A `message/rfc822` part has no children](#a-messagerfc822-part-has-no-children)
 - [A deeply nested part comes out as raw text](#a-deeply-nested-part-comes-out-as-raw-text)
 - [`body` events are base64, not the file](#body-events-are-base64-not-the-file)
+- [`MimeError: The message has more than … parts`](#mimeerror-the-message-has-more-than--parts)
 
 **Parser options**
 
@@ -19,6 +20,7 @@ thrown, or, for a trap that prints nothing, the symptom.
 **Writing**
 
 - [`MimeError: buildMessage(): "…" is not an e-mail address`](#mimeerror-buildmessage--is-not-an-e-mail-address)
+- [`MimeError: buildMessage(): "…" holds … addresses where one is expected`](#mimeerror-buildmessage--holds--addresses-where-one-is-expected)
 - [`MimeError: formatMailbox(): a display name cannot hold a line break or a control character`](#mimeerror-formatmailbox-a-display-name-cannot-hold-a-line-break-or-a-control-character)
 - [`MimeError: The value of … holds a line break`](#mimeerror-the-value-of--holds-a-line-break)
 - [`MimeError: The value of … holds a word too long for a header line (RFC 5322 §2.1.1: 998)`](#mimeerror-the-value-of--holds-a-word-too-long-for-a-header-line-rfc-5322-211-998)
@@ -27,6 +29,8 @@ thrown, or, for a trap that prints nothing, the symptom.
 - [`MimeError: messageId: "…" is not a message id`](#mimeerror-messageid--is-not-a-message-id)
 - [`MimeError: "…" is not a media type`](#mimeerror--is-not-a-media-type)
 - [`MimeError: A file name cannot hold a control character`](#mimeerror-a-file-name-cannot-hold-a-control-character)
+- [`MimeError: formatDate(): the date is invalid`](#mimeerror-formatdate-the-date-is-invalid)
+- [`MimeError: formatDate(): the year … is outside 1900–9999`](#mimeerror-formatdate-the-year--is-outside-19009999)
 - [The Bcc recipients are missing from the message](#the-bcc-recipients-are-missing-from-the-message)
 
 ## `MimeError: The header block of part "…" is larger than … bytes`
@@ -103,11 +107,29 @@ transfer encoding, so nothing is decoded that nobody reads.
 **Fix**: decode with `createTransferDecoder(part.headers.get('content-transfer-encoding'))`
 — see the [guide](guide.md#bounded-memory).
 
+## `MimeError: The message has more than … parts`
+
+**When**: `MimeParser.write`, `parseMimeStream` or `parseMessage`, with
+`error.code === 'TOO_MANY_PARTS'`.
+
+**Why**: the message holds more parts than `maxParts` (1000 by default),
+nested ones included. Each part costs a frame and its events however small
+it is, so 4 MiB of empty parts — `--b` and a blank line, over and over —
+would take hundreds of megabytes; the limit bounds that.
+
+**Fix**: raise the limit when such messages are legitimate for you, or
+refuse the message:
+
+```ts
+const parser = new MimeParser({ maxParts: 5000 });
+```
+
 ## `MimeError: MimeParser: … must be an integer of at least …, not …`
 
 **When**: `new MimeParser(options)`, `parseMessage` or `parseMimeStream`,
 with `error.code === 'INVALID_OPTION'`: `maxHeaderBytes` below 1,
-`maxDepth` below 0, `maxLineBytes` below 1000, or any of them not an
+`maxDepth` below 0, `maxLineBytes` below 1000, `maxParts` below 1, or any
+of them not an
 integer — `NaN` included.
 
 **Why**: a limit that is not a number would switch itself off, and a
@@ -120,6 +142,10 @@ delimiters.
 
 **When**: `buildMessage`, `envelopeOf`, `formatMailbox` or
 `checkAddress(address, caller)`, with `error.code === 'INVALID_ADDRESS'`.
+Also when a string in `to`, `cc`, `bcc` or `replyTo` holds no mailbox at
+all — an empty string, or an empty group such as
+`undisclosed-recipients:;` — or holds text after an `<address>` that is not
+a comma and the next mailbox: `A <a@b.test> B <v@c.test>`.
 The message starts with the function that refused it: `buildMessage():`,
 `envelopeOf():`, `formatMailbox():`, or the `caller` you gave
 `checkAddress`. Control characters show escaped, as `\r\n`.
@@ -127,18 +153,25 @@ The message starts with the function that refused it: `buildMessage():`,
 **Why**: an address — Bcc included — is not RFC 5322 §3.4.1's `addr-spec`:
 its local part is neither a dot-atom (`jo.e+tag`) nor a quoted string
 (`"john doe"`), or its domain is neither dot-separated labels nor an
-address literal (`[192.0.2.1]`). A comma, a semicolon, a parenthesis, a
-stray quote, white space, an empty label or a control character are all
-refused: each would let the value add a recipient, or reach a header or an
-SMTP command it does not belong in. Non-ASCII letters (RFC 6532) pass.
+address literal — `[192.0.2.1]`, `[IPv6:…]` or `[tag:content]` (RFC 5321
+§4.1.3). A comma, a semicolon, a parenthesis, a stray quote, white space,
+an empty label, an angle bracket inside a literal or a control character
+are all refused: each would let the value add a recipient, or reach a
+header or an SMTP command it does not belong in. So are the characters
+that hide or reorder text — C1 controls, zero-width characters, U+2028 and
+U+2029, bidirectional overrides and isolates — which let an address pass
+for another. Non-ASCII letters (RFC 6532) pass. Text after an `<address>`
+is refused rather than dropped, so no recipient is lost unseen.
 
 **Fix**: pass `'Name <user@example.com>'`, `'user@example.com'`, or
-`{ name, address }`, and strip what you take from user input.
+`{ name, address }`, and strip what you take from user input. For an empty
+group such as `undisclosed-recipients:;`, leave the field out: `bcc` alone
+already keeps the recipients out of the headers.
 
-## `MimeError: buildMessage(): "…" holds 2 addresses where one is expected`
+## `MimeError: buildMessage(): "…" holds … addresses where one is expected`
 
 **When**: `from` or `sender` is a string that lists several mailboxes, or
-a group, with `error.code === 'INVALID_ADDRESS'`. The message starts with
+a group of several, with `error.code === 'INVALID_ADDRESS'`. The message starts with
 `buildMessage():` or `envelopeOf():`.
 
 **Why**: a message has one author address in `From` for SMTP's `MAIL FROM`,
@@ -241,6 +274,19 @@ field.
 
 **Fix**: check `Number.isNaN(date.getTime())` on dates parsed from user
 input, or leave `date` out to use the current time.
+
+## `MimeError: formatDate(): the year … is outside 1900–9999`
+
+**When**: `buildMessage` with a `date`, or `formatDate`, whose UTC year is
+before 1900 or after 9999, with `error.code === 'INVALID_OPTION'`.
+
+**Why**: RFC 5322 §3.3 writes a year in four digits or more, and a reader
+takes a short year as an obsolete two- or three-digit one (§4.3): year 999
+would come back as 2899. A year past 9999 is no date a reader expects.
+
+**Fix**: check the year of dates taken from user input — a typo such as
+`0226` for `2026` is the usual cause — or leave `date` out to use the
+current time.
 
 ## The Bcc recipients are missing from the message
 

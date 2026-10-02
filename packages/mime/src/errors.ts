@@ -2,7 +2,8 @@
 export type MimeErrorCode =
 	| 'HEADER_TOO_LARGE'
 	| 'INVALID_ADDRESS'
-	| 'INVALID_OPTION';
+	| 'INVALID_OPTION'
+	| 'TOO_MANY_PARTS';
 
 /** Thrown where a message breaks a limit or a value cannot be built. */
 export class MimeError extends Error {

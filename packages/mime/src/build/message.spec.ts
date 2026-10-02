@@ -366,6 +366,25 @@ describe('buildMessage on hostile input', () => {
 		);
 	});
 
+	test('text after an <address> is refused, never dropped', () => {
+		for (const to of [
+			'A <a@b.test> B <v@evil.test>',
+			'<a@b.test> v@evil.test',
+			'A <a@b.test> trailing',
+		]) {
+			expect(() => envelopeOf({ from: 'x@y.test', to })).toThrow(MimeError);
+			expect(() => buildMessage({ from: 'x@y.test', to })).toThrow(
+				'is not an e-mail address',
+			);
+		}
+		expect(
+			envelopeOf({
+				from: 'x@y.test',
+				to: 'A <a@b.test> (comment), B <c@d.test>',
+			}).to,
+		).toEqual(['a@b.test', 'c@d.test']);
+	});
+
 	test('a from or sender string listing several addresses is refused', () => {
 		expect(() => buildMessage({ from: 'a@b.test, c@d.test' })).toThrow(
 			'holds 2 addresses where one is expected',

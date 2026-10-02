@@ -61,4 +61,17 @@ describe('formatDate', () => {
 		expect(formatDate(date)).toBe('Fri, 02 Oct 2026 22:05:09 +0000');
 		expect(parseDate(formatDate(date))?.getTime()).toBe(date.getTime());
 	});
+
+	test('a year outside 1900–9999 is refused with INVALID_OPTION', () => {
+		for (const year of [999, 1899, 10000]) {
+			const date = new Date(Date.UTC(2000, 0, 1));
+			date.setUTCFullYear(year);
+			expect(() => formatDate(date)).toThrow(
+				`formatDate(): the year ${year} is outside 1900–9999`,
+			);
+		}
+		expect(formatDate(new Date(Date.UTC(1900, 0, 1)))).toBe(
+			'Mon, 01 Jan 1900 00:00:00 +0000',
+		);
+	});
 });

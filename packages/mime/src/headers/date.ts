@@ -82,6 +82,14 @@ export function formatDate(date: Date): string {
 	if (Number.isNaN(date.getTime())) {
 		throw new MimeError('INVALID_OPTION', 'formatDate(): the date is invalid');
 	}
+	const year = date.getUTCFullYear();
+	// Four digits, and no earlier than RFC 5322 §4.3's obsolete two-digit years reach.
+	if (year < 1900 || year > 9999) {
+		throw new MimeError(
+			'INVALID_OPTION',
+			`formatDate(): the year ${year} is outside 1900–9999`,
+		);
+	}
 	return (
 		`${DAYS[date.getUTCDay()]}, ${pad(date.getUTCDate())} ` +
 		`${(MONTHS[date.getUTCMonth()] as string).replace(/^./, (c) => c.toUpperCase())} ` +

@@ -206,6 +206,8 @@ describe('checkAddress', () => {
 			'"a\\"b"@example.org',
 			'José@exämple.fr',
 			'u@[192.0.2.1]',
+			'u@[IPv6:2001:db8::1]',
+			'u@[x-tag:some-content]',
 		]) {
 			expect(checkAddress(address, 't()')).toBe(address);
 		}
@@ -228,6 +230,43 @@ describe('checkAddress', () => {
 			'@b.test',
 		]) {
 			expect(() => checkAddress(address, 'mine()')).toThrow('mine(): ');
+		}
+	});
+
+	test('an address literal is IPv4, IPv6: or tag:content (RFC 5321 §4.1.3), with no <, >, , or "', () => {
+		for (const address of [
+			'a@[x>]',
+			'a@[192.0.2.1>]',
+			'a@[tag:a>b]',
+			'a@[tag:a<b]',
+			'a@[tag:a,b]',
+			'a@[tag:a"b]',
+			'a@[999.0.2.1]',
+			'a@[nocolon]',
+			'a@[]',
+		]) {
+			expect(() => checkAddress(address, 'mine()')).toThrow('mine(): ');
+		}
+	});
+
+	test('characters that hide or reorder text are refused: C1, zero-width, separators, bidi', () => {
+		for (const char of [
+			'\u0085',
+			'\u009b',
+			'\u200b',
+			'\u200f',
+			'\u2028',
+			'\u2029',
+			'\u202e',
+			'\u2066',
+			'\u2069',
+		]) {
+			expect(() => checkAddress(`a@b${char}.test`, 'mine()')).toThrow(
+				'mine(): ',
+			);
+			expect(() => checkAddress(`a${char}@b.test`, 'mine()')).toThrow(
+				'mine(): ',
+			);
 		}
 	});
 });
