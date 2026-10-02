@@ -7,8 +7,11 @@ only number on it.
 ## Now
 
 - **The contract and its memory store** — accounts, mailboxes with roles
-  and a hierarchy, messages with UIDs and modseqs, flags, copies and moves,
-  and the changes since a modseq, for IMAP and JMAP to sync from.
+  and a hierarchy, messages that keep one id across mailboxes (JMAP's
+  Email) and a UID in each (IMAP), content given and read as a stream,
+  flags with RFC 7162's conditional store, copies, links and moves, and
+  the message and mailbox changes since a modseq, paged, for IMAP's
+  CONDSTORE and QRESYNC and JMAP's `/changes` to sync from.
 
 ## Next
 

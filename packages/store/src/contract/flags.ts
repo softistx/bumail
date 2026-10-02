@@ -10,8 +10,11 @@ export const SYSTEM_FLAGS = [
 	'\\Seen',
 ] as const;
 
-/** An IMAP flag-keyword (RFC 9051 §9, `atom`), which JMAP keywords are too. */
-const KEYWORD = /^[^\s(){%*"\\\]]+$/;
+/**
+ * A keyword: an IMAP `atom` (RFC 9051 §9) in printable ASCII, which is also
+ * what a JMAP keyword may be (RFC 8621 §4.1.1), 255 characters at most.
+ */
+const KEYWORD = /^[!#$&'+,\-./0-9:;<=>?@A-Z[^_`a-z|}~]{1,255}$/;
 
 /** Whether text holds a control character (U+0000 to U+001F, U+007F). */
 export function hasControl(text: string): boolean {
@@ -22,15 +25,18 @@ export function hasControl(text: string): boolean {
 	return false;
 }
 
-/** A flag as stored: a system flag in its canonical case, a keyword as given. */
+/**
+ * A flag as stored: a system flag in its canonical case, a keyword in
+ * lowercase — IMAP and JMAP both compare keywords without case.
+ */
 export function normalizeFlag(flag: string): string {
-	if (flag.startsWith('\\')) {
+	if (typeof flag === 'string' && flag.startsWith('\\')) {
 		const system = SYSTEM_FLAGS.find(
 			(name) => name.toLowerCase() === flag.toLowerCase(),
 		);
 		if (system) return system;
-	} else if (KEYWORD.test(flag) && !hasControl(flag)) {
-		return flag;
+	} else if (typeof flag === 'string' && KEYWORD.test(flag)) {
+		return flag.toLowerCase();
 	}
 	throw new StoreError('INVALID', `"${flag}" is not a flag a store keeps`);
 }
@@ -40,16 +46,23 @@ export function normalizeFlags(flags: readonly string[]): string[] {
 	return [...new Set(flags.map(normalizeFlag))].sort();
 }
 
-/** The flags after a change; `set` first, then `add`, then `remove`. */
+/** A change with its flags normalised, so applying it cannot throw. */
+export function normalizeChange(change: FlagChange): FlagChange {
+	return {
+		...(change.set === undefined ? {} : { set: normalizeFlags(change.set) }),
+		add: normalizeFlags(change.add ?? []),
+		remove: normalizeFlags(change.remove ?? []),
+	};
+}
+
+/** The flags after a normalised change: `set` first, then `add`, then `remove`. */
 export function applyFlagChange(
 	current: readonly string[],
 	change: FlagChange,
 ): string[] {
-	const flags = new Set(
-		change.set === undefined ? current : normalizeFlags(change.set),
-	);
-	for (const flag of normalizeFlags(change.add ?? [])) flags.add(flag);
-	for (const flag of normalizeFlags(change.remove ?? [])) flags.delete(flag);
+	const flags = new Set(change.set ?? current);
+	for (const flag of change.add ?? []) flags.add(flag);
+	for (const flag of change.remove ?? []) flags.delete(flag);
 	return [...flags].sort();
 }
 

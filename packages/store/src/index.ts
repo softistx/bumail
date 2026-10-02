@@ -1,16 +1,25 @@
 export { blobIdOf } from './contract/blob';
 export { normalizeFlag, SYSTEM_FLAGS } from './contract/flags';
+export type { MailStore } from './contract/mail-store';
+export { MAILBOX_ROLES } from './contract/mailbox-name';
 export type {
 	Account,
-	Changes,
+	ChangesOptions,
+	Content,
+	Expunged,
 	FlagChange,
+	FlagOptions,
+	FlagResult,
+	ListOptions,
 	Mailbox,
+	MailboxChanges,
+	MailboxEntry,
 	MailboxRole,
-	MailStore,
+	Membership,
 	Message,
+	MessageChanges,
 	NewMailbox,
 	NewMessage,
-	Removed,
 } from './contract/types';
 export { StoreError, type StoreErrorCode } from './errors';
-export { MemoryMailStore } from './memory/store';
+export { MemoryMailStore, type MemoryMailStoreOptions } from './memory/store';
