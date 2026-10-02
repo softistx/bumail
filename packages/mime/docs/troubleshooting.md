@@ -145,10 +145,13 @@ delimiters.
 Also when a string in `to`, `cc`, `bcc` or `replyTo` holds no mailbox at
 all — an empty string, or an empty group such as
 `undisclosed-recipients:;` — or holds text after an `<address>` that is not
-a comma and the next mailbox: `A <a@b.test> B <v@c.test>`.
+a comma and the next mailbox: `A <a@b.test> B <v@c.test>`,
+`<a@b.test>; v@c.test`, `<a@b.test>: v@c.test`, or an address before the
+`<`, as in `a@b.test <v@c.test>`.
 The message starts with the function that refused it: `buildMessage():`,
 `envelopeOf():`, `formatMailbox():`, or the `caller` you gave
-`checkAddress`. Control characters show escaped, as `\r\n`.
+`checkAddress`. Control and invisible characters show escaped — `\r\n`,
+`\u200b` — so an address that looks valid in the message is not.
 
 **Why**: an address — Bcc included — is not RFC 5322 §3.4.1's `addr-spec`:
 its local part is neither a dot-atom (`jo.e+tag`) nor a quoted string
@@ -158,9 +161,10 @@ address literal — `[192.0.2.1]`, `[IPv6:…]` or `[tag:content]` (RFC 5321
 an empty label, an angle bracket inside a literal or a control character
 are all refused: each would let the value add a recipient, or reach a
 header or an SMTP command it does not belong in. So are the characters
-that hide or reorder text — C1 controls, zero-width characters, U+2028 and
-U+2029, bidirectional overrides and isolates — which let an address pass
-for another. Non-ASCII letters (RFC 6532) pass. Text after an `<address>`
+that hide or reorder text — C1 controls, every Unicode format character
+(zero-width spaces and joiners, the soft hyphen, bidirectional marks,
+overrides and isolates, the BOM), U+2028 and U+2029 — which let an
+address pass for another. Non-ASCII letters (RFC 6532) pass. Text after an `<address>`
 is refused rather than dropped, so no recipient is lost unseen.
 
 **Fix**: pass `'Name <user@example.com>'`, `'user@example.com'`, or

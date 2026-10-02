@@ -371,6 +371,13 @@ describe('buildMessage on hostile input', () => {
 			'A <a@b.test> B <v@evil.test>',
 			'<a@b.test> v@evil.test',
 			'A <a@b.test> trailing',
+			'<a@b.test>; v@evil.test',
+			'Name <a@b.test>; v@evil.test',
+			'<a@b.test> : v@evil.test',
+			'Name <a@b.test>:v@evil.test',
+			'a@b.test <v@evil.test>',
+			'a@b.test; v@evil.test',
+			'g: h: a@b.test;;',
 		]) {
 			expect(() => envelopeOf({ from: 'x@y.test', to })).toThrow(MimeError);
 			expect(() => buildMessage({ from: 'x@y.test', to })).toThrow(
@@ -383,6 +390,13 @@ describe('buildMessage on hostile input', () => {
 				to: 'A <a@b.test> (comment), B <c@d.test>',
 			}).to,
 		).toEqual(['a@b.test', 'c@d.test']);
+		// Groups, one after another, keep every member (RFC 5322 §A.1.3).
+		expect(
+			envelopeOf({
+				from: 'x@y.test',
+				to: 'A: a@b.test, <c@d.test>;, B: e@f.test;, g@h.test',
+			}).to,
+		).toEqual(['a@b.test', 'c@d.test', 'e@f.test', 'g@h.test']);
 	});
 
 	test('a from or sender string listing several addresses is refused', () => {

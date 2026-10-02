@@ -335,10 +335,12 @@ for:
   parenthesis, stray quote, white space or control character would add a
   recipient or reach an SMTP command; so would `<`, `>` or `,` inside a
   `[literal]`, which must be IPv4, `IPv6:…` or `tag:content`; and C1
-  controls, zero-width characters and bidirectional overrides are refused
-  because they let an address pass for another;
+  controls and Unicode format characters (zero-width, soft hyphen,
+  bidirectional marks and overrides, the BOM) are refused because they let
+  an address pass for another;
 - a string with text after an `<address>` other than a comma and the next
-  mailbox, or with no mailbox at all, such as `undisclosed-recipients:;`;
+  mailbox (`<a@b.test>; v@c.test` included), an address before the `<`, or
+  no mailbox at all, such as `undisclosed-recipients:;`;
 - a `from` or `sender` string that lists several addresses;
 - an Invalid Date as `date`, or one whose year is outside 1900–9999;
 - a line break in a header value, a name that is not a header name, or a

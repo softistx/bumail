@@ -260,6 +260,12 @@ describe('checkAddress', () => {
 			'\u202e',
 			'\u2066',
 			'\u2069',
+			'\u00ad',
+			'\u061c',
+			'\u180e',
+			'\u2060',
+			'\u2064',
+			'\ufeff',
 		]) {
 			expect(() => checkAddress(`a@b${char}.test`, 'mine()')).toThrow(
 				'mine(): ',
@@ -268,5 +274,11 @@ describe('checkAddress', () => {
 				'mine(): ',
 			);
 		}
+	});
+
+	test('the error shows an invisible character as an escape, so the address does not look valid', () => {
+		expect(() => checkAddress('a\u200b@b.test', 'mine()')).toThrow(
+			'mine(): "a\\u200b@b.test" is not an e-mail address',
+		);
 	});
 });
