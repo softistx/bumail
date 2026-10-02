@@ -94,6 +94,17 @@ describe('QuotedPrintableDecoder', () => {
 		}
 	});
 
+	test('hostile input never grows the decoder: a megabyte of spaces or of =', () => {
+		for (const byte of [0x20, 0x3d]) {
+			const decoder = new QuotedPrintableDecoder(1024);
+			let out = 0;
+			const chunk = new Uint8Array(4096).fill(byte);
+			for (let i = 0; i < 256; i++) out += decoder.write(chunk).length;
+			// All but the last two bytes are out: an = there may open an escape.
+			expect(out).toBeGreaterThanOrEqual(256 * 4096 - 2);
+		}
+	});
+
 	test('a line longer than maxLine is decoded without waiting for its end, never inside =XX', () => {
 		const decoder = new QuotedPrintableDecoder(10);
 		const encoded = new TextEncoder().encode('=C3=A9'.repeat(20));

@@ -89,17 +89,30 @@ for await (const event of parseMimeStream(Bun.file('big.eml').stream())) {
 ```
 
 The events come in document order: a multipart's children sit between its
-`headers` and its `end`, and only leaf parts get `body` events.
+`headers` and its `end`, and only leaf parts get `body` events — at most
+one per part for each chunk written, however many lines it holds.
 
 `MimeParser` is the same parser without the stream, for a source that
-pushes — a socket's `data` handler, for one:
+pushes — a Bun socket, for one:
 
 ```ts
 import { MimeParser } from '@bumail/mime';
 
-const parser = new MimeParser({ maxHeaderBytes: 64 * 1024 });
-socket.data = (chunk) => handle(parser.write(chunk));
-socket.end = () => handle(parser.end());
+Bun.listen<{ parser: MimeParser }>({
+	hostname: '127.0.0.1',
+	port: 2525,
+	socket: {
+		open(socket) {
+			socket.data = { parser: new MimeParser({ maxHeaderBytes: 64 * 1024 }) };
+		},
+		data(socket, chunk) {
+			handle(socket.data.parser.write(chunk));
+		},
+		end(socket) {
+			handle(socket.data.parser.end());
+		},
+	},
+});
 ```
 
 `write` and `end` return the events each one completed.
@@ -111,20 +124,24 @@ The parser keeps one header block and one line, never a body:
 | option | default | what it bounds |
 | --- | --- | --- |
 | `maxHeaderBytes` | 64 KiB | one part's header block; past it, `MimeError` `HEADER_TOO_LARGE` |
-| `maxLineBytes` | 64 KiB | a body line without a line break is passed on in pieces past this |
+| `maxLineBytes` | 64 KiB | a body line without a line break is passed on in pieces past this; at least 1000, so a delimiter line is always read whole |
 | `maxDepth` | 32 | a multipart nested deeper is read as an opaque body |
+
+Each must be an integer — `NaN` would switch a limit off — or the
+constructor throws a `MimeError` `INVALID_OPTION`. The parser copies what
+it keeps, so you may reuse a buffer once `write` returns.
 
 Decode a body as it streams with a `TransferDecoder`:
 
 ```ts
-import { createTransferDecoder, decodeCharset } from '@bumail/mime';
+import { createTransferDecoder, parseMimeStream, type TransferDecoder } from '@bumail/mime';
 
-const decoders = new Map();
+const decoders = new Map<string, TransferDecoder>();
 for await (const event of parseMimeStream(stream)) {
 	if (event.type === 'headers') {
 		decoders.set(event.part.path, createTransferDecoder(event.part.headers.get('content-transfer-encoding')));
 	} else if (event.type === 'body') {
-		await sink.write(decoders.get(event.part.path).write(event.data));
+		await sink.write(decoders.get(event.part.path)?.write(event.data) ?? event.data);
 	} else {
 		await sink.write(decoders.get(event.part.path)?.end() ?? new Uint8Array());
 	}
@@ -159,7 +176,12 @@ headers.text('subject'); // 'Grüße' — encoded-words decoded
 ```
 
 Header bytes are read as UTF-8 (RFC 6532), and as windows-1252 when they are
-not valid UTF-8 — what an old client sends unlabelled.
+not valid UTF-8 — what an old client sends unlabelled. Each line is decoded
+on its own, so one Latin-1 field leaves the UTF-8 of the others intact.
+
+An encoded-word may hold any character, CR and LF included: `text()` can
+return a line break. Check a decoded value before writing it into another
+header.
 
 `decodeEncodedWords` decodes RFC 2047 words in any text. The white space
 between two encoded-words is dropped (§6.2), and adjacent words in one
@@ -225,7 +247,8 @@ formatDate(new Date()); // 'Fri, 02 Oct 2026 22:00:00 +0000'
 `parseDate` reads RFC 5322 §3.3 with §4.3's obsolete forms: two- and
 three-digit years, `UT`, `GMT` and the US zone names, comments. A military
 zone letter reads as UTC, as §4.3 asks. It returns `undefined` for what is
-not a date. `formatDate` always writes UTC.
+not a date — 31 February or 25:61 included; a leap second, `:60`, reads as
+`:59`. `formatDate` always writes UTC.
 
 ## Charsets
 
@@ -238,15 +261,16 @@ KOI8, Shift_JIS, EUC-JP, ISO-2022-JP, GBK, Big5, EUC-KR and more.
 - `iso-8859-1` also reads as windows-1252, per the Encoding Standard.
 - An unknown label reads as UTF-8 when the bytes are valid UTF-8, and as
   windows-1252 otherwise.
-- `utf-7` reads as UTF-8: the platform has no UTF-7 decoder.
+- `utf-7` is unknown to the platform, so it falls back like any unknown
+  label: UTF-7 text comes out as its ASCII encoding.
 
 ## Transfer encodings
 
 | function | for |
 | --- | --- |
-| `decodeBase64(text)`, `encodeBase64(bytes, lineLength = 76)` | RFC 2045 §6.8; decoding ignores what is not in the alphabet |
+| `decodeBase64(text)`, `encodeBase64(bytes, lineLength = 76)` | RFC 2045 §6.8; decoding ignores what is not in the alphabet, and padding ends a run, so `Zm8=YmFy` reads as two pieces |
 | `decodeQuotedPrintable(text)`, `encodeQuotedPrintable(text)` | RFC 2045 §6.7; line breaks are CRLF |
-| `Base64Decoder`, `QuotedPrintableDecoder` | the same, chunk by chunk |
+| `Base64Decoder`, `QuotedPrintableDecoder` | the same, chunk by chunk, in bounded memory whatever the input |
 | `createTransferDecoder(encoding)` | the decoder for a `Content-Transfer-Encoding`; `7bit`, `8bit`, `binary` and unknown ones pass through, as §6.4 asks |
 | `decodeTransfer(body, encoding)` | a whole body at once |
 
@@ -286,18 +310,33 @@ What `buildMessage` writes:
   inside `multipart/related` when an attachment has a `contentId`; inside
   `multipart/mixed` when there are other attachments. No level is added
   that the message does not need.
-- Text as `7bit` when it is ASCII with lines up to 998 characters, as
-  `quoted-printable` otherwise, always `charset=utf-8`, line breaks as CRLF.
-  Attachments as base64; a non-ASCII file name with RFC 2231.
+- Text as `7bit` when it is ASCII with no control character but TAB and
+  line breaks, and lines up to 998 characters; as `quoted-printable`
+  otherwise. Always `charset=utf-8`, line breaks as CRLF.
+- Attachments as base64. A file name that is long or not ASCII is written
+  with RFC 2231 continuations, so no header line passes 78 characters.
+  `multipart/related` names its root's type (RFC 2387).
 - Header values with encoded-words where needed, folded at 78 characters.
+  A display name that is not ASCII is encoded whole, so no comma or bracket
+  in it can be read as another address.
 
 The result is 7-bit ASCII with CRLF line breaks: it goes to any SMTP server
 as it is, 8BITMIME or not.
 
 Addresses are given as `'Name <address>'` strings, bare addresses, or
-`{ name, address }` objects. Every value is checked: a line break in a
-header value, a header name that is not one, or an address without `@`
-throws a `MimeError`.
+`{ name, address }` objects. Every value is checked, Bcc included, and a
+`MimeError` is thrown for:
+
+- an address without `@`, or with a control character, an angle bracket or
+  white space outside a quoted local part — it would reach an SMTP command;
+- a line break in a header value, a name that is not a header name, or a
+  word that would leave a line over RFC 5322's 998 characters;
+- a `headers` key the builder writes itself: the address fields,
+  `Subject`, `Date`, the ids, `MIME-Version`, any `Content-*`;
+- an id (`messageId`, `inReplyTo`, `references`, `contentId`) with angle
+  brackets, white space or a control character;
+- an attachment `contentType` that is not `type/subtype`, or a file name
+  with a control character.
 
 ## What each part follows
 

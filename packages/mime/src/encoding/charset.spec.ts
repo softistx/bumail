@@ -27,5 +27,6 @@ describe('decodeCharset', () => {
 		expect(charsetLabel('UTF8')).toBe('utf-8');
 		expect(charsetLabel('iso-2022-jp')).toBe('iso-2022-jp');
 		expect(charsetLabel('x-unknown')).toBeUndefined();
+		expect(charsetLabel('utf-7')).toBeUndefined();
 	});
 });

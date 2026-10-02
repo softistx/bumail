@@ -12,13 +12,21 @@ thrown, or, for a trap that prints nothing, the symptom.
 - [A deeply nested part comes out as raw text](#a-deeply-nested-part-comes-out-as-raw-text)
 - [`body` events are base64, not the file](#body-events-are-base64-not-the-file)
 
+**Parser options**
+
+- [`MimeError: MimeParser: … must be an integer of at least …, not …`](#mimeerror-mimeparser--must-be-an-integer-of-at-least--not-)
+
 **Writing**
 
-- [`MimeError: "…" is not an e-mail address`](#mimeerror--is-not-an-e-mail-address)
-- [`MimeError: formatMailbox(): a display name cannot hold a line break`](#mimeerror-formatmailbox-a-display-name-cannot-hold-a-line-break)
+- [`MimeError: buildMessage(): "…" is not an e-mail address`](#mimeerror-buildmessage--is-not-an-e-mail-address)
+- [`MimeError: formatMailbox(): a display name cannot hold a line break or a control character`](#mimeerror-formatmailbox-a-display-name-cannot-hold-a-line-break-or-a-control-character)
 - [`MimeError: The value of … holds a line break`](#mimeerror-the-value-of--holds-a-line-break)
+- [`MimeError: The value of … holds a word too long for a header line (RFC 5322 §2.1.1: 998)`](#mimeerror-the-value-of--holds-a-word-too-long-for-a-header-line-rfc-5322-211-998)
 - [`MimeError: "…" is not a header field name`](#mimeerror--is-not-a-header-field-name)
-- [`MimeError: An attachment content type holds a line break`](#mimeerror-an-attachment-content-type-holds-a-line-break)
+- [`MimeError: headers: … is written by buildMessage; set it through its own option`](#mimeerror-headers--is-written-by-buildmessage-set-it-through-its-own-option)
+- [`MimeError: messageId: "…" is not a message id`](#mimeerror-messageid--is-not-a-message-id)
+- [`MimeError: "…" is not a media type`](#mimeerror--is-not-a-media-type)
+- [`MimeError: A file name cannot hold a control character`](#mimeerror-a-file-name-cannot-hold-a-control-character)
 - [The Bcc recipients are missing from the message](#the-bcc-recipients-are-missing-from-the-message)
 
 ## `MimeError: The header block of part "…" is larger than … bytes`
@@ -95,25 +103,42 @@ transfer encoding, so nothing is decoded that nobody reads.
 **Fix**: decode with `createTransferDecoder(part.headers.get('content-transfer-encoding'))`
 — see the [guide](guide.md#bounded-memory).
 
-## `MimeError: "…" is not an e-mail address`
+## `MimeError: MimeParser: … must be an integer of at least …, not …`
+
+**When**: `new MimeParser(options)`, `parseMessage` or `parseMimeStream`,
+with `error.code === 'INVALID_OPTION'`: `maxHeaderBytes` below 1,
+`maxDepth` below 0, `maxLineBytes` below 1000, or any of them not an
+integer — `NaN` included.
+
+**Why**: a limit that is not a number would switch itself off, and a
+`maxLineBytes` shorter than a delimiter line would make the parser miss
+delimiters.
+
+**Fix**: pass integers, or leave an option out for its default.
+
+## `MimeError: buildMessage(): "…" is not an e-mail address`
 
 **When**: `buildMessage`, `envelopeOf` or `formatMailbox`, with
-`error.code === 'INVALID_ADDRESS'`. From `formatMailbox` the message starts
-with `formatMailbox(): `.
+`error.code === 'INVALID_ADDRESS'`. The message starts with the function
+that refused it: `buildMessage():`, `envelopeOf():`, `formatMailbox():`.
+Control characters show escaped, as `\r\n`.
 
-**Why**: an address string held no address — no `@`, or nothing
-`parseAddressList` could read — or held `<`, `>` or a line break.
+**Why**: an address — Bcc included — held no `@`, nothing
+`parseAddressList` could read, a control character, an angle bracket, or
+white space outside a quoted local part. Any of them would let the value
+reach a header or an SMTP command it does not belong in.
 
 **Fix**: pass `'Name <user@example.com>'`, `'user@example.com'`, or
-`{ name, address }`.
+`{ name, address }`, and strip what you take from user input.
 
-## `MimeError: formatMailbox(): a display name cannot hold a line break`
+## `MimeError: formatMailbox(): a display name cannot hold a line break or a control character`
 
-**When**: a `{ name, address }` whose name holds CR or LF.
+**When**: a `{ name, address }` whose name holds CR, LF or another control
+character, from `buildMessage` or `formatMailbox`.
 
 **Why**: a line break in a header is how a header is injected.
 
-**Fix**: strip line breaks from names taken from user input.
+**Fix**: replace control characters in names taken from user input.
 
 ## `MimeError: The value of … holds a line break`
 
@@ -126,6 +151,16 @@ break inside an encoded-word.
 
 **Fix**: replace line breaks with spaces in values taken from user input.
 
+## `MimeError: The value of … holds a word too long for a header line (RFC 5322 §2.1.1: 998)`
+
+**When**: a header value has a word — a run without white space — so long
+that no folding keeps its line within 998 characters.
+
+**Why**: RFC 5322 caps a line at 998 characters, and many servers refuse a
+message that does not keep to it.
+
+**Fix**: put spaces in the value, or carry long data in the body.
+
 ## `MimeError: "…" is not a header field name`
 
 **When**: a key of `headers` holds a space, a colon or a character outside
@@ -133,11 +168,40 @@ printable ASCII.
 
 **Fix**: use a field name: `X-Campaign`, not `X Campaign`.
 
-## `MimeError: An attachment content type holds a line break`
+## `MimeError: headers: … is written by buildMessage; set it through its own option`
 
-**When**: an attachment's `contentType` holds CR or LF.
+**When**: `headers` holds `From`, `Sender`, `To`, `Cc`, `Bcc`, `Reply-To`,
+`Subject`, `Date`, `Message-ID`, `In-Reply-To`, `References`,
+`MIME-Version` or any `Content-*` field, in any case.
 
-**Fix**: pass a media type such as `'application/pdf'`.
+**Why**: the builder writes these itself; a second `Content-Transfer-Encoding`
+or `From` makes readers disagree about the message.
+
+**Fix**: use the option: `from`, `subject`, `messageId`, `attachments`…
+
+## `MimeError: messageId: "…" is not a message id`
+
+**When**: `messageId`, `inReplyTo`, an entry of `references` or an
+attachment's `contentId` holds an angle bracket, white space or a control
+character. The message starts with the option's name.
+
+**Why**: an id is written between angle brackets (RFC 5322 §3.6.4); a
+bracket inside would end it early and start another.
+
+**Fix**: pass the id without its brackets: `1234@example.com`.
+
+## `MimeError: "…" is not a media type`
+
+**When**: an attachment's `contentType` is not `type/subtype` in printable
+ASCII — a line break or a parameter in it, for one.
+
+**Fix**: pass the media type alone, such as `'application/pdf'`.
+
+## `MimeError: A file name cannot hold a control character`
+
+**When**: an attachment's `filename` holds a control character.
+
+**Fix**: strip control characters from names taken from user input.
 
 ## The Bcc recipients are missing from the message
 

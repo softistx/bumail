@@ -36,7 +36,11 @@ export class MessageHeaders implements Iterable<HeaderField> {
 			.map((field) => field.value);
 	}
 
-	/** The first field's value with its encoded-words decoded (RFC 2047). */
+	/**
+	 * The first field's value with its encoded-words decoded (RFC 2047).
+	 * An encoded-word may hold any character, a line break included: check
+	 * the text before you write it into another header.
+	 */
 	text(name: string): string | undefined {
 		const value = this.get(name);
 		return value === undefined ? undefined : decodeEncodedWords(value).trim();
@@ -55,15 +59,28 @@ export class MessageHeaders implements Iterable<HeaderField> {
 	}
 }
 
+/** Each line decoded on its own, so one Latin-1 field does not turn the UTF-8 of the others into mojibake. */
+function decodeLines(block: Uint8Array): string {
+	const lines: string[] = [];
+	let start = 0;
+	while (start < block.length) {
+		let end = block.indexOf(0x0a, start);
+		if (end < 0) end = block.length;
+		lines.push(decodeUnlabelled(block.subarray(start, end)));
+		start = end + 1;
+	}
+	return lines.join('\n');
+}
+
 /**
  * Parses a header block — the lines before the blank line — into its
  * fields. Lines end in CRLF or a bare LF; a line that starts with white
  * space continues the field before it. A line with no colon is not a field
- * and is skipped. Bytes are read as UTF-8 (RFC 6532), or as windows-1252
- * when they are not valid UTF-8.
+ * and is skipped. Each line's bytes are read as UTF-8 (RFC 6532), or as
+ * windows-1252 when they are not valid UTF-8.
  */
 export function parseHeaderBlock(block: Uint8Array | string): MessageHeaders {
-	const text = typeof block === 'string' ? block : decodeUnlabelled(block);
+	const text = typeof block === 'string' ? block : decodeLines(block);
 	const fields: HeaderField[] = [];
 	let name: string | undefined;
 	let value = '';

@@ -52,6 +52,18 @@ describe('parseHeaderBlock', () => {
 		expect(parseHeaderBlock(latin).get('subject')).toBe('café');
 	});
 
+	test('one Latin-1 field does not garble the UTF-8 of the others', () => {
+		const block = Uint8Array.from([
+			...new TextEncoder().encode('Subject: café\r\nX-Old: caf'),
+			0xe9,
+			0x0d,
+			0x0a,
+		]);
+		const headers = parseHeaderBlock(block);
+		expect(headers.get('subject')).toBe('café');
+		expect(headers.get('x-old')).toBe('café');
+	});
+
 	test('text() decodes the encoded-words', () => {
 		const headers = parseHeaderBlock(
 			'Subject: =?UTF-8?Q?Gr=C3=BC=C3=9Fe?= aus Berlin\r\n',

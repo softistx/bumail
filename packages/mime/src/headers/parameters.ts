@@ -177,3 +177,53 @@ export function parseContentDisposition(value: string): ContentDisposition {
 		parameters,
 	};
 }
+
+/** How much of a value one parameter section carries, so a folded line stays short. */
+const SECTION = 60;
+
+const ATTRIBUTE_CHAR = /[A-Za-z0-9!#$&+\-.^_`|~]/;
+
+/**
+ * A parameter as written: `name="value"` when the value is short ASCII;
+ * RFC 2231 continuations (`name*0="…"; name*1="…"`) when it is long; and
+ * `name*0*=utf-8''…` percent-encoded sections when it is not ASCII. No
+ * section is longer than 60 characters, so a folded header keeps its lines
+ * within 78.
+ */
+export function formatParameter(name: string, value: string): string {
+	if (/^[\x20-\x7e]*$/.test(value)) {
+		const quote = (text: string) => `"${text.replace(/(["\\])/g, '\\$1')}"`;
+		if (value.length <= SECTION) return `${name}=${quote(value)}`;
+		const sections: string[] = [];
+		for (let i = 0; i < value.length; i += SECTION) {
+			sections.push(
+				`${name}*${sections.length}=${quote(value.slice(i, i + SECTION))}`,
+			);
+		}
+		return sections.join('; ');
+	}
+	const pieces: string[] = [''];
+	for (const char of value) {
+		const encoded = [...new TextEncoder().encode(char)]
+			.map((byte) => {
+				const c = String.fromCharCode(byte);
+				return ATTRIBUTE_CHAR.test(c)
+					? c
+					: `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+			})
+			.join('');
+		// A character's bytes stay in one section, for readers that decode each
+		// on its own; a section is shorter than an ASCII one, since the first
+		// also carries `utf-8''`.
+		if (
+			(pieces[pieces.length - 1] as string).length + encoded.length >
+			SECTION - 12
+		)
+			pieces.push('');
+		pieces[pieces.length - 1] += encoded;
+	}
+	if (pieces.length === 1) return `${name}*=utf-8''${pieces[0]}`;
+	return pieces
+		.map((piece, i) => `${name}*${i}*=${i === 0 ? "utf-8''" : ''}${piece}`)
+		.join('; ');
+}

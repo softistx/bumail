@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import { MimeError } from '../errors';
+import { mailboxesOf, parseAddressList } from '../headers/addresses';
 import { extractContent, parseMessage } from '../parse/message';
-import { buildMessage, envelopeOf } from './message';
+import { envelopeOf } from './envelope';
+import { buildMessage } from './message';
 
 const DATE = new Date('2026-10-02T22:00:00Z');
 const ASCII_CRLF = /^(?:[\x20-\x7e\t]*\r\n)*[\x20-\x7e\t]*$/;
@@ -184,5 +186,129 @@ describe('buildMessage', () => {
 		expect(() => buildMessage({ from: 'nobody' })).toThrow(
 			'is not an e-mail address',
 		);
+	});
+});
+
+describe('buildMessage on hostile input', () => {
+	test('a display name cannot add an address, whatever its characters', () => {
+		for (const name of [
+			'Ünïcode <evil@evil.example>',
+			'Doe, Jöhn',
+			'Doe, John',
+			'a@b.c <d@e.f>',
+		]) {
+			const message = buildMessage({
+				from: { name, address: 'real@example.com' },
+				text: '',
+			});
+			const parsed = parseMessage(message);
+			expect(
+				mailboxesOf(parseAddressList(parsed.headers.get('from') ?? '')),
+			).toEqual([{ name, address: 'real@example.com' }]);
+		}
+	});
+
+	test('no line break reaches the envelope or the message, Bcc included', () => {
+		const evil = { name: '', address: 'x@y>\r\nRCPT TO:<evil@z' };
+		expect(() => envelopeOf({ from: 'a@b.test', bcc: evil })).toThrow(
+			MimeError,
+		);
+		expect(() =>
+			buildMessage({ from: 'a@b.test', bcc: evil, text: '' }),
+		).toThrow('is not an e-mail address');
+		expect(() => envelopeOf({ from: '"a\r\nMAIL FROM:<x>"@b.test' })).toThrow(
+			MimeError,
+		);
+		expect(() =>
+			envelopeOf({ from: { name: '', address: 'a b@c.test' } }),
+		).toThrow(MimeError);
+		expect(envelopeOf({ from: '"a b"@c.test' }).from).toBe('"a b"@c.test');
+	});
+
+	test('a field the builder writes cannot be given in headers', () => {
+		for (const name of [
+			'From',
+			'content-transfer-encoding',
+			'Content-Type',
+			'MIME-Version',
+			'bcc',
+		]) {
+			expect(() =>
+				buildMessage({ from: 'a@b.test', headers: { [name]: 'x' } }),
+			).toThrow('is written by buildMessage');
+		}
+	});
+
+	test('ids cannot hold brackets or white space', () => {
+		expect(() =>
+			buildMessage({ from: 'a@b.test', inReplyTo: 'a@b> <c@d' }),
+		).toThrow('inReplyTo: "a@b> <c@d" is not a message id');
+		expect(() =>
+			buildMessage({ from: 'a@b.test', messageId: 'x>y@z' }),
+		).toThrow('messageId');
+		expect(() =>
+			buildMessage({ from: 'a@b.test', references: ['ok@x', 'no pe@x'] }),
+		).toThrow('references');
+	});
+
+	test('no header line passes 78 characters: long file names use RFC 2231 continuations', () => {
+		const filename = `${'é'.repeat(300)}.pdf`;
+		const long = `${'x'.repeat(300)}.txt`;
+		const message = buildMessage({
+			from: 'a@b.test',
+			attachments: [
+				{ filename, content: 'x' },
+				{ filename: long, content: 'y' },
+			],
+		});
+		for (const line of message.split('\r\n'))
+			expect(line.length).toBeLessThanOrEqual(78);
+		const files = extractContent(parseMessage(message)).attachments;
+		expect(files.map((part) => part.filename)).toEqual([filename, long]);
+	});
+
+	test('a word too long for a header line is refused', () => {
+		expect(() =>
+			buildMessage({
+				from: 'a@b.test',
+				headers: { 'X-Long': 'x'.repeat(1000) },
+			}),
+		).toThrow('too long for a header line');
+	});
+
+	test('multipart/related names its root type (RFC 2387 §3.1)', () => {
+		const message = buildMessage({
+			from: 'a@b.test',
+			html: '<img src="cid:i@x">',
+			attachments: [
+				{ contentId: 'i@x', contentType: 'image/png', content: 'x' },
+			],
+		});
+		expect(parseMessage(message).contentType.parameters).toMatchObject({
+			type: 'text/html',
+		});
+	});
+
+	test('a bare CR or a NUL in text goes out as quoted-printable', () => {
+		for (const text of ['a\rb', 'a\u0000b']) {
+			const message = buildMessage({ from: 'a@b.test', text });
+			expect(message).toContain('Content-Transfer-Encoding: quoted-printable');
+			expect(parseMessage(message).text).toBe(text);
+		}
+	});
+
+	test('an attachment type that is not a media type, or a file name with a control, is refused', () => {
+		expect(() =>
+			buildMessage({
+				from: 'a@b.test',
+				attachments: [{ contentType: 'text/plain\r\nX: y', content: '' }],
+			}),
+		).toThrow('is not a media type');
+		expect(() =>
+			buildMessage({
+				from: 'a@b.test',
+				attachments: [{ filename: 'a\nb', content: '' }],
+			}),
+		).toThrow('A file name cannot hold a control character');
 	});
 });

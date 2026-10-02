@@ -1,3 +1,4 @@
+import { join } from '../encoding/bytes';
 import { decodeCharset } from '../encoding/charset';
 import { decodeTransfer } from '../encoding/transfer';
 import type { MessageHeaders } from '../headers/fields';
@@ -6,7 +7,8 @@ import {
 	type ContentType,
 	parseContentDisposition,
 } from '../headers/parameters';
-import { MimeParser, type MimeParserOptions, type PartInfo } from './stream';
+import { MimeParser } from './stream';
+import type { MimeEvent, MimeParserOptions, PartInfo } from './types';
 
 /** A part of a parsed message, the message itself included. */
 export class MimePart {
@@ -77,37 +79,30 @@ export function parseMessage(
 	const bytes =
 		typeof message === 'string' ? new TextEncoder().encode(message) : message;
 	const parser = new MimeParser(options);
-	const events = [...parser.write(bytes), ...parser.end()];
 	const stack: MimePart[] = [];
 	const chunks = new Map<MimePart, Uint8Array[]>();
 	let root: MimePart | undefined;
-	for (const event of events) {
-		if (event.type === 'headers') {
-			const part = new MimePart(event.part);
-			stack[stack.length - 1]?.children.push(part);
-			root ??= part;
-			stack.push(part);
-			chunks.set(part, []);
-		} else if (event.type === 'body') {
-			chunks.get(stack[stack.length - 1] as MimePart)?.push(event.data);
-		} else {
-			const part = stack.pop() as MimePart;
-			part.raw = join(chunks.get(part) ?? []);
-			chunks.delete(part);
+	const apply = (events: readonly MimeEvent[]) => {
+		for (const event of events) {
+			if (event.type === 'headers') {
+				const part = new MimePart(event.part);
+				stack[stack.length - 1]?.children.push(part);
+				root ??= part;
+				stack.push(part);
+				chunks.set(part, []);
+			} else if (event.type === 'body') {
+				chunks.get(stack[stack.length - 1] as MimePart)?.push(event.data);
+			} else {
+				const part = stack.pop() as MimePart;
+				const parts = chunks.get(part) ?? [];
+				part.raw = parts.length === 1 ? (parts[0] as Uint8Array) : join(parts);
+				chunks.delete(part);
+			}
 		}
-	}
+	};
+	apply(parser.write(bytes));
+	apply(parser.end());
 	return root as MimePart;
-}
-
-function join(chunks: readonly Uint8Array[]): Uint8Array {
-	if (chunks.length === 1) return chunks[0] as Uint8Array;
-	const out = new Uint8Array(chunks.reduce((sum, c) => sum + c.length, 0));
-	let offset = 0;
-	for (const chunk of chunks) {
-		out.set(chunk, offset);
-		offset += chunk.length;
-	}
-	return out;
 }
 
 /** What a reader shows of a message: its text, its HTML, and its attachments. */

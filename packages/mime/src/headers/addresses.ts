@@ -1,5 +1,6 @@
+import { hasControl } from '../encoding/bytes';
 import { MimeError } from '../errors';
-import { decodeEncodedWords, encodeHeaderValue } from './encoded-words';
+import { decodeEncodedWords, encodeWord } from './encoded-words';
 import { ADDRESS_SPECIALS, type Token, tokenize } from './tokens';
 
 /** One mailbox (RFC 5322 §3.4): a display name, possibly empty, and an address. */
@@ -140,29 +141,51 @@ export function mailboxesOf(addresses: readonly Address[]): Mailbox[] {
 const PLAIN_PHRASE = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~ ]*$/;
 
 /**
- * A mailbox as a header writes it: `Name <user@example.com>`, the name
- * quoted when it holds a special and encoded when it is not ASCII.
+ * Throws unless `address` can go into a header or an SMTP command as it is:
+ * an `@`, no control character, no white space outside a quoted local part,
+ * no angle bracket.
+ */
+export function checkAddress(address: string, caller: string): string {
+	const at = address.lastIndexOf('@');
+	const local = address.slice(0, at);
+	const quoted = /^"[^"\\]*(?:\\.[^"\\]*)*"$/.test(local);
+	if (
+		at <= 0 ||
+		at === address.length - 1 ||
+		hasControl(address) ||
+		/[<>]/.test(address) ||
+		/\s/.test(quoted ? address.slice(at) : address)
+	) {
+		throw new MimeError(
+			'INVALID_ADDRESS',
+			`${caller}: "${JSON.stringify(address).slice(1, -1)}" is not an e-mail address`,
+		);
+	}
+	return address;
+}
+
+/**
+ * A mailbox as a header writes it: `Name <user@example.com>`. A name that
+ * is not ASCII is written whole as encoded-words (RFC 2047 §5(3)), so no
+ * comma or bracket in it reaches the header raw; an ASCII name with a
+ * special is quoted.
  */
 export function formatMailbox(mailbox: Mailbox | string): string {
 	const { name, address } =
 		typeof mailbox === 'string' ? { name: '', address: mailbox } : mailbox;
-	if (/[\r\n<>]/.test(address) || !address.includes('@')) {
-		throw new MimeError(
-			'INVALID_ADDRESS',
-			`formatMailbox(): "${address}" is not an e-mail address`,
-		);
-	}
+	checkAddress(address, 'formatMailbox()');
 	if (name === '') return address;
-	if (/[\r\n]/.test(name)) {
+	if (hasControl(name)) {
 		throw new MimeError(
 			'INVALID_ADDRESS',
-			'formatMailbox(): a display name cannot hold a line break',
+			'formatMailbox(): a display name cannot hold a line break or a control character',
 		);
 	}
-	const encoded = encodeHeaderValue(name);
 	const phrase =
-		encoded !== name || PLAIN_PHRASE.test(name)
-			? encoded
-			: `"${name.replace(/(["\\])/g, '\\$1')}"`;
+		!/^[\x20-\x7e]*$/.test(name) || /=\?/.test(name)
+			? encodeWord(name)
+			: PLAIN_PHRASE.test(name)
+				? name
+				: `"${name.replace(/(["\\])/g, '\\$1')}"`;
 	return `${phrase} <${address}>`;
 }

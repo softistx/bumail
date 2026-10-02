@@ -4,7 +4,7 @@ Read and write e-mail messages in Bun: RFC 5322 headers and addresses,
 encoded-words (RFC 2047) and parameter continuations (RFC 2231), MIME
 multipart, base64 and quoted-printable, any charset `TextDecoder` knows,
 and a streaming parser that reads a message of any size in bounded memory.
-No dependency.
+No dependency; `typescript` is an optional peer, for the types.
 
 ```sh
 bun add @bumail/mime
@@ -82,15 +82,15 @@ const { from, to } = envelopeOf(options); // MAIL FROM and every RCPT TO, Bcc in
 
 The body nests as mail clients expect — `multipart/mixed` around
 `multipart/related` around `multipart/alternative` — and only as deep as
-the message needs. Bcc is never written. A line break in any header value
-is refused.
+the message needs. Bcc is never written. Every address, name, id and value
+is checked: nothing given can add a header, an address or an SMTP command.
 
 ## API
 
 | export | |
 | --- | --- |
 | `parseMessage(bytes \| string, options?)` | the message as a tree of `MimePart` |
-| `extractContent(part)` | `{ text?, html?, attachments }` |
+| `extractContent(part)`, `MessageContent` | `{ text?, html?, attachments }` |
 | `MimePart` | `path`, `headers`, `contentType`, `children`, `raw`, `content`, `text`, `disposition`, `filename`, `contentId`, `walk()` |
 | `MimeParser` | the streaming parser: `write(chunk)` and `end()` return `MimeEvent[]` |
 | `parseMimeStream(stream, options?)` | the parser over a `ReadableStream` or an async iterable |
@@ -100,8 +100,10 @@ is refused.
 | `MessageOptions`, `Attachment`, `AddressInput`, `Envelope` | the options of `buildMessage` |
 | `parseHeaderBlock(block)`, `MessageHeaders`, `HeaderField` | header fields, unfolded, case-insensitive |
 | `parseAddressList(value)`, `mailboxesOf(list)`, `formatMailbox(mailbox)` | addresses and groups (RFC 5322 §3.4) |
+| `checkAddress(address, caller)` | throws unless the address is safe in a header and an SMTP command |
 | `Address`, `Mailbox`, `Group` | |
 | `parseContentType(value)`, `parseContentDisposition(value)` | with RFC 2231 parameters |
+| `formatParameter(name, value)` | a parameter as written, with RFC 2231 continuations when long or not ASCII |
 | `ContentType`, `ContentDisposition` | |
 | `parseDate(value)`, `formatDate(date)` | RFC 5322 §3.3 dates |
 | `decodeEncodedWords(value)`, `encodeHeaderValue(value)` | RFC 2047 |

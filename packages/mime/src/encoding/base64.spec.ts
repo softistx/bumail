@@ -41,6 +41,19 @@ describe('decodeBase64', () => {
 		expect(text(decodeBase64('Zm9v\r\nYm Fy\t!'))).toBe('foobar');
 	});
 
+	test('padding ends a run: base64 written in pieces decodes piece by piece', () => {
+		expect(text(decodeBase64('Zm8=YmFy'))).toBe('fobar');
+		expect(text(decodeBase64('Zg==\r\nZm8='))).toBe('ffo');
+		const decoder = new Base64Decoder();
+		const parts = [
+			...decoder.write(bytes('Zm')),
+			...decoder.write(bytes('8=Ym')),
+			...decoder.write(bytes('Fy')),
+			...decoder.end(),
+		];
+		expect(text(Uint8Array.from(parts))).toBe('fobar');
+	});
+
 	test('missing padding still decodes', () => {
 		expect(text(decodeBase64('Zm9vYg'))).toBe('foob');
 	});

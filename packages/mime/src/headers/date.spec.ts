@@ -44,6 +44,14 @@ describe('parseDate', () => {
 	test('what is not a date', () => {
 		expect(parseDate('yesterday')).toBeUndefined();
 		expect(parseDate('31 Foo 2020 10:00:00 +0000')).toBeUndefined();
+		expect(parseDate('31 Feb 2024 10:00:00 +0000')).toBeUndefined();
+		expect(parseDate('1 Feb 2024 25:61:00 +0000')).toBeUndefined();
+	});
+
+	test('a leap second reads as 59', () => {
+		expect(parseDate('31 Dec 2016 23:59:60 +0000')?.toISOString()).toBe(
+			'2016-12-31T23:59:59.000Z',
+		);
 	});
 });
 

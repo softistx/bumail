@@ -4,7 +4,6 @@ const ALIASES: Readonly<Record<string, string>> = {
 	ascii: 'windows-1252',
 	'ansi_x3.4-1968': 'windows-1252',
 	utf8: 'utf-8',
-	'utf-7': 'utf-8',
 	cp1252: 'windows-1252',
 	'x-sjis': 'shift_jis',
 	'ks_c_5601-1987': 'euc-kr',

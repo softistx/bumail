@@ -161,6 +161,17 @@ describe('formatMailbox', () => {
 		).toBe('"Doe, John \\"JD\\"" <jdoe@example.org>');
 	});
 
+	test('a name that is not ASCII is encoded whole, specials and all', () => {
+		const written = formatMailbox({
+			name: 'Doe, Jöhn <x@y.z>',
+			address: 'j@example.org',
+		});
+		expect(written).toMatch(/^=\?UTF-8\?B\?[^ ]+\?= <j@example\.org>$/);
+		expect(parseAddressList(written)).toEqual([
+			{ name: 'Doe, Jöhn <x@y.z>', address: 'j@example.org' },
+		]);
+	});
+
 	test('a name that is not ASCII is encoded, and parses back', () => {
 		const written = formatMailbox({
 			name: 'André Pirard',

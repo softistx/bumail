@@ -1,12 +1,7 @@
+export { type Envelope, envelopeOf } from './build/envelope';
 export { foldHeader } from './build/fold';
-export {
-	type AddressInput,
-	type Attachment,
-	buildMessage,
-	type Envelope,
-	envelopeOf,
-	type MessageOptions,
-} from './build/message';
+export { buildMessage } from './build/message';
+export type { AddressInput, Attachment, MessageOptions } from './build/options';
 export { Base64Decoder, decodeBase64, encodeBase64 } from './encoding/base64';
 export { charsetLabel, decodeCharset } from './encoding/charset';
 export {
@@ -22,6 +17,7 @@ export {
 export { MimeError, type MimeErrorCode } from './errors';
 export {
 	type Address,
+	checkAddress,
 	formatMailbox,
 	type Group,
 	type Mailbox,
@@ -38,6 +34,7 @@ export {
 export {
 	type ContentDisposition,
 	type ContentType,
+	formatParameter,
 	parseContentDisposition,
 	parseContentType,
 } from './headers/parameters';
@@ -47,10 +44,5 @@ export {
 	MimePart,
 	parseMessage,
 } from './parse/message';
-export {
-	type MimeEvent,
-	MimeParser,
-	type MimeParserOptions,
-	type PartInfo,
-	parseMimeStream,
-} from './parse/stream';
+export { MimeParser, parseMimeStream } from './parse/stream';
+export type { MimeEvent, MimeParserOptions, PartInfo } from './parse/types';

@@ -6,10 +6,7 @@ shipped in is the only number on it.
 
 ## Now
 
-- **Reading and writing messages** — headers, addresses, dates, encoded
-  words, RFC 2231 parameters, multipart, base64 and quoted-printable,
-  charsets through `TextDecoder`, a streaming parser in bounded memory, and
-  a builder that writes 7-bit messages ready for SMTP.
+Nothing scheduled yet.
 
 ## Next
 
@@ -29,12 +26,17 @@ shipped in is the only number on it.
 
 - **A runtime dependency.** Charsets come from `TextDecoder`, base64 from
   `Uint8Array`; nothing else is needed.
-- **UTF-7 decoding.** The platform has no decoder for it, and it is only met
-  in IMAP mailbox names, where IMAP's modified UTF-7 is a different thing.
+- **UTF-7 decoding.** The platform has no decoder for it; UTF-7 mail is
+  rare, and IMAP's modified UTF-7 for mailbox names is a different thing.
 - **S/MIME and OpenPGP.** Signing and encrypting message bodies belongs in
   a package of its own, if ever.
 - **TNEF (`winmail.dat`).** A Microsoft format inside a message, not MIME.
 
 ## Shipped
 
-Nothing yet.
+### 0.1.0 — merged, not yet published
+
+- **Reading and writing messages** — headers, addresses, dates, encoded
+  words, RFC 2231 parameters, multipart, base64 and quoted-printable,
+  charsets through `TextDecoder`, a streaming parser in bounded memory, and
+  a builder that writes 7-bit messages ready for SMTP.

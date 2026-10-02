@@ -1,6 +1,6 @@
 import { decodeBase64 } from '../encoding/base64';
+import { concat } from '../encoding/bytes';
 import { charsetLabel, decodeCharset } from '../encoding/charset';
-import { concat } from '../encoding/quoted-printable';
 
 /** An encoded-word (RFC 2047 §2), with RFC 2231 §5's optional `*language`. */
 const ENCODED_WORD = /=\?([^?\s*]+)(?:\*[^?\s]*)?\?([BbQq])\?([^?\s]*)\?=/g;

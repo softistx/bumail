@@ -199,6 +199,31 @@ ${SIMPLE}
 });
 
 describe('extractContent', () => {
+	test('inside an alternative, the last part of each kind wins (RFC 2046 §5.1.4)', () => {
+		const message = parseMessage(
+			crlf(`Content-Type: multipart/alternative; boundary=b
+
+--b
+Content-Type: text/plain
+
+first
+--b
+Content-Type: text/plain
+
+richer
+--b
+Content-Type: text/html
+
+<p>html</p>
+--b--
+`),
+		);
+		expect(extractContent(message)).toMatchObject({
+			text: 'richer',
+			html: '<p>html</p>',
+		});
+	});
+
 	test('outside an alternative, the first text wins and other texts are attachments', () => {
 		const message = parseMessage(
 			crlf(`Content-Type: multipart/mixed; boundary=b

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { MimeError } from '../errors';
-import { parseMessage } from './message';
-import { type MimeEvent, MimeParser, parseMimeStream } from './stream';
+import { MimeParser, parseMimeStream } from './stream';
+import type { MimeEvent } from './types';
 
 const MESSAGE = new TextEncoder().encode(
 	[
@@ -85,6 +85,58 @@ describe('MimeParser', () => {
 		expect(summary(events)).toEqual(['headers ', 'body :body\r\n', 'end ']);
 	});
 
+	test('one body event per part per write, however many lines', () => {
+		const parser = new MimeParser();
+		parser.write(new TextEncoder().encode('Subject: lines\r\n\r\n'));
+		const events = parser.write(new Uint8Array(1 << 20).fill(0x0a));
+		expect(events).toHaveLength(1);
+		expect(events[0]?.type === 'body' && events[0].data.length).toBe(
+			(1 << 20) - 1,
+		);
+	});
+
+	test('1-byte chunks through nested parts closed by the outer delimiter', () => {
+		const text = new TextEncoder().encode(
+			'Content-Type: multipart/mixed; boundary=o\r\n\r\n--o\r\nContent-Type: multipart/alternative; boundary=i\r\n\r\n--i\r\n\r\ninner\r\n--o\r\n\r\nnext\r\n--o--\r\n',
+		);
+		const parser = new MimeParser();
+		const events: MimeEvent[] = [];
+		for (let i = 0; i < text.length; i++)
+			events.push(...parser.write(text.subarray(i, i + 1)));
+		events.push(...parser.end());
+		expect(summary(events)).toEqual([
+			'headers ',
+			'headers 1',
+			'headers 1.1',
+			'body 1.1:inner',
+			'end 1.1',
+			'end 1',
+			'headers 2',
+			'body 2:next',
+			'end 2',
+			'end ',
+		]);
+	});
+
+	test('the caller may reuse its buffer once write returns', () => {
+		const parser = new MimeParser();
+		const buffer = new TextEncoder().encode('Subject: x\r\n\r\nabc\r\n');
+		const events = parser.write(buffer);
+		buffer.fill(0x21);
+		events.push(...parser.end());
+		expect(summary(events)).toEqual(['headers ', 'body :abc\r\n', 'end ']);
+	});
+
+	test('limits must be integers, and a line long enough for a delimiter', () => {
+		expect(() => new MimeParser({ maxHeaderBytes: Number.NaN })).toThrow(
+			'MimeParser: maxHeaderBytes must be an integer of at least 1, not NaN',
+		);
+		expect(() => new MimeParser({ maxDepth: -1 })).toThrow('maxDepth');
+		expect(() => new MimeParser({ maxLineBytes: 8 })).toThrow(
+			'maxLineBytes must be an integer of at least 1000',
+		);
+	});
+
 	test('a body is never held: a long line is passed on before its end', () => {
 		const parser = new MimeParser({ maxLineBytes: 1024 });
 		parser.write(new TextEncoder().encode('Subject: big\r\n\r\n'));
@@ -107,9 +159,20 @@ describe('MimeParser', () => {
 
 	test('a delimiter-looking text after a long line is not a delimiter', () => {
 		const head = 'Content-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\n\r\n';
-		const body = `${'x'.repeat(50)}--b--\r\nafter\r\n--b--\r\n`;
-		const message = parseMessage(head + body, { maxLineBytes: 16 });
-		expect(message.children[0]?.text).toBe(`${'x'.repeat(50)}--b--\r\nafter`);
+		const body = `${'x'.repeat(3000)}--b--\r\nafter\r\n--b--\r\n`;
+		const parser = new MimeParser({ maxLineBytes: 1000 });
+		const bytes = new TextEncoder().encode(head + body);
+		const events: MimeEvent[] = [];
+		for (let i = 0; i < bytes.length; i += 1500)
+			events.push(...parser.write(bytes.subarray(i, i + 1500)));
+		events.push(...parser.end());
+		expect(summary(events)).toEqual([
+			'headers ',
+			'headers 1',
+			`body 1:${'x'.repeat(3000)}--b--\r\nafter`,
+			'end 1',
+			'end ',
+		]);
 	});
 
 	test('refuses a header block over maxHeaderBytes', () => {

@@ -1,3 +1,5 @@
+import { concat } from './bytes';
+
 const EQUALS = 0x3d;
 const CR = 0x0d;
 const LF = 0x0a;
@@ -45,6 +47,33 @@ function decodeLine(line: Uint8Array, out: number[]): boolean {
 	return soft;
 }
 
+/**
+ * Decodes the start of a line whose end has not come: every byte but an
+ * `=` in the last two, which may open an escape the next chunk completes.
+ * White space is kept, since it is only trailing once the line ends.
+ * Returns how many bytes it consumed.
+ */
+function decodePartial(line: Uint8Array, out: number[]): number {
+	let i = 0;
+	for (; i < line.length; i++) {
+		const byte = line[i] as number;
+		if (byte !== EQUALS) {
+			out.push(byte);
+			continue;
+		}
+		if (i + 2 >= line.length) break;
+		const high = hexValue(line[i + 1] as number);
+		const low = hexValue(line[i + 2] as number);
+		if (high >= 0 && low >= 0) {
+			out.push(high * 16 + low);
+			i += 2;
+		} else {
+			out.push(byte);
+		}
+	}
+	return i;
+}
+
 /** Decodes quoted-printable lines; ends the input as if it were complete. */
 function decodeLines(data: Uint8Array, final: boolean, out: number[]): number {
 	let start = 0;
@@ -76,8 +105,8 @@ export function decodeQuotedPrintable(input: Uint8Array | string): Uint8Array {
  * Decodes quoted-printable arriving in chunks of any size. It holds back the
  * line in progress, since its trailing spaces and final `=` only mean
  * something once its end is known; a line longer than `maxLine` bytes —
- * which RFC 2045 forbids past 76 — is decoded up to its last 3 bytes
- * without waiting.
+ * which RFC 2045 forbids past 76 — is decoded without waiting for its end,
+ * so the decoder never holds more than `maxLine` bytes plus a chunk.
  */
 export class QuotedPrintableDecoder {
 	#rest: Uint8Array = new Uint8Array(0);
@@ -92,18 +121,7 @@ export class QuotedPrintableDecoder {
 		const out: number[] = [];
 		let used = decodeLines(data, false, out);
 		if (data.length - used > this.#maxLine) {
-			let cut = data.length - 3;
-			// Never cut inside an `=XX`, nor right after white space whose
-			// meaning depends on what follows it.
-			while (
-				cut > used &&
-				(isWhite(data[cut - 1]) ||
-					data[cut - 1] === EQUALS ||
-					data[cut - 2] === EQUALS)
-			)
-				cut--;
-			decodeLine(data.subarray(used, cut), out);
-			used = cut;
+			used += decodePartial(data.subarray(used), out);
 		}
 		this.#rest = data.slice(used);
 		return Uint8Array.from(out);
@@ -115,15 +133,6 @@ export class QuotedPrintableDecoder {
 		this.#rest = new Uint8Array(0);
 		return Uint8Array.from(out);
 	}
-}
-
-export function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-	if (a.length === 0) return b;
-	if (b.length === 0) return a;
-	const out = new Uint8Array(a.length + b.length);
-	out.set(a, 0);
-	out.set(b, a.length);
-	return out;
 }
 
 /**

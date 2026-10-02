@@ -1,4 +1,5 @@
 import { Base64Decoder } from './base64';
+import { concat } from './bytes';
 import { QuotedPrintableDecoder } from './quoted-printable';
 
 /** Decodes a body arriving in chunks. */
@@ -36,11 +37,5 @@ export function decodeTransfer(
 	encoding: string | undefined,
 ): Uint8Array {
 	const decoder = createTransferDecoder(encoding);
-	const head = decoder.write(body);
-	const tail = decoder.end();
-	if (tail.length === 0) return head;
-	const out = new Uint8Array(head.length + tail.length);
-	out.set(head, 0);
-	out.set(tail, head.length);
-	return out;
+	return concat(decoder.write(body), decoder.end());
 }

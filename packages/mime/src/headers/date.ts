@@ -59,16 +59,18 @@ export function parseDate(value: string): Date | undefined {
 	} else if (zone) {
 		offset = ZONES[zone.toLowerCase()] ?? 0;
 	}
-	const utc = Date.UTC(
-		year,
-		month,
+	const [d, h, m, sec] = [
 		Number(day),
 		Number(hour),
 		Number(minute),
 		Number(second ?? 0),
-	);
-	const date = new Date(utc - offset * 60_000);
-	return Number.isNaN(date.getTime()) ? undefined : date;
+	];
+	// §3.3: a leap second may read 60; it is kept as 59 rather than rolled over.
+	if (h > 23 || m > 59 || sec > 60) return undefined;
+	const utc = Date.UTC(year, month, d, h, m, Math.min(sec, 59));
+	// A day the month does not have — 31 Feb — is not a date.
+	if (new Date(utc).getUTCDate() !== d) return undefined;
+	return new Date(utc - offset * 60_000);
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
