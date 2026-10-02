@@ -1,6 +1,6 @@
 import { hasControl } from '../encoding/bytes';
 import { MimeError } from '../errors';
-import { ADDRESS_SPECIALS, tokenize } from './tokens';
+import { ADDRESS_SPECIALS, type Token, tokenize } from './tokens';
 
 /** RFC 5322 §3.2.3's atext, with RFC 6532's non-ASCII. */
 const ATEXT = "[A-Za-z0-9!#$%&'*+\\-/=?^_`{|}~\\u0080-\\u{10FFFF}]";
@@ -19,13 +19,18 @@ const DOMAIN =
 	/^(?:[A-Za-z0-9_\u0080-\u{10FFFF}](?:[A-Za-z0-9_\-\u0080-\u{10FFFF}]*[A-Za-z0-9_\u0080-\u{10FFFF}])?(?:\.[A-Za-z0-9_\u0080-\u{10FFFF}](?:[A-Za-z0-9_\-\u0080-\u{10FFFF}]*[A-Za-z0-9_\u0080-\u{10FFFF}])?)*|\[(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}|IPv6:[0-9A-Fa-f:.]+|[A-Za-z0-9-]*[A-Za-z0-9]:[\x21\x23-\x2b\x2d-\x3b\x3d\x3f-\x5a\x5e-\x7e]+)\])$/u;
 
 /**
- * A character that shows nothing or reorders what it shows: C1 controls,
- * every format character (Unicode's Cf: zero-width and joiners, soft
- * hyphen, bidirectional marks, overrides and isolates, the BOM), and the
- * line and paragraph separators. Each lets an address pass for another.
+ * A character that shows nothing, shows as a space, or reorders what it
+ * shows: C1 controls, every format character (Unicode's Cf: zero-width and
+ * joiners, soft hyphen, bidirectional marks, overrides and isolates, the
+ * BOM), every space separator but the ASCII space (no-break, em, ideographic…), the line
+ * and paragraph separators, the fillers that render blank, the default
+ * ignorables, and a lone surrogate, which UTF-8 cannot carry. Each lets an
+ * address pass for another.
  */
-const INVISIBLE = /[\u0080-\u009f\p{Cf}\u2028\u2029]/u;
-const INVISIBLE_ALL = /[\u0080-\u009f\p{Cf}\u2028\u2029]/gu;
+const INVISIBLE_CLASS =
+	'[\\u0080-\\u009f\\p{Cf}\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000\\u2028\\u2029\\u115f\\u1160\\u3164\\uffa0\\p{Default_Ignorable_Code_Point}\\p{Cs}]';
+const INVISIBLE = new RegExp(INVISIBLE_CLASS, 'u');
+const INVISIBLE_ALL = new RegExp(INVISIBLE_CLASS, 'gu');
 
 /** The value for an error message: controls and invisible characters shown as escapes. */
 export function shown(value: string): string {
@@ -49,7 +54,52 @@ export function shown(value: string): string {
  * reader glues into `ab@c.d`). It follows `parseAddressList`'s grouping, so
  * whatever it lets through parses to every mailbox written.
  */
+/**
+ * Whether what is inside `<…>` is an addr-spec, with at most an RFC 5322
+ * §4.4 obs-route before it: `@domain` pieces separated by commas, then `:`.
+ * Anything else before a `:` (`<v@x.test:a@b.test>`), or a comma with no
+ * route, would be dropped by a reader along with the recipient it holds.
+ */
+function isAngleSpec(tokens: readonly Token[]): boolean {
+	const colon = tokens.findIndex(
+		(token) => token.kind === 'special' && token.value === ':',
+	);
+	const route = colon < 0 ? [] : tokens.slice(0, colon);
+	const spec = colon < 0 ? tokens : tokens.slice(colon + 1);
+	const isSpecial = (token: Token, value: string) =>
+		token.kind === 'special' && token.value === value;
+	if (spec.some((token) => isSpecial(token, ',') || isSpecial(token, ':'))) {
+		return false;
+	}
+	let piece: Token[] = [];
+	const pieceOk = () => {
+		const ok =
+			piece.length === 0 ||
+			(piece.length >= 2 &&
+				isSpecial(piece[0] as Token, '@') &&
+				piece
+					.slice(1)
+					.every(
+						(token) =>
+							token.kind === 'atom' ||
+							token.kind === 'literal' ||
+							isSpecial(token, '.'),
+					));
+		piece = [];
+		return ok;
+	};
+	for (const token of route) {
+		if (isSpecial(token, ',')) {
+			if (!pieceOk()) return false;
+		} else {
+			piece.push(token);
+		}
+	}
+	return pieceOk();
+}
+
 export function hasStrayText(value: string): boolean {
+	let angle: Token[] = [];
 	let inAngle = false;
 	let closed = false;
 	let inGroup = false;
@@ -68,6 +118,9 @@ export function hasStrayText(value: string): boolean {
 	for (const token of tokenize(value, ADDRESS_SPECIALS)) {
 		if ('unterminated' in token && token.unterminated) return true;
 		if (token.kind === 'space' || token.kind === 'comment') continue;
+		if (inAngle && !(token.kind === 'special' && token.value === '>')) {
+			angle.push(token);
+		}
 		const word = token.kind === 'atom' || token.kind === 'quoted';
 		if (word && wordLast) {
 			if (inAngle) return true;
@@ -104,6 +157,8 @@ export function hasStrayText(value: string): boolean {
 			wordLast = false;
 		}
 		if (token.kind === 'special' && token.value === '>' && inAngle) {
+			if (!isAngleSpec(angle)) return true;
+			angle = [];
 			inAngle = false;
 			closed = true;
 		}

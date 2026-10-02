@@ -2,6 +2,7 @@ import { encodeBase64 } from '../encoding/base64';
 import { hasControl } from '../encoding/bytes';
 import { encodeQuotedPrintable } from '../encoding/quoted-printable';
 import { MimeError } from '../errors';
+import { shown } from '../headers/address-check';
 import { formatParameter } from '../headers/parameters';
 import { foldHeader } from './fold';
 import type { Attachment } from './options';
@@ -48,7 +49,7 @@ export function attachmentPart(attachment: Attachment): Part {
 	if (!MEDIA_TYPE.test(type)) {
 		throw new MimeError(
 			'INVALID_OPTION',
-			`"${JSON.stringify(type).slice(1, -1)}" is not a media type`,
+			`"${shown(type)}" is not a media type`,
 		);
 	}
 	const content =
@@ -84,7 +85,7 @@ export function checkId(id: string, option: string): string {
 	if (!/^[\x21-\x3b\x3d\x3f-\x7e]+$/.test(id)) {
 		throw new MimeError(
 			'INVALID_OPTION',
-			`${option}: "${JSON.stringify(id).slice(1, -1)}" is not a message id`,
+			`${option}: "${shown(id)}" is not a message id`,
 		);
 	}
 	return id;
