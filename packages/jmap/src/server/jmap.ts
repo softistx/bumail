@@ -1,4 +1,4 @@
-import { alxia, type Refusal, type Reply } from '@alxia/core';
+import { alxia, type BaseContext, type Refusal, type Reply } from '@alxia/core';
 import { handleApi } from '../http/api';
 import {
 	type Authenticated,
@@ -29,30 +29,42 @@ function refuse(refusal: AuthRefusal) {
 /**
  * What a route answers a request alxia refused before its handler, always
  * as a problem: a body past its `bodyLimit` is the JMAP `limit` problem
- * naming the session's `limit`; a path parameter that is not an Id names
- * nothing, so it is the route's `notFound`, a 404; any other part refused
- * is `notRequest`.
+ * naming the session's `limit`, which only a route with a `bodyLimit`
+ * names; a path parameter that is not an Id names nothing, so it is the
+ * route's `notFound`, a 404; any other part refused is `notRequest`. A
+ * refusal before the body is read cancels it, so an upload refused for its
+ * path is not left unread.
  */
 function refused(answers: {
-	readonly limit: 'maxSizeRequest' | 'maxSizeUpload';
+	readonly limit?: 'maxSizeRequest' | 'maxSizeUpload';
 	readonly notFound?: string;
 }) {
 	const what = answers.limit === 'maxSizeUpload' ? 'upload' : 'request';
 	// One `Reply` type, not a union of them: alxia 0.2.0 names a union of
 	// refusal replies by a type it does not export, which a declaration
 	// file cannot then name (TS2883).
-	return (refusal: Refusal): Reply<400 | 404 | 413 | 429, ProblemBody> => {
-		if (refusal.kind === 'body_limit')
+	return (
+		refusal: Refusal,
+		{ request }: BaseContext,
+	): Reply<400 | 404 | 413 | 429, ProblemBody> => {
+		if (refusal.kind === 'body_limit' && answers.limit !== undefined)
 			return limitProblem(
 				answers.limit,
 				`The ${what} is larger than ${refusal.limit} bytes`,
 			);
-		if (refusal.part === 'params' && answers.notFound !== undefined)
+		// A body alxia did not read, or stopped reading: cancelled, and a body
+		// already read refuses the cancel, which is ignored.
+		request.body?.cancel().catch(() => undefined);
+		const part = refusal.kind === 'validation' ? refusal.part : 'body';
+		if (part === 'params' && answers.notFound !== undefined)
 			return jmapProblem(404, 'about:blank', answers.notFound);
+		// No route reaches this yet: each validates only its path parameters,
+		// a 404, sets a `bodyLimit` only with its `limit`, and the API reads
+		// its own body. It stays as the guard for a route that validates more.
 		return jmapProblem(
 			400,
 			'urn:ietf:params:jmap:error:notRequest',
-			`The request's ${refusal.part} are invalid`,
+			`The request's ${part} are invalid`,
 		);
 	};
 }
@@ -97,7 +109,7 @@ export function jmap(options: JmapOptions) {
 				{ bodyLimit: limits.maxSizeRequest },
 				({ auth, request, reply }) => handleApi(runtime, auth, request, reply),
 			)
-			.onRefusal(refused({ limit: 'maxSizeRequest', notFound: BLOB_NOT_FOUND }))
+			.onRefusal(refused({ notFound: BLOB_NOT_FOUND }))
 			.get(
 				`${base}/download/:accountId/:blobId/:name` as '/jmap/download/:accountId/:blobId/:name',
 				{ params: idParams(['accountId', 'blobId'], ['name']) },

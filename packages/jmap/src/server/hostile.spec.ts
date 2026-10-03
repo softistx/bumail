@@ -242,4 +242,22 @@ describe('hostile input', () => {
 		});
 		expect(anonymous.status).toBe(401);
 	});
+
+	test('an upload refused for its accountId has its body cancelled, not left unread', async () => {
+		h = await harness();
+		const cancelled = Promise.withResolvers<unknown>();
+		const stream = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				controller.enqueue(new Uint8Array(1024).fill(0x20));
+			},
+			cancel: cancelled.resolve,
+		});
+		const response = await h.fetch(`/jmap/upload/${'x'.repeat(256)}`, {
+			method: 'POST',
+			body: stream,
+		});
+		expect(response.status).toBe(404);
+		// It never ends: only a cancel settles this.
+		await cancelled.promise;
+	});
 });
