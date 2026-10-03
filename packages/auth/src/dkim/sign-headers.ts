@@ -1,7 +1,7 @@
 import { AuthError } from '../errors';
+import { lowerAscii } from '../text';
 import type { RawField } from './headers';
 import { FIELD_NAME } from './names';
-import { lowerAscii } from './text';
 
 /**
  * The fields signed by default, when present: RFC 6376 §5.4.1's

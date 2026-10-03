@@ -1,4 +1,4 @@
-import { lowerAscii, trimWspEnd } from './text';
+import { lowerAscii, trimWspEnd } from '../text';
 
 /** One header field as written, for hashing. */
 export interface RawField {

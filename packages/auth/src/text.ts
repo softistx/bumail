@@ -1,5 +1,5 @@
 /**
- * Text helpers shared by the parser, the canonicalisations and the signer.
+ * Text helpers shared by DKIM's parser, canonicalisations and signer, and by SPF.
  * Every trim here is an index scan, never an anchored regular expression:
  * `/[ \t]+$/` retries from each blank of a long inner run, which is
  * quadratic on hostile input. `String.trim` is not used either: it also

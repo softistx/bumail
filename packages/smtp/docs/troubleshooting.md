@@ -17,6 +17,7 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: createSmtpServer(): authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted`](#smtperror-createsmtpserver-authenticate-needs-tls--key-cert--since-auth-is-offered-only-once-encrypted)
 - [`SmtpError: createSmtpServer(): localDomains must be an array of domains or a function`](#smtperror-createsmtpserver-localdomains-must-be-an-array-of-domains-or-a-function)
 - [`SmtpError: createSmtpServer(): … must be a positive integer, not …`](#smtperror-createsmtpserver--must-be-a-positive-integer-not-)
+- [`SmtpError: createSmtpServer(): hookTimeout must be at most 2147483 seconds, not …`](#smtperror-createsmtpserver-hooktimeout-must-be-at-most-2147483-seconds-not-)
 - [`SmtpError: createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not …`](#smtperror-createsmtpserver-greetingdelay-must-be-a-number-of-seconds-0-or-more-not-)
 - [`SmtpError: createSmtpServer(): greetingDelay (… s) must be shorter than timeout (… s), or every client times out before the greeting`](#smtperror-createsmtpserver-greetingdelay--s-must-be-shorter-than-timeout--s-or-every-client-times-out-before-the-greeting)
 - [`SmtpError: listen(): the server is already listening on …`](#smtperror-listen-the-server-is-already-listening-on-)
@@ -264,6 +265,31 @@ createSmtpServer({
 
 `timeout` and `hookTimeout` are in seconds: `300_000` is accepted, and
 means 83 hours.
+
+### `SmtpError: createSmtpServer(): hookTimeout must be at most 2147483 seconds, not …`
+
+**When**: `hookTimeout` is past 2 147 483 seconds (about 24.8 days).
+
+**Why**: the hook's deadline is a `setTimeout` of `hookTimeout × 1000`
+milliseconds, and a delay past 2^31 − 1 ms fires after 1 ms instead: every
+hook would time out at once, and every MAIL FROM, RCPT TO and message be
+refused with `451 4.3.0`.
+
+**Fix**: a hook that may take long still needs a bound; leave it out for
+60 seconds, or pass a few minutes:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	hookTimeout: 300, // seconds
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
 
 ### `SmtpError: createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not …`
 

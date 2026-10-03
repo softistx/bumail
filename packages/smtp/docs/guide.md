@@ -68,7 +68,7 @@ export interface SmtpServer {
 | `maxConnections` | `number` | `1000` | open connections at once |
 | `maxErrors` | `number` | `10` | failed commands before the server hangs up |
 | `timeout` | `number` | `300` | seconds since the client's last byte, or since the 220, before the server hangs up |
-| `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0` |
+| `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0`. At most 2 147 483, what a timer can wait |
 | `greetingDelay` | `number` | `0` | seconds the server waits, once `onConnect` accepted, before its 220; a client that talks meanwhile gets `554` and is hung up on. Fractions are allowed |
 | `onConnect`, `onMailFrom`, `onRcptTo` | hooks | none | see [Hooks](#hooks-and-their-order) |
 | `onData` | hook | required | receives each message, as a stream |
@@ -108,6 +108,7 @@ await server.listen({ port: 25 });
 | `createSmtpServer(): authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted` | `authenticate` without `tls` |
 | `createSmtpServer(): localDomains must be an array of domains or a function` | `localDomains` missing, a string, or an array holding something else |
 | `createSmtpServer(): <limit> must be a positive integer, not <value>` | a limit or `hookTimeout` that is `0`, negative, fractional or `NaN` |
+| `createSmtpServer(): hookTimeout must be at most 2147483 seconds, not <value>` | `hookTimeout` past what `setTimeout` can wait (about 24.8 days) |
 | `createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not <value>` | `greetingDelay` negative, `NaN` or `Infinity` |
 | `createSmtpServer(): greetingDelay (<n> s) must be shorter than timeout (<n> s), or every client times out before the greeting` | `greetingDelay` as long as `timeout`, or longer |
 

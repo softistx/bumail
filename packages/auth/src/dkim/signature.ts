@@ -1,3 +1,4 @@
+import { lowerAscii } from '../text';
 import type { Canonicalization } from './canon';
 import { DNS_NAME, FIELD_NAME, identityDomain } from './names';
 import type { DkimAlgorithm, Verdict } from './result';
@@ -10,7 +11,6 @@ import {
 	type TagList,
 	withoutFws,
 } from './tags';
-import { lowerAscii } from './text';
 
 /** A DKIM-Signature whose tags all passed RFC 6376 §6.1.1's checks. */
 export interface DkimSignature {
