@@ -3,18 +3,38 @@
 const CR = 13;
 const LF = 10;
 
-/** Every bare CR or LF as CRLF: a DSN is sent as lines, whatever the original held. */
+/** RFC 5322 §2.1.1: a line is at most 998 characters, its CRLF aside. */
+export const MAX_LINE = 998;
+
+const isContinuation = (byte: number | undefined) =>
+	byte !== undefined && byte >= 0x80 && byte < 0xc0;
+
+/**
+ * Every bare CR or LF as CRLF, and every line cut at 998 bytes, never in
+ * the middle of a UTF-8 character: a DSN is sent as lines, whatever the
+ * original held, and a longer one would get the DSN itself refused.
+ */
 function crlf(bytes: Uint8Array): Uint8Array {
 	const out: number[] = [];
+	let column = 0;
 	for (let i = 0; i < bytes.length; i++) {
 		const byte = bytes[i] as number;
-		if (byte === CR) {
+		if (byte === CR || byte === LF) {
 			out.push(CR, LF);
-			if (bytes[i + 1] === LF) i++;
-		} else if (byte === LF) {
-			out.push(CR, LF);
-		} else {
+			column = 0;
+			if (byte === CR && bytes[i + 1] === LF) i++;
+		} else if (column < MAX_LINE) {
 			out.push(byte);
+			column++;
+		} else if (column === MAX_LINE) {
+			// The first byte cut: drop a character it would leave half written.
+			if (isContinuation(byte)) {
+				while (isContinuation(out.at(-1))) {
+					out.pop();
+				}
+				if ((out.at(-1) ?? 0) >= 0xc0) out.pop();
+			}
+			column++;
 		}
 	}
 	return Uint8Array.from(out);

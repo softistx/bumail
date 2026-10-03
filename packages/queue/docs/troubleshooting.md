@@ -14,12 +14,16 @@ parts shown as … vary.
 - [`QueueError: The envelope is an object: { from, to }`](#queueerror-the-envelope-is-an-object--from-to-)
 - [`QueueError: The message is a Uint8Array, a string or a ReadableStream<Uint8Array>`](#queueerror-the-message-is-a-uint8array-a-string-or-a-readablestreamuint8array)
 - [`QueueError: The message stream must give Uint8Array chunks`](#queueerror-the-message-stream-must-give-uint8array-chunks)
+- [`QueueError: The message has a bare CR or LF at byte …: every line must end in CRLF`](#queueerror-the-message-has-a-bare-cr-or-lf-at-byte--every-line-must-end-in-crlf)
 
 **Creating the queue** (`createQueue`)
 
 - [`QueueError: The 'mx' route needs a resolver, such as @bumail/dns's nodeResolver()`](#queueerror-the-mx-route-needs-a-resolver-such-as-bumaildnss-noderesolver)
 - [`QueueError: hostname must be this server's public host name, not …`](#queueerror-hostname-must-be-this-servers-public-host-name-not-)
 - [`QueueError: route must be 'mx' or a smarthost with a host`](#queueerror-route-must-be-mx-or-a-smarthost-with-a-host)
+- [`QueueError: route.auth needs tls: 'required', the default with auth: with tls: '…' the password would go to a server whose certificate is not checked`](#queueerror-routeauth-needs-tls-required-the-default-with-auth-with-tls--the-password-would-go-to-a-server-whose-certificate-is-not-checked)
+- [`QueueError: route.auth.username must be a non-empty string`, and the other smarthost options](#queueerror-routeauthusername-must-be-a-non-empty-string-and-the-other-smarthost-options)
+- [`QueueError: timeouts.… must be a number of seconds above 0 and at most 2147483, not …`](#queueerror-timeouts-must-be-a-number-of-seconds-above-0-and-at-most-2147483-not-)
 - [`QueueError: store must be a QueueStore, such as MemoryQueueStore`](#queueerror-store-must-be-a-queuestore-such-as-memoryqueuestore)
 - [`QueueError: … must be an integer of at least …, not …`](#queueerror--must-be-an-integer-of-at-least--not-)
 - [`QueueError: dsn.returnContent must be 'headers' or 'full', not …`](#queueerror-dsnreturncontent-must-be-headers-or-full-not-)
@@ -30,6 +34,8 @@ parts shown as … vary.
 
 - [`QueueError: The lease on … was lost before its outcome was recorded; another worker will try it again`](#queueerror-the-lease-on--was-lost-before-its-outcome-was-recorded-another-worker-will-try-it-again)
 - [`QueueError: The lease on … was lost while it was delivered`](#queueerror-the-lease-on--was-lost-while-it-was-delivered)
+- [`SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`](#smtperror-sendmail--invalid_option-with-recipients-deferred-as-435)
+- [`SQLiteError: database is locked`, or another store error, during a delivery](#sqliteerror-database-is-locked-or-another-store-error-during-a-delivery)
 
 **The `bun:sqlite` store** (`@bumail/queue/sqlite`)
 
@@ -52,6 +58,8 @@ parts shown as … vary.
 
 - [A recipient stays `deferred` with `4.4.1` or `4.4.2`](#a-recipient-stays-deferred-with-441-or-442)
 - [Every delivery fails at once with `5.7.1`, or with a reply naming your IP or EHLO name](#every-delivery-fails-at-once-with-571-or-with-a-reply-naming-your-ip-or-ehlo-name)
+- [A recipient fails with `5.1.3`, `The address is not one SMTP can carry`](#a-recipient-fails-with-513-the-address-is-not-one-smtp-can-carry)
+- [`retryNow` returns `false` for an item that is in the queue](#retrynow-returns-false-for-an-item-that-is-in-the-queue)
 
 ## Enqueuing
 
@@ -90,7 +98,11 @@ called `start()`.
 **Code:** `INVALID`.
 **When:** `from`, a recipient, or `dsn.from` is not `local@domain`, is
 longer than 254 characters, has a local part over 64, or holds a space,
-a control character (CR and LF included) or an angle bracket.
+a control character (CR and LF included) or an angle bracket — or is not
+an address by RFC 5321's grammar, which `sendMail` would refuse at
+delivery: `a(b)@example.com`, `a,b@example.com`, `"x@example.com`,
+`a@b@example.com`, `a..b@example.com`, `a@example.com,`, `a@-example`.
+Check one yourself with `@bumail/smtp/client`'s `isMailbox`.
 **Fix:** give the bare address, without brackets or a display name:
 
 ```ts
@@ -118,6 +130,19 @@ string. Give one address or more.
 **Code:** `INVALID`. A stream of strings: pipe it through a
 `TextEncoderStream` first.
 
+### `QueueError: The message has a bare CR or LF at byte …: every line must end in CRLF`
+
+**Code:** `INVALID`.
+**When:** `enqueue`, with a CR not followed by an LF, or an LF not after
+a CR — often a message written with `\n` line ends.
+**Why:** `sendMail` refuses such a message (`BARE_LINE_BREAK`, against
+SMTP smuggling), which would fail every recipient at delivery.
+**Fix:** write the message with CRLF before you sign and enqueue it:
+
+```ts
+const message = text.replace(/\r?\n/g, '\r\n');
+```
+
 ## Creating the queue
 
 ### `QueueError: The 'mx' route needs a resolver, such as @bumail/dns's nodeResolver()`
@@ -144,6 +169,36 @@ or route everything through a smarthost (`route: { host, port, auth }`).
 **Code:** `INVALID`, also as `routes["…"] must be …`. A smarthost needs
 `host`, a name or an address with no space or slash:
 `{ host: 'smtp.provider.example', port: 587 }`.
+
+### `QueueError: route.auth needs tls: 'required', the default with auth: with tls: '…' the password would go to a server whose certificate is not checked`
+
+**Code:** `INVALID`, also as `routes["…"].auth needs …`.
+**When:** a smarthost with `auth` and `tls: 'opportunistic'` or
+`tls: 'none'`.
+**Why:** credentials go only over TLS whose certificate checked out, as
+`sendMail` requires; there is no way out for a test server here.
+**Fix:** leave `tls` out (it is `'required'` with `auth`), and give the
+server's CA with `ca` if its certificate is not publicly trusted:
+
+```ts
+route: { host: 'smtp.provider.example', port: 587, auth: { username, password } },
+```
+
+### `QueueError: route.auth.username must be a non-empty string`, and the other smarthost options
+
+**Code:** `INVALID`, also under `routes["…"].`: `auth.password must be a
+non-empty string`, `auth.mechanism must be 'PLAIN' or 'LOGIN', not …`,
+`port must be an integer from 1 to 65535, not …`, `tls must be
+'opportunistic', 'required' or 'none', not …`, `secure must be true or
+false, not …`, and `secure is TLS from the first byte: it cannot go with
+tls: 'none'`. The same checks `sendMail` makes, made once by
+`createQueue` rather than at every delivery. `mxPort` and `mxTls` are
+checked the same way.
+
+### `QueueError: timeouts.… must be a number of seconds above 0 and at most 2147483, not …`
+
+**Code:** `INVALID`, also as `deadline must be …`. Timeouts are seconds,
+as `sendMail` takes them, not milliseconds: `timeouts: { connect: 30 }`.
 
 ### `QueueError: store must be a QueueStore, such as MemoryQueueStore`
 
@@ -191,6 +246,27 @@ the process stalled longer than that, or the store could not be reached.
 **Code:** `LEASE_LOST`. A renewal found the lease taken: the same cause as
 above, seen sooner.
 
+### `SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`
+
+**When:** `sendMail` refused the options of a session — the route, the
+timeouts, `hostname` as EHLO — though `createQueue` took them.
+**Why:** a configuration only `sendMail` can check, or a `send` of your
+own that refuses its options. It is the route's fault, not the
+recipient's: the recipients are deferred as `4.3.5` (system incorrectly
+configured), never failed, so no DSN goes out for it.
+**Fix:** read the message, fix the option, restart: the deferred items
+go out on their next attempt, or at once with `retryNow`.
+
+### `SQLiteError: database is locked`, or another store error, during a delivery
+
+**When:** the `error` event, with the item's `id`, while it is delivered.
+**Why:** a lease renewal failed: the database busy past `busyTimeout`,
+or the store unreachable. The next renewal, a third of `leaseMs` later,
+tries again; only a renewal that finds the lease taken stops (as
+`LEASE_LOST`).
+**Fix:** a longer `busyTimeout` when several processes write a lot; a
+store that keeps failing will lose the lease once it expires.
+
 ## The `bun:sqlite` store
 
 ### `QueueError: A SQLite queue store needs a directory`
@@ -201,7 +277,9 @@ above, seen sooner.
 
 **Code:** `INVALID`. The directory cannot be made or written, or
 `queue.sqlite` is not a database (`file is not a database`). Check the
-path and its owner.
+path and its owner. A directory the store makes is 0700; one that
+already exists keeps its mode, so make it 0700 yourself unless a group
+should read the queue.
 
 ### `QueueError: The database is at schema version …, newer than this store's …`
 
@@ -280,3 +358,18 @@ DNS, a `hostname` that does not match it, an IP on a blocklist, or a
 message that fails SPF, DKIM or DMARC.
 **Fix:** give `hostname` the name your IP's PTR record holds, publish SPF
 and DKIM for your domain, and sign every message before you enqueue it.
+
+### A recipient fails with `5.1.3`, `The address is not one SMTP can carry`
+
+**When:** an item a store holds has a recipient `sendMail` would refuse:
+written there by other code, since `enqueue` refuses it.
+**Why:** it fails alone, so the session for its domain still goes ahead
+for the other recipients.
+**Fix:** enqueue through `queue.enqueue`, or check each address with
+`@bumail/smtp/client`'s `isMailbox` before a store of your own keeps it.
+
+### `retryNow` returns `false` for an item that is in the queue
+
+**Why:** a worker is delivering it: its lease is held. That attempt's
+outcome sets the next one, so `retryNow` changes nothing.
+**Fix:** call it again once the attempt is over (the `deferred` event).

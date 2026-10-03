@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { SmtpError } from '@bumail/smtp/client';
+import type { SendMailOptions } from '@bumail/smtp/client';
+import { isMailbox, SmtpError } from '@bumail/smtp/client';
 import {
 	accepted,
 	HOUR,
@@ -121,6 +122,46 @@ describe('a connection error or a timeout counts as temporary', () => {
 		});
 	});
 
+	test('INVALID_OPTION is the route, not the recipient: deferred as 4.3.5, and an error event', async () => {
+		const { queue, events, store } = setup(
+			() =>
+				new SmtpError(
+					'INVALID_OPTION',
+					'sendMail(): helo "x y" is not a host name',
+					{
+						temporary: false,
+					},
+				),
+		);
+		const item = await queue.enqueue(MESSAGE, to('a@example.com'));
+		await queue.deliverDue();
+		expect(events.failed).toEqual([]);
+		expect(events.dsn).toEqual([]);
+		expect(events.deferred[0]?.reply).toEqual({
+			status: '4.3.5',
+			text: 'sendMail(): helo "x y" is not a host name',
+		});
+		expect(events.error[0]).toMatchObject({
+			id: item.id,
+			error: { code: 'INVALID_OPTION' },
+		});
+		expect((await store.get(item.id))?.recipients[0]?.status).toBe('deferred');
+	});
+
+	test('an SmtpError of another copy of @bumail/smtp is read by its name and code', async () => {
+		class SmtpError extends Error {
+			override readonly name = 'SmtpError';
+			readonly code = 'NULL_MX';
+			readonly temporary = false;
+		}
+		const { queue, events } = setup(
+			() => new SmtpError('example.com accepts no mail'),
+		);
+		await queue.enqueue(MESSAGE, to('a@example.com'));
+		await queue.deliverDue();
+		expect(events.failed[0]?.reply?.status).toBe('5.1.10');
+	});
+
 	test('a null MX is permanent: X.1.10 (RFC 7505 §4.2)', async () => {
 		const { queue, events } = setup(
 			() =>
@@ -217,5 +258,58 @@ describe('DSNs go back to the sender, never about a DSN', () => {
 		);
 		expect(first).toBeGreaterThan(0);
 		expect((await store.list())[0]?.delayNotified).toBe(true);
+	});
+});
+
+describe('an address sendMail would refuse never fails its domain', () => {
+	/** A sender that checks its recipients as sendMail does. */
+	const strict = (call: { options: SendMailOptions; to: string[] }) =>
+		call.to.every(isMailbox)
+			? accepted(call.options)
+			: new SmtpError('INVALID_OPTION', 'sendMail(): not an address', {
+					temporary: false,
+				});
+
+	test.each([
+		'a(b)@c.com',
+		'a,b@c.com',
+		'"x@c.com',
+		'a@b@c.com',
+		'a@c.com,',
+		'a@-c',
+		'a..b@c.com',
+		'.a@c.com',
+	])('enqueue refuses %p, and keeps nothing', async (bad) => {
+		const { queue, store } = setup(strict);
+		await expect(
+			queue.enqueue(MESSAGE, to('joe@c.com', bad)),
+		).rejects.toMatchObject({
+			code: 'INVALID',
+			message: `Each recipient must be an address, local@domain, not ${JSON.stringify(bad)}`,
+		});
+		expect(await store.count()).toBe(0);
+	});
+
+	test('a bad address a store kept fails alone: its good sibling is delivered', async () => {
+		const { queue, events, store, sender, clock } = setup(strict);
+		const item = await store.add({
+			from: 'mary@example.net',
+			to: ['joe@c.com', 'a,b@c.com'],
+			message: new TextEncoder().encode(MESSAGE),
+			createdAt: clock.now(),
+		});
+		await queue.deliverDue();
+		// The first session, for c.com; the second sends mary the DSN.
+		expect(sender.calls.map((c) => c.to)).toEqual([
+			['joe@c.com'],
+			['mary@example.net'],
+		]);
+		expect(own(events.delivered).map((e) => e.recipient)).toEqual([
+			'joe@c.com',
+		]);
+		expect(own(events.failed)).toMatchObject([
+			{ id: item.id, recipient: 'a,b@c.com', reply: { status: '5.1.3' } },
+		]);
+		expect(events.error).toEqual([]);
 	});
 });

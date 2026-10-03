@@ -1,10 +1,11 @@
+import { isMailbox } from '@bumail/smtp/client';
 import type { QueueItem, RecipientUpdate } from '../contract/types';
 import { QueueError } from '../errors';
 import { domainOf } from './envelope';
 import type { Events } from './events';
 import type { KeyedLimiter } from './limiter';
 import { type NotifyContext, notify } from './notify';
-import { outcomesOf, outcomesOfError } from './outcome';
+import { isRouteError, outcomesOf, outcomesOfError } from './outcome';
 import { hostOf, routeOf, sendOptionsOf } from './route';
 import { type Settled, settle } from './settle';
 
@@ -30,22 +31,46 @@ function groupsOf(item: QueueItem): Map<string, string[]> {
 	return groups;
 }
 
+/**
+ * A recipient `sendMail` would refuse — kept by a store written to by
+ * other code, since `enqueue` refuses it — fails alone, as X.1.3 (bad
+ * destination mailbox address syntax), so the session for its domain
+ * still goes ahead for the others.
+ */
+const badAddress = (address: string): RecipientUpdate => ({
+	address,
+	status: 'failed',
+	reply: {
+		status: '5.1.3',
+		text: 'The address is not one SMTP can carry',
+	},
+});
+
 /** One session for one domain's recipients: each one's outcome, whatever happened. */
 async function attemptGroup(
 	ctx: DeliveryContext,
 	item: QueueItem,
 	message: Uint8Array,
 	domain: string,
-	group: readonly string[],
+	recipients: readonly string[],
 ): Promise<RecipientUpdate[]> {
 	const { settings } = ctx;
 	const max = settings.limits.maxReplyText;
+	const bad = recipients.filter((address) => !isMailbox(address));
+	const group = recipients.filter(isMailbox);
+	if (group.length === 0) return bad.map(badAddress);
 	try {
 		const options = sendOptionsOf(settings, domain, item.from, group);
-		return outcomesOf(await settings.send(message, options), group, max);
+		const result = await settings.send(message, options);
+		return [...outcomesOf(result, group, max), ...bad.map(badAddress)];
 	} catch (error) {
+		// A route sendMail cannot use is the operator's to fix: said, and retried.
+		if (isRouteError(error)) ctx.events.emit('error', { error, id: item.id });
 		const host = hostOf(routeOf(settings, domain));
-		return outcomesOfError(error, group, max, host);
+		return [
+			...outcomesOfError(error, group, max, host),
+			...bad.map(badAddress),
+		];
 	}
 }
 

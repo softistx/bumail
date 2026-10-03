@@ -118,4 +118,65 @@ describe('routing', () => {
 			"dsn.returnContent must be 'headers' or 'full'",
 		);
 	});
+
+	test('a route sendMail would refuse is refused here, not at each delivery', () => {
+		const store = new MemoryQueueStore();
+		const make = (options: object) => () =>
+			createQueue({
+				store,
+				hostname: 'mail.example.net',
+				resolver: NO_DNS,
+				...options,
+			});
+		const auth = { username: 'mary@example.net', password: 'secret' };
+		for (const tls of ['opportunistic', 'none']) {
+			expect(make({ route: { host: 'relay.example', auth, tls } })).toThrow(
+				`route.auth needs tls: 'required', the default with auth: with tls: '${tls}'`,
+			);
+		}
+		expect(
+			make({
+				routes: { 'a.example': { host: 'relay.example', auth, tls: 'none' } },
+			}),
+		).toThrow('routes["a.example"].auth needs tls');
+		expect(make({ route: { host: 'relay.example', auth } })).not.toThrow();
+		expect(
+			make({ route: { host: 'relay.example', auth, tls: 'required' } }),
+		).not.toThrow();
+		expect(
+			make({ route: { host: 'relay.example', auth: { username: 'mary' } } }),
+		).toThrow('route.auth.password must be a non-empty string');
+		expect(
+			make({
+				route: {
+					host: 'relay.example',
+					auth: { ...auth, mechanism: 'CRAM-MD5' },
+				},
+			}),
+		).toThrow("route.auth.mechanism must be 'PLAIN' or 'LOGIN', not CRAM-MD5");
+		expect(make({ route: { host: 'relay.example', port: 0 } })).toThrow(
+			'route.port must be an integer from 1 to 65535, not 0',
+		);
+		expect(make({ route: { host: 'relay.example', tls: 'always' } })).toThrow(
+			"route.tls must be 'opportunistic', 'required' or 'none', not always",
+		);
+		expect(
+			make({ route: { host: 'relay.example', secure: true, tls: 'none' } }),
+		).toThrow(
+			"route.secure is TLS from the first byte: it cannot go with tls: 'none'",
+		);
+		expect(make({ mxPort: 70000 })).toThrow(
+			'mxPort must be an integer from 1 to 65535, not 70000',
+		);
+		expect(make({ mxTls: 'yes' })).toThrow("mxTls must be 'opportunistic'");
+		expect(make({ timeouts: { rcpt: 0 } })).toThrow(
+			'timeouts.rcpt must be a number of seconds above 0 and at most 2147483, not 0',
+		);
+		expect(make({ timeouts: { connect: 3_000_000 } })).toThrow(
+			'timeouts.connect',
+		);
+		expect(make({ deadline: -1 })).toThrow(
+			'deadline must be a number of seconds',
+		);
+	});
 });

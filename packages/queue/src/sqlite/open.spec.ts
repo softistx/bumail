@@ -1,6 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { statSync, writeFileSync } from 'node:fs';
+import { chmodSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { entry, MINUTE, T0 } from '../contract/fixtures/setup.fixtures';
 import { temporaryStores } from './directories.fixtures';
@@ -27,6 +27,14 @@ describe('SqliteQueueStore on disk', () => {
 		const at = join(directory(), 'nested');
 		open(at);
 		expect(statSync(at).mode & 0o777).toBe(0o700);
+		expect(statSync(join(at, 'queue.sqlite')).mode & 0o777).toBe(0o600);
+	});
+
+	test('a directory that already exists keeps its mode; the database is still private', () => {
+		const at = directory();
+		chmodSync(at, 0o750);
+		open(at);
+		expect(statSync(at).mode & 0o777).toBe(0o750);
 		expect(statSync(join(at, 'queue.sqlite')).mode & 0o777).toBe(0o600);
 	});
 

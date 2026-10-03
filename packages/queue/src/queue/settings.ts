@@ -78,12 +78,98 @@ function numberOf(
 const HOSTNAME =
 	/^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
 
+/** The longest wait `sendMail` takes, in seconds: its timer's own limit. */
+const MAX_SECONDS = Math.floor(MAX_TIMER / 1000);
+
+function checkSeconds(name: string, value: unknown): void {
+	if (value === undefined) return;
+	if (
+		typeof value !== 'number' ||
+		!Number.isFinite(value) ||
+		value <= 0 ||
+		value > MAX_SECONDS
+	) {
+		throw invalid(
+			`${name} must be a number of seconds above 0 and at most ${MAX_SECONDS}, not ${value}`,
+		);
+	}
+}
+
+function checkTls(name: string, tls: unknown): void {
+	if (
+		tls !== undefined &&
+		tls !== 'opportunistic' &&
+		tls !== 'required' &&
+		tls !== 'none'
+	) {
+		throw invalid(
+			`${name} must be 'opportunistic', 'required' or 'none', not ${tls}`,
+		);
+	}
+}
+
+/**
+ * A smarthost `sendMail` will take, checked now rather than at each
+ * delivery: a host, a port, a TLS mode, and credentials only over TLS
+ * whose certificate is checked — `sendMail`'s own rule
+ * (`@bumail/smtp`'s `client/settings.ts`), with no way out for a test.
+ */
 function checkRoute(name: string, route: Route): void {
 	if (route === 'mx') return;
-	const host = (route as Smarthost | undefined)?.host;
+	const smarthost = route as Smarthost | undefined;
+	const host = smarthost?.host;
 	if (typeof host !== 'string' || !/^[^\s/]+$/.test(host)) {
 		throw invalid(`${name} must be 'mx' or a smarthost with a host`);
 	}
+	const { port, secure, tls, auth } = smarthost as Smarthost;
+	numberOf(`${name}.port`, port, 25, 1, 65535);
+	if (secure !== undefined && typeof secure !== 'boolean') {
+		throw invalid(`${name}.secure must be true or false, not ${secure}`);
+	}
+	checkTls(`${name}.tls`, tls);
+	if (tls === 'none' && secure) {
+		throw invalid(
+			`${name}.secure is TLS from the first byte: it cannot go with tls: 'none'`,
+		);
+	}
+	if (auth === undefined) return;
+	if (typeof auth?.username !== 'string' || auth.username === '') {
+		throw invalid(`${name}.auth.username must be a non-empty string`);
+	}
+	if (typeof auth.password !== 'string' || auth.password === '') {
+		throw invalid(`${name}.auth.password must be a non-empty string`);
+	}
+	const { mechanism } = auth;
+	if (
+		mechanism !== undefined &&
+		mechanism !== 'PLAIN' &&
+		mechanism !== 'LOGIN'
+	) {
+		throw invalid(
+			`${name}.auth.mechanism must be 'PLAIN' or 'LOGIN', not ${mechanism}`,
+		);
+	}
+	if (tls !== undefined && tls !== 'required') {
+		throw invalid(
+			`${name}.auth needs tls: 'required', the default with auth: with tls: '${tls}' the password would go to a server whose certificate is not checked`,
+		);
+	}
+}
+
+/** What every session takes, whatever its route: the MX port and TLS, the timeouts. */
+function checkSessions(options: QueueOptions): void {
+	numberOf('mxPort', options.mxPort, 25, 1, 65535);
+	checkTls('mxTls', options.mxTls);
+	const timeouts = options.timeouts;
+	if (timeouts !== undefined) {
+		if (typeof timeouts !== 'object' || timeouts === null) {
+			throw invalid('timeouts must be an object of seconds');
+		}
+		for (const [step, value] of Object.entries(timeouts)) {
+			checkSeconds(`timeouts.${step}`, value);
+		}
+	}
+	checkSeconds('deadline', options.deadline);
 }
 
 function checkRoutes(options: QueueOptions): void {
@@ -162,6 +248,7 @@ export function settingsOf(options: QueueOptions): Settings {
 		);
 	}
 	checkRoutes(options);
+	checkSessions(options);
 	const owner = options.owner ?? crypto.randomUUID();
 	if (typeof owner !== 'string' || owner === '') {
 		throw invalid('owner must be a non-empty string');

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { buildDsn } from './build';
+import { MAX_LINE, returned } from './content';
 import { at, decoder, encoder, input, parse } from './dsn.fixtures';
 
 describe('the original, bounded', () => {
@@ -57,5 +58,39 @@ describe('no header injection from a reply or an address', () => {
 		expect(dsn).not.toContain('\u001b');
 		expect(dsn).toContain('Diagnostic-Code: smtp; 550 no X-Injected: yes [31m');
 		expect(dsn).not.toContain('Remote-MTA');
+	});
+});
+
+describe('the lines returned', () => {
+	const linesOf = (body: Uint8Array) =>
+		new TextDecoder().decode(body).split('\r\n').slice(0, -1);
+
+	test('a header line past 998 characters is cut at 998, the next ones kept', () => {
+		const long = `X-Long: ${'a'.repeat(2000)}`;
+		const original = encoder.encode(`${long}\r\nSubject: hi\r\n\r\nbody\r\n`);
+		const { body } = returned(original, 'headers', 64 * 1024);
+		expect(linesOf(body)).toEqual([long.slice(0, MAX_LINE), 'Subject: hi']);
+	});
+
+	test('a full message has every line cut too', () => {
+		const original = encoder.encode(
+			`Subject: hi\r\n\r\n${'b'.repeat(1500)}\r\n`,
+		);
+		const { body, type } = returned(original, 'full', 64 * 1024);
+		expect(type).toBe('message/rfc822');
+		expect(linesOf(body).map((line) => line.length)).toEqual([11, 0, MAX_LINE]);
+	});
+
+	test('the cut never splits a UTF-8 character', () => {
+		// 997 ASCII bytes, then "é" (2 bytes) straddles the 998th.
+		const long = `X: ${'a'.repeat(994)}é and more`;
+		const { body } = returned(
+			encoder.encode(`${long}\r\n\r\n`),
+			'headers',
+			4096,
+		);
+		const [line] = linesOf(body);
+		expect(line).toBe(`X: ${'a'.repeat(994)}`);
+		expect(body.every((byte) => byte !== 0xc3)).toBe(true);
 	});
 });

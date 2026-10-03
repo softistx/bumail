@@ -5,7 +5,11 @@ import { QueueError } from '../errors';
 import type { SqliteQueueStoreOptions } from './options';
 import { migrate } from './schema';
 
-/** The queue's directory and files: its owner's alone, as mail is. */
+/**
+ * The queue's files, and the directory when the store makes it: its
+ * owner's alone, as mail is. A directory that already exists keeps its
+ * mode — it is the operator's, who may share it with a group on purpose.
+ */
 const PRIVATE_DIRECTORY = 0o700;
 const PRIVATE_FILE = 0o600;
 
@@ -55,8 +59,11 @@ export function openDatabase(options: SqliteQueueStoreOptions): Database {
 	const busyTimeout = busyTimeoutOf(options.busyTimeout);
 	let db: Database | undefined;
 	try {
-		mkdirSync(directory, { recursive: true, mode: PRIVATE_DIRECTORY });
-		chmodSync(directory, PRIVATE_DIRECTORY);
+		if (!existsSync(directory)) {
+			mkdirSync(directory, { recursive: true, mode: PRIVATE_DIRECTORY });
+			// The mode given to mkdir is narrowed by the umask, never widened: set it.
+			chmodSync(directory, PRIVATE_DIRECTORY);
+		}
 		const file = join(directory, 'queue.sqlite');
 		db = new Database(file, { create: true, readwrite: true, strict: true });
 		configure(db, busyTimeout);

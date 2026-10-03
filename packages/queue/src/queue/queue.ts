@@ -1,6 +1,7 @@
 import type { QueueItem, QueueListOptions } from '../contract/types';
 import {
 	checkEnvelope,
+	checkLineEnds,
 	type MessageSource,
 	type QueueEnvelope,
 	readMessage,
@@ -36,7 +37,11 @@ export interface Queue {
 	/** The items in the queue, the next due first. */
 	list(options?: QueueListOptions): Promise<QueueItem[]>;
 	get(id: string): Promise<QueueItem | undefined>;
-	/** Makes an item due now, and wakes the worker. False when there is no such item. */
+	/**
+	 * Makes an item due now, and wakes the worker. False when there is no
+	 * such item, or when a worker is delivering it: its outcome sets the
+	 * next attempt, so asking now would change nothing.
+	 */
 	retryNow(id: string): Promise<boolean>;
 	/** Drops an item, its message and its recipients, with no DSN; the item as it stood, or `undefined`. */
 	cancel(id: string): Promise<QueueItem | undefined>;
@@ -58,6 +63,7 @@ export function createQueue(options: QueueOptions): Queue {
 		async enqueue(message, envelope) {
 			const { from, to } = checkEnvelope(envelope, limits.maxRecipients);
 			const bytes = await readMessage(message, limits.maxMessageSize);
+			checkLineEnds(bytes);
 			const item = await store.add(
 				{ from, to, message: bytes, createdAt: settings.now() },
 				limits.maxItems === undefined ? {} : { maxItems: limits.maxItems },
@@ -72,7 +78,10 @@ export function createQueue(options: QueueOptions): Queue {
 		list: (listOptions) => store.list(listOptions),
 		get: (id) => store.get(id),
 		async retryNow(id) {
-			const moved = await store.reschedule(id, settings.now());
+			const now = settings.now();
+			const lease = (await store.get(id))?.lease;
+			if (lease && lease.expiresAt > now) return false;
+			const moved = await store.reschedule(id, now);
 			if (moved) worker.wake();
 			return moved;
 		},

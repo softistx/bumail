@@ -99,6 +99,39 @@ describe('the worker', () => {
 		await pass;
 	});
 
+	test('a renewal that fails is reported, and the next one renews the lease', async () => {
+		const held = gate();
+		const { queue, store, clock, events } = setup(
+			async (call) => {
+				await held.opened;
+				return accepted(call.options);
+			},
+			{ leaseMs: 1000 },
+		);
+		const renew = store.renew.bind(store);
+		let renewals = 0;
+		store.renew = async (...args) => {
+			if (renewals++ === 0) throw new Error('database is locked');
+			return renew(...args);
+		};
+		const item = await queue.enqueue(MESSAGE, to);
+		const pass = queue.deliverDue();
+		await until(async () => (await store.get(item.id))?.lease !== undefined);
+		clock.advance(500);
+		await until(() => events.error.length === 1);
+		expect(events.error[0]).toMatchObject({
+			id: item.id,
+			error: { message: 'database is locked' },
+		});
+		await until(
+			async () => (await store.get(item.id))?.lease?.expiresAt === T0 + 1500,
+		);
+		held.open();
+		await pass;
+		expect(events.delivered).toHaveLength(1);
+		expect(events.error).toHaveLength(1);
+	});
+
 	test('a lease another worker took is reported, and nothing is recorded twice', async () => {
 		const held = gate();
 		const { queue, store, clock, events } = setup(

@@ -51,7 +51,8 @@ const item = await queue.enqueue(message, { from: 'mary@example.net', to: ['joe@
   `ReadableStream<Uint8Array>`, read to its end but never past
   `limits.maxMessageSize`. It is sent as it is: sign it with DKIM
   (`@bumail/auth`'s `signDkim`) before you enqueue it, and give it CRLF
-  line ends.
+  line ends: a bare CR or LF is refused (`INVALID`), since `sendMail`
+  would refuse it at delivery (SMTP smuggling) and fail every recipient.
 - **The envelope** is `{ from, to }`. `from` is the reverse-path, or `''`
   for the null sender of a bounce you write yourself. `to` is one address
   or an array. Each recipient is kept once: two addresses that differ
@@ -61,7 +62,12 @@ const item = await queue.enqueue(message, { from: 'mary@example.net', to: ['joe@
 
 Every address is checked: `local@domain`, 254 characters at most, with no
 space, no control character and no angle bracket — nothing that could
-break an SMTP command line or a header field.
+break an SMTP command line or a header field — and by RFC 5321's grammar,
+as `sendMail` checks it (`@bumail/smtp/client`'s `isMailbox`):
+`a,b@example.com`, `a@b@example.com` or `a@-example` are refused at
+`enqueue`, never at delivery. An address a store holds that `sendMail`
+would refuse anyway (written there by other code) fails alone, as
+`5.1.3`; the other recipients of its domain are still delivered.
 
 ### Never an open relay
 
@@ -83,6 +89,12 @@ recipient's outcome is recorded with the reply that decided it.
 | a `5xx`, to RCPT or to anything that ends the session | `failed` | final, at once; a DSN |
 | a `4xx`, a connection error, a timeout, a TLS failure | `deferred` | tried again later |
 | a null MX (RFC 7505), a domain that does not exist | `failed` | final; a DSN |
+| `sendMail` refuses the route's options (`INVALID_OPTION`) | `deferred`, as `4.3.5` | tried again later, and an `error` event: the configuration is yours to fix |
+
+An error is read by its `name` (`SmtpError`) and `code`, not by its
+class: an app with a second copy of `@bumail/smtp` installed, or a
+`send` of its own that throws errors of that shape, is classified the
+same way.
 
 ### Routes
 
@@ -107,7 +119,10 @@ createQueue({
   RFC 7435) apply to it.
 - A smarthost, `{ host, port?, secure?, tls?, auth?, ca? }`: every message
   of the route goes to that host. `secure` is TLS from the first byte
-  (port 465); `auth` is sent only over TLS whose certificate checked out.
+  (port 465); `auth` is sent only over TLS whose certificate checked out,
+  so `createQueue` refuses `auth` with a `tls` other than `'required'`
+  (the default with `auth`). The port, the TLS mode and the credentials
+  are checked by `createQueue`, as `sendMail` would check them.
 - `routes` maps a recipient domain (compared in lowercase) to its own
   route, over `route`.
 
@@ -134,7 +149,8 @@ No resolver is needed when no route is `'mx'`.
 
 `timeouts` and `deadline` pass to `sendMail`: each step's timeout in
 seconds (RFC 5321 §4.5.3.2's by default) and the whole session's (1800
-seconds, DNS included).
+seconds, DNS included). `createQueue` checks each one: above 0, and at
+most 2147483 seconds, the longest a timer waits.
 
 ## Retries
 
@@ -199,7 +215,9 @@ Last-Attempt-Date: Thu, 01 Oct 2026 12:00:03 +0000
   returns the original's header fields as `text/rfc822-headers`; `'full'`
   returns the whole message as `message/rfc822` when it fits
   `limits.maxDsnReturn` (64 KiB), its header fields otherwise. Either is
-  cut after the last whole line within that bound.
+  cut after the last whole line within that bound, and every line past
+  998 characters (RFC 5322 §2.1.1) is cut there, never inside a UTF-8
+  character, so the DSN itself is never refused for a long line.
 - **Its From** is `Mail Delivery System <postmaster@<hostname>>`, or
   `dsn.from`. It carries `Auto-Submitted: auto-replied` (RFC 3834).
 
@@ -223,6 +241,9 @@ queue.start();
   worker claims it while the lease holds.
 - **The lease is renewed** every third of `leaseMs` (10 minutes by
   default) while the item is delivered, and let go of with the outcome.
+  A renewal that fails (the database busy) is told on the `error` event,
+  and the next one tries again; only a renewal that finds the lease taken
+  stops them.
 - **A crashed worker** loses its items when their leases expire: another
   worker claims them then. A worker whose lease was taken meanwhile
   records nothing, and says so on the `error` event (`LEASE_LOST`). An
@@ -270,7 +291,7 @@ off(); // stops listening
 | `deferred` | the same, and `nextAttemptAt` |
 | `failed` | the same as `delivered` |
 | `dsn` | `{ kind: 'delayed' \| 'failed', id, of, to, recipients }`: `id` is the DSN's own item, `of` the item it reports on |
-| `error` | `{ error, id? }`: a store that failed, a DSN that could not be enqueued, a lease lost |
+| `error` | `{ error, id? }`: a store that failed (a lease renewal included), a DSN that could not be enqueued, a lease lost, a route `sendMail` refused (`INVALID_OPTION`) |
 
 Events come once the outcome is recorded. A listener that throws is
 ignored. `reply.code` is absent when no server answered: a connection
@@ -281,14 +302,15 @@ error, a timeout, the DNS.
 ```ts
 await queue.list({ offset: 0, limit: 100 }); // the next due first
 await queue.get(id); // undefined once done or cancelled
-await queue.retryNow(id); // due now; false when there is no such item
+await queue.retryNow(id); // due now; false when there is no such item, or it is being delivered
 await queue.cancel(id); // dropped, with no DSN; the item as it stood
 ```
 
 An item is dropped from the store once every recipient is `delivered` or
 `failed`: `list` shows what is still to do. Use the events to keep a
-history. `retryNow` on an item being delivered leaves that attempt alone:
-its outcome sets the next attempt.
+history. `retryNow` on an item being delivered (its lease still held)
+returns `false` and changes nothing: that attempt's outcome sets the next
+one.
 
 ## The stores
 
@@ -311,14 +333,18 @@ const store = SqliteQueueStore.open({ directory: '/var/lib/bumail/queue', busyTi
 store.close(); // closing twice is fine
 ```
 
-- **One file**, `queue.sqlite`, in `directory`, created if need be; the
-  directory is made 0700 and the files 0600.
+- **One file**, `queue.sqlite`, in `directory`, created if need be; a
+  directory the store makes is 0700, and the files are 0600. A directory
+  that already exists keeps its mode: it is yours, and may be shared with
+  a group on purpose — make it 0700 yourself if it is not.
 - **Durable**: WAL, `synchronous = FULL`, and on macOS `fullfsync`: every
   write is on disk before it is acknowledged.
 - **Shared by several processes of one machine**: unlike
   `@bumail/store`'s database, the queue's is not locked to one process. A
   claim is a single `UPDATE … RETURNING`, so two processes never take the
-  same item; a writer waits up to `busyTimeout` milliseconds for another.
+  same item — a spec runs several processes on one database and checks
+  each item is claimed once; a writer waits up to `busyTimeout`
+  milliseconds for another.
   Not on a network file system: SQLite's locks do not hold there. For
   several machines, a server database is on the roadmap.
 - **Messages in a table of their own**, `messages`, dropped with their
@@ -407,9 +433,9 @@ them yet.
 | `route` | `'mx' \| Smarthost` | `'mx'` | the default route |
 | `routes` | `Record<string, Route>` | — | a route per recipient domain |
 | `resolver` | `MxResolver` | — | needed by `'mx'` |
-| `mxPort` | `number` | 25 | the port of MX hosts |
+| `mxPort` | `number`, 1–65535 | 25 | the port of MX hosts |
 | `mxTls` | `TlsMode` | `opportunistic` | TLS to MX hosts |
-| `timeouts`, `deadline` | | `sendMail`'s | passed to `sendMail` |
+| `timeouts`, `deadline` | seconds, above 0, at most 2147483 | `sendMail`'s | passed to `sendMail` |
 | `retry` | `RetrySchedule` | 30 min, ×2, 4 h max, 10% jitter, 5 days | see [Retries](#retries) |
 | `dsn.from` | `string` | `postmaster@<hostname>` | the DSN's From |
 | `dsn.delayAfter` | `number \| false` | 4 hours | the "delayed" DSN |

@@ -1,11 +1,29 @@
-import {
-	type Reply,
-	type SendMailResult,
+import type {
+	Reply,
+	SendMailResult,
 	SmtpError,
-	type SmtpErrorCode,
+	SmtpErrorCode,
 } from '@bumail/smtp/client';
 import type { Diagnostic, RecipientUpdate } from '../contract/types';
 import { cleanText } from '../text';
+
+/**
+ * An `SmtpError`, read by its `name`: a second copy of `@bumail/smtp` (a
+ * different version installed for the app) throws errors of another
+ * class, which `instanceof` would take for unknown ones.
+ */
+export const isSmtpError = (error: unknown): error is SmtpError =>
+	error instanceof Error &&
+	error.name === 'SmtpError' &&
+	typeof (error as { code?: unknown }).code === 'string';
+
+/**
+ * `sendMail` refused its options: the route is misconfigured (a smarthost
+ * it cannot use, a bad timeout), not the recipient. Retried, never bounced
+ * at once: fixing the configuration and restarting delivers the message.
+ */
+export const isRouteError = (error: unknown): boolean =>
+	isSmtpError(error) && error.code === 'INVALID_OPTION';
 
 /** An enhanced status code, `x.y.z` (RFC 3463 §2). */
 const STATUS = /^[245]\.\d{1,3}\.\d{1,3}$/;
@@ -43,6 +61,7 @@ const ERROR_STATUS: Partial<Record<SmtpErrorCode, string>> = {
 	TLS_UNAVAILABLE: '7.10',
 	TLS_FAILED: '7.0',
 	AUTH_UNAVAILABLE: '7.0',
+	INVALID_OPTION: '3.5',
 };
 
 /** A failure that never got a reply: an error of the network, the DNS, TLS, or anything else. */
@@ -53,8 +72,9 @@ function diagnosticOfError(
 	host?: string,
 ): Diagnostic {
 	const text = error instanceof Error ? error.message : String(error);
-	const detail =
-		error instanceof SmtpError ? (ERROR_STATUS[error.code] ?? '0.0') : '0.0';
+	const detail = isSmtpError(error)
+		? (ERROR_STATUS[error.code] ?? '0.0')
+		: '0.0';
 	return {
 		status: `${temporary ? 4 : 5}.${detail}`,
 		text: cleanText(text, max),
@@ -98,7 +118,8 @@ export function outcomesOf(
 /**
  * Each recipient of a delivery `sendMail` rejected: by its own reply when
  * the server refused every one, else all alike — deferred when the error
- * is temporary (a 4xx, the network, a timeout), failed otherwise.
+ * is temporary (a 4xx, the network, a timeout) or the route's own
+ * (`INVALID_OPTION`, X.3.5), failed otherwise.
  */
 export function outcomesOfError(
 	error: unknown,
@@ -107,11 +128,12 @@ export function outcomesOfError(
 	host?: string,
 ): RecipientUpdate[] {
 	const rejected = new Map(
-		error instanceof SmtpError
+		isSmtpError(error)
 			? (error.rejected ?? []).map((r) => [r.recipient, r.reply])
 			: [],
 	);
-	const temporary = !(error instanceof SmtpError) || error.temporary;
+	const temporary =
+		!isSmtpError(error) || error.temporary || isRouteError(error);
 	return group.map((address): RecipientUpdate => {
 		const own = rejected.get(address);
 		if (own) {
@@ -122,7 +144,7 @@ export function outcomesOfError(
 			};
 		}
 		const reply =
-			error instanceof SmtpError && error.reply
+			isSmtpError(error) && error.reply
 				? diagnosticOf(error.reply, max, host)
 				: diagnosticOfError(error, temporary, max, host);
 		return { address, status: temporary ? 'deferred' : 'failed', reply };

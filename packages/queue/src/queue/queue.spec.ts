@@ -70,6 +70,35 @@ describe('enqueue', () => {
 		).rejects.toThrow('to must hold one recipient or more');
 	});
 
+	test('refuses a bare CR or LF: sendMail would refuse it at delivery (SMTP smuggling)', async () => {
+		const { queue, store } = setup();
+		for (const [message, at] of [
+			['Subject: hi\n\nhello\r\n', 11],
+			['Subject: hi\r\n\r\nhello\r', 20],
+			['\nSubject: hi\r\n', 0],
+			['Subject: hi\r\n\r\n.\r.\r\n', 16],
+		] as const) {
+			await expect(
+				queue.enqueue(message, {
+					from: 'mary@example.net',
+					to: 'joe@example.com',
+				}),
+			).rejects.toMatchObject({
+				code: 'INVALID',
+				message: `The message has a bare CR or LF at byte ${at}: every line must end in CRLF`,
+			});
+		}
+		const stream = new Response('Subject: hi\r\n\nhello')
+			.body as ReadableStream<Uint8Array>;
+		await expect(
+			queue.enqueue(stream, {
+				from: 'mary@example.net',
+				to: 'joe@example.com',
+			}),
+		).rejects.toThrow('bare CR or LF at byte 13');
+		expect(await store.count()).toBe(0);
+	});
+
 	test('bounds the size, the recipients and the queue', async () => {
 		const { queue } = setup(undefined, {
 			limits: { maxMessageSize: 64, maxRecipients: 2, maxItems: 1 },
@@ -143,5 +172,17 @@ describe('admin', () => {
 		expect(await queue.get(item.id)).toBeUndefined();
 		expect(await queue.retryNow(item.id)).toBe(false);
 		expect(await queue.cancel(item.id)).toBeUndefined();
+	});
+
+	test('retryNow is false for an item a worker is delivering: its outcome sets the next attempt', async () => {
+		const { queue, store, clock } = setup();
+		const item = await queue.enqueue(MESSAGE, {
+			from: 'mary@example.net',
+			to: 'joe@example.com',
+		});
+		await store.claim({ owner: 'other', now: clock.now(), leaseMs: MINUTE });
+		expect(await queue.retryNow(item.id)).toBe(false);
+		clock.advance(MINUTE);
+		expect(await queue.retryNow(item.id)).toBe(true);
 	});
 });

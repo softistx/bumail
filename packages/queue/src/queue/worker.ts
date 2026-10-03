@@ -30,8 +30,10 @@ export class Worker {
 	}
 
 	/**
-	 * Renews the lease every third of it until the outcome is recorded; a
-	 * renewal that finds the lease taken says so once, and stops.
+	 * Renews the lease every third of it until the outcome is recorded. A
+	 * renewal that finds the lease taken says so once, and stops; one that
+	 * fails (the store busy, unreachable) says so, and the next one tries
+	 * again: the lease may still be held.
 	 */
 	#renewing(item: QueueItem): () => void {
 		const { settings, store, events } = this.#ctx;
@@ -40,22 +42,22 @@ export class Worker {
 			done = true;
 			clearInterval(timer);
 		};
-		const lost = (error: unknown) => {
-			if (done) return;
-			stop();
-			events.emit('error', { error, id: item.id });
-		};
 		const timer = setInterval(() => {
 			const expiresAt = settings.now() + settings.leaseMs;
-			store.renew(item.id, settings.owner, expiresAt).then((held) => {
-				if (held) return;
-				lost(
-					new QueueError(
+			store.renew(item.id, settings.owner, expiresAt).then(
+				(held) => {
+					if (held || done) return;
+					stop();
+					const error = new QueueError(
 						'LEASE_LOST',
 						`The lease on ${item.id} was lost while it was delivered`,
-					),
-				);
-			}, lost);
+					);
+					events.emit('error', { error, id: item.id });
+				},
+				(error: unknown) => {
+					if (!done) events.emit('error', { error, id: item.id });
+				},
+			);
 		}, settings.leaseMs / 3);
 		timer.unref?.();
 		return stop;

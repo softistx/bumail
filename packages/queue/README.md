@@ -52,7 +52,11 @@ item.recipients; // [{ address: 'joe@example.com', status: 'pending' }, …]
 process.on('SIGTERM', () => queue.stop()); // lets deliveries under way end
 ```
 
-The message is a `Uint8Array`, a string or a `ReadableStream<Uint8Array>`.
+The message is a `Uint8Array`, a string or a `ReadableStream<Uint8Array>`,
+with CRLF line ends: a bare CR or LF is refused, as `sendMail` would
+refuse it. Every address is checked as `sendMail` checks it
+(`@bumail/smtp/client`'s `isMailbox`), so a bad one is refused at
+`enqueue`, never at delivery.
 Delivery groups the recipients by domain: one session per domain per
 attempt, with STARTTLS when offered.
 
@@ -104,7 +108,11 @@ createQueue({
 ```
 
 `route` defaults to `'mx'`: each recipient domain's own mail hosts.
-Credentials go only over TLS whose certificate checked out.
+Credentials go only over TLS whose certificate checked out: `createQueue`
+refuses `auth` with a `tls` other than `'required'`, and checks the ports,
+the TLS modes and the timeouts as `sendMail` would. A route `sendMail`
+still refuses (`INVALID_OPTION`) defers its recipients as `4.3.5` and
+says so on the `error` event; it never bounces them.
 
 ## Several workers
 
@@ -123,8 +131,10 @@ queue.start();
 ```
 
 A worker claims a due item with a lease, renews it while it delivers, and
-lets go of it with the outcome. If it crashes, another worker claims the
-item once the lease expires (`leaseMs`, 10 minutes by default).
+lets go of it with the outcome; a renewal that fails is told on `error`
+and tried again. If it crashes, another worker claims the item once the
+lease expires (`leaseMs`, 10 minutes by default). A directory the store
+makes is 0700; one that exists keeps its mode.
 `concurrency` (20) bounds the items one worker delivers at once — each
 item opens one session per recipient domain — and `perDomain` (2) its
 sessions to one recipient domain.
@@ -137,10 +147,10 @@ queue.on('delivered', ({ id, recipient, reply }) => console.info({ id, recipient
 queue.on('deferred', ({ recipient, reply, nextAttemptAt }) => {});
 queue.on('failed', ({ recipient, reply }) => {}); // reply: { code?, status?, text, host? }
 queue.on('dsn', ({ kind, of, to }) => {});
-queue.on('error', ({ error, id }) => console.error(id, error)); // the store, a lost lease
+queue.on('error', ({ error, id }) => console.error(id, error)); // the store, a lost lease, a bad route
 
 const [next] = await queue.list({ limit: 50 }); // the next due first
-if (next) await queue.retryNow(next.id); // true if it was there
+if (next) await queue.retryNow(next.id); // false while a worker delivers it
 if (next) await queue.cancel(next.id); // no DSN
 ```
 
@@ -190,7 +200,8 @@ createQueue({
 Everything is bounded, through `limits`: the message (25 MiB), the
 recipients per message (100), the items in the store (none by default),
 the reply text kept per recipient (512 characters, control characters
-replaced by spaces), and the original a DSN returns (64 KiB). Nothing a
+replaced by spaces), and the original a DSN returns (64 KiB, each line cut
+at 998 characters). Nothing a
 remote server says reaches a DSN's header fields with a CR, an LF or a
 control character in it.
 
