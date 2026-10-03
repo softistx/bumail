@@ -20,8 +20,8 @@ const NOT_CONTENT =
  * Reads content given whole or as a stream, as every store must: hashed
  * and counted chunk by chunk, each chunk handed to `onChunk` before the
  * next is read. A stream that fails or yields something other than bytes
- * is cancelled and rejects with `INVALID`; so does one already locked by
- * another reader. What `onChunk` throws (the store's own write failing)
+ * is cancelled and rejects with `INVALID`; one already locked by another
+ * reader is left alone and rejects with `INVALID` too. What `onChunk` throws (the store's own write failing)
  * is the store's, not the content's: the stream is cancelled and the error
  * passes through as it is. A chunk may be reused by its stream once
  * `onChunk` returns: copy what must be kept.

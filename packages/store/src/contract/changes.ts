@@ -50,8 +50,8 @@ function liveAndDestroyed(
 /**
  * Every message of the account, changed since or destroyed since. Rows
  * may come in any order, and a store may give only those with
- * `modseq > since`; items of one modseq keep the order they came in, so
- * a SQL store reads them `ORDER BY modseq, rowid` to match.
+ * `modseq > since`: each message change has its own modseq, so the sort
+ * fixes the order within each list.
  */
 export function accountMessageItems(
 	messages: Iterable<LiveRow>,
@@ -66,9 +66,8 @@ export function accountMessageItems(
  * since is created, sorted by its first coming in, as a created item sorts
  * by its creation; one that was in it at `since` and is no more is
  * destroyed, when it left. One that left and came back is updated.
- * `expunged` holds that mailbox's departures only, oldest first (by
- * `modseq`, then the order they were made): the first coming in is the
- * first one met. Either list may be limited to `modseq > since`.
+ * `expunged` holds that mailbox's departures only. Either list may come
+ * in any order, and be limited to `modseq > since`.
  */
 export function mailboxMessageItems(
 	members: Iterable<MemberRow>,
@@ -81,7 +80,11 @@ export function mailboxMessageItems(
 		if (row.modseq <= since) continue;
 		const id = row.messageId;
 		if (row.joinedModseq <= since) left.set(id, row.modseq);
-		else if (!firstJoined.has(id)) firstJoined.set(id, row.joinedModseq);
+		else
+			firstJoined.set(
+				id,
+				Math.min(firstJoined.get(id) ?? row.joinedModseq, row.joinedModseq),
+			);
 	}
 	const items: Item[] = [];
 	for (const member of members) {
