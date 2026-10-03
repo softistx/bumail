@@ -374,11 +374,13 @@ for the other recipients.
 
 ### Every recipient fails with `5.1.7`, `The sender's address is not one SMTP can carry`
 
-**When:** an item a store holds has a sender (`from`) `sendMail` would
-refuse, neither `''` nor an RFC 5321 Mailbox: written there by other
-code, since `enqueue` refuses it.
+**When:** an item a store holds has a sender (`from`) that is neither
+`''` nor one `isMailbox` takes: written there by other code, since
+`enqueue` refuses it.
 **Why:** no session can carry it, so every recipient fails at once
-rather than be deferred until `retry.giveUpAfter`. The failure DSN goes
+rather than be deferred until `retry.giveUpAfter`. No session is opened
+and no `perDomain` slot is taken, so the item never waits behind a busy
+domain, and its recipients fail even while `stop()` runs. The failure DSN goes
 to that same address, so it fails in turn, as `5.1.3`, and causes no
 other.
 **Fix:** enqueue through `queue.enqueue`, or check the sender with

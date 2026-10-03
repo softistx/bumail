@@ -14,15 +14,10 @@ No dates. Each entry says what someone running or embedding the server gets.
   quick resync, UIDPLUS (RFC 4315), BINARY (RFC 3516), and interop checked
   with real mail clients. The store already keeps the UIDs, UIDVALIDITY and
   modseqs these need.
-- **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
-  mail), as an alxia app on `@alxia/core` 0.2.1 from npm; its first slice
-  is in review: the session, the API with back-references, Mailbox, Email
-  and Thread, blob download and upload, serving any `@bumail/store`.
-  queryChanges and push via EventSource follow, then Identity and
-  EmailSubmission through `@bumail/smtp/client`. IMAP came first, since
-  real mail clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it
-  routing, validation and its typed client for free. It is what bumail's
-  own web client will speak.
+- **`@bumail/jmap`, the second slice** — the first slice is published in
+  0.1.0 (see Shipped). What remains: queryChanges, push via EventSource,
+  then Identity and EmailSubmission through `@bumail/smtp/client`. It is
+  what bumail's own web client will speak.
 - **`@bumail/queue`, the first slice** — in review. Outbound mail with
   each recipient's own state (pending, delivered, deferred, failed, with
   the last reply), delivered one session per domain through the published
@@ -108,19 +103,23 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### Published
 
-- **`@bumail/auth`, DMARC and `Authentication-Results`** — `checkDmarc`
-  (RFC 7489): the From domain's policy, found there or at its
+- **`@bumail/jmap`, the first slice**, in jmap 0.1.0 — mailbox access over
+  JMAP (RFC 8620 core, RFC 8621 mail), as an alxia app on `@alxia/core`
+  0.2.1 from npm, serving any `@bumail/store`: the session, the API with
+  back-references, Mailbox, Email and Thread, blob download and upload,
+  with every limit announced and enforced. IMAP came first, since real
+  mail clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it
+  routing, validation and its typed client for free.
+- **`@bumail/auth`, DMARC and `Authentication-Results`**, in auth 0.3.0 —
+  `checkDmarc` (RFC 7489): the From domain's policy, found there or at its
   organizational domain (an embedded Public Suffix List), DKIM and SPF
   aligned with From, `pct` and the disposition; a message whose author
   cannot be told for certain (no From, several, a group, or one that is
   not exactly one mailbox) gets `permerror` with disposition `reject`.
   `formatAuthenticationResults` (RFC 8601) writes the three results as one
   field.
-
-### Published
-
 - **`@bumail/imap`, the first slice**, in imap 0.1.0 — IMAP4rev2
   (RFC 9051) on `Bun.listen`, serving any `@bumail/store`: STARTTLS and
   implicit TLS, login only once encrypted, LIST with special-use

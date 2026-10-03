@@ -979,8 +979,10 @@ address is written as it is given.
 Code that keeps addresses to send to later — a queue — checks
 each one when it takes it with `isMailbox`, which says yes to exactly the
 addresses `sendMail` takes — it checks with the same predicate: an RFC 5321
-Mailbox with no source route, no control character, no `>` and no lone
-surrogate — so the refusal comes back to whoever gave it:
+Mailbox with no source route, no control character (C0, DEL or C1), no
+`>`, no U+2028 or U+2029, no Unicode format character (`\p{Cf}`), no
+lone surrogate and no IPv4 literal octet above 255 — so the refusal
+comes back to whoever gave it:
 
 ```ts
 import { isMailbox } from '@bumail/smtp/client';
