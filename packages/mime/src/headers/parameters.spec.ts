@@ -97,6 +97,6 @@ describe('RFC 2231 sections, very long', () => {
 		const value = parseContentDisposition(
 			`attachment; filename*0*=utf-8''${'%41'.repeat(1_000_000)}; filename*1*=${'%41'.repeat(1_000_000)}`,
 		);
-		expect(value.parameters.filename).toHaveLength(2_000_000);
+		expect(value.parameters['filename']).toHaveLength(2_000_000);
 	});
 });
