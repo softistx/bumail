@@ -54,7 +54,7 @@ them one by one.
 | [DNS](#dns) | MX, TXT, A, AAAA, PTR lookups; the records a domain publishes | [`@bumail/dns`](../packages/dns) | lookups published; record helpers next |
 | [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM and SPF published; DMARC merged, not yet published |
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
-| [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp), then `@bumail/queue` | client published; queue next |
+| [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | client published; queue in progress, in review |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap), then `@bumail/jmap` | IMAP published; JMAP in review |
 | [The server app](#the-server-app) | Wires everything together | an app on alxia | next |
 
@@ -348,9 +348,24 @@ IMAP and JMAP never need to know which one they were given.
 
 **In bumail.** The SMTP client is published, as
 [`@bumail/smtp/client`](../packages/smtp): `sendMail` delivers one message,
-to a smarthost or by MX, and says whether a failure is temporary. Next is
-`@bumail/queue`, which retries and bounces on top of it: a contract with a
-memory and a `bun:sqlite` implementation, like the store.
+to a smarthost or by MX, and says whether a failure is temporary.
+[`@bumail/queue`](../packages/queue), in progress and in review, is the
+queue on top of it:
+
+- each recipient has its own state — pending, delivered, deferred or
+  failed — with the last reply;
+- an attempt opens one session per recipient domain, by MX, through a
+  smarthost (around a blocked port 25), or by a route per domain;
+- a `4xx`, a connection error or a timeout is retried with back-off (30
+  minutes at first, given up after 5 days); a `5xx` fails at once;
+- a failure, and a delay of 4 hours, send a DSN back to the sender, never
+  about a bounce;
+- a `QueueStore` contract with a memory and a `bun:sqlite` store, like the
+  store; a worker claims an item with a lease, so several workers share
+  one queue, and a crashed worker's items are claimed again.
+
+DKIM signing happens before a message is enqueued, with `@bumail/auth`.
+The queue sends what the app enqueues: the app decides who may send.
 
 ## Mailbox access: IMAP and JMAP
 
@@ -447,8 +462,8 @@ These hold for every package. [AGENTS.md](../AGENTS.md) has the full rules.
   - Parsing is written to take time linear in the size of the input, and
     the specs feed large hostile inputs under a time bound.
   - A bad message gives a result, never a crash.
-- **One contract, several implementations.** The store, and later the queue
-  and the blob store, each pass the same specs whatever they run on.
+- **One contract, several implementations.** The store and the queue, and
+  later the blob store, each pass the same specs whatever they run on.
 - **Checked against the standards.** Specs use the RFCs' own examples and,
   where one exists, a published test suite.
 

@@ -17,10 +17,11 @@ does, and which package does it.
 | [`@bumail/dns`](./packages/dns) | the DNS a mail server reads (MX, TXT, A, AAAA, PTR): on `node:dns`, a fixture for specs, a TTL cache |
 | [`@bumail/imap`](./packages/imap) | an IMAP4rev2 server that serves a store's mail to Thunderbird, Apple Mail and the rest, logging in only over TLS |
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
+| [`@bumail/queue`](./packages/queue) | the outbound queue: each recipient's state, retries with back-off, delivery status notifications, leases for several workers, a memory and a `bun:sqlite` store; in review, not yet published |
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH; and, on `@bumail/smtp/client`, a client that sends it out to a smarthost or by MX |
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store and a `bun:sqlite` store on disk |
 
-All six are on npm. What comes, in what order and why, is in
+The first six are on npm; `@bumail/queue` is in review. What comes, in what order and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
 
 ## Development
