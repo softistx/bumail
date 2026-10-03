@@ -7,6 +7,7 @@ import {
 	expect,
 	test,
 } from 'bun:test';
+import { connect } from 'node:net';
 import type { Socket } from 'bun';
 import { Client } from './client.fixtures';
 import { Connection } from './connection';
@@ -138,48 +139,97 @@ describe('a client that never reads is still disconnected', () => {
 	}, 20_000);
 });
 
-describe('a hang-up while the server paused reading', () => {
-	test('is a reset, at once: a half-close would wait on the unread input until the grace', async () => {
-		let transport: SocketTransport | undefined;
-		let closed = false;
-		const listener = Bun.listen({
-			hostname: '127.0.0.1',
-			port: 0,
-			socket: {
-				open(socket) {
-					transport = new SocketTransport(
-						socket as Socket<unknown>,
-						false,
-						() => {},
-					);
-					transport.write('220 ready\r\n');
-				},
-				data() {
-					// The server falls behind: it stops reading, then decides to
-					// hang up with nothing of its own queued.
-					transport?.pause();
+/**
+ * A server that falls behind: it stops reading at the first bytes, then
+ * decides to hang up with nothing of its own queued. Over the input it
+ * never read, a half-close does not fire `close`, and the slot waited for
+ * the grace; the transport reads again first, so it closes at once.
+ */
+async function pausedServer(
+	run: (port: number, closed: () => boolean) => Promise<void>,
+): Promise<void> {
+	let transport: SocketTransport | undefined;
+	let closed = false;
+	let paused = false;
+	const listener = Bun.listen({
+		hostname: '127.0.0.1',
+		port: 0,
+		socket: {
+			open(socket) {
+				transport = new SocketTransport(
+					socket as Socket<unknown>,
+					false,
+					() => {},
+				);
+				transport.write('220 ready\r\n');
+			},
+			data() {
+				if (!transport || paused) return;
+				paused = true;
+				transport.pause();
+				setTimeout(() => {
 					transport?.write('421 closing\r\n');
 					transport?.abort();
-				},
-				drain() {
-					transport?.drain();
-				},
-				close() {
-					closed = true;
-					transport?.closed();
-				},
+				}, 100);
 			},
-		});
-		try {
-			const client = await Client.connect(listener.port);
+			drain() {
+				transport?.drain();
+			},
+			close() {
+				closed = true;
+				transport?.closed();
+			},
+		},
+	});
+	try {
+		await run(listener.port, () => closed);
+	} finally {
+		listener.stop(true);
+	}
+}
+
+describe('a hang-up while the server paused reading', () => {
+	test('completes at once for a client that keeps sending and never reads', async () => {
+		await pausedServer(async (port, closed) => {
+			const client = await Client.connect(port);
 			await client.reply();
 			client.pause();
 			client.write(EHLOS);
-			expect(await within(1_000, () => closed)).toBe(true);
+			expect(await within(1_000, closed)).toBe(true);
 			expect(await hungUp(client)).toBe(true);
-		} finally {
-			listener.stop(true);
-		}
+		});
+	});
+
+	test('completes at once, and a client that stopped sending reads the 421, then the end', async () => {
+		await pausedServer(async (port, closed) => {
+			// node:net, whose pause leaves what the server sends in the kernel.
+			const client = connect({ host: '127.0.0.1', port });
+			try {
+				let text = '';
+				const seen = { ended: false, failed: undefined as unknown };
+				client.on('data', (chunk: Buffer) => {
+					text += chunk.toString('latin1');
+				});
+				client.on('end', () => {
+					seen.ended = true;
+				});
+				client.on('error', (error) => {
+					seen.failed = error;
+				});
+				await within(1_000, () => text.includes('220 ready'));
+				client.pause();
+				client.write('NOOP\r\n'.repeat(175_000));
+				expect(await within(1_000, closed)).toBe(true);
+				client.resume();
+				expect(
+					await within(2_000, () => seen.ended || seen.failed !== undefined),
+				).toBe(true);
+				expect(seen.failed).toBeUndefined();
+				expect(text).toEndWith('421 closing\r\n');
+			} finally {
+				client.destroy();
+			}
+		});
 	});
 });
 

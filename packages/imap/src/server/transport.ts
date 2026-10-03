@@ -13,15 +13,15 @@ export interface Transport {
 	/**
 	 * Hangs up once everything written has left: a graceful close, as after
 	 * LOGOUT. A socket not closed within `CLOSE_GRACE_MS` is terminated.
+	 * If the server paused reading, it reads again first, since a half-close
+	 * does not complete over input left unread.
 	 */
 	end(): void;
 	/**
 	 * Hangs up now, the server's decision: what the socket already took
 	 * leaves, but what still waits for a client that stopped reading is
 	 * dropped and the connection reset, so the close never hangs on it.
-	 * With nothing queued it hangs up as `end()` does, within the same grace —
-	 * unless the server paused reading: then it is reset too, since a
-	 * half-close does not complete over input left unread.
+	 * With nothing queued it hangs up as `end()` does, within the same grace.
 	 */
 	abort(): void;
 	/** Stops reading from the client, while the server catches up. */
@@ -129,10 +129,7 @@ export class SocketTransport implements Transport {
 
 	abort(): void {
 		if (this.#closed) return;
-		// Paused, the socket holds what the client sent and the server will
-		// never read: a half-close does not complete then (Bun 1.4.2), and
-		// the slot would wait for the grace.
-		if (this.#queue.length === 0 && !this.#paused) this.end();
+		if (this.#queue.length === 0) this.end();
 		else this.#terminate();
 	}
 
@@ -150,9 +147,16 @@ export class SocketTransport implements Transport {
 	 * (Bun 1.4.2: up to 96 KiB lost by a client reading slowly). The client
 	 * was reading a moment ago, so a full `shutdown()` closes once it
 	 * answers, and the grace bounds it if it stops.
+	 *
+	 * Reading paused, it reads again first: over input the server never
+	 * read, a half-close does not fire `close` (Bun 1.4.2), and the slot
+	 * waited for the grace. Reading again, the half-close fires `close` at
+	 * once, and a client that stopped sending still gets the last reply and
+	 * the end; what it sends from then on is dropped, its connection closed.
 	 */
 	#hangUp(drained: boolean): void {
 		this.#ending = false;
+		if (this.#paused) this.resume();
 		if (drained && this.secure) this.#socket.shutdown();
 		else this.#socket.shutdown(true);
 	}

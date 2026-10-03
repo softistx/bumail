@@ -186,14 +186,15 @@ describe('SocketTransport.abort never waits on a client that stopped reading', (
 		expect(fake.terminated).toBe(false);
 	});
 
-	test('with nothing queued but reading paused: terminated, as a half-close would wait on unread input', () => {
+	test('with nothing queued but reading paused: reads again, then half-closes, as a half-close waits on unread input', () => {
 		const fake = slowSocket(100);
 		const transport = new SocketTransport(fake.socket, false, () => {});
 		transport.pause();
 		transport.write(bytes('* BYE Idle for too long, closing\r\n'));
 		transport.abort();
-		expect(fake.terminated).toBe(true);
-		expect(fake.shutdowns).toEqual([]);
+		expect(fake.calls).toEqual(['pause', 'write', 'resume', 'shutdown']);
+		expect(fake.shutdowns).toEqual([true]);
+		expect(fake.terminated).toBe(false);
 	});
 
 	test('reading paused, then resumed: nothing queued half-closes again', () => {
@@ -203,6 +204,22 @@ describe('SocketTransport.abort never waits on a client that stopped reading', (
 		transport.resume();
 		transport.abort();
 		expect(fake.shutdowns).toEqual([true]);
+		expect(fake.terminated).toBe(false);
+	});
+});
+
+describe('a hang-up while the server paused reading', () => {
+	test('end() reads again only once what is queued has left, then hangs up', () => {
+		const fake = slowSocket(4);
+		const transport = new SocketTransport(fake.socket, true, () => {});
+		transport.pause();
+		transport.write(bytes('* BYE Logging out\r\n'));
+		transport.end();
+		expect(fake.calls).not.toContain('resume');
+		while (!fake.ended) transport.drain();
+		expect(fake.calls.slice(-2)).toEqual(['resume', 'shutdown']);
+		// On TLS after a drain: the full shutdown, as when not paused.
+		expect(fake.shutdowns).toEqual([undefined]);
 		expect(fake.terminated).toBe(false);
 	});
 });

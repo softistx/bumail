@@ -286,14 +286,16 @@ commands meanwhile; a message is read and written 64 KiB at a time, so
 what waits for such a client is a slice, never the whole message. Nor
 does it hold the server for good: when `loginTimeout` or `timeout` comes
 and output is still queued for it, the server drops that output and cuts
-the connection at once. So it does when the server had stopped reading
-the client, which sent more than it could take: a half-close does not
-complete over input left unread. Every other hang-up — a timeout with nothing
+the connection at once. Every other hang-up — a timeout with nothing
 queued, LOGOUT, a `BYE` — sends its last words, then half-closes the
 socket: the server never waits for the client to answer, on TLS as on a
 clear socket, so the connection leaves `connections` at once, and a
 client that paused still reads that `BYE`, then a clean end, whenever it
-reads again. What is still queued when a hang-up starts may wait 5
+reads again. When the server had stopped reading the client, which sent
+more than it could take, it reads again first, dropping whatever comes: a
+half-close does not complete over input left unread. The connection
+still leaves `connections` at once; a client that stopped sending still
+reads the `BYE` and the end, and one that keeps sending is reset. What is still queued when a hang-up starts may wait 5
 seconds at most for the client to take it; past that the connection is
 reset. On TLS, once such output has left, the server closes when the
 client answers, within the same 5 seconds. A client that connects and

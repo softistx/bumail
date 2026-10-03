@@ -878,9 +878,13 @@ server decides — the idle `timeout`, `maxErrors`, three failed AUTH
 attempts, a refusal from `onConnect`, a local error — it writes its reply
 and closes at once: the connection is counted out of `connections` then and
 there, and replies the client never read are dropped, the connection reset
-if any were still waiting, or if the server had stopped reading a client
-that sent more than it could take. So a client that pipelines commands and stops
-reading cannot keep a slot of `maxConnections` past its `timeout`.
+if any were still waiting. When the server had stopped reading a client
+that sent more than it could take, any hang-up, `QUIT`'s included, reads
+again first, dropping whatever comes: a half-close does not complete over
+input left unread. A client that stopped sending then still reads the last
+reply and the end, and one that keeps sending is reset. So a client that
+pipelines commands and stops reading cannot keep a slot of
+`maxConnections` past its `timeout`.
 
 Every hang-up is bounded, on a clear socket, on implicit TLS and after
 STARTTLS alike. When the server decides, it never waits for the client to

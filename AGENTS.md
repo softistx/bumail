@@ -235,9 +235,14 @@ Every PR goes into `develop`. Before merging:
     once what is queued has left — except on TLS when the hang-up waited
     for a queue to drain: there it calls a full `shutdown()`, which closes
     once the client, reading a moment ago, answers (`#hangUp(drained)`);
-  - **a forced close terminates when bytes are queued, or when reading is
-    paused**: `abort()` drops them and calls `terminate()`; with nothing
-    queued and reading not paused it hangs up as `end()` does;
+  - **a forced close terminates when bytes are queued**: `abort()` drops
+    them and calls `terminate()`; with nothing queued it hangs up as
+    `end()` does;
+  - **every hang-up reads again first when reading is paused**: `#hangUp`
+    calls `resume()` before its `shutdown`, for `end()` and `abort()`
+    alike, whatever the reason (a timeout, a 421, a BYE, QUIT, LOGOUT);
+    what the client sends from then on reaches a closed connection and is
+    dropped;
   - **every end is bounded by the grace**: each `end`, queue empty or not,
     arms the 5-second `CLOSE_GRACE_MS`, whose timer terminates the socket
     unless `close` came first; a second `end` or `abort` keeps the first
@@ -257,7 +262,17 @@ Every PR goes into `develop`. Before merging:
   client that sent more than it could take: over that unread input the
   half-close never fires `close`, and the slot waited for the grace (a
   client pipelining EHLOs it never reads, Linux and macOS alike), while
-  `terminate()` closes at once; and on TLS, called in the `drain` that took the
+  `resume()` then `shutdown(true)` fires `close` at once, on a clear socket
+  and on TLS, and a client that stopped sending still gets the last reply
+  and a clean end (80 runs in 80 on macOS, 300 KiB or 1 MiB left unread),
+  where `terminate()` loses that reply to ECONNRESET; a client that keeps
+  sending is reset either way. A `node:tls` client that does read,
+  pipelining about 1 MiB behind commands that fail into a close the server
+  decides on while it paused reading — smtp's `maxErrors` (refusals from
+  an `onRcptTo` that takes 20 ms), imap's third failed LOGIN — got the 421
+  or the BYE and a clean end in 30 runs of 30 on each; resetting there
+  instead cost smtp's client the clean end every time, and imap's
+  half-close waited for the grace and its reset; and on TLS, called in the `drain` that took the
   last of a large queue, it drops what Bun still holds in its own TLS
   buffer: 1 run in 20 to 2 in 15, 16 to 96 KiB short, for a `node:tls`
   client reading slowly, in both copies; a full `shutdown()` there lost
@@ -271,18 +286,25 @@ Every PR goes into `develop`. Before merging:
   reading the 421 and a clean end, and a paused client after `QUIT`;
   `close.spec.ts` covers a client that never reads with replies queued,
   counted out as soon as the idle time is up, and a hang-up while the
-  server paused reading;
+  server paused reading, freed at once, a `node:net` client that stopped
+  sending then reading the 421 and a clean end;
   `server.spec.ts` covers `stop(true)` after STARTTLS. imap's:
   `server.spec.ts` covers a client that never reads with output queued, a
   slow reader of a large FETCH pipelined with LOGOUT, a paused client on a
   clear `node:net` socket, on implicit TLS and after STARTTLS, freed at
   `loginTimeout` before the grace and reading the BYE and a clean end once
   it resumes after the grace, and `stop(true)` after STARTTLS;
+  `close.spec.ts` covers a client that sends four times `INPUT_LIMIT`
+  behind a LOGIN whose `authenticate` never settles, so the server paused
+  reading with nothing queued, on implicit TLS and after STARTTLS: freed
+  within 1 s of the `loginTimeout` decision, then reading the BYE and a
+  clean end, or, sending on, freed as fast;
   `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`.
   The idle `timeout` (30 minutes at least) runs the same close but no imap
   real-socket spec waits for it. Each copy's `transport.spec.ts` checks,
   on a fake socket, that `shutdown` gets `true` (and nothing on TLS after
-  a drain), the grace and the `#closed` guard. A fix to one copy is a fix
+  a drain), that a paused hang-up calls `resume` first, the grace and the
+  `#closed` guard. A fix to one copy is a fix
   to the other.
 
 ## Prior work
