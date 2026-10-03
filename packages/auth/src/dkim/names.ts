@@ -1,4 +1,4 @@
-import { lowerAscii } from './text';
+import { lowerAscii } from '../text';
 
 /**
  * The names a signature carries, checked the same way by the verifier and

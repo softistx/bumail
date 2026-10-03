@@ -1,6 +1,7 @@
 import { normalizeName } from '@bumail/dns';
 import { foldHeader, MimeError } from '@bumail/mime';
 import { AuthError } from '../errors';
+import { bytesOf } from '../text';
 import { BodyHasher } from './body';
 import {
 	type Canonicalization,
@@ -14,7 +15,6 @@ import { DNS_NAME, identityDomain } from './names';
 import type { DkimAlgorithm } from './result';
 import { givenHeaders, hasFrom, headersToSign } from './sign-headers';
 import { encodeBase64 } from './tags';
-import { bytesOf } from './text';
 
 /** What `signDkim` signs with. */
 export interface SignDkimOptions {

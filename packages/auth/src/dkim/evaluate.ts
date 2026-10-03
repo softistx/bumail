@@ -1,4 +1,5 @@
 import type { Resolver } from '@bumail/dns';
+import { bytesOf, lowerAscii } from '../text';
 import type { BodyDigest } from './body';
 import { canonicalizeHeader, withoutSignatureValue } from './canon';
 import { rsaBits, verifyData } from './crypto';
@@ -7,7 +8,6 @@ import type { DkimKey } from './key';
 import { type DkimResult, type Verdict, verdict } from './result';
 import type { DkimSignature, ParsedSignature } from './signature';
 import { type TagList, withoutFws } from './tags';
-import { bytesOf, lowerAscii } from './text';
 
 /** What `verifyDkim` checks with, its options resolved. */
 export interface Settings {

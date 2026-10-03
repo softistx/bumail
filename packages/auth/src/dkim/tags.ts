@@ -1,4 +1,4 @@
-import { binary, trimFws } from './text';
+import { binary, trimFws } from '../text';
 
 /** A tag=value list (RFC 6376 §3.2): names are case-sensitive, values trimmed of folding white space. */
 export type TagList = ReadonlyMap<string, string>;

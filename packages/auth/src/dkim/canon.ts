@@ -1,4 +1,4 @@
-import { lowerAscii, trimWspEnd } from './text';
+import { lowerAscii, trimWspEnd } from '../text';
 
 /** A canonicalisation algorithm (RFC 6376 §3.4). */
 export type Canonicalization = 'simple' | 'relaxed';

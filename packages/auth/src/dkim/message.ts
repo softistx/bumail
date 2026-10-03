@@ -1,4 +1,4 @@
-import { binary } from './text';
+import { binary } from '../text';
 
 const LF = 0x0a;
 const CR = 0x0d;
