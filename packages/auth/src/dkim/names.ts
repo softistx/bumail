@@ -1,3 +1,5 @@
+import { lowerAscii } from './text';
+
 /**
  * The names a signature carries, checked the same way by the verifier and
  * the signer. Both expressions run in linear time: every label is bounded,
@@ -14,3 +16,19 @@ export const DNS_NAME =
  * character, nothing outside ASCII.
  */
 export const FIELD_NAME = /^[\x21-\x39\x3c-\x7e]+$/;
+
+/**
+ * The domain of an `i=` identity, lower-cased, or why it is refused: no
+ * `@` or a domain that is not a name (`malformed`), or one outside `d=`
+ * (`outside`). `domain` is `d=`, already lower-cased.
+ */
+export function identityDomain(
+	identity: string,
+	domain: string,
+): string | 'malformed' | 'outside' {
+	const at = identity.lastIndexOf('@');
+	const of = lowerAscii(identity.slice(at + 1));
+	if (at < 0 || !DNS_NAME.test(of)) return 'malformed';
+	if (of !== domain && !of.endsWith(`.${domain}`)) return 'outside';
+	return of;
+}

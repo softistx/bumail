@@ -22,9 +22,9 @@ export interface DkimResult {
 	readonly reason?: string;
 	/** `d=`, the signing domain, lowercased. */
 	readonly domain?: string;
-	/** `s=`, the selector. */
+	/** `s=`, the selector, lowercased. */
 	readonly selector?: string;
-	/** `i=`, the agent or user identifier; `@` and `d=` when the signature has none. */
+	/** `i=` as written, the agent or user identifier; `@` and `d=` when the signature has none. */
 	readonly identity?: string;
 	/** `a=` as written. */
 	readonly algorithm?: string;

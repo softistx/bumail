@@ -110,6 +110,12 @@ describe('signDkim', () => {
 				{ identity: 'joe@other.example' },
 				'signDkim(): identity "joe@other.example" is not an address within example.com',
 			],
+			...['@sub..example.com', '@-x.example.com', 'no-at-sign'].map(
+				(identity): [Record<string, unknown>, string] => [
+					{ identity },
+					`signDkim(): identity "${identity}" is not an address within example.com`,
+				],
+			),
 			[
 				{ canonicalization: 'loose/simple' },
 				'signDkim(): canonicalization loose/simple is not one of simple|relaxed/simple|relaxed',

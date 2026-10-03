@@ -10,7 +10,7 @@ import {
 import { signData } from './crypto';
 import { type RawField, selectFields, splitFields } from './headers';
 import { HeaderTooLarge, type MessageInput, splitMessage } from './message';
-import { DNS_NAME } from './names';
+import { DNS_NAME, identityDomain } from './names';
 import type { DkimAlgorithm } from './result';
 import { givenHeaders, hasFrom, headersToSign } from './sign-headers';
 import { encodeBase64 } from './tags';
@@ -92,13 +92,11 @@ function domainOf(options: SignDkimOptions): {
 	}
 	const identity = options.identity;
 	if (identity === undefined) return { domain };
-	const at = identity.lastIndexOf('@');
-	const of = identity.slice(at + 1).toLowerCase();
-	if (
-		at < 0 ||
-		/[^\x21-\x3a\x3c-\x7e]/.test(identity) ||
-		(of !== domain && !of.endsWith(`.${domain}`))
-	) {
+	const of =
+		typeof identity === 'string' && !/[^\x21-\x3a\x3c-\x7e]/.test(identity)
+			? identityDomain(identity, domain)
+			: 'malformed';
+	if (of === 'malformed' || of === 'outside') {
 		throw invalid(`identity "${identity}" is not an address within ${domain}`);
 	}
 	return { domain, identity };

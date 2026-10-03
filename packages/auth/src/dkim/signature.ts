@@ -1,5 +1,5 @@
 import type { Canonicalization } from './canon';
-import { DNS_NAME, FIELD_NAME } from './names';
+import { DNS_NAME, FIELD_NAME, identityDomain } from './names';
 import type { DkimAlgorithm, Verdict } from './result';
 import { verdict } from './result';
 import {
@@ -99,13 +99,10 @@ function headersOf(value: string, maxSignedHeaders: number): string[] {
 
 function identityOf(tags: TagList, domain: string): [string, string] {
 	const identity = tags.get('i') ?? `@${domain}`;
-	const at = identity.lastIndexOf('@');
-	const identityDomain = lowerAscii(identity.slice(at + 1));
-	if (at < 0 || !DNS_NAME.test(identityDomain)) permerror('malformed i=');
-	if (identityDomain !== domain && !identityDomain.endsWith(`.${domain}`)) {
-		permerror('i= is not within d=');
-	}
-	return [identity, identityDomain];
+	const of = identityDomain(identity, domain);
+	if (of === 'malformed') permerror('malformed i=');
+	if (of === 'outside') permerror('i= is not within d=');
+	return [identity, of];
 }
 
 function checkTags(tags: TagList, maxSignedHeaders: number): DkimSignature {

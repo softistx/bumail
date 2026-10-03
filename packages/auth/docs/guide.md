@@ -213,8 +213,9 @@ A field `@bumail/mime` cannot fold, such as a header name longer than
 ### Identity
 
 `identity` writes `i=`, the user or agent the domain signs for. It must
-be an address in the domain or in one of its subdomains. If you leave it
-out, a verifier takes it as `@` and the domain.
+be an address in the domain or in one of its subdomains, and the part after
+the `@` a domain name; the signer and the verifier check it the same way. If
+you leave it out, a verifier takes it as `@` and the domain.
 
 ## Keys
 

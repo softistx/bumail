@@ -139,3 +139,47 @@ describe('signDkim, then verifyDkim', () => {
 		expect(result?.result).toBe('pass');
 	});
 });
+
+describe('names in a signature', () => {
+	test('upper-case d=, s=, i= and h= verify, and are reported lower-cased but i=', async () => {
+		const { privateKey, record } = await keyPair('ed25519-sha256');
+		const resolver = fixtureResolver({
+			'sel._domainkey.example.com': { txt: [record] },
+		});
+		const message = unsigned(BODY);
+		const signature = await signDkim(message, {
+			domain: 'EXAMPLE.COM',
+			selector: 'SEL',
+			identity: 'Joe@Mail.EXAMPLE.com',
+			headers: ['FROM', 'Subject', 'TO'],
+			privateKey,
+			now: () => NOW,
+		});
+		const [result] = await verifyDkim(signature + message, {
+			resolver,
+			now: () => NOW,
+		});
+		expect(result).toMatchObject({
+			result: 'pass',
+			domain: 'example.com',
+			selector: 'sel',
+			identity: 'Joe@Mail.EXAMPLE.com',
+			signedHeaders: ['from', 'subject', 'to'],
+		});
+	});
+
+	test('a d= outside ASCII is malformed, even one that lower-cases into it', async () => {
+		const message = unsigned(BODY);
+		for (const domain of ['ÉXAMPLE.com', 'example.Kom']) {
+			const field = `DKIM-Signature: v=1; a=ed25519-sha256; d=${domain}; s=sel; h=from; bh=AAAA; b=AAAA\r\n`;
+			const [result] = await verifyDkim(field + message, {
+				resolver: fixtureResolver({}),
+				now: () => NOW,
+			});
+			expect(result).toMatchObject({
+				result: 'permerror',
+				reason: 'malformed d=',
+			});
+		}
+	});
+});
