@@ -14,7 +14,7 @@
     },
     "packages/auth": {
       "name": "@bumail/auth",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@bumail/dns": "workspace:^",
         "@bumail/mime": "workspace:^",
@@ -31,7 +31,7 @@
     },
     "packages/dns": {
       "name": "@bumail/dns",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },
@@ -44,7 +44,7 @@
     },
     "packages/mime": {
       "name": "@bumail/mime",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },
