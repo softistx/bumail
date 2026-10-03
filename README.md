@@ -13,7 +13,7 @@ does, and which package does it.
 
 | package | what it is |
 | --- | --- |
-| [`@bumail/auth`](./packages/auth) | DKIM: verify every signature on a message and sign outbound mail (rsa-sha256, ed25519-sha256); SPF checking published; DMARC in review |
+| [`@bumail/auth`](./packages/auth) | DKIM: verify every signature on a message and sign outbound mail (rsa-sha256, ed25519-sha256); SPF checking published; DMARC and the `Authentication-Results` header merged, not yet published |
 | [`@bumail/dns`](./packages/dns) | the DNS a mail server reads (MX, TXT, A, AAAA, PTR): on `node:dns`, a fixture for specs, a TTL cache |
 | [`@bumail/imap`](./packages/imap) | an IMAP4rev2 server that serves a store's mail to Thunderbird, Apple Mail and the rest, logging in only over TLS |
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |

@@ -14,10 +14,6 @@ No dates. Each entry says what someone running or embedding the server gets.
   quick resync, UIDPLUS (RFC 4315), BINARY (RFC 3516), and interop checked
   with real mail clients. The store already keeps the UIDs, UIDVALIDITY and
   modseqs these need.
-- **`@bumail/auth`, DMARC and Authentication-Results** — DKIM signing and
-  verifying (RFC 6376) is published in 0.1.0, and SPF checking (RFC 7208)
-  in 0.2.0. DMARC (RFC 7489) evaluation and its policy, and the
-  `Authentication-Results` header (RFC 8601), are in review.
 - **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
   mail), as an alxia app; in review. IMAP came first, since real mail
   clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it routing,
@@ -26,6 +22,10 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
+- **`@bumail/auth`, DMARC reports and ARC** — aggregate and failure
+  reports to a domain's `rua=` and `ruf=` (RFC 7489 §7), and ARC
+  (RFC 8617), so forwarded mail keeps its authentication. DKIM, SPF and
+  DMARC themselves are in Shipped.
 - **`@bumail/queue`**, the next package — outbound mail with retries and
   back-off, a deferred and a failed state, bounces and delivery status
   notifications (RFC 3464). A contract with a memory and a `bun:sqlite`
@@ -75,7 +75,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **Spam scoring hooks and greylisting** — hooks a scorer plugs into, and
   greylisting on the queue's store; no classifier of our own.
 - **MTA-STS (RFC 8461) and TLS-RPT (RFC 8460)** for outbound TLS policy.
-- **ARC** (RFC 8617), for forwarded mail that keeps its authentication.
 - **Rate limits per sender**, on submission.
 - **Webhooks** on delivery, bounce and inbound mail.
 - **A transport for `@nxgt/mail`**, so an app that sends with it can hand
@@ -96,6 +95,17 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **Relaying without authentication** — not even as an option.
 
 ## Shipped
+
+### Unreleased — merged, not yet published
+
+- **`@bumail/auth`, DMARC and `Authentication-Results`** — `checkDmarc`
+  (RFC 7489): the From domain's policy, found there or at its
+  organizational domain (an embedded Public Suffix List), DKIM and SPF
+  aligned with From, `pct` and the disposition; a message whose author
+  cannot be told for certain (no From, several, a group, or one that is
+  not exactly one mailbox) gets `permerror` with disposition `reject`.
+  `formatAuthenticationResults` (RFC 8601) writes the three results as one
+  field.
 
 ### Published
 

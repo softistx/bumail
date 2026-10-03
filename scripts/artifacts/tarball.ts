@@ -1,41 +1,77 @@
 import { $ } from 'bun';
+import {
+	readSourceMaps,
+	type SourceMapFile,
+	unmappedSourceProblems,
+} from './sourcemaps';
 
 export type Tarball = {
 	manifest: Record<string, unknown>;
 	/** Every path in the tarball, `package/` prefix included. */
 	entries: string[];
+	/** Every `.map` file in the tarball, parsed. */
+	maps: SourceMapFile[];
 };
 
-/** A packed tarball's `package.json` and the list of what it holds. */
+/**
+ * A packed tarball's `package.json`, the list of what it holds, and its
+ * source maps.
+ */
 export async function readTarball(tgz: string): Promise<Tarball> {
 	const raw = await $`tar -xzOf ${tgz} package/package.json`.quiet().text();
 	const listing = await $`tar -tzf ${tgz}`.quiet().text();
+	const entries = listing.split('\n').filter(Boolean);
 	return {
 		manifest: JSON.parse(raw),
-		entries: listing.split('\n').filter(Boolean),
+		entries,
+		maps: await readSourceMaps(tgz, entries),
 	};
 }
 
 /** Every check on what one tarball holds, as opposed to what it declares. */
-export function tarballProblems({ manifest, entries }: Tarball): string[] {
+export function tarballProblems({
+	manifest,
+	entries,
+	maps,
+}: Tarball): string[] {
 	return [
 		...licenseProblems(manifest, entries),
 		...missingFiles(manifest, entries),
 		...testCodeProblems(manifest, entries),
+		...unmappedSourceProblems(manifest, maps),
 	];
 }
 
-/** A license other than MIT, or no `LICENSE` among the tarball's entries. */
+/**
+ * A license other than MIT, or no `LICENSE` among the tarball's entries.
+ * A package that embeds a file under another license — `@bumail/auth`'s
+ * Public Suffix List snapshot, MPL 2.0 — declares `MIT AND <id>` and ships
+ * that license's text as `LICENSE-<id>` beside its own.
+ */
 export function licenseProblems(
 	manifest: Record<string, unknown>,
 	entries: readonly string[],
 ): string[] {
 	const problems: string[] = [];
-	if (manifest.license !== 'MIT') {
-		problems.push(`${manifest.name}: license is ${manifest.license}, not MIT`);
+	const license =
+		typeof manifest.license === 'string' ? manifest.license : undefined;
+	const [first, ...others] = license?.split(' AND ') ?? [];
+	const readable =
+		first === 'MIT' && others.every((id) => /^[A-Za-z0-9.+-]+$/.test(id));
+	if (!readable) {
+		problems.push(
+			`${manifest.name}: license is ${manifest.license}, not MIT or MIT AND <SPDX id>`,
+		);
 	}
 	if (!entries.includes('package/LICENSE')) {
 		problems.push(`${manifest.name}: the tarball has no LICENSE`);
+	}
+	for (const id of readable ? others : []) {
+		if (!entries.includes(`package/LICENSE-${id}`)) {
+			problems.push(
+				`${manifest.name}: license names ${id}, but the tarball has no LICENSE-${id}`,
+			);
+		}
 	}
 	return problems;
 }

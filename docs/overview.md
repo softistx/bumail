@@ -52,7 +52,7 @@ them one by one.
 | [Message format](#the-message-mime) | What an e-mail is: headers, body, attachments | [`@bumail/mime`](../packages/mime) | published |
 | [SMTP, receiving](#smtp-receiving-mail) | Takes mail in: MX on 25, submission on 587 | [`@bumail/smtp`](../packages/smtp) | published, with the client on `@bumail/smtp/client` |
 | [DNS](#dns) | MX, TXT, A, AAAA, PTR lookups; the records a domain publishes | [`@bumail/dns`](../packages/dns) | lookups published; record helpers next |
-| [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM and SPF published; DMARC in review |
+| [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM and SPF published; DMARC merged, not yet published |
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp), then `@bumail/queue` | client published; queue next |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap), then `@bumail/jmap` | IMAP published; JMAP in review |
@@ -289,8 +289,8 @@ broke SPF, or the list's edits broke DKIM.
 
 - `verifyDkim` and `signDkim`: published in 0.1.0;
 - `checkSpf`: published in 0.2.0;
-- `checkDmarc` and `formatAuthenticationResults`: in review;
-- ARC: later.
+- `checkDmarc` and `formatAuthenticationResults`: merged, not yet published;
+- DMARC reports and ARC: next.
 
 Every check answers with RFC 8601's words and never throws on a hostile
 message. `checkSpf` runs the RFC 7208 test suite and was compared with

@@ -68,6 +68,42 @@ for (const output of result.outputs) {
 	written.add(resolve(`${output.path}.map`));
 }
 
+// A source map embeds every source it maps (`sourcesContent`), so a module
+// that is only data would ship twice: once bundled into the `.js`, once
+// again in its `.map`. A package names such modules under
+// `bumail.unmappedSources` (paths from the package's root, such as
+// `src/dmarc/psl-data.ts`, `@bumail/auth`'s Public Suffix List snapshot),
+// and their content is left out of every map: a debugger still maps the
+// code there, and shows no source for the data.
+const unmapped = new Set<string>(
+	(pkg.bumail?.unmappedSources ?? []).map((path: string) => resolve(path)),
+);
+const unmappedSeen = new Set<string>();
+for (const output of unmapped.size > 0 ? result.outputs : []) {
+	const mapPath = `${output.path}.map`;
+	const file = Bun.file(mapPath);
+	if (!(await file.exists())) continue;
+	const map = await file.json();
+	if (!Array.isArray(map.sources) || !Array.isArray(map.sourcesContent)) {
+		continue;
+	}
+	map.sources.forEach((source: string, i: number) => {
+		const full = resolve(dirname(mapPath), source);
+		if (!unmapped.has(full)) return;
+		map.sourcesContent[i] = null;
+		unmappedSeen.add(full);
+	});
+	await Bun.write(mapPath, JSON.stringify(map));
+}
+for (const path of unmapped) {
+	if (unmappedSeen.has(path)) continue;
+	console.error(
+		`${name}: bumail.unmappedSources lists ${relative('.', path)}, which no ` +
+			'source map holds. Fix the path, or drop it from the list.',
+	);
+	process.exit(1);
+}
+
 const tsc =
 	await $`tsc -p tsconfig.build.json --emitDeclarationOnly --listEmittedFiles`
 		.quiet()
