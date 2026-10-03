@@ -33,7 +33,7 @@ release.
 
 ## Shipped
 
-Merged, not yet published:
+### 0.1.0
 
 - **The server** — RFC 5321 on `Bun.listen`: EHLO with PIPELINING, SIZE,
   8BITMIME, SMTPUTF8 and ENHANCEDSTATUSCODES; STARTTLS and implicit TLS;
