@@ -51,7 +51,7 @@ them one by one.
 | --- | --- | --- | --- |
 | [Message format](#the-message-mime) | What an e-mail is: headers, body, attachments | [`@bumail/mime`](../packages/mime) | published |
 | [SMTP, receiving](#smtp-receiving-mail) | Takes mail in: MX on 25, submission on 587 | [`@bumail/smtp`](../packages/smtp) | published |
-| [DNS](#dns) | MX, TXT, A, AAAA, PTR lookups | [`@bumail/dns`](../packages/dns) | published |
+| [DNS](#dns) | MX, TXT, A, AAAA, PTR lookups; the records a domain publishes | [`@bumail/dns`](../packages/dns) | lookups published; record helpers next |
 | [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM published; SPF merged; DMARC in review |
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | `@bumail/queue`, the SMTP client | next |
@@ -88,7 +88,8 @@ message in memory.
 - decodes headers, addresses, encodings and charsets;
 - builds messages to send.
 
-Every other package that reads a header goes through it.
+`@bumail/auth` reads headers through it, and folds the ones it writes
+through it.
 
 ## SMTP: receiving mail
 
@@ -104,7 +105,7 @@ S: 250 2.1.0 OK
 C: RCPT TO:<joe@example.com>
 S: 250 2.1.5 OK
 C: DATA
-S: 354 Go ahead
+S: 354 End data with <CR><LF>.<CR><LF>
 C: …the message…
 C: .
 S: 250 2.0.0 Queued
@@ -179,12 +180,21 @@ Authentication turns the first into `none` or `fail`, and the second into
 `temperror`, a temporary error. Mixing them up rejects good mail or accepts
 forged mail.
 
+**Publishing your own records.** To receive and send mail, a domain
+publishes its MX, its SPF policy, its DKIM public keys and its DMARC
+policy, and its sending IP needs a PTR that names the server. bumail will
+write these records for you, as a zone file you import into Cloudflare or
+another DNS host, or as plain records for its API: it is on the
+[roadmap](roadmap.md#next).
+
 **In bumail.** [`@bumail/dns`](../packages/dns) provides:
 
-- one interface, `Resolver`, with an answer on `node:dns`;
-- a fixture that answers from a table, for tests;
-- a cache that honours TTLs;
-- an error that always says which of the two cases happened.
+- one interface, `Resolver`, and its implementation on `node:dns`,
+  `nodeResolver`;
+- `fixtureResolver`, which answers from a table, for tests;
+- `cachedResolver`, a cache in front of either that honours TTLs;
+- `DnsError`, whose code always says which of the two cases happened
+  (`isTemporary` tells you).
 
 Names are normalised before they are sent. That includes international
 names (IDN), which are converted to their ASCII form.
@@ -225,7 +235,9 @@ and forwarding breaks it, because the forwarder's IP is not in the list.
 A signature that verifies proves two things:
 
 - The domain `d=` took responsibility for the message.
-- The signed parts have not changed since. Forwarding does not break this.
+- The signed parts have not changed since. Plain forwarding keeps the
+  signature valid; a mailing list that edits the Subject or adds a footer
+  breaks it.
 
 **Algorithms:** rsa-sha256 (keys of 1024 bits at least) and ed25519-sha256
 (RFC 8463).
@@ -241,8 +253,9 @@ change a signature tolerates.
 p=reject; rua=mailto:…"`. The policy `p=` is one of `none`, `quarantine`
 or `reject`.
 
-**When a message passes.** It needs a DKIM signature or an SPF pass **whose
-domain is aligned with the `From:` domain**. There are two modes:
+**When a message passes.** It needs a DKIM signature that verifies
+(`dkim=pass`) or an SPF pass, **whose domain is aligned with the `From:`
+domain**. There are two modes:
 
 - *strict*: the same domain;
 - *relaxed*: the same organizational domain, so `mail.example.org` aligns
@@ -266,8 +279,9 @@ Authentication-Results: mx.example.com;
   dmarc=pass header.from=example.org
 ```
 
-**ARC** (RFC 8617) is for a forwarder: it records the results it saw, so
-that the next hop can trust them even though forwarding broke SPF.
+**ARC** (RFC 8617) is for a forwarder or a mailing list: it records the
+results it saw, so that the next hop can trust them even though forwarding
+broke SPF, or the list's edits broke DKIM.
 
 **In bumail.** [`@bumail/auth`](../packages/auth):
 
@@ -277,8 +291,9 @@ that the next hop can trust them even though forwarding broke SPF.
 - ARC: later.
 
 Every check answers with RFC 8601's words and never throws on a hostile
-message. The verifier has been compared with dkimpy and pyspf, two
-established implementations.
+message. The DKIM signer and verifier were cross-checked with dkimpy, each
+verifying the other's signatures; `checkSpf` runs the RFC 7208 test suite
+and was compared with pyspf.
 
 ## Storage
 
@@ -400,20 +415,21 @@ why.
 
 These hold for every package. [AGENTS.md](../AGENTS.md) has the full rules.
 
-- **No runtime dependency.** A package depends only on Bun and on other
-  `@bumail/*` packages.
-- **Bun only**, version 1.4.2 or later.
+- **No runtime dependency.** A package needs only Bun, other `@bumail/*`
+  packages, and the peers AGENTS.md allows (such as the clients a store
+  for PostgreSQL or MongoDB will use).
+- **Bun only.** The repository is built and tested on Bun 1.4.2.
 - **Never an open relay.** Relaying requires AUTH in every default and
   every test, and AUTH is offered only once the connection is encrypted.
 - **Hostile input is the normal case.**
   - Messages are streamed in bounded memory.
-  - Time grows linearly with the size of the input, and this is measured.
+  - Parsing is written to take time linear in the size of the input, and
+    the specs feed large hostile inputs under a time bound.
   - A bad message gives a result, never a crash.
 - **One contract, several implementations.** The store, and later the queue
   and the blob store, each pass the same specs whatever they run on.
-- **Checked against the standards.** Each package is tested against its
-  RFC's own examples and published test suites, and compared with
-  established implementations where one exists.
+- **Checked against the standards.** Specs use the RFCs' own examples and,
+  where one exists, a published test suite.
 
 ## Where to go next
 

@@ -19,6 +19,15 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
+- **The DNS records a domain needs, written for you** — from a domain, its
+  MX hosts, its sending IPs and its DKIM keys, the records to publish: MX,
+  SPF (`v=spf1 …`), each DKIM key's TXT at `<selector>._domainkey`, DMARC
+  at `_dmarc`, and later MTA-STS and TLS-RPT. As a BIND zone file, which
+  Cloudflare, Route 53 and most DNS hosts import as is, and as plain
+  records (name, type, value, TTL) for a provider's API. Each record value
+  comes from the package that reads it — `@bumail/auth` writes the SPF,
+  DKIM and DMARC values it would itself accept — and `@bumail/dns` writes
+  the zone file. The admin API of the server app serves them per domain.
 - **`@bumail/smtp`, the client** — outbound delivery: MX lookup through
   `@bumail/dns`, opportunistic STARTTLS, connection reuse per destination.
   *Kept in the same package as the server, on its own subpath*: both share
@@ -78,16 +87,18 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ### Unreleased — merged, not yet published
 
-- **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite` — the same
-  contract on disk, held to the same specs, with message bodies as blobs on
-  disk addressed by their hash. One process per database, and every write
-  flushed to disk before it is acknowledged.
 - **`@bumail/auth`, SPF** — `checkSpf`, RFC 7208's `check_host()` for the
   client IP and the MAIL FROM or HELO domain: every mechanism, `redirect=`,
   `exp=`, the macros, the lookup limits and a timeout, never a throw for a
   record.
 
-### 0.1.0 — published
+### Published
+
+- **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite`, in store 0.2.0 — the same
+  contract on disk, held to the same specs, with message bodies as blobs on
+  disk addressed by their hash. One process per database, and every write
+  flushed to disk before it is acknowledged.
+
 
 - **`@bumail/auth`, DKIM** — signing and verifying (RFC 6376):
   rsa-sha256 and ed25519-sha256 (RFC 8463) through Web Crypto, simple and
