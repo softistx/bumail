@@ -150,6 +150,9 @@ describe('on a real socket', () => {
 		client.write('a CAPABILITY\r\n'.repeat(60_000));
 		expect(await within(500, () => server.connections === 1)).toBe(true);
 		expect(await within(3000, () => server.connections === 0)).toBe(true);
+		// With nothing left queued the server half-closes, and a paused
+		// client only sees that end once it reads again.
+		client.resume();
 		expect(await within(1000, () => client.closed)).toBe(true);
 	}, 10_000);
 
