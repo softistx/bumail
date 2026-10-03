@@ -51,19 +51,22 @@ function messages(create: CreateStore): void {
 		});
 	});
 
-	test('a message created and destroyed since is left out', async () => {
+	test('a message created and destroyed since is left out, its UID expunged', async () => {
 		const { store, account, inbox } = await setup(create);
 		const { modseq } = await store.messageChanges(account.id, 0);
 		const brief = await store.addMessage(account.id, inbox.id, {
 			content: bytes('x'),
 		});
-		await store.destroyMessages(account.id, [brief.id]);
+		const destroyed = await store.destroyMessages(account.id, [brief.id]);
 		const changes = await store.messageChanges(account.id, modseq);
 		expect([
 			...changes.created,
 			...changes.updated,
 			...changes.destroyed,
 		]).toEqual([]);
+		// Its UID is still reported gone (RFC 7162 §3.2.6).
+		expect(destroyed.expunged).toMatchObject([{ mailboxId: inbox.id }]);
+		expect(changes.expunged).toEqual(destroyed.expunged);
 	});
 
 	test('RFC 7162 §3.2.6: a UID that came and went since is still expunged', async () => {

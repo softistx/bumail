@@ -41,6 +41,7 @@
 		]
 	},
 	"devDependencies": {
+		"@bumail/store": "workspace:^",
 		"@types/bun": "^1.4.2"
 	},
 	"peerDependencies": {

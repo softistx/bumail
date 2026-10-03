@@ -198,7 +198,8 @@ describe('the message reaches onData as a stream', () => {
 		const s = await fakeSession(
 			mxOptions({
 				onData: (message) => {
-					void new Response(message.content).text();
+					// It errors with MESSAGE_NOT_READ: see the next spec.
+					new Response(message.content).text().catch(() => undefined);
 				},
 			}),
 			{ raw: true },
@@ -208,5 +209,24 @@ describe('the message reaches onData as a stream', () => {
 			'451 4.3.0 Local error in processing\r\n',
 		);
 		expect((s.errors[0] as SmtpError).code).toBe('MESSAGE_NOT_READ');
+	});
+
+	test('a reader left running after onData answered errors with MESSAGE_NOT_READ, never ends cleanly', async () => {
+		let background: Promise<Awaited<ReturnType<typeof outcome>>> | undefined;
+		const s = await fakeSession(
+			mxOptions({
+				onData: (message) => {
+					background = outcome(message.content);
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hello\r\n.\r\n')).toBe(
+			'451 4.3.0 Local error in processing\r\n',
+		);
+		const read = await background;
+		expect(read?.text).toBeUndefined();
+		expect(read?.error?.code).toBe('MESSAGE_NOT_READ');
 	});
 });

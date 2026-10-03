@@ -39,7 +39,6 @@ export class Intake {
 	#failure: Reply | undefined;
 	#wakers: (() => void)[] = [];
 	readonly #delivery: Promise<Reply | undefined>;
-	#delivered = false;
 	/** Whether `onData` had read to the end when it answered. */
 	#readWhenAnswered = false;
 
@@ -82,7 +81,9 @@ export class Intake {
 			.hook('onData', () => options.onData(message, connection.session), false)
 			.finally(() => {
 				this.#readWhenAnswered = this.#read;
-				this.#delivered = true;
+				// Answered before the end: the client will hear 451 and send it
+				// again, so a reader left running must not reach a clean end.
+				if (!this.#read) this.#stop();
 				this.#wake();
 			});
 	}
@@ -188,6 +189,20 @@ export class Intake {
 		}
 	}
 
+	/** onData answered without reading to the end: the stream errors, and takes no more. */
+	#stop(): void {
+		if (this.#state !== 'open') return;
+		this.#controller.error(
+			new SmtpError(
+				'MESSAGE_NOT_READ',
+				'onData answered without reading the message to its end; it was not taken',
+			),
+		);
+		this.#state = 'cancelled';
+		this.#queue = [];
+		this.#queued = 0;
+	}
+
 	#fail(answer: Reply, error: SmtpError): void {
 		this.#failure ??= answer;
 		if (this.#state === 'open') this.#controller.error(error);
@@ -201,19 +216,6 @@ export class Intake {
 	async #room(): Promise<void> {
 		const { hookTimeout: seconds } = this.#connection.settings;
 		while (this.#state === 'open' && this.#queued > HIGH_WATER_MARK) {
-			if (this.#delivered) {
-				// onData answered without reading to the end: feed it no more.
-				this.#controller.error(
-					new SmtpError(
-						'MESSAGE_NOT_READ',
-						'onData answered without reading the message to its end; it was not taken',
-					),
-				);
-				this.#state = 'cancelled';
-				this.#queue = [];
-				this.#queued = 0;
-				return;
-			}
 			const woken = await within(
 				new Promise<void>((wake) => this.#wakers.push(wake)),
 				seconds,
