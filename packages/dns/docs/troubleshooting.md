@@ -156,7 +156,11 @@ of the message says why:
   a compatibility character the mapping folds into a different one
   (fullwidth `ｅｘａｍｐｌｅ.com`, `ſtripe.com`, `ﬀ.com`, the Kelvin sign,
   `ⅹn--bcher-kva.com`), so the name queried would not be the one written.
-  Only case and accent composition may change;
+  Only case and accent composition may change. It fails closed where
+  JavaScript's lowercasing and the IDN mapping fold case in opposite
+  directions: a Cherokee name is refused in either case, and so is a name
+  whose last label is capital Greek ending in `Σ` (`x.ΣΑΣ`; write it in
+  lowercase);
 - `it is not a valid international name`.
 
 **Why**: names are checked before any query, so text from a message (a
