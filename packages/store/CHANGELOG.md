@@ -1,5 +1,15 @@
 # @bumail/store
 
+## 0.2.0
+
+### Minor Changes
+
+- [#19](https://github.com/softistx/bumail/pull/19) [`367dbd9`](https://github.com/softistx/bumail/commit/367dbd908e924b9b873a14de8347c6a95a22b3af) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Adds `@bumail/store/sqlite`, a `bun:sqlite` answer to the contract: `SqliteMailStore.open({ directory, maxTombstones? })` keeps accounts, mailboxes and messages in one directory, with content as blobs named by their hash, every write flushed to disk before it is acknowledged, and one process per database. The main entry still never imports `bun:sqlite`.
+
+### Patch Changes
+
+- [#17](https://github.com/softistx/bumail/pull/17) [`68d99d1`](https://github.com/softistx/bumail/commit/68d99d1384429ec36c879d26f7257cc4f3f421c3) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The `MailStore` contract now states how long a content Blob stays valid: the Blob `readContent` returns is valid until its message leaves the account (destroyed, or its last mailbox removed), and reading it afterwards may fail.
+
 ## 0.1.0
 
 ### Minor Changes
