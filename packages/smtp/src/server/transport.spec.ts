@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, jest, test } from 'bun:test';
 import type { Socket } from 'bun';
-import { SocketTransport } from './transport';
+import { CLOSE_GRACE_MS, SocketTransport } from './transport';
 
 /** A socket that takes at most `room` bytes per write, as a full kernel buffer does. */
 function slowSocket(room: number) {
@@ -15,6 +15,11 @@ function slowSocket(room: number) {
 			return taken;
 		},
 		end: () => {
+			throw new Error(
+				'end() waits on a TLS client: the transport uses shutdown()',
+			);
+		},
+		shutdown: () => {
 			ended = true;
 		},
 		terminate: () => {
@@ -52,7 +57,7 @@ describe('SocketTransport keeps what the socket could not take', () => {
 		expect(fake.text()).toBe('250 first\r\n250 second\r\n');
 	});
 
-	test('end() waits for what is queued, then hangs up', () => {
+	test('end() waits for what is queued, then hangs up with shutdown()', () => {
 		const fake = slowSocket(4);
 		const transport = new SocketTransport(fake.socket, false, () => {});
 		transport.write('221 bye\r\n');
@@ -116,6 +121,69 @@ describe('SocketTransport.abort never waits on a client that stopped reading', (
 		transport.end();
 		expect(fake.ended).toBe(false);
 		transport.abort();
+		expect(fake.terminated).toBe(true);
+	});
+});
+
+describe('every end is bounded by CLOSE_GRACE_MS', () => {
+	afterEach(() => {
+		jest.useRealTimers();
+	});
+
+	test('end() with nothing queued: terminated once the grace is up, if close never came', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, true, () => {});
+		transport.write('221 bye\r\n');
+		transport.end();
+		expect(fake.ended).toBe(true);
+		jest.advanceTimersByTime(CLOSE_GRACE_MS - 1);
+		expect(fake.terminated).toBe(false);
+		jest.advanceTimersByTime(1);
+		expect(fake.terminated).toBe(true);
+	});
+
+	test('end() behind a backlog that never leaves: terminated once the grace is up', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(4);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.write('221 bye\r\n');
+		transport.end();
+		jest.advanceTimersByTime(CLOSE_GRACE_MS);
+		expect(fake.ended).toBe(false);
+		expect(fake.terminated).toBe(true);
+	});
+
+	test('abort() with nothing queued: hung up, and bounded by the same grace', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, true, () => {});
+		transport.write('421 bye\r\n');
+		transport.abort();
+		expect(fake.ended).toBe(true);
+		expect(fake.terminated).toBe(false);
+		jest.advanceTimersByTime(CLOSE_GRACE_MS);
+		expect(fake.terminated).toBe(true);
+	});
+
+	test('closed() clears the timer: a socket that closed in time is left alone', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.end();
+		transport.closed();
+		jest.advanceTimersByTime(CLOSE_GRACE_MS * 2);
+		expect(fake.terminated).toBe(false);
+	});
+
+	test('a second end() or abort() does not push the deadline back', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.end();
+		jest.advanceTimersByTime(CLOSE_GRACE_MS - 10);
+		transport.abort();
+		jest.advanceTimersByTime(10);
 		expect(fake.terminated).toBe(true);
 	});
 });

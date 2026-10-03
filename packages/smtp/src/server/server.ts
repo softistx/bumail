@@ -132,9 +132,17 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 						socket.data = { upgraded: false };
 						socket.timeout(settings.timeout);
 						if (open >= settings.maxConnections) {
-							socket.end(
+							// Through a transport, so this hang-up is bounded as every other is.
+							const refused = new SocketTransport(
+								socket as Socket<unknown>,
+								secure,
+								() => {},
+							);
+							socket.data.transport = refused;
+							refused.write(
 								`421 4.3.2 ${options.hostname} Too many connections, try later\r\n`,
 							);
+							refused.end();
 							return;
 						}
 						open++;

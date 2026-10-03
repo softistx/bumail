@@ -25,14 +25,15 @@ async function within(ms: number, check: () => boolean): Promise<boolean> {
 	return true;
 }
 
+/** An EHLO's reply is many times the command: the replies fill every buffer long before the commands do. */
+const EHLOS = 'EHLO a\r\n'.repeat(200_000);
+
 /**
  * A client that pipelines commands and never reads a reply: the server's
  * replies fill the kernel's buffers, then its own queue. A close the server
  * decides on must still complete, or the connection keeps a slot of
  * `maxConnections` for good.
  */
-/** An EHLO's reply is many times the command: the replies fill every buffer long before the commands do. */
-const EHLOS = 'EHLO a\r\n'.repeat(200_000);
 async function neverReads(port: number, text: string): Promise<Client> {
 	const client = await Client.connect(port);
 	await client.reply();
