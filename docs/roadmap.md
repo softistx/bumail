@@ -9,14 +9,16 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
-Nothing in progress: the next entry is picked from Next.
+- **`@bumail/auth`, DKIM first** — signing and verifying (RFC 6376):
+  rsa-sha256 and ed25519-sha256 (RFC 8463) through Web Crypto, simple and
+  relaxed canonicalisation, a streamed body, key lookups through
+  `@bumail/dns`, results in RFC 8601's words. Merged, not yet published.
+  SPF (RFC 7208, with its ten-lookup limit), DMARC (RFC 7489) evaluation
+  and its policy, and the `Authentication-Results` header follow in the
+  same package.
 
 ## Next
 
-- **`@bumail/auth`** — DKIM signing and verifying (RSA-SHA256 and Ed25519
-  through Web Crypto, relaxed and simple canonicalisation), SPF (RFC 7208,
-  with its ten-lookup limit), DMARC (RFC 7489) evaluation and its policy,
-  and the `Authentication-Results` header.
 - **`@bumail/smtp`, the client** — outbound delivery: MX lookup through
   `@bumail/dns`, opportunistic STARTTLS, connection reuse per destination.
   *Kept in the same package as the server, on its own subpath*: both share
