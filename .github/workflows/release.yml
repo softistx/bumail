@@ -20,13 +20,15 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  packages: write
 
 jobs:
   release:
     name: Release
-    # As alxia's: no switch and no environment. Nothing publishes until a
-    # "Version packages" PR is merged, and only the owner merges that PR — an
-    # agent never does. NPM_TOKEN is the softistx organisation's secret.
+    # As alxia's: no switch and no environment, and NPM_TOKEN is the softistx
+    # organisation's secret. With no changeset pending, a push publishes any
+    # version npm lacks; normally only merging the "Version packages" PR
+    # produces one, and only the owner merges that PR — an agent never does.
     # GitHub-hosted, as ci.yml.
     runs-on: ubuntu-latest
     # alxia's, on the same skeleton, takes under a minute and a half.
