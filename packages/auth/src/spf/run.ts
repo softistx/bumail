@@ -28,6 +28,8 @@ export interface Run {
 	voids: number;
 	/** The validated names of `ip`, looked up once (§5.5). */
 	reverse?: Promise<Reverse>;
+	/** Macro values already split, so each is split once per check (see `expand`). */
+	splits?: Map<string, readonly string[] | undefined>;
 }
 
 /** The PTR answer for `ip`, its names validated; `void` when it had none. */
@@ -94,12 +96,24 @@ async function inTime<T>(run: Run, promise: Promise<T>): Promise<T> {
 
 export type Query = 'txt' | 'a' | 'aaaa' | 'mx' | 'ptr';
 
+/** What `lookUp` gives for a name the resolver refused before any query: no records, and no lookup either. */
+const UNASKED: readonly never[] = Object.freeze([]);
+
+/**
+ * Whether `records` is a void lookup (§4.6.4): a query sent that found no
+ * such name, or no record. A name refused before any query is not one.
+ */
+export function isVoid(records: readonly unknown[]): boolean {
+	return records.length === 0 && records !== UNASKED;
+}
+
 type Answer<Q extends Query> = Awaited<ReturnType<Resolver[Q]>>;
 
 /**
  * The records, or an empty array when there are none (`NOT_FOUND`, or a
- * name the resolver refuses to look up, which cannot exist either). A
- * DNS failure halts with `temperror` (§2.6.6), as does the deadline.
+ * name the resolver refuses to look up, which it cannot find either;
+ * `isVoid` tells the two apart). A DNS failure halts with `temperror`
+ * (§2.6.6), as does the deadline.
  */
 export async function lookUp<Q extends Query>(
 	run: Run,
@@ -112,9 +126,8 @@ export async function lookUp<Q extends Query>(
 	} catch (error) {
 		if (error instanceof Halt) throw error;
 		if (error instanceof DnsError) {
-			if (error.code === 'NOT_FOUND' || error.code === 'INVALID_NAME') {
-				return [] as unknown as Answer<Q>;
-			}
+			if (error.code === 'NOT_FOUND') return [] as unknown as Answer<Q>;
+			if (error.code === 'INVALID_NAME') return UNASKED as Answer<Q>;
 			throw new Halt(
 				'temperror',
 				`DNS lookup failed: ${error.code} for ${type.toUpperCase()} ${name}`,

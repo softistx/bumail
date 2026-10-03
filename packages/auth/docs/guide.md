@@ -371,7 +371,8 @@ applied, across every `include` and `redirect`:
   are evaluated: a record that matches early never reaches its later ones.
 - **2 void lookups**: a lookup by `a`, `mx`, `ptr` or `exists` that
   finds no such name, or no record. The 3rd is a `permerror`. The `exp=`
-  lookup is never counted.
+  lookup is never counted, nor a name the resolver refused before any
+  query (see below).
 - **10 MX names per `mx`**: more is a `permerror`. **10 PTR names per
   `ptr`**: the rest are ignored.
 - **`timeout`**, 20 000 ms by default, the least §4.6.4 recommends: past
@@ -380,22 +381,48 @@ applied, across every `include` and `redirect`:
 - **Macro expansion is bounded.** A name longer than 253 characters
   loses labels on the left (§7.3). An expansion past 8 192 characters is
   a macro bomb: it becomes a name no lookup finds, or no explanation.
+  Each macro value is split once per check, however many macros use it.
+- **A local part past 64 octets, or a HELO name past 255** (RFC 5321's
+  limits) expands to a name no lookup finds, like a macro bomb. The check
+  still runs and gives its result: answering `none` instead would let a
+  forger dodge a domain's `-all` with a long local part.
 
 `%{p}`, the client's validated name, looks the PTR record up once per
 check, and shares it with `ptr`. RFC 7208 discourages both; they cost
 DNS queries that are not among the ten.
 
+### Names the DNS layer refuses
+
+`@bumail/dns` checks every name with `normalizeName` before it asks the
+DNS, and refuses one holding a character no host name holds: `+`, `=`,
+`@`, `%`, `:`, `/` or a space. Bun's `node:dns` refuses them too, so a
+resolver on it could not send such a query either. RFC 7208 allows them
+in a name built by a macro, so such a name **never matches**: the term
+reads as no records, and is not counted as a void lookup, since nothing
+was looked up. It happens with:
+
+- `%{l}` or `%{s}` for a sender like `bob+news@example.com`, an SRS
+  (`SRS0=…=…@`) or BATV (`prvs=…=…@`) address;
+- an uppercase macro (`%{L}`, `%{S}`) whose value holds anything outside
+  RFC 3986's unreserved set, which URL escaping writes as `%XX`;
+- a target written with `:` or `/`, as the test suite's
+  `a:foo:bar/baz.example.com`.
+
+A wire-level resolver able to query any name is on `@bumail/dns`'
+roadmap.
+
 ### How it compares with the RFC 7208 test suite
 
 The OpenSPF test suite (pyspf's `rfc7208-tests.yml`, committed beside
-the specs) runs on every `bun test`. 197 of its 203 cases agree; where
+the specs under the Python Software Foundation licence, in
+`src/spf/rfc7208-tests.LICENSE`) runs on every `bun test`. 197 of its 203 cases agree; where
 the suite accepts several results, any of them counts. The other six:
 
 - **`a-colon-domain`, `a-colon-domain-ip4mapped`, `mx-colon-domain`,
   `mx-colon-domain-ip4mapped`**: the suite expects `a:foo:bar/baz.example.com`
   to be looked up. `@bumail/dns` refuses a name holding `:` or `/`
-  before any query, so it reads as a name that does not exist, and the
-  mechanism does not match.
+  before any query (see [Names the DNS layer refuses](#names-the-dns-layer-refuses)),
+  so the mechanism does not match.
 - **`macro-mania-in-domain`**: the same, for a name holding spaces and
   `%` built from `%%`, `%_` and `%-`.
 - **`v-macro-ip6`**: the result is right; only the case of the

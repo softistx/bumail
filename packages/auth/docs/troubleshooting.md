@@ -1,12 +1,13 @@
 # Troubleshooting
 
-Two kinds of entry. **Errors** are what a call throws: an `AuthError`,
+Three kinds of entry. **Errors** are what a call throws: an `AuthError`,
 headed by its message and listed under its `code`; one that wraps
 another error keeps it as `cause`. **Result reasons** are
 what `verifyDkim` and `checkSpf` give back in `reason`. Neither throws for
 a message or a record, so everything wrong with one comes back this way.
 Entries are listed under their `result`, DKIM's and then
-[SPF's](#spf-result-reasons). The parts shown as … vary.
+[SPF's](#spf-result-reasons). **[SPF traps](#spf-traps)** are results
+that come back without a reason of their own. The parts shown as … vary.
 
 ## Errors
 
@@ -117,6 +118,12 @@ it out for 256 KiB.
 that has no `txt` method. **Fix**: pass one from `@bumail/dns`:
 `checkSpf(session, { resolver: cachedResolver(nodeResolver()) })`.
 
+#### `AuthError: checkSpf(): ip must be a string`
+
+**When**: `ip` is missing, or not a string: a number, or an address
+object such as `socket.address()` returns. **Fix**: pass the address as
+text, `'192.0.2.10'` or `'2001:db8::1'`, such as `socket.remoteAddress`.
+
 #### `AuthError: checkSpf(): ip "…" is not an IPv4 or IPv6 address`
 
 **When**: `ip` is not an address: a host name, an IPv4 address with a
@@ -135,6 +142,13 @@ even if it is not a domain: a bad one gives `none`, not an error.
 
 **When**: `timeout` is zero, negative or not a whole number. **Fix**:
 leave it out for 20 000 ms, the least RFC 7208 §4.6.4 recommends.
+
+#### `AuthError: checkSpf(): timeout must be at most 2147483647 ms, not …`
+
+**When**: `timeout` is past 2^31 − 1 ms (about 24.8 days), the longest
+delay `setTimeout` takes: a longer one fires after 1 ms, and every check
+would be `temperror`. **Fix**: leave it out for 20 000 ms; a check that
+should never time out still wants a bound the DNS can meet.
 
 #### `AuthError: checkSpf(): identity must be 'mailfrom' or 'helo', not …`
 
@@ -518,3 +532,28 @@ later.
 The whole check, every lookup included, passed `timeout`. A slow or
 unreachable DNS server is the usual cause. Raise `timeout` only if
 yours is slow; the RFC asks for at least 20 seconds, the default.
+
+## SPF traps
+
+### A mechanism with a macro never matches, for some senders
+
+**When**: a term such as `exists:%{l}._spf.%{d}`, `a:%{s}.example` or
+`exists:%{L}.example` (an uppercase macro, URL-escaped as `%XX`) never matches for
+a sender like `bob+news@example.com`, an SRS (`SRS0=…=…@`) or BATV
+(`prvs=…=…@`) address, or a local part with `%`, `:`, `/` or a space.
+**Why**: the name it expands to holds a character `normalizeName` refuses
+(`+ = @ % : /` or a space). `@bumail/dns` refuses such a name before any
+query, as Bun's `node:dns` does, so nothing is asked and the term reads as
+no records. It is not counted as a void lookup, since no lookup was made.
+**Fix**: none on the receiving side today; a resolver that queries any
+name on the wire is on `@bumail/dns`' roadmap. The domain's owner can
+avoid local-part macros, which RFC 7208 §7.3 already discourages.
+
+### A local-part or HELO macro never matches when the input is long
+
+**When**: `%{l}` or `%{s}` with a local part past 64 octets, or `%{h}`
+with a HELO name past 255 octets, RFC 5321's limits (§4.5.3.1). **Why**:
+no SMTP client may send one, so the expansion that holds it is treated
+like a macro bomb: a name no lookup finds, or no explanation. The check
+itself still runs: an over-long input never turns a `fail` into `none`,
+which a forger could otherwise ask for. **Fix**: none needed.

@@ -34,6 +34,9 @@ export interface CheckSpfOptions {
 	readonly now?: () => number;
 }
 
+/** The longest `setTimeout` delay: a longer one fires at once (2^31 − 1 ms, about 24.8 days). */
+const MAX_TIMEOUT = 2_147_483_647;
+
 function fail(message: string): never {
 	throw new AuthError('INVALID_OPTION', `checkSpf(): ${message}`);
 }
@@ -42,7 +45,7 @@ function checkInput(input: SpfInput, options: CheckSpfOptions): void {
 	if (typeof options?.resolver?.txt !== 'function') {
 		fail('resolver must be a Resolver');
 	}
-	for (const key of ['mailFrom', 'helo'] as const) {
+	for (const key of ['ip', 'mailFrom', 'helo'] as const) {
 		if (typeof input?.[key] !== 'string') fail(`${key} must be a string`);
 	}
 	const { timeout } = options;
@@ -53,6 +56,9 @@ function checkInput(input: SpfInput, options: CheckSpfOptions): void {
 		fail(
 			`timeout must be a positive integer of milliseconds, not ${String(timeout)}`,
 		);
+	}
+	if (timeout !== undefined && timeout > MAX_TIMEOUT) {
+		fail(`timeout must be at most ${MAX_TIMEOUT} ms, not ${timeout}`);
 	}
 	if (
 		options.identity !== undefined &&
@@ -118,7 +124,7 @@ export async function checkSpf(
 	options: CheckSpfOptions,
 ): Promise<SpfResult> {
 	checkInput(input, options);
-	const ip = parseClientIp(String(input.ip));
+	const ip = parseClientIp(input.ip);
 	if (ip === undefined)
 		fail(`ip ${JSON.stringify(input.ip)} is not an IPv4 or IPv6 address`);
 	const identity = options.identity ?? 'mailfrom';

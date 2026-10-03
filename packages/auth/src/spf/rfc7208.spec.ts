@@ -16,7 +16,7 @@ const EXCEPTIONS: Readonly<
 > = {
 	'a-colon-domain': {
 		result: 'neutral',
-		why: '@bumail/dns refuses to look up foo:bar/baz.example.com (normalizeName rejects ":" and "/"), so the name reads as non-existent',
+		why: '@bumail/dns refuses to look up foo:bar/baz.example.com (normalizeName rejects ":" and "/"), so the name matches nothing (and costs no void lookup)',
 	},
 	'a-colon-domain-ip4mapped': {
 		result: 'neutral',

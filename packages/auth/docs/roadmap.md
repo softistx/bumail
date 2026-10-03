@@ -37,7 +37,7 @@ number on it.
 
 ## Shipped
 
-### Unreleased: merged, not yet published
+### Unreleased — merged, not yet published
 
 - **SPF** (RFC 7208): `checkSpf`, RFC 7208's `check_host()` for the client
   IP and the MAIL FROM domain, or the HELO name for a bounce or on its own.
@@ -46,10 +46,12 @@ number on it.
   timeout, over the same injected `Resolver`. Every result word comes
   back, never a throw for a record. It agrees with 197 of the 203 cases
   of the OpenSPF test suite, which runs with the specs.
+
+### 0.1.0
+
 - **DKIM** (RFC 6376): verifying every signature on a message and signing
   outbound mail, with rsa-sha256 and ed25519-sha256 (RFC 8463) through Web
   Crypto, simple and relaxed canonicalisation, a streamed body, key lookups
   through `@bumail/dns`, and results in RFC 8601's words. The signer
   over-signs the fields a reader sees, and the verifier answers `policy`
-  for a From the signature does not cover. This is the package's first
-  release.
+  for a From the signature does not cover. The package's first release.

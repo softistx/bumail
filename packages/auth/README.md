@@ -77,6 +77,9 @@ failure is kept as the error's `cause`.
 
 ```ts
 import { checkSpf } from '@bumail/auth';
+import { cachedResolver, nodeResolver } from '@bumail/dns';
+
+const resolver = cachedResolver(nodeResolver());
 
 // In the SMTP server's MAIL FROM hook: the client's IP, the envelope sender, the EHLO name.
 const spf = await checkSpf(
@@ -143,6 +146,12 @@ lists the other six.
   MAIL FROM with a 451 so the sender retries, rather than a 550.
 - **`softfail` (`~all`) is a "probably not".** Most domains publish
   `~all`; treat it as suspicious, not as refused.
+- **A macro that expands to a name the DNS layer refuses never matches.**
+  `exists:%{l}._spf.%{d}` for `bob+news@example.com` builds a name with
+  `+`; `@bumail/dns` (like Bun's `node:dns`) refuses `+ = @ % : /` and
+  spaces before any query, so the term reads as no records. It costs no
+  void lookup. SRS and BATV senders, `%{s}`, and uppercase macros (URL-escaped as
+  `%XX`) hit this.
 - **Look up through a cache.** One check can make over a hundred queries
   (10 terms, each `mx` or `ptr` with up to 10 names to look up);
   `cachedResolver` shares them between messages.

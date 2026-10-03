@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import { DnsError, fixtureResolver, type Resolver } from '@bumail/dns';
-import { AuthError } from '../errors';
 import { type CheckSpfOptions, checkSpf, type SpfInput } from './check-spf';
 
 const session: SpfInput = {
@@ -194,50 +193,39 @@ test("the guide's spec example: the include is never reached", async () => {
 	expect(got).toMatchObject({ result: 'pass', lookups: 1 });
 });
 
-describe('checkSpf refuses what the caller controls', () => {
-	const resolver = fixtureResolver({});
+describe('names a resolver refuses (§4.6.4)', () => {
+	test('a macro expanding to a name no lookup can send never matches, and is no void lookup', async () => {
+		const resolver = fixtureResolver({
+			'example.com': {
+				txt: [
+					'v=spf1 exists:%{l}._spf.%{d} a:gone.example mx:gone.example -all',
+				],
+			},
+		});
+		const got = await checkSpf(
+			{ ...session, mailFrom: 'bob+news@example.com' },
+			{ resolver },
+		);
+		expect(got).toMatchObject({
+			result: 'fail',
+			mechanism: '-all',
+			lookups: 3,
+		});
+		expect(resolver.queries.map((q) => q.name)).toEqual([
+			'example.com',
+			'gone.example',
+			'gone.example',
+		]);
+	});
+});
 
-	test.each([
-		[
-			{ ...session, ip: '192.0.2.300' },
-			{},
-			'checkSpf(): ip "192.0.2.300" is not an IPv4 or IPv6 address',
-		],
-		[
-			{ ...session, ip: 'fe80::1%en0' },
-			{},
-			'checkSpf(): ip "fe80::1%en0" is not an IPv4 or IPv6 address',
-		],
-		[{ ...session, helo: undefined }, {}, 'checkSpf(): helo must be a string'],
-		[
-			{ ...session, mailFrom: null },
-			{},
-			'checkSpf(): mailFrom must be a string',
-		],
-		[
-			session,
-			{ timeout: 0 },
-			'checkSpf(): timeout must be a positive integer of milliseconds, not 0',
-		],
-		[
-			session,
-			{ identity: 'from' },
-			"checkSpf(): identity must be 'mailfrom' or 'helo', not from",
-		],
-		[
-			session,
-			{ resolver: undefined },
-			'checkSpf(): resolver must be a Resolver',
-		],
-	])('%#', async (input, options, message) => {
-		const error = await checkSpf(
-			input as SpfInput,
-			{
-				resolver,
-				...options,
-			} as CheckSpfOptions,
-		).catch((e: unknown) => e);
-		expect(error).toBeInstanceOf(AuthError);
-		expect(error).toMatchObject({ code: 'INVALID_OPTION', message });
+describe('ptr (§5.5)', () => {
+	test('a PTR lookup that fails does not match, and is not temperror', async () => {
+		expect(
+			await at({
+				'example.com': { txt: ['v=spf1 ptr -all'] },
+				'192.0.2.10': { ptr: 'TEMPORARY' },
+			}),
+		).toMatchObject({ result: 'fail', mechanism: '-all' });
 	});
 });

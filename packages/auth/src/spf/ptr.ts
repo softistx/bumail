@@ -1,6 +1,7 @@
 import { type Ip, ipText, parseAnswer } from './ip';
 import {
 	Halt,
+	isVoid,
 	lookUp,
 	lookUpLeniently,
 	MAX_NAMES,
@@ -26,7 +27,7 @@ async function lookUpReverse(run: Run): Promise<Reverse> {
 	let names: readonly string[];
 	try {
 		const records = await lookUp(run, 'ptr', ipText(run.ip));
-		if (records.length === 0) return { void: true, names: [] };
+		if (records.length === 0) return { void: isVoid(records), names: [] };
 		names = records.slice(0, MAX_NAMES).map((record) => record.name);
 	} catch (error) {
 		if (error instanceof Halt && error.late) throw error;

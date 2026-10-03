@@ -6,17 +6,34 @@ import type { Run } from './run';
 /** The longest name looked up: longer ones lose labels on the left (§7.3). */
 const MAX_NAME = 253;
 
-/** A letter's value, before any transformer (§7.2). */
+/** RFC 5321 §4.5.3.1's limits: a local part of 64 octets, a HELO name (a domain) of 255. */
+export const MAX_LOCAL = 64;
+export const MAX_HELO = 255;
+
+const encoder = new TextEncoder();
+
+/** `text`, or `undefined` when it is longer than `max` octets. */
+function capped(text: string, max: number): string | undefined {
+	return encoder.encode(text).length <= max ? text : undefined;
+}
+
+/**
+ * A letter's value, before any transformer (§7.2), or `undefined` for a
+ * local part or a HELO name past RFC 5321's limits: no SMTP client may
+ * send one, and the expansion that holds it is a name no lookup finds.
+ */
 async function letterValue(
 	run: Run,
 	letter: string,
 	domain: string,
-): Promise<string> {
+): Promise<string | undefined> {
 	switch (letter) {
 		case 's':
-			return run.sender;
+			return capped(run.local, MAX_LOCAL) === undefined
+				? undefined
+				: run.sender;
 		case 'l':
-			return run.local;
+			return capped(run.local, MAX_LOCAL);
 		case 'o':
 			return run.senderDomain;
 		case 'd':
@@ -28,7 +45,7 @@ async function letterValue(
 		case 'v':
 			return run.ip.length === 4 ? 'in-addr' : 'ip6';
 		case 'h':
-			return run.helo;
+			return capped(run.helo, MAX_HELO);
 		case 'c':
 			return ipText(run.ip);
 		case 'r':
@@ -53,7 +70,6 @@ function split(value: string, delimiters: string): string[] {
 }
 
 const UNRESERVED = /[A-Za-z0-9._~-]/;
-const encoder = new TextEncoder();
 
 /** URL escaping as §7.3 asks of an uppercase letter: every byte outside RFC 3986's unreserved set as `%XX`. */
 function escapeUrl(text: string): string {
@@ -78,22 +94,25 @@ function escapeUrl(text: string): string {
  */
 export const MAX_EXPANSION = 8192;
 
-/** Split values, by letter, reversal and delimiters, so a macro repeated costs its split once. */
-type Splits = Map<string, readonly string[]>;
-
+/**
+ * A macro's value split, once per check: kept on the run by letter,
+ * reversal and delimiters, and by domain for `d` and `p`, the two that
+ * change with each `include` and `redirect`.
+ */
 async function partsOf(
 	run: Run,
 	macro: Macro,
 	domain: string,
-	splits: Splits,
-): Promise<readonly string[]> {
+): Promise<readonly string[] | undefined> {
 	const delimiters = [...new Set(macro.delimiters)].sort().join('');
-	const key = `${macro.letter}${macro.reverse ? 'r' : ''}${delimiters}`;
-	const known = splits.get(key);
-	if (known !== undefined) return known;
-	const parts = split(await letterValue(run, macro.letter, domain), delimiters);
-	if (macro.reverse) parts.reverse();
-	splits.set(key, parts);
+	const scope = macro.letter === 'd' || macro.letter === 'p' ? domain : '';
+	const key = `${macro.letter}${macro.reverse ? 'r' : ''}${delimiters} ${scope}`;
+	run.splits ??= new Map();
+	if (run.splits.has(key)) return run.splits.get(key);
+	const value = await letterValue(run, macro.letter, domain);
+	const parts = value === undefined ? undefined : split(value, delimiters);
+	if (macro.reverse) parts?.reverse();
+	run.splits.set(key, parts);
 	return parts;
 }
 
@@ -101,9 +120,9 @@ async function expandMacro(
 	run: Run,
 	macro: Macro,
 	domain: string,
-	splits: Splits,
-): Promise<string> {
-	const parts = await partsOf(run, macro, domain, splits);
+): Promise<string | undefined> {
+	const parts = await partsOf(run, macro, domain);
+	if (parts === undefined) return undefined;
 	const kept =
 		macro.keep !== undefined && macro.keep < parts.length
 			? parts.slice(parts.length - macro.keep)
@@ -114,20 +133,20 @@ async function expandMacro(
 
 /**
  * A macro-string expanded for `domain`, the domain whose record holds it,
- * or `undefined` past `MAX_EXPANSION` characters.
+ * or `undefined` past `MAX_EXPANSION` characters, or when it holds a
+ * local part or a HELO name past RFC 5321's limits.
  */
 export async function expand(
 	run: Run,
 	parts: MacroString,
 	domain: string,
 ): Promise<string | undefined> {
-	const splits: Splits = new Map();
 	let out = '';
 	for (const part of parts) {
-		out +=
-			typeof part === 'string'
-				? part
-				: await expandMacro(run, part, domain, splits);
+		const text =
+			typeof part === 'string' ? part : await expandMacro(run, part, domain);
+		if (text === undefined) return undefined;
+		out += text;
 		if (out.length > MAX_EXPANSION) return undefined;
 	}
 	return out;
@@ -136,7 +155,8 @@ export async function expand(
 /**
  * A domain-spec expanded into the name to look up: its final dot dropped,
  * and labels removed from the left until it fits in 253 characters (§7.3).
- * A macro bomb gives the empty name, which no lookup finds.
+ * A macro bomb, or an over-long local part or HELO name, gives the empty
+ * name, which no lookup finds.
  */
 export async function targetName(
 	run: Run,

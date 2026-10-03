@@ -7,6 +7,7 @@ import {
 	countLookup,
 	countVoid,
 	Halt,
+	isVoid,
 	lookUp,
 	MAX_NAMES,
 	type Run,
@@ -25,7 +26,7 @@ async function addressMatches(
 ): Promise<boolean> {
 	const v4 = run.ip.length === 4;
 	const records = await lookUp(run, v4 ? 'a' : 'aaaa', name);
-	if (records.length === 0 && counted) countVoid(run);
+	if (counted && isVoid(records)) countVoid(run);
 	return records.some((record) => {
 		const address = parseAnswer(record.address);
 		return (
@@ -42,7 +43,7 @@ async function mxMatches(
 	cidr6: number,
 ): Promise<boolean> {
 	const records = await lookUp(run, 'mx', name);
-	if (records.length === 0) countVoid(run);
+	if (isVoid(records)) countVoid(run);
 	if (records.length > MAX_NAMES) {
 		throw new Halt(
 			'permerror',
@@ -69,7 +70,7 @@ async function ptrMatches(run: Run, target: string): Promise<boolean> {
 /** `exists` (§5.7): any A record at all, whatever the client's family. */
 async function existsMatches(run: Run, name: string): Promise<boolean> {
 	const records = await lookUp(run, 'a', name);
-	if (records.length === 0) countVoid(run);
+	if (isVoid(records)) countVoid(run);
 	return records.length > 0;
 }
 

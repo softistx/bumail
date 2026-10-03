@@ -132,15 +132,47 @@ describe('macro bombs (§7.3)', () => {
 	});
 
 	test('counts of every size cost the split once', async () => {
-		const counts = Array.from({ length: 3000 }, (_, i) => `%{l${i + 1}r}`).join(
+		const counts = Array.from({ length: 3000 }, (_, i) => `%{h${i + 1}r}`).join(
 			'',
 		);
 		const { got, ms } = await timed(
 			{ 'example.com': { txt: [`v=spf1 exists:${counts}.example -all`] } },
-			{ mailFrom: `${'a.'.repeat(30_000)}b@example.com` },
+			{ helo: `${'a.'.repeat(127)}b` },
 		);
 		expect(ms).toBeLessThan(BOUND_MS);
 		expect(got.result).toBe('fail');
+	});
+
+	test('a local part past 64 octets and a HELO past 255 expand to no name, quickly', async () => {
+		const macros = Array.from(
+			{ length: 2000 },
+			(_, i) =>
+				`%{${'slh'.charAt(i % 3)}${(i % 9) + 1}${i % 2 ? 'r' : ''}${'.-+,/_='.charAt(i % 7)}}`,
+		).join('');
+		const long = 'x'.repeat(2000);
+		const { got, ms, queries } = await timed(
+			{ 'example.com': { txt: [`v=spf1 exists:${macros}.example -all`] } },
+			{ mailFrom: `${long}@example.com`, helo: `${long}.example` },
+		);
+		expect(ms).toBeLessThan(BOUND_MS);
+		expect(got).toMatchObject({ result: 'fail', mechanism: '-all' });
+		expect(queries.length).toBe(1);
+	});
+
+	test('a local part of 64 octets still expands; 65 do not', async () => {
+		for (const [local, result] of [
+			[`${'a.'.repeat(31)}aa`, 'pass'],
+			[`${'a.'.repeat(31)}aaa`, 'fail'],
+		] as const) {
+			const { got } = await timed(
+				{
+					'example.com': { txt: ['v=spf1 exists:%{l}.ok.example -all'] },
+					[`${local}.ok.example`]: { a: ['127.0.0.2'] },
+				},
+				{ mailFrom: `${local}@example.com` },
+			);
+			expect(got.result).toBe(result);
+		}
 	});
 });
 
