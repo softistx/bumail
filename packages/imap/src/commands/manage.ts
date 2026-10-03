@@ -1,5 +1,6 @@
 import type { Mailbox } from '@bumail/store';
 import { canonical, DELIMITER, nameFromClient, Tree } from '../mailbox/tree';
+import { echo } from '../protocol/echo';
 import type { Connection } from '../server/connection';
 import { AUTHENTICATED, type Command, type Context, no, ok } from './context';
 
@@ -8,9 +9,24 @@ function newPath(context: Context, raw: string): string {
 	const name = nameFromClient(context.connection, raw);
 	const path = name.endsWith(DELIMITER) ? name.slice(0, -1) : name;
 	if (path.split(DELIMITER).some((level) => level === '')) {
-		context.cursor.fail(`"${raw}" has an empty level`);
+		context.cursor.fail(`"${echo(raw)}" has an empty level`);
 	}
 	return canonical(path);
+}
+
+/** The levels a mailbox name may have: each one costs every later look at the tree. */
+export const MAX_LEVELS = 32;
+
+/** The longest mailbox name taken, every level and delimiter counted. */
+export const MAX_NAME = 1024;
+
+/** Why a new path is too large for the server, if it is: a `NO [LIMIT]` text. */
+function overLimit(path: string): string | undefined {
+	if (path.length > MAX_NAME)
+		return `[LIMIT] A mailbox name is at most ${MAX_NAME} characters`;
+	if (path.split(DELIMITER).length > MAX_LEVELS)
+		return `[LIMIT] A mailbox name has at most ${MAX_LEVELS} levels`;
+	return undefined;
 }
 
 /** The parent a new path goes under, creating each missing level (RFC 9051 §6.3.4). */
@@ -21,12 +37,13 @@ async function parentOf(
 ): Promise<Mailbox | undefined> {
 	const levels = path.split(DELIMITER).slice(0, -1);
 	let parent: Mailbox | undefined;
-	for (let depth = 1; depth <= levels.length; depth++) {
-		const prefix = levels.slice(0, depth).join(DELIMITER);
+	let prefix = '';
+	for (const level of levels) {
+		prefix = prefix === '' ? level : `${prefix}${DELIMITER}${level}`;
 		parent =
 			tree.find(prefix) ??
 			(await connection.settings.store.createMailbox(connection.accountId, {
-				name: levels[depth - 1] as string,
+				name: level,
 				...(parent ? { parentId: parent.id } : {}),
 			}));
 	}
@@ -45,6 +62,8 @@ export const CREATE: Command = {
 		const path = newPath(context, cursor.astring());
 		if (cursor.take(' ')) cursor.fail('CREATE parameters are not supported');
 		cursor.end();
+		const limit = overLimit(path);
+		if (limit) return no(context, limit);
 		const tree = await Tree.load(connection);
 		if (tree.find(path))
 			return no(context, '[ALREADYEXISTS] The mailbox already exists');
@@ -96,6 +115,8 @@ export const RENAME: Command = {
 		cursor.sp();
 		const to = newPath(context, cursor.astring());
 		cursor.end();
+		const limit = overLimit(to);
+		if (limit) return no(context, limit);
 		const tree = await Tree.load(connection);
 		const mailbox = tree.find(from);
 		if (!mailbox) return no(context, '[NONEXISTENT] No such mailbox');

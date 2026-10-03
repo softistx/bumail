@@ -46,7 +46,9 @@ function handlers(settings: Settings): SocketHandler<SocketState> {
 		},
 		timeout(socket) {
 			if (socket.data.upgraded) return;
-			void socket.data.connection?.close('Idle for too long, closing');
+			void socket.data.connection?.close('Idle for too long, closing', {
+				forced: true,
+			});
 		},
 	};
 }

@@ -10,8 +10,13 @@ export interface Transport {
 	readonly backlog: number;
 	/** Resolves once everything written has left. */
 	drained(): Promise<void>;
-	/** Hangs up once everything written has left. */
+	/**
+	 * Hangs up once everything written has left, or after a short grace
+	 * when the client does not read it: a hang-up never waits on the client.
+	 */
 	end(): void;
+	/** Hangs up now, dropping whatever the client has not taken. */
+	abort(): void;
 	/** Stops reading from the client, while the server catches up. */
 	pause(): void;
 	resume(): void;
@@ -19,10 +24,17 @@ export interface Transport {
 	startTls(): void;
 }
 
+/** How long a hang-up waits for the client to take what is queued. */
+export const CLOSE_GRACE = 5000;
+
 /**
  * A Bun socket as a Transport. Bun's sockets do not buffer: `write` takes
  * what the kernel takes and says how much. The rest waits here for the
  * `drain` event; a writer that cares awaits `drained` before writing more.
+ *
+ * A hang-up is bounded: `end` waits `CLOSE_GRACE` at most for the queue to
+ * leave, `abort` does not wait at all. A client that never reads is cut
+ * all the same, and gives back its place under `maxConnections`.
  *
  * Adapted from `@bumail/smtp`'s own (`src/server/transport.ts`), which
  * writes text: the two are internal, and differ in what they carry.
@@ -36,6 +48,7 @@ export class SocketTransport implements Transport {
 	#backlog = 0;
 	#waiters: (() => void)[] = [];
 	#ending = false;
+	#grace: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
 		socket: Socket<unknown>,
@@ -89,14 +102,25 @@ export class SocketTransport implements Transport {
 
 	/** The socket closed: nothing more will leave. */
 	closed(): void {
+		clearTimeout(this.#grace);
 		this.#queue = [];
 		this.#backlog = 0;
 		for (const wake of this.#waiters.splice(0)) wake();
 	}
 
 	end(): void {
-		if (this.#queue.length === 0) this.#socket.end();
-		else this.#ending = true;
+		if (this.#queue.length === 0) {
+			this.#socket.end();
+			return;
+		}
+		if (this.#ending) return;
+		this.#ending = true;
+		this.#grace = setTimeout(() => this.abort(), CLOSE_GRACE);
+	}
+
+	abort(): void {
+		this.closed();
+		this.#socket.terminate();
 	}
 
 	pause(): void {

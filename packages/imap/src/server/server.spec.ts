@@ -20,6 +20,16 @@ async function start(overrides: Parameters<typeof imapOptions>[2] = {}) {
 	return { server, port, store, accountId, inbox };
 }
 
+/** Polls `check` every 20 ms for `ms` at most. */
+async function within(ms: number, check: () => boolean): Promise<boolean> {
+	const end = Date.now() + ms;
+	while (!check()) {
+		if (Date.now() > end) return false;
+		await Bun.sleep(20);
+	}
+	return true;
+}
+
 describe('on a real socket', () => {
 	test('STARTTLS with the self-signed key, then LOGIN (RFC 9051 §6.2.1)', async () => {
 		const { port } = await start();
@@ -78,6 +88,17 @@ describe('on a real socket', () => {
 		expect(Date.now() - started).toBeLessThan(3000);
 		expect(client.received).toContain('* BYE Too slow to log in, closing');
 	});
+
+	test('a client that never reads is still cut at loginTimeout, and its slot freed', async () => {
+		const { server, port } = await start({ loginTimeout: 1 });
+		const client = await Client.connect(port);
+		await client.line();
+		client.pause();
+		client.write('a CAPABILITY\r\n'.repeat(60_000));
+		expect(await within(500, () => server.connections === 1)).toBe(true);
+		expect(await within(3000, () => server.connections === 0)).toBe(true);
+		expect(await within(1000, () => client.closed)).toBe(true);
+	}, 10_000);
 
 	test('listen twice throws ALREADY_LISTENING', async () => {
 		const { server } = await start();

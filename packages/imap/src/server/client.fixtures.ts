@@ -111,6 +111,11 @@ export class Client {
 		return true;
 	}
 
+	/** Stops reading what the server sends, as a client that never reads. */
+	pause(): void {
+		this.#socket.pause();
+	}
+
 	end(): void {
 		this.#socket.end();
 	}

@@ -1,5 +1,6 @@
 import type { Mailbox } from '@bumail/store';
 import { SyntaxProblem } from '../protocol/cursor';
+import { echo } from '../protocol/echo';
 import { decodeUtf7, encodeUtf7 } from '../protocol/utf7';
 import type { Connection } from '../server/connection';
 
@@ -24,7 +25,7 @@ export function nameFromClient(connection: Connection, raw: string): string {
 	const name = connection.state.rev2 ? raw : decodeUtf7(raw);
 	if (name === undefined) {
 		throw new SyntaxProblem(
-			`"${raw}" is not a valid modified UTF-7 mailbox name`,
+			`"${echo(raw)}" is not a valid modified UTF-7 mailbox name`,
 		);
 	}
 	return canonical(name);

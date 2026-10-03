@@ -1,5 +1,6 @@
 import type { Section } from '../message/section';
 import type { Cursor } from '../protocol/cursor';
+import { echo } from '../protocol/echo';
 
 /** `<origin.length>`: part of a section (RFC 9051 §6.4.5). */
 export interface Partial {
@@ -83,7 +84,7 @@ function section(cursor: Cursor): Section {
 	}
 	const text = words.join('.').toUpperCase();
 	if (text === '') return { path };
-	if (!TEXTS.has(text)) cursor.fail(`Unknown section ${text}`);
+	if (!TEXTS.has(text)) cursor.fail(`Unknown section ${echo(text)}`);
 	if (text === 'MIME' && path.length === 0)
 		cursor.fail('MIME needs a part number');
 	if (!text.startsWith('HEADER.FIELDS'))
@@ -124,7 +125,7 @@ function item(cursor: Cursor): FetchItem {
 		};
 	}
 	if (name.startsWith('BINARY')) cursor.fail('BINARY is not supported yet');
-	return cursor.fail(`Unknown FETCH item ${name}`);
+	return cursor.fail(`Unknown FETCH item ${echo(name)}`);
 }
 
 /** FETCH's items (RFC 9051 §6.4.5): a macro, one item, or a list of them. */

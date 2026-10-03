@@ -3,10 +3,14 @@ import type { Connection } from '../server/connection';
 import { answerFailure } from '../server/failure';
 import { AUTHENTICATED, bad, type Command, ok } from './context';
 
-/** One look at the store, in turn with everything else the session does. */
-function look(connection: Connection): Promise<void> {
+/**
+ * One look at the store, in turn with everything else the session does. A
+ * look queued behind DONE finds IDLE over and does nothing: an EXPUNGE
+ * then would come outside any command (RFC 9051 §7.5.1).
+ */
+function look(connection: Connection, over: () => boolean): Promise<void> {
 	return connection
-		.exclusive(() => sync(connection))
+		.exclusive(async () => (over() ? undefined : sync(connection)))
 		.catch((error) => {
 			connection.report(error);
 		});
@@ -20,15 +24,16 @@ function look(connection: Connection): Promise<void> {
 function watch(connection: Connection): () => void {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let stopped = false;
+	const over = () => stopped;
 	const schedule = () => {
 		if (stopped) return;
 		timer = setTimeout(async () => {
-			await look(connection);
+			await look(connection, over);
 			schedule();
 		}, connection.settings.idleInterval * 1000);
 	};
 	connection.wake = () => {
-		if (!stopped) void look(connection);
+		if (!stopped) void look(connection, over);
 	};
 	schedule();
 	return () => {

@@ -100,6 +100,30 @@ describe('a mail client’s first session', () => {
 		expect(await s.send('done\r\n')).toBe('b OK IDLE terminated\r\n');
 	});
 
+	test('a look queued behind DONE says nothing: no EXPUNGE outside a command', async () => {
+		const { store, accountId, inbox } = await seededStore();
+		const s = await loggedIn(
+			imapOptions(store, accountId, { idleInterval: 3600 }),
+		);
+		await s.send('a SELECT INBOX\r\n');
+		await s.send('b IDLE\r\n');
+		let release!: () => void;
+		const gate = new Promise<void>((done) => (release = done));
+		void s.connection.exclusive(() => gate);
+		s.connection.receive(new TextEncoder().encode('DONE\r\n'));
+		await Bun.sleep(10);
+		s.connection.wake?.();
+		const [first] = await store.listMessages(accountId, inbox.id);
+		await store.destroyMessages(accountId, [first?.message.id as string]);
+		release();
+		await s.connection.idle();
+		await Bun.sleep(20);
+		expect(s.take()).toBe('b OK IDLE terminated\r\n');
+		expect(await s.send('c NOOP\r\n')).toBe(
+			'* 1 EXPUNGE\r\nc OK NOOP completed\r\n',
+		);
+	});
+
 	test('a message expunged by another session is told at the next NOOP', async () => {
 		const { store, accountId, inbox } = await seededStore();
 		const s = await loggedIn(imapOptions(store, accountId));

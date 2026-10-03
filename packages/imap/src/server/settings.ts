@@ -14,6 +14,14 @@ export const MAX_LINE = 65_536;
 /** Literals in one command before it is refused. */
 export const MAX_LITERALS = 32;
 
+/**
+ * Before login, only LOGIN takes strings: a user name and a password, each
+ * at most 1 KiB as a literal — what LITERAL- (RFC 7888) allows a client
+ * that has not logged in. Nobody unknown holds more of the server.
+ */
+export const MAX_LITERALS_BEFORE_LOGIN = 2;
+export const MAX_LITERAL_BEFORE_LOGIN = 1024;
+
 /** The options with their defaults, checked once. */
 export interface Settings {
 	readonly options: ImapServerOptions;

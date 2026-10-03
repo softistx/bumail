@@ -1,5 +1,6 @@
 import type { Context } from '../commands/context';
 import { Cursor, type Framed } from '../protocol/cursor';
+import { echo } from '../protocol/echo';
 import { tagged } from '../protocol/response';
 import { COMMANDS, UID_COMMANDS } from './commands';
 import type { Connection } from './connection';
@@ -32,7 +33,7 @@ export async function dispatch(
 		const command = (uid ? UID_COMMANDS : COMMANDS)[name];
 		if (!command) {
 			return connection.send(
-				tagged(tag, 'BAD', `Unknown command ${uid ? 'UID ' : ''}${name}`),
+				tagged(tag, 'BAD', `Unknown command ${uid ? 'UID ' : ''}${echo(name)}`),
 			);
 		}
 		if (!command.phases.includes(connection.state.phase)) {

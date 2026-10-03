@@ -1,4 +1,5 @@
 import { SyntaxProblem } from '../protocol/cursor';
+import { echo } from '../protocol/echo';
 import { tagged } from '../protocol/response';
 import type { Connection } from './connection';
 
@@ -20,7 +21,11 @@ export async function answerFailure(
 	if (error instanceof SyntaxProblem) {
 		return connection.send(tagged(tag, 'BAD', error.message));
 	}
-	const message = error instanceof Error ? error.message : String(error);
+	// A store's message may repeat the client's mailbox name: never raw, never long.
+	const message = echo(
+		error instanceof Error ? error.message : String(error),
+		200,
+	);
 	switch (storeCode(error)) {
 		case 'NOT_FOUND':
 			return connection.send(tagged(tag, 'NO', `[NONEXISTENT] ${message}`));

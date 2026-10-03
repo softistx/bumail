@@ -1,5 +1,6 @@
 import { type Cursor, MAX_DEPTH } from '../protocol/cursor';
 import { parseDate } from '../protocol/dates';
+import { echo } from '../protocol/echo';
 import { parseSequenceSet, type SequenceSet } from '../protocol/sequence';
 
 /** A search key (RFC 9051 §6.4.4), parsed. */
@@ -131,10 +132,29 @@ export function searchKey(cursor: Cursor): SearchKey {
 	const constant = CONSTANTS[name];
 	if (constant !== undefined) return { kind: 'const', value: constant };
 	if (!cursor.take(' '))
-		cursor.fail(`Unknown search key ${name}, or its argument is missing`);
+		cursor.fail(`Unknown search key ${echo(name)}, or its argument is missing`);
 	return (
-		withArgument(cursor, name) ?? cursor.fail(`Unknown search key ${name}`)
+		withArgument(cursor, name) ??
+		cursor.fail(`Unknown search key ${echo(name)}`)
 	);
+}
+
+/** TEXT and BODY keys in one SEARCH: each one reads every message through. */
+export const MAX_CONTENT_KEYS = 32;
+
+function contentKeys(key: SearchKey): number {
+	switch (key.kind) {
+		case 'text':
+			return 1;
+		case 'not':
+			return contentKeys(key.key);
+		case 'or':
+			return contentKeys(key.left) + contentKeys(key.right);
+		case 'and':
+			return key.keys.reduce((sum, inner) => sum + contentKeys(inner), 0);
+		default:
+			return 0;
+	}
 }
 
 /** Every key to the end of the command: they all must match. */
@@ -142,5 +162,12 @@ export function searchKeys(cursor: Cursor): SearchKey {
 	const keys = [searchKey(cursor)];
 	while (cursor.take(' ')) keys.push(searchKey(cursor));
 	cursor.end();
-	return keys.length === 1 ? (keys[0] as SearchKey) : { kind: 'and', keys };
+	const key: SearchKey =
+		keys.length === 1 ? (keys[0] as SearchKey) : { kind: 'and', keys };
+	if (contentKeys(key) > MAX_CONTENT_KEYS) {
+		cursor.fail(
+			`More than ${MAX_CONTENT_KEYS} TEXT or BODY keys in one SEARCH`,
+		);
+	}
+	return key;
 }

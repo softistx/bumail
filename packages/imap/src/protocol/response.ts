@@ -1,3 +1,5 @@
+import { plain } from './echo';
+
 /** What a response is written as: text, or the bytes of a literal. */
 export type Piece = string | Uint8Array | Blob;
 
@@ -87,11 +89,11 @@ export function untagged(text: string): Piece[] {
 	return [`* ${text}\r\n`];
 }
 
-/** `tag OK|NO|BAD text` CRLF. */
+/** `tag OK|NO|BAD text` CRLF; a control character in `text` is dropped, never sent. */
 export function tagged(
 	tag: string,
 	status: 'OK' | 'NO' | 'BAD',
 	text: string,
 ): Piece[] {
-	return [`${tag} ${status} ${text}\r\n`];
+	return [`${tag} ${status} ${plain(text)}\r\n`];
 }

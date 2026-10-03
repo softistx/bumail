@@ -27,6 +27,9 @@ export interface State {
 /** Backlog past which a writer waits for the socket to take what it holds. */
 const HIGH_WATER = 64 * 1024;
 
+/** How much of a Blob is read and written at a time. */
+const SLICE = 64 * 1024;
+
 const encoder = new TextEncoder();
 
 /**
@@ -92,9 +95,10 @@ export class Connection {
 	}
 
 	/**
-	 * Writes pieces in order. A Blob is streamed, and the writer waits for
-	 * the socket whenever it holds more than 64 KiB: a client that reads
-	 * slowly holds the server back, never its memory.
+	 * Writes pieces in order. A Blob is read and written 64 KiB at a time,
+	 * and the writer waits for the socket whenever it holds more than
+	 * 64 KiB: a client that reads slowly holds the server back, never its
+	 * memory — what waits for it is a slice, not a message.
 	 */
 	async send(pieces: readonly Piece[]): Promise<void> {
 		for (const piece of pieces) {
@@ -103,9 +107,11 @@ export class Connection {
 				this.transport.write(encoder.encode(piece));
 			else if (piece instanceof Uint8Array) this.transport.write(piece);
 			else {
-				for await (const chunk of piece.stream()) {
+				for (let at = 0; at < piece.size; at += SLICE) {
+					const slice = piece.slice(at, at + SLICE);
+					const bytes = new Uint8Array(await slice.arrayBuffer());
 					if (this.#closed) return;
-					this.transport.write(chunk);
+					this.transport.write(bytes);
 					await this.#calm();
 				}
 			}
@@ -121,16 +127,26 @@ export class Connection {
 		return this.send(untagged(text));
 	}
 
-	/** Says BYE, when given a reason, and hangs up. */
-	async close(bye?: string): Promise<void> {
-		if (this.#closed) return;
-		if (bye) await this.untagged(`BYE ${bye}`);
+	/**
+	 * Says BYE, when given a reason, and hangs up. It never waits on the
+	 * client: the BYE is queued behind what the client has not read, and the
+	 * transport hangs up within its grace even if none of it leaves. A
+	 * `forced` close — a timeout — drops what is queued and hangs up now.
+	 */
+	close(bye?: string, { forced = false } = {}): Promise<void> {
+		if (this.#closed) return Promise.resolve();
 		this.#closed = true;
 		this.state.phase = 'logout';
 		clearTimeout(this.#loginTimer);
 		this.stopIdle?.();
 		this.input.abort();
-		this.transport.end();
+		const transport = this.transport;
+		if (forced && transport.backlog > 0) transport.abort();
+		else {
+			if (bye) transport.write(encoder.encode(`* BYE ${bye}\r\n`));
+			transport.end();
+		}
+		return Promise.resolve();
 	}
 
 	/** Hands an error to `onError`, which may not throw back. */
@@ -154,7 +170,7 @@ export class Connection {
 		const { hostname } = this.settings.options;
 		this.#loginTimer = setTimeout(() => {
 			if (this.state.phase === 'not-authenticated') {
-				void this.close('Too slow to log in, closing');
+				void this.close('Too slow to log in, closing', { forced: true });
 			}
 		}, this.settings.loginTimeout * 1000);
 		await this.untagged(

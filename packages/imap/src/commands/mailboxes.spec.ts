@@ -163,6 +163,7 @@ describe('SELECT, EXAMINE, STATUS (RFC 9051 §6.3.2, 6.3.3, 6.3.11)', () => {
 		const select = await s.send('a SELECT INBOX\r\n');
 		expect(select).toContain('* LIST () "/" INBOX\r\n');
 		expect(select).not.toContain('RECENT');
+		expect(select).not.toContain('UNSEEN');
 		expect(await s.send('b EXAMINE Sent\r\n')).toStartWith(
 			'* OK [CLOSED] Previous mailbox is now closed\r\n',
 		);
@@ -196,14 +197,15 @@ describe('SELECT, EXAMINE, STATUS (RFC 9051 §6.3.2, 6.3.3, 6.3.11)', () => {
 		);
 	});
 
-	test('COPY to a mailbox that does not exist: TRYCREATE; MOVE to the same: CANNOT', async () => {
+	test('COPY to a mailbox that does not exist: TRYCREATE; MOVE to the same: OK, nothing moves', async () => {
 		const s = await session();
 		await s.send('a SELECT INBOX\r\n');
 		expect(await s.send('b COPY 1 Nowhere\r\n')).toBe(
 			'b NO [TRYCREATE] No such mailbox\r\n',
 		);
-		expect(await s.send('c MOVE 1 INBOX\r\n')).toBe(
-			'c NO [CANNOT] The messages are already in this mailbox\r\n',
+		expect(await s.send('c MOVE 1 INBOX\r\n')).toBe('c OK MOVE completed\r\n');
+		expect(await s.send('c2 FETCH 1:* UID\r\n')).toBe(
+			'* 1 FETCH (UID 1)\r\n* 2 FETCH (UID 2)\r\nc2 OK FETCH completed\r\n',
 		);
 		expect(await s.send('d UID COPY 1:2 Sent\r\n')).toBe(
 			'd OK UID COPY completed\r\n',

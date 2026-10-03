@@ -7,7 +7,11 @@ import { concat, type LiteralMarker } from '../protocol/reader';
 import { type Piece, tagged } from '../protocol/response';
 import type { Connection } from './connection';
 import { dispatch } from './dispatch';
-import { MAX_LITERALS } from './settings';
+import {
+	MAX_LITERAL_BEFORE_LOGIN,
+	MAX_LITERALS,
+	MAX_LITERALS_BEFORE_LOGIN,
+} from './settings';
 
 /** A literal being read: kept, streamed into an APPEND, or dropped. */
 type Pending =
@@ -116,9 +120,32 @@ export class Assembler {
 		await this.#connection.send(tagged(tag, status, text));
 	}
 
+	/** Before login, a refusal past the little LOGIN needs. */
+	#beforeLogin(marker: LiteralMarker): Promise<void> | undefined {
+		if (this.#literals.length >= MAX_LITERALS_BEFORE_LOGIN) {
+			return this.#refuse(
+				marker,
+				'BAD',
+				`More than ${MAX_LITERALS_BEFORE_LOGIN} literals before login`,
+			);
+		}
+		if (marker.size > MAX_LITERAL_BEFORE_LOGIN) {
+			return this.#refuse(
+				marker,
+				'BAD',
+				`[TOOBIG] Literal over ${MAX_LITERAL_BEFORE_LOGIN} bytes before login`,
+			);
+		}
+		return undefined;
+	}
+
 	async #announce(marker: LiteralMarker): Promise<void> {
 		const connection = this.#connection;
 		const { maxMessageSize, maxLiteralSize } = connection.settings;
+		if (connection.state.phase === 'not-authenticated') {
+			const refused = this.#beforeLogin(marker);
+			if (refused) return refused;
+		}
 		if (this.#literals.length >= MAX_LITERALS) {
 			return this.#refuse(
 				marker,

@@ -1,5 +1,5 @@
 import type { Mailbox } from '@bumail/store';
-import { MAX_PATTERN, matcher } from '../mailbox/pattern';
+import { MAX_PATTERN, MAX_PATTERNS, matcher } from '../mailbox/pattern';
 import {
 	DELIMITER,
 	nameForClient,
@@ -8,6 +8,7 @@ import {
 	Tree,
 } from '../mailbox/tree';
 import type { Cursor } from '../protocol/cursor';
+import { echo } from '../protocol/echo';
 import { Response } from '../protocol/response';
 import type { Connection } from '../server/connection';
 import { AUTHENTICATED, type Command, type Context, ok } from './context';
@@ -35,7 +36,7 @@ function selection(cursor: Cursor): Set<string> {
 				option,
 			)
 		) {
-			cursor.fail(`Unknown LIST selection option ${option}`);
+			cursor.fail(`Unknown LIST selection option ${echo(option)}`);
 		}
 	}
 	if (options.has('RECURSIVEMATCH') && options.size === 1) {
@@ -54,7 +55,7 @@ function returning(cursor: Cursor): { subscribed: boolean; status?: string[] } {
 			status = statusItems(c);
 		} else if (option === 'SUBSCRIBED') subscribed = true;
 		else if (option !== 'CHILDREN' && option !== 'SPECIAL-USE') {
-			c.fail(`Unknown LIST return option ${option}`);
+			c.fail(`Unknown LIST return option ${echo(option)}`);
 		}
 	});
 	return { subscribed, ...(status ? { status } : {}) };
@@ -81,6 +82,8 @@ function parse(context: Context, lsub: boolean): Query {
 		back = returning(cursor);
 	}
 	cursor.end();
+	if (raw.length > MAX_PATTERNS)
+		cursor.fail(`More than ${MAX_PATTERNS} patterns in one LIST`);
 	const patterns = raw.map((pattern) => {
 		const full = `${reference}${nameFromClient(connection, pattern)}`;
 		if (full.length > MAX_PATTERN) cursor.fail('The pattern is too long');

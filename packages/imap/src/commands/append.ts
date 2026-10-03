@@ -1,12 +1,12 @@
 import { type Mailbox, normalizeFlag } from '@bumail/store';
-import { sync } from '../mailbox/sync';
 import { nameFromClient, Tree } from '../mailbox/tree';
 import { Cursor, type Framed, SyntaxProblem } from '../protocol/cursor';
 import { parseDateTime } from '../protocol/dates';
+import { echo } from '../protocol/echo';
 import { type Piece, tagged } from '../protocol/response';
 import type { Connection } from '../server/connection';
-import { answerFailure } from '../server/failure';
-import { AUTHENTICATED, type Command, type Context } from './context';
+import { AUTHENTICATED, type Command } from './context';
+import { added, Inflow } from './inflow';
 
 /** What an APPEND says before its message (RFC 9051 §6.3.12). */
 export interface AppendTarget {
@@ -38,7 +38,8 @@ function head(cursor: Cursor): Omit<AppendTarget, 'tag'> {
 	let date: Date | undefined;
 	if (cursor.peek() === '"') {
 		const text = cursor.string();
-		date = parseDateTime(text) ?? cursor.fail(`"${text}" is not a date-time`);
+		date =
+			parseDateTime(text) ?? cursor.fail(`"${echo(text)}" is not a date-time`);
 		cursor.sp();
 	}
 	return { mailbox, flags, ...(date ? { date } : {}) };
@@ -82,16 +83,6 @@ async function prepare(
 	return { mailbox, flags };
 }
 
-async function added(
-	context: Pick<Context, 'connection' | 'tag'>,
-	mailbox: Mailbox,
-): Promise<void> {
-	const { connection } = context;
-	if (connection.state.selected?.mailboxId === mailbox.id)
-		await sync(connection);
-	await connection.send(tagged(context.tag, 'OK', 'APPEND completed'));
-}
-
 /**
  * Starts an APPEND before its message is read: the mailbox is checked, so
  * a synchronising literal can be refused before the client sends it, then
@@ -115,86 +106,7 @@ export async function beginAppend(
 			refusal: tagged(target.tag, ready.refusal.status, ready.refusal.text),
 		};
 	}
-	return streamInto(connection, target, ready.mailbox, ready.flags, size);
-}
-
-function streamInto(
-	connection: Connection,
-	target: AppendTarget,
-	mailbox: Mailbox,
-	flags: string[],
-	size: number,
-): AppendStream {
-	let controller!: ReadableStreamDefaultController<Uint8Array>;
-	let wake: (() => void) | undefined;
-	let stopped = false;
-	const stop = () => {
-		stopped = true;
-		wake?.();
-	};
-	const content = new ReadableStream<Uint8Array>(
-		{
-			start: (c) => {
-				controller = c;
-			},
-			pull: () => wake?.(),
-			cancel: stop,
-		},
-		new ByteLengthQueuingStrategy({
-			highWaterMark: Math.min(size, 64 * 1024) || 1,
-		}),
-	);
-	const adding = connection.settings.store.addMessage(
-		connection.accountId,
-		mailbox.id,
-		{
-			content,
-			flags,
-			...(target.date ? { receivedAt: target.date } : {}),
-		},
-	);
-	adding.catch(stop);
-	return {
-		async write(bytes) {
-			if (stopped) return;
-			controller.enqueue(bytes);
-			if ((controller.desiredSize ?? 1) > 0) return;
-			await new Promise<void>((resolve) => (wake = resolve));
-			wake = undefined;
-		},
-		async finish(rest) {
-			const context = { connection, tag: target.tag };
-			if (rest !== '') {
-				error(controller, 'Unexpected text after the message');
-				await adding.catch(() => undefined);
-				return connection.send(
-					tagged(target.tag, 'BAD', 'Unexpected text after the message'),
-				);
-			}
-			if (!stopped) controller.close();
-			try {
-				await adding;
-			} catch (failure) {
-				return answerFailure(connection, target.tag, failure);
-			}
-			await added(context, mailbox);
-		},
-		abort() {
-			error(controller, 'The connection closed');
-			stop();
-		},
-	};
-}
-
-function error(
-	controller: ReadableStreamDefaultController<Uint8Array>,
-	message: string,
-): void {
-	try {
-		controller.error(new Error(message));
-	} catch {
-		// Already closed or errored.
-	}
+	return new Inflow(connection, target, ready.mailbox, ready.flags, size);
 }
 
 /**

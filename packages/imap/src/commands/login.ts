@@ -1,3 +1,4 @@
+import { echo } from '../protocol/echo';
 import { type Credentials, decodePlain } from '../protocol/sasl';
 import { capabilities } from '../server/capabilities';
 import { answerFailure } from '../server/failure';
@@ -95,7 +96,10 @@ export const AUTHENTICATE: Command = {
 		if (!connection.state.secure) return no(context, PRIVACY);
 		const mechanism = cursor.atom('a SASL mechanism').toUpperCase();
 		if (mechanism !== 'PLAIN') {
-			return no(context, `[CANNOT] ${mechanism} is not supported: use PLAIN`);
+			return no(
+				context,
+				`[CANNOT] ${echo(mechanism)} is not supported: use PLAIN`,
+			);
 		}
 		if (cursor.take(' ')) {
 			const initial = cursor.atom('an initial response');

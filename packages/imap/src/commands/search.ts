@@ -1,6 +1,7 @@
 import { loadMessages } from '../mailbox/lookup';
 import type { Selected } from '../mailbox/selected';
 import type { Cursor } from '../protocol/cursor';
+import { echo } from '../protocol/echo';
 import { quoted } from '../protocol/response';
 import { formatSequenceSet } from '../protocol/sequence';
 import { searchKeys } from '../search/keys';
@@ -19,7 +20,7 @@ function returnOptions(cursor: Cursor): Set<string> | undefined {
 	);
 	for (const option of options) {
 		if (!RETURNS.has(option))
-			cursor.fail(`Unsupported SEARCH return option ${option}`);
+			cursor.fail(`Unsupported SEARCH return option ${echo(option)}`);
 	}
 	cursor.sp();
 	return options.size === 0 ? new Set(['ALL']) : options;

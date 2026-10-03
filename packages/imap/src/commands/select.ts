@@ -31,7 +31,7 @@ function flagsInUse(entries: readonly MailboxEntry[]): string[] {
 	return [...SYSTEM, ...[...keywords].sort()];
 }
 
-/** The untagged responses SELECT and EXAMINE give (RFC 9051 §6.3.2, RFC 3501 §6.3.1). */
+/** The untagged responses SELECT and EXAMINE give (RFC 9051 §6.3.2; RFC 3501 §6.3.1 for IMAP4rev1). */
 async function describe(
 	connection: Connection,
 	mailbox: Mailbox,
@@ -41,7 +41,17 @@ async function describe(
 ): Promise<void> {
 	const flags = flagsInUse(entries);
 	const lines = [`${entries.length} EXISTS`];
-	if (!connection.state.rev2) lines.push('0 RECENT');
+	if (!connection.state.rev2) {
+		lines.push('0 RECENT');
+		// RFC 3501 §6.3.1: the first unseen message; IMAP4rev2 dropped it.
+		const unseen = entries.findIndex(
+			({ message }) => !message.flags.includes('\\Seen'),
+		);
+		if (unseen >= 0)
+			lines.push(
+				`OK [UNSEEN ${unseen + 1}] Message ${unseen + 1} is first unseen`,
+			);
+	}
 	lines.push(
 		`OK [UIDVALIDITY ${mailbox.uidValidity}] UIDs valid`,
 		`OK [UIDNEXT ${mailbox.uidNext}] Predicted next UID`,

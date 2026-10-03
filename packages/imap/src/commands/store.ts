@@ -3,6 +3,7 @@ import { positionsOf } from '../mailbox/lookup';
 import type { Selected } from '../mailbox/selected';
 import { flagList } from '../mailbox/sync';
 import type { Cursor } from '../protocol/cursor';
+import { echo } from '../protocol/echo';
 import { type Command, no, ok, SELECTED } from './context';
 
 /** `FLAGS`, `+FLAGS` or `-FLAGS`, each with `.SILENT` or not (RFC 9051 §6.4.6). */
@@ -11,7 +12,7 @@ function action(cursor: Cursor): { op: '' | '+' | '-'; silent: boolean } {
 	const op = cursor.take('+') ? '+' : cursor.take('-') ? '-' : '';
 	const name = cursor.itemName().toUpperCase();
 	if (name !== 'FLAGS' && name !== 'FLAGS.SILENT')
-		cursor.fail(`Unknown STORE item ${name}`);
+		cursor.fail(`Unknown STORE item ${echo(name)}`);
 	return { op, silent: name === 'FLAGS.SILENT' };
 }
 

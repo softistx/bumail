@@ -92,7 +92,16 @@ Two pieces are copied rather than shared, on purpose:
 - **The socket transport** — writing with a backlog, `drained()`, pause and
   resume, the STARTTLS upgrade — in `smtp/src/server/transport.ts` and
   `imap/src/server/transport.ts`, adapted to each protocol's flow. Should a
-  third server need it, it becomes a package.
+  third server need it, it becomes a package. Both copies keep one
+  invariant: **a hang-up never waits on the client.** A close the server
+  decides on — a timeout, a BYE or 421 — must complete even when the client
+  never reads, or the connection keeps a `maxConnections` slot for good:
+  the connection marks itself closed first and queues its last words
+  without awaiting the backlog, and the transport ends within a short grace
+  or, on a forced close, drops its queue and terminates the socket. imap
+  fixed it on `feat/imap-core`, smtp on `fix/smtp-transport-close`; each has
+  a real-socket spec with a client that never reads. A fix to one is a fix
+  to the other.
 
 ## The build
 

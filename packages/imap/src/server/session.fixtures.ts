@@ -131,6 +131,10 @@ function fakeTransport(secure: boolean) {
 		end: () => {
 			ended = true;
 		},
+		abort: () => {
+			ended = true;
+			backlog = 0;
+		},
 		pause: () => {},
 		resume: () => {},
 		startTls: () => {

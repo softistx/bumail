@@ -1,6 +1,7 @@
 import type { Mailbox } from '@bumail/store';
 import { nameForClient, nameFromClient, Tree } from '../mailbox/tree';
 import type { Cursor } from '../protocol/cursor';
+import { echo } from '../protocol/echo';
 import { type Piece, Response } from '../protocol/response';
 import type { Connection } from '../server/connection';
 import { AUTHENTICATED, type Command, no, ok } from './context';
@@ -20,7 +21,7 @@ const ITEMS = new Set([
 export function statusItems(cursor: Cursor): string[] {
 	const items = cursor.list((c) => c.atom('a STATUS item').toUpperCase());
 	for (const item of items)
-		if (!ITEMS.has(item)) cursor.fail(`Unknown STATUS item ${item}`);
+		if (!ITEMS.has(item)) cursor.fail(`Unknown STATUS item ${echo(item)}`);
 	if (items.length === 0) cursor.fail('STATUS needs at least one item');
 	return items;
 }

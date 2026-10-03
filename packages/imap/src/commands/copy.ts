@@ -16,11 +16,11 @@ async function transfer(context: Context, move: boolean): Promise<void> {
 		return no(context, '[READ-ONLY] The mailbox is read-only');
 	const target = (await Tree.load(connection)).find(name);
 	if (!target) return no(context, '[TRYCREATE] No such mailbox');
-	if (move && target.id === view.mailboxId) {
-		return no(context, '[CANNOT] The messages are already in this mailbox');
-	}
 	const ids = positions.map((position) => view.idAt(position));
-	if (ids.length === 0) return ok(context, `${verb} completed`);
+	// MOVE into the selected mailbox: the messages are where they were asked
+	// to be, with the same UIDs; RFC 6851 does not refuse it, nor expunge them.
+	const stays = move && target.id === view.mailboxId;
+	if (ids.length === 0 || stays) return ok(context, `${verb} completed`);
 	const { store } = connection.settings;
 	if (!move) {
 		await store.copyMessages(connection.accountId, ids, target.id);
