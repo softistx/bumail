@@ -197,7 +197,8 @@ checked the same way.
 
 ### `QueueError: timeouts.… must be a number of seconds above 0 and at most 2147483, not …`
 
-**Code:** `INVALID`, also as `deadline must be …`. Timeouts are seconds,
+**Code:** `INVALID`, also as `deadline must be …` or `timeouts must be
+an object of seconds`. Timeouts are seconds,
 as `sendMail` takes them, not milliseconds: `timeouts: { connect: 30 }`.
 
 ### `QueueError: store must be a QueueStore, such as MemoryQueueStore`
@@ -253,7 +254,9 @@ timeouts, `hostname` as EHLO — though `createQueue` took them.
 **Why:** a configuration only `sendMail` can check, or a `send` of your
 own that refuses its options. It is the route's fault, not the
 recipient's: the recipients are deferred as `4.3.5` (system incorrectly
-configured), never failed, so no DSN goes out for it.
+configured), not failed, so no DSN goes out for it until
+`retry.giveUpAfter` (5 days by default), when they fail as `4.4.7` with a
+DSN like any deferred recipient.
 **Fix:** read the message, fix the option, restart: the deferred items
 go out on their next attempt, or at once with `retryNow`.
 

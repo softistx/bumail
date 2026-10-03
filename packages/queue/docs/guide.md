@@ -216,7 +216,7 @@ Last-Attempt-Date: Thu, 01 Oct 2026 12:00:03 +0000
   returns the whole message as `message/rfc822` when it fits
   `limits.maxDsnReturn` (64 KiB), its header fields otherwise. Either is
   cut after the last whole line within that bound, and every line past
-  998 characters (RFC 5322 §2.1.1) is cut there, never inside a UTF-8
+  998 bytes (RFC 5322 §2.1.1) is cut there, never inside a UTF-8
   character, so the DSN itself is never refused for a long line.
 - **Its From** is `Mail Delivery System <postmaster@<hostname>>`, or
   `dsn.from`. It carries `Auto-Submitted: auto-replied` (RFC 3834).

@@ -112,7 +112,9 @@ Credentials go only over TLS whose certificate checked out: `createQueue`
 refuses `auth` with a `tls` other than `'required'`, and checks the ports,
 the TLS modes and the timeouts as `sendMail` would. A route `sendMail`
 still refuses (`INVALID_OPTION`) defers its recipients as `4.3.5` and
-says so on the `error` event; it never bounces them.
+says so on the `error` event; it does not bounce them until
+`retry.giveUpAfter`, when they fail as `4.4.7` with a DSN like any
+deferred recipient.
 
 ## Several workers
 
@@ -201,7 +203,7 @@ Everything is bounded, through `limits`: the message (25 MiB), the
 recipients per message (100), the items in the store (none by default),
 the reply text kept per recipient (512 characters, control characters
 replaced by spaces), and the original a DSN returns (64 KiB, each line cut
-at 998 characters). Nothing a
+at 998 bytes). Nothing a
 remote server says reaches a DSN's header fields with a CR, an LF or a
 control character in it.
 
