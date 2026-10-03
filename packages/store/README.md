@@ -108,6 +108,9 @@ follows.
 
 ## Documentation
 
+These pages ship in the package, under `docs/`.
+
+- [Index](https://github.com/softistx/bumail/blob/develop/packages/store/docs/README.md): the pages, and when to read each.
 - [Guide](https://github.com/softistx/bumail/blob/develop/packages/store/docs/guide.md): accounts, mailboxes and roles, messages and their mailboxes, UIDs and modseqs, flags, changes, and writing a store of your own.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/store/docs/troubleshooting.md): every `StoreError`, and what to do about it.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/store/docs/roadmap.md): what is coming, and what is not planned.
