@@ -120,19 +120,15 @@ so the published declarations must compile under all of them. Only
 
 Changesets, independent versions. A change under `packages/` needs one.
 
-**Releasing is off until the owner turns it on.** `release.yml` runs only
-when the repository variable `RELEASE_ENABLED` is `true`, and only the owner
-sets it: with no changeset pending, `changesets/action` runs the publish
-script, which publishes every version the registry lacks — a package's
-first included. The job runs in the `npm` environment. **Before setting
-`RELEASE_ENABLED`, the owner creates that environment** with themself as
-required reviewer and `NPM_TOKEN` as its only secret — GitHub creates a
-missing environment on the first run, unprotected. Then every run that
-could publish waits for the owner, and a PR that edits the workflow cannot
-reach the token. Once on:
+**Releasing works as in alxia.** `release.yml` runs on every push to
+`develop`, with the softistx organisation's `NPM_TOKEN`: with changesets
+pending, `changesets/action` opens a "Version packages" PR; with none, it
+runs the publish script, which publishes every version the registry lacks —
+a package's first included. So:
 
 - merging to `develop` opens a "Version packages" PR; merging that publishes
-  with `bun publish`, in dependency order;
+  with `bun publish`, in dependency order. **Only the owner merges it**: an
+  agent never merges, approves or edits a "Version packages" PR;
 - **the first publish of any `@bumail/*` package needs the owner's explicit
   answer**, every time, and nothing is published without their OK;
 - releases are batched: weekdays, at 18:00 Eastern or later.

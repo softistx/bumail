@@ -20,22 +20,15 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  packages: write
 
 jobs:
   release:
     name: Release
-    # Off until the owner approves the first publish. With no changeset
-    # pending, changesets/action runs the publish script, which publishes
-    # every version the registry does not have yet — a fresh package's
-    # included. The repository variable RELEASE_ENABLED=true turns it on;
-    # nobody but the owner sets it.
-    if: vars.RELEASE_ENABLED == 'true'
-    # The owner creates this environment before setting RELEASE_ENABLED —
-    # GitHub would create a missing one unprotected — with themself as
-    # required reviewer and NPM_TOKEN as its only secret: every run that could
-    # publish then waits for the owner, and a PR that edits this file cannot
-    # reach the token without that approval.
-    environment: npm
+    # As alxia's: no switch and no environment, and NPM_TOKEN is the softistx
+    # organisation's secret. With no changeset pending, a push publishes any
+    # version npm lacks; normally only merging the "Version packages" PR
+    # produces one, and only the owner merges that PR — an agent never does.
     # GitHub-hosted, as ci.yml.
     runs-on: ubuntu-latest
     # alxia's, on the same skeleton, takes under a minute and a half.
