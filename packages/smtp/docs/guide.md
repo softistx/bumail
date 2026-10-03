@@ -108,6 +108,7 @@ await server.listen({ port: 25 });
 | `createSmtpServer(): authenticate needs tls: { key, cert }, since AUTH is offered only once encrypted` | `authenticate` without `tls` |
 | `createSmtpServer(): localDomains must be an array of domains or a function` | `localDomains` missing, a string, or an array holding something else |
 | `createSmtpServer(): <limit> must be a positive integer, not <value>` | a limit or `hookTimeout` that is `0`, negative, fractional or `NaN` |
+| `createSmtpServer(): hookTimeout must be at most 2147483 seconds, not <value>` | `hookTimeout` past what `setTimeout` can wait (about 24.8 days) |
 | `createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not <value>` | `greetingDelay` negative, `NaN` or `Infinity` |
 | `createSmtpServer(): greetingDelay (<n> s) must be shorter than timeout (<n> s), or every client times out before the greeting` | `greetingDelay` as long as `timeout`, or longer |
 

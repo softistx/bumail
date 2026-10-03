@@ -15,6 +15,9 @@ export interface Settings {
 	isLocal(domain: string): boolean | Promise<boolean>;
 }
 
+/** The longest delay `setTimeout` takes, in whole seconds: past 2^31 − 1 ms it fires after 1 ms. */
+const MAX_TIMER_SECONDS = Math.floor(2_147_483_647 / 1000);
+
 const invalid = (message: string) =>
 	new SmtpError('INVALID_OPTION', `createSmtpServer(): ${message}`);
 
@@ -28,6 +31,21 @@ function positive(
 		throw invalid(`${name} must be a positive integer, not ${value}`);
 	}
 	return value;
+}
+
+/** `positive`, and short enough for `setTimeout`, which a longer delay makes fire at once. */
+function timer(
+	name: string,
+	value: number | undefined,
+	fallback: number,
+): number {
+	const seconds = positive(name, value, fallback);
+	if (seconds > MAX_TIMER_SECONDS) {
+		throw invalid(
+			`${name} must be at most ${MAX_TIMER_SECONDS} seconds, not ${seconds}`,
+		);
+	}
+	return seconds;
 }
 
 function nonNegative(
@@ -104,7 +122,7 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 		maxConnections: positive('maxConnections', options.maxConnections, 1000),
 		maxErrors: positive('maxErrors', options.maxErrors, 10),
 		timeout,
-		hookTimeout: positive('hookTimeout', options.hookTimeout, 60),
+		hookTimeout: timer('hookTimeout', options.hookTimeout, 60),
 		greetingDelay,
 		isLocal: (domain) => isLocal(domain.toLowerCase()),
 	};

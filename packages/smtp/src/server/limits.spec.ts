@@ -111,6 +111,10 @@ describe('options', () => {
 			'createSmtpServer(): hookTimeout must be a positive integer, not 0',
 		],
 		[
+			{ hookTimeout: 2_147_484 },
+			'createSmtpServer(): hookTimeout must be at most 2147483 seconds, not 2147484',
+		],
+		[
 			{ greetingDelay: -1 },
 			'createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not -1',
 		],

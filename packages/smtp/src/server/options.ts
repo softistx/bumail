@@ -153,7 +153,8 @@ export interface SmtpServerOptions extends SmtpHooks {
 	/**
 	 * Seconds a hook, `authenticate` or `localDomains` has to settle — and
 	 * `onData` to read the next part of a message, then to answer once it
-	 * ended. Past it, the command is refused with `451 4.3.0`. Default 60.
+	 * ended. Past it, the command is refused with `451 4.3.0`. Default 60,
+	 * at most 2 147 483 (the longest delay `setTimeout` takes).
 	 */
 	readonly hookTimeout?: number;
 	/**
