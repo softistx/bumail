@@ -1,7 +1,7 @@
 {
 	"name": "@bumail/store",
 	"version": "0.1.0",
-	"description": "Mailbox storage for a mail server: accounts, mailboxes, messages, flags, UIDs and modseqs behind one contract, with a memory store",
+	"description": "Mailbox storage for a mail server: accounts, mailboxes, messages, flags, UIDs and modseqs behind one contract, with a memory store and a bun:sqlite store on disk",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -18,6 +18,11 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
+		},
+		"./sqlite": {
+			"types": "./dist/sqlite/index.d.ts",
+			"import": "./dist/sqlite/index.js",
+			"default": "./dist/sqlite/index.js"
 		},
 		"./package.json": "./package.json"
 	},
@@ -37,7 +42,8 @@
 	},
 	"bumail": {
 		"entrypoints": [
-			"src/index.ts"
+			"src/index.ts",
+			"src/sqlite/index.ts"
 		]
 	},
 	"devDependencies": {

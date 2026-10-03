@@ -9,11 +9,12 @@ import { setFlags } from './flags';
 import * as mailboxes from './mailboxes';
 import * as membership from './membership';
 import * as messages from './messages';
-import { openDirectory, type SqliteMailStoreOptions } from './open';
+import { openDirectory } from './open';
+import type { SqliteMailStoreOptions } from './options';
 import { deleteMailbox } from './removal';
 import { SqliteState } from './state';
 
-export type { SqliteMailStoreOptions } from './open';
+export type { SqliteMailStoreOptions } from './options';
 
 /**
  * A `MailStore` on `bun:sqlite`: one directory holding `mail.sqlite` and
