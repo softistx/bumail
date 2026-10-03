@@ -556,4 +556,8 @@ with a HELO name past 255 octets, RFC 5321's limits (§4.5.3.1). **Why**:
 no SMTP client may send one, so the expansion that holds it is treated
 like a macro bomb: a name no lookup finds, or no explanation. The check
 itself still runs: an over-long input never turns a `fail` into `none`,
-which a forger could otherwise ask for. **Fix**: none needed.
+which a forger could otherwise ask for, and is never expanded, since
+§7.3's truncation from the left would drop the forger's label and could
+land on a name the domain publishes, a `pass`. **Fix**: none needed; an
+SRS address past 64 octets is one such input, and local-part macros do
+not match it.

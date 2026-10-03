@@ -68,7 +68,7 @@ export interface SmtpServer {
 | `maxConnections` | `number` | `1000` | open connections at once |
 | `maxErrors` | `number` | `10` | failed commands before the server hangs up |
 | `timeout` | `number` | `300` | seconds since the client's last byte, or since the 220, before the server hangs up |
-| `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0` |
+| `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0`. At most 2 147 483, what a timer can wait |
 | `greetingDelay` | `number` | `0` | seconds the server waits, once `onConnect` accepted, before its 220; a client that talks meanwhile gets `554` and is hung up on. Fractions are allowed |
 | `onConnect`, `onMailFrom`, `onRcptTo` | hooks | none | see [Hooks](#hooks-and-their-order) |
 | `onData` | hook | required | receives each message, as a stream |

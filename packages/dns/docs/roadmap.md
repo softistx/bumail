@@ -10,9 +10,8 @@ Nothing in progress.
 
 ## Next
 
-- **The lookups SPF, DKIM and DMARC are built from**, once `@bumail/auth`
-  starts, if that package shows a need the interface does not meet (for
-  example a void-lookup count, RFC 7208 §4.6.4).
+- **The lookups DMARC is built from**, if `@bumail/auth` shows a need the
+  interface does not meet; DKIM and SPF needed only the two entries below.
 - **MX resolution for delivery**: the MX answer with RFC 5321 §5.1's
   fallback to the domain's A and AAAA, and the null MX, in one call, when
   the SMTP client lands.
@@ -44,6 +43,12 @@ Nothing in progress.
   domain as NXDOMAIN or NODATA, so it takes either.
 
 ## Shipped
+
+### 0.1.1
+
+- **Long names refused before the IDN mapping.** A name of more than 253
+  code points once composed is refused at once, so its cost no longer
+  grows with the square of its length.
 
 ### 0.1.0
 

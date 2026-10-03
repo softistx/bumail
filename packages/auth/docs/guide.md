@@ -375,8 +375,9 @@ applied, across every `include` and `redirect`:
   query (see below).
 - **10 MX names per `mx`**: more is a `permerror`. **10 PTR names per
   `ptr`**: the rest are ignored.
-- **`timeout`**, 20 000 ms by default, the least §4.6.4 recommends: past
-  it the check is `temperror`. The resolver is not told to stop; the
+- **`timeout`**, 20 000 ms by default, the least §4.6.4 recommends, and
+  at most 2 147 483 647 ms, what a timer can wait: past it the check is
+  `temperror`. The resolver is not told to stop; the
   check stops waiting for it.
 - **Macro expansion is bounded.** A name longer than 253 characters
   loses labels on the left (§7.3). An expansion past 8 192 characters is
@@ -385,7 +386,11 @@ applied, across every `include` and `redirect`:
 - **A local part past 64 octets, or a HELO name past 255** (RFC 5321's
   limits) expands to a name no lookup finds, like a macro bomb. The check
   still runs and gives its result: answering `none` instead would let a
-  forger dodge a domain's `-all` with a long local part.
+  forger dodge a domain's `-all` with a long local part, and expanding it
+  would be worse, since §7.3's truncation from the left drops the forger's
+  label and can land on a name the domain publishes, a `pass`. A
+  forwarder's SRS address can be longer than 64 octets; local-part
+  macros then never match it, which is the safe side to err on.
 
 `%{p}`, the client's validated name, looks the PTR record up once per
 check, and shares it with `ptr`. RFC 7208 discourages both; they cost

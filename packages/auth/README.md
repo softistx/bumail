@@ -173,7 +173,7 @@ lists the other six.
 | `MessageInput` | `Uint8Array \| string \| ReadableStream<Uint8Array>` |
 | `checkSpf(input, options)` | RFC 7208's check_host() for a session: `Promise<SpfResult>` |
 | `SpfInput` | `ip` (IPv4 or IPv6; IPv4-mapped is IPv4), `mailFrom` (`''` for a bounce), `helo` |
-| `CheckSpfOptions` | `resolver` (required), `identity` (`'mailfrom'` or `'helo'`), `timeout` (20 000 ms), `receiver` (`%{r}`), `now` |
+| `CheckSpfOptions` | `resolver` (required), `identity` (`'mailfrom'` or `'helo'`), `timeout` (20 000 ms, at most 2 147 483 647), `receiver` (`%{r}`), `now` |
 | `SpfResult` | `result`, `reason`, `domain`, `mechanism`, `explanation`, `lookups` |
 | `SpfResultWord` | `'none' \| 'neutral' \| 'pass' \| 'fail' \| 'softfail' \| 'temperror' \| 'permerror'` |
 | `AuthError`, `AuthErrorCode` | thrown for an option, an `ip`, a message to sign or a key: `INVALID_OPTION`, `INVALID_MESSAGE`, `INVALID_KEY`; `cause` holds a wrapped error |

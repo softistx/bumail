@@ -34,6 +34,13 @@ Nothing scheduled yet.
 
 ## Shipped
 
+### 0.1.1
+
+- **Dates with comments, in one pass.** `parseDate` reads nested comments
+  whole and strips them in time linear in the header's length, where an
+  unclosed `(` used to cost its square; a very long RFC 2231 parameter no
+  longer throws a `RangeError`.
+
 ### 0.1.0
 
 - **Reading and writing messages** — headers, addresses, dates, encoded

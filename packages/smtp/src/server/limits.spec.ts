@@ -146,6 +146,12 @@ describe('options', () => {
 		expect(() => createSmtpServer(mxOptions(overrides))).toThrow(message);
 	});
 
+	test('hookTimeout up to 2147483 seconds is taken', () => {
+		expect(() =>
+			createSmtpServer(mxOptions({ hookTimeout: 2_147_483 })),
+		).not.toThrow();
+	});
+
 	test('the error is an SmtpError with code INVALID_OPTION', () => {
 		try {
 			createSmtpServer(mxOptions({ maxErrors: -1 }));
