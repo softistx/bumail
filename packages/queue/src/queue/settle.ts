@@ -3,7 +3,6 @@ import type {
 	QueueItem,
 	RecipientUpdate,
 } from '../contract/types';
-import { cleanText } from '../text';
 import { nextAttemptAt } from './retry';
 import type { Settings } from './settings';
 
@@ -19,18 +18,16 @@ export interface Settled {
 	readonly delayDsn: boolean;
 }
 
-/** A deferred recipient past the moment of giving up: failed, its last reply kept, as X.4.7 (RFC 3463 §3.5). */
-function expired(
-	update: RecipientUpdate,
-	attempts: number,
-	max: number,
-): RecipientUpdate {
-	const last = update.reply;
-	const text = `Gave up after ${attempts} attempts${last ? `: ${last.text}` : ''}`;
+/**
+ * A deferred recipient past the moment of giving up: failed, as X.4.7
+ * (RFC 3463 §3.5, delivery time expired), the remote reply's code and text
+ * kept as they were said.
+ */
+function expired(update: RecipientUpdate): RecipientUpdate {
 	return {
 		address: update.address,
 		status: 'failed',
-		reply: { ...last, status: '4.4.7', text: cleanText(text, max) },
+		reply: { text: '', ...update.reply, status: '4.4.7' },
 	};
 }
 
@@ -55,11 +52,8 @@ export function settle(
 		settings.retry,
 		settings.random,
 	);
-	const max = settings.limits.maxReplyText;
 	const all = updates.map((u) =>
-		u.status === 'deferred' && next === undefined
-			? expired(u, attempts, max)
-			: u,
+		u.status === 'deferred' && next === undefined ? expired(u) : u,
 	);
 	const deferred = all.filter((u) => u.status === 'deferred');
 	const { delayAfter } = settings.dsn;
@@ -73,7 +67,10 @@ export function settle(
 		result: {
 			now,
 			recipients: all,
-			nextAttemptAt: skipped || next === undefined ? now : next,
+			// Left out by a stop with nothing deferred: due at once. Otherwise the
+			// back-off holds for the whole item, the left-out domains included.
+			nextAttemptAt:
+				next === undefined || (skipped && deferred.length === 0) ? now : next,
 			attempts,
 			delayNotified: item.delayNotified || delayDsn,
 		},

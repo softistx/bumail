@@ -75,8 +75,19 @@ export function checkResult(result: AttemptResult): void {
 	if (!Number.isInteger(result.attempts) || result.attempts < 0) {
 		throw invalid('attempts must be an integer of at least 0');
 	}
-	if (!Array.isArray(result.recipients)) {
-		throw invalid('recipients must be an array');
+	if (typeof result.delayNotified !== 'boolean') {
+		throw invalid('delayNotified must be true or false');
+	}
+	const statuses = ['delivered', 'deferred', 'failed'];
+	if (
+		!Array.isArray(result.recipients) ||
+		!result.recipients.every(
+			(u) => typeof u?.address === 'string' && statuses.includes(u.status),
+		)
+	) {
+		throw invalid(
+			'recipients must be an array of { address, status: delivered, deferred or failed }',
+		);
 	}
 }
 

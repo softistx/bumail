@@ -5,6 +5,8 @@ import type { QueueOptions, Route, Sender, Smarthost } from './options';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
+/** The longest delay a timer takes: past it, Bun fires after 1 ms. */
+const MAX_TIMER = 2_147_483_647;
 
 export interface RetrySettings {
 	readonly first: number;
@@ -179,8 +181,20 @@ export function settingsOf(options: QueueOptions): Settings {
 		dsn: dsnOf(options, hostname),
 		concurrency: numberOf('concurrency', options.concurrency, 20, 1),
 		perDomain: numberOf('perDomain', options.perDomain, 2, 1),
-		leaseMs: numberOf('leaseMs', options.leaseMs, 10 * MINUTE, 1000),
-		pollInterval: numberOf('pollInterval', options.pollInterval, 5000, 1),
+		leaseMs: numberOf(
+			'leaseMs',
+			options.leaseMs,
+			10 * MINUTE,
+			1000,
+			3 * MAX_TIMER,
+		),
+		pollInterval: numberOf(
+			'pollInterval',
+			options.pollInterval,
+			5000,
+			1,
+			MAX_TIMER,
+		),
 		owner,
 		now: clock ? () => clock.now() : Date.now,
 		send: options.send ?? sendMail,

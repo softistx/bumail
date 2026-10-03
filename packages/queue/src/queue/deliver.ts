@@ -13,6 +13,8 @@ export interface DeliveryContext extends NotifyContext {
 	readonly events: Events;
 	/** The worker is stopping: a group not started yet is left for later. */
 	readonly stopping: () => boolean;
+	/** The outcome is recorded: the lease needs no more renewal. */
+	readonly recorded: () => void;
 }
 
 /** The recipients still to deliver, by domain. */
@@ -94,6 +96,12 @@ export async function deliverItem(
 	const now = settings.now();
 	const settled = settle(item, outcomes.flat(), skipped, now, settings);
 	const after = await store.complete(item.id, settings.owner, settled.result);
+	ctx.recorded();
+	if (!after && (await store.get(item.id)) === undefined) {
+		// Cancelled meanwhile: what the sessions did still happened; no DSN.
+		emitOutcomes(events, item, settled);
+		return;
+	}
 	if (!after) {
 		const error = new QueueError(
 			'LEASE_LOST',

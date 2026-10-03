@@ -64,9 +64,13 @@ function humanText(input: DsnInput): string {
 			];
 	lines.push('');
 	for (const r of input.recipients) {
-		const why = r.reply
+		const said = r.reply
 			? `${r.reply.code ?? ''} ${cleanText(r.reply.text, 900)}`.trim()
 			: statusOf(input.kind);
+		const why =
+			r.reply?.status === '4.4.7'
+				? `delivery time expired, still failing: ${said}`
+				: said;
 		lines.push(`<${cleanText(r.address, 254)}>: ${why}`);
 	}
 	return `${lines.join('\r\n')}\r\n`;

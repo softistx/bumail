@@ -134,7 +134,7 @@ describe('a 4xx is tried again', () => {
 		expect(events.failed[0]?.reply).toMatchObject({
 			code: 451,
 			status: '4.4.7',
-			text: `Gave up after ${times.length} attempts: Try again later`,
+			text: 'Try again later',
 		});
 		expect(events.dsn).toMatchObject([
 			{ kind: 'failed', to: 'mary@example.net' },

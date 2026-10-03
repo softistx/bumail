@@ -8,11 +8,6 @@ export class Limiter {
 		this.#size = size;
 	}
 
-	/** How many slots are taken. */
-	get used(): number {
-		return this.#used;
-	}
-
 	/** A slot, once one is free; call what it resolves to, once, to give it back. */
 	async acquire(): Promise<() => void> {
 		if (this.#used >= this.#size) {
@@ -39,15 +34,6 @@ export class KeyedLimiter {
 
 	constructor(size: number) {
 		this.#size = size;
-	}
-
-	/** The largest number of slots taken under one key: for a spec. */
-	busiest(): number {
-		let most = 0;
-		for (const { limiter } of this.#limiters.values()) {
-			most = Math.max(most, limiter.used);
-		}
-		return most;
 	}
 
 	async acquire(key: string): Promise<() => void> {

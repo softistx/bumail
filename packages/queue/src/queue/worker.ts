@@ -1,6 +1,6 @@
 import type { QueueItem } from '../contract/types';
 import { QueueError } from '../errors';
-import { type DeliveryContext, deliverItem } from './deliver';
+import { deliverItem } from './deliver';
 import { KeyedLimiter, Limiter } from './limiter';
 import type { NotifyContext } from './notify';
 
@@ -16,8 +16,12 @@ export class Worker {
 	readonly #domains: KeyedLimiter;
 	readonly #inFlight = new Set<Promise<void>>();
 	#stopping = false;
+	/** `start()` was called while a `stop()` was under way: start again once it ends. */
+	#restart = false;
 	#loop: Promise<void> | undefined;
 	#wake: (() => void) | undefined;
+	/** A wake came while no sleep was under way: the next sleep is skipped. */
+	#woken = false;
 
 	constructor(ctx: NotifyContext) {
 		this.#ctx = ctx;
@@ -25,48 +29,66 @@ export class Worker {
 		this.#domains = new KeyedLimiter(ctx.settings.perDomain);
 	}
 
-	/** The most sessions open at once to one domain so far: for a spec. */
-	get domains(): KeyedLimiter {
-		return this.#domains;
-	}
-
-	get running(): boolean {
-		return this.#loop !== undefined;
-	}
-
-	#delivery(): DeliveryContext {
-		return {
-			...this.#ctx,
-			domains: this.#domains,
-			stopping: () => this.#stopping,
-		};
-	}
-
-	/** Keeps the lease while the item is delivered: renewed every third of it. */
-	async #deliver(item: QueueItem): Promise<void> {
+	/**
+	 * Renews the lease every third of it until the outcome is recorded; a
+	 * renewal that finds the lease taken says so once, and stops.
+	 */
+	#renewing(item: QueueItem): () => void {
 		const { settings, store, events } = this.#ctx;
-		const renew = setInterval(() => {
+		let done = false;
+		const stop = () => {
+			done = true;
+			clearInterval(timer);
+		};
+		const lost = (error: unknown) => {
+			if (done) return;
+			stop();
+			events.emit('error', { error, id: item.id });
+		};
+		const timer = setInterval(() => {
 			const expiresAt = settings.now() + settings.leaseMs;
-			store.renew(item.id, settings.owner, expiresAt).then(
-				(held) => {
-					if (held) return;
-					const error = new QueueError(
+			store.renew(item.id, settings.owner, expiresAt).then((held) => {
+				if (held) return;
+				lost(
+					new QueueError(
 						'LEASE_LOST',
 						`The lease on ${item.id} was lost while it was delivered`,
-					);
-					events.emit('error', { error, id: item.id });
-				},
-				(error: unknown) => events.emit('error', { error, id: item.id }),
-			);
+					),
+				);
+			}, lost);
 		}, settings.leaseMs / 3);
-		renew.unref?.();
+		timer.unref?.();
+		return stop;
+	}
+
+	async #deliver(item: QueueItem): Promise<void> {
+		const stopRenewing = this.#renewing(item);
 		try {
-			await deliverItem(this.#delivery(), item);
+			await deliverItem(
+				{
+					...this.#ctx,
+					domains: this.#domains,
+					stopping: () => this.#stopping,
+					recorded: stopRenewing,
+				},
+				item,
+			);
 		} catch (error) {
-			events.emit('error', { error, id: item.id });
+			this.#ctx.events.emit('error', { error, id: item.id });
 		} finally {
-			clearInterval(renew);
+			stopRenewing();
 		}
+	}
+
+	/** The next due item, or `undefined` when nothing is, or the worker is stopping. */
+	#claim(): Promise<QueueItem | undefined> {
+		const { settings, store } = this.#ctx;
+		if (this.#stopping) return Promise.resolve(undefined);
+		return store.claim({
+			owner: settings.owner,
+			now: settings.now(),
+			leaseMs: settings.leaseMs,
+		});
 	}
 
 	/**
@@ -75,20 +97,13 @@ export class Worker {
 	 * the same pass. Resolves once all are done, with how many it claimed.
 	 */
 	async deliverDue(): Promise<number> {
-		const { settings, store } = this.#ctx;
 		const mine = new Set<Promise<void>>();
 		let claimed = 0;
 		while (!this.#stopping) {
 			const release = await this.#slots.acquire();
 			let item: QueueItem | undefined;
 			try {
-				item = this.#stopping
-					? undefined
-					: await store.claim({
-							owner: settings.owner,
-							now: settings.now(),
-							leaseMs: settings.leaseMs,
-						});
+				item = await this.#claim();
 			} catch (error) {
 				release();
 				await Promise.all(mine);
@@ -113,47 +128,65 @@ export class Worker {
 		return claimed;
 	}
 
-	/** Wakes a sleeping `start()` loop: something was enqueued. */
+	/** Wakes a sleeping `start()` loop, or spares it its next sleep: something was enqueued. */
 	wake(): void {
-		this.#wake?.();
+		if (this.#wake) this.#wake();
+		else this.#woken = true;
 	}
 
 	start(): void {
+		if (this.#stopping) {
+			this.#restart = true;
+			return;
+		}
 		if (this.#loop) return;
-		this.#stopping = false;
 		this.#loop = this.#run();
 	}
 
+	async #sleep(): Promise<void> {
+		if (this.#woken) {
+			this.#woken = false;
+			return;
+		}
+		await new Promise<void>((resolve) => {
+			const timer = setTimeout(resolve, this.#ctx.settings.pollInterval);
+			this.#wake = () => {
+				clearTimeout(timer);
+				resolve();
+			};
+		});
+		this.#wake = undefined;
+	}
+
 	async #run(): Promise<void> {
-		const { settings, events } = this.#ctx;
 		while (!this.#stopping) {
+			this.#woken = false;
 			try {
 				await this.deliverDue();
 			} catch (error) {
-				events.emit('error', { error });
+				this.#ctx.events.emit('error', { error });
 			}
 			if (this.#stopping) break;
-			await new Promise<void>((resolve) => {
-				const timer = setTimeout(resolve, settings.pollInterval);
-				this.#wake = () => {
-					clearTimeout(timer);
-					resolve();
-				};
-			});
-			this.#wake = undefined;
+			await this.#sleep();
 		}
 	}
 
 	/**
 	 * Claims nothing more, lets every delivery under way end, and gives back
-	 * what was claimed but not started, due at once for the next worker.
+	 * what was claimed but not started, due at once for the next worker. A
+	 * `start()` called meanwhile starts again once this ends.
 	 */
 	async stop(): Promise<void> {
+		this.#restart = false;
 		this.#stopping = true;
 		this.#wake?.();
 		await this.#loop;
 		await Promise.all(this.#inFlight);
 		this.#loop = undefined;
 		this.#stopping = false;
+		if (this.#restart) {
+			this.#restart = false;
+			this.start();
+		}
 	}
 }

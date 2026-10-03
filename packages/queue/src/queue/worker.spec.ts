@@ -138,3 +138,80 @@ describe('the worker', () => {
 		]);
 	});
 });
+
+describe('the worker, at the edges', () => {
+	test('start() called while stop() is under way starts again once it ends', async () => {
+		const held = gate();
+		const { queue, events, store } = setup(async (call) => {
+			await held.opened;
+			return accepted(call.options);
+		});
+		await queue.enqueue(MESSAGE, to);
+		queue.start();
+		await until(async () => (await store.list())[0]?.lease !== undefined);
+		const stopping = queue.stop();
+		queue.start();
+		held.open();
+		await stopping;
+		await queue.enqueue(MESSAGE, to);
+		await until(() => events.delivered.length === 2);
+		await queue.stop();
+	});
+
+	test('a cancel during delivery: the outcome still told, no lease reported lost, no DSN', async () => {
+		const held = gate();
+		const { queue, events, store } = setup(async (call) => {
+			await held.opened;
+			return accepted(call.options, {
+				'ann@example.com': { code: 550, text: 'no' },
+			});
+		});
+		const item = await queue.enqueue(MESSAGE, {
+			from: 'mary@example.net',
+			to: ['joe@example.com', 'ann@example.com'],
+		});
+		const pass = queue.deliverDue();
+		await until(async () => (await store.get(item.id))?.lease !== undefined);
+		await queue.cancel(item.id);
+		held.open();
+		await pass;
+		expect(events.error).toEqual([]);
+		expect(events.delivered.map((e) => e.recipient)).toEqual([
+			'joe@example.com',
+		]);
+		expect(events.failed.map((e) => e.recipient)).toEqual(['ann@example.com']);
+		expect(events.dsn).toEqual([]);
+	});
+
+	test('a stop after a 4xx on one domain keeps the back-off for the whole item', async () => {
+		const held = gate();
+		const { queue, sender, store } = setup(
+			async (call) => {
+				if (call.to[0]?.endsWith('@slow.example')) await held.opened;
+				if (call.to[0]?.endsWith('@busy.example')) {
+					return accepted(call.options, {
+						[call.to[0]]: { code: 451, status: '4.3.0', text: 'busy' },
+					});
+				}
+				return accepted(call.options);
+			},
+			{ perDomain: 1 },
+		);
+		await queue.enqueue(MESSAGE, { from: '', to: 'a@slow.example' });
+		const item = await queue.enqueue(MESSAGE, {
+			from: '',
+			to: ['b@busy.example', 'c@slow.example'],
+		});
+		const pass = queue.deliverDue();
+		await until(() => sender.calls.length === 2);
+		const stopping = queue.stop();
+		held.open();
+		await Promise.all([pass, stopping]);
+		const left = await store.get(item.id);
+		expect(left?.recipients.map((r) => r.status)).toEqual([
+			'deferred',
+			'pending',
+		]);
+		expect(left?.nextAttemptAt).toBe(T0 + 30 * MINUTE);
+	});
+});

@@ -56,6 +56,7 @@ export function openDatabase(options: SqliteQueueStoreOptions): Database {
 	let db: Database | undefined;
 	try {
 		mkdirSync(directory, { recursive: true, mode: PRIVATE_DIRECTORY });
+		chmodSync(directory, PRIVATE_DIRECTORY);
 		const file = join(directory, 'queue.sqlite');
 		db = new Database(file, { create: true, readwrite: true, strict: true });
 		configure(db, busyTimeout);

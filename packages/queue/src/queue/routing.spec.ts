@@ -104,6 +104,10 @@ describe('routing', () => {
 		expect(make({ resolver: NO_DNS, concurrency: 0 })).toThrow(
 			'concurrency must be an integer of at least 1, not 0',
 		);
+		expect(make({ resolver: NO_DNS, pollInterval: 2 ** 31 })).toThrow(
+			'pollInterval must be an integer from 1 to 2147483647, not 2147483648',
+		);
+		expect(make({ resolver: NO_DNS, leaseMs: 2 ** 33 })).toThrow('leaseMs');
 		expect(make({ resolver: NO_DNS, limits: { maxReplyText: 2000 } })).toThrow(
 			'limits.maxReplyText must be an integer from 64 to 900',
 		);

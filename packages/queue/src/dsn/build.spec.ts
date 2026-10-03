@@ -1,49 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { parseHeaderBlock, parseMessage } from '@bumail/mime';
-import { buildDsn, type DsnInput } from './build';
+import { buildDsn } from './build';
+import { at, decoder, fieldsOf, input, parse } from './dsn.fixtures';
 import { typedAddress } from './fields';
-
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
-
-const ORIGINAL =
-	'From: Mary <mary@example.net>\r\nTo: joe@example.com\r\nSubject: Lunch\r\nMessage-ID: <1@example.net>\r\n\r\nSee you at noon.\r\n';
-
-const at = (iso: string) => new Date(iso);
-
-function input(overrides: Partial<DsnInput> = {}): DsnInput {
-	return {
-		kind: 'failed',
-		reportingMta: 'mail.example.net',
-		from: 'postmaster@example.net',
-		to: 'mary@example.net',
-		arrival: at('2026-10-01T12:00:00Z'),
-		date: at('2026-10-01T12:05:00Z'),
-		recipients: [
-			{
-				address: 'joe@example.com',
-				reply: {
-					code: 550,
-					status: '5.1.1',
-					text: 'Requested action not taken: mailbox unavailable',
-					host: 'mx.example.com',
-				},
-				lastAttempt: at('2026-10-01T12:05:00Z'),
-			},
-		],
-		original: encoder.encode(ORIGINAL),
-		returnContent: 'headers',
-		maxReturn: 64 * 1024,
-		...overrides,
-	};
-}
-
-const parse = (dsn: Uint8Array) => parseMessage(dsn);
-const fieldsOf = (text: string) =>
-	text
-		.trim()
-		.split(/\r\n\r\n/)
-		.map((block) => parseHeaderBlock(encoder.encode(`${block}\r\n\r\n`)));
 
 describe('RFC 3464 §2 and RFC 6522 §3: a multipart/report of three parts', () => {
 	test('text for a person, message/delivery-status, then the original headers', () => {
@@ -154,62 +112,48 @@ describe('RFC 3464 §2.2 and §2.3: the delivery-status fields', () => {
 			'utf-8; j\\x{F6}rg@b\\x{FC}cher.example',
 		);
 	});
-});
 
-describe('the original, bounded', () => {
-	test('returnContent full: the whole message as message/rfc822 when it fits', () => {
-		const root = parse(buildDsn(input({ returnContent: 'full' })));
-		expect(root.children[2]?.contentType.mediaType).toBe('message/rfc822');
-		expect(
-			decoder.decode(buildDsn(input({ returnContent: 'full' }))),
-		).toContain('See you at noon.');
-	});
-
-	test('a message past maxReturn returns its headers only, cut after a whole line', () => {
-		const dsn = buildDsn(input({ returnContent: 'full', maxReturn: 60 }));
-		const part = parse(dsn).children[2];
-		expect(part?.contentType.mediaType).toBe('text/rfc822-headers');
-		expect(decoder.decode(part?.content)).toBe(
-			'From: Mary <mary@example.net>\r\nTo: joe@example.com\r\n',
-		);
-		expect(decoder.decode(dsn)).not.toContain('See you at noon');
-	});
-
-	test('8-bit headers are declared 8bit; bare line breaks become CRLF', () => {
-		const original = encoder.encode('Subject: Grüße\nX: y\r\n\r\nbody\r\n');
-		const dsn = decoder.decode(buildDsn(input({ original })));
-		expect(dsn).toContain(
-			'Content-Type: text/rfc822-headers\r\nContent-Transfer-Encoding: 8bit\r\n\r\nSubject: Grüße\r\nX: y\r\n',
-		);
-	});
-});
-
-describe('no header injection from a reply or an address', () => {
-	test('CR, LF and controls in a reply, a host or an address never start a field', () => {
-		const dsn = decoder.decode(
+	test('the longest UTF-8 address the queue takes still fits a header line, cut', () => {
+		const address = `${'中'.repeat(64)}@${'中'.repeat(180)}.cn`;
+		const dsn = new TextDecoder().decode(
 			buildDsn(
 				input({
-					to: 'mary@example.net\r\nBcc: victim@example.org',
 					recipients: [
+						{ address, lastAttempt: at('2026-10-01T12:05:00Z') },
 						{
-							address: 'joe@example.com\r\nX-Evil: 1',
-							reply: {
-								code: 550,
-								text: 'no\r\nX-Injected: yes\u0000\u001b[31m',
-								host: 'mx.example.com\r\nX-Host: 1',
-							},
+							address: 'b@example.org',
 							lastAttempt: at('2026-10-01T12:05:00Z'),
 						},
 					],
 				}),
 			),
 		);
-		for (const field of ['Bcc:', 'X-Evil:', 'X-Injected:', 'X-Host:']) {
-			expect(dsn).not.toContain(`\r\n${field}`);
-		}
-		expect(dsn).not.toContain('\u0000');
-		expect(dsn).not.toContain('\u001b');
-		expect(dsn).toContain('Diagnostic-Code: smtp; 550 no X-Injected: yes [31m');
-		expect(dsn).not.toContain('Remote-MTA');
+		const line = dsn
+			.split('\r\n')
+			.find((l) => l.startsWith('Final-Recipient: utf-8;'));
+		expect(line?.length).toBeLessThanOrEqual(998);
+		expect(dsn).toContain('Final-Recipient: rfc822; b@example.org');
+	});
+
+	test('an expired recipient keeps the remote reply, and the text says the time ran out', () => {
+		const root = parse(
+			buildDsn(
+				input({
+					recipients: [
+						{
+							address: 'joe@example.com',
+							reply: { code: 451, status: '4.4.7', text: 'Try again later' },
+							lastAttempt: at('2026-10-06T12:00:00Z'),
+						},
+					],
+				}),
+			),
+		);
+		const [, recipient] = fieldsOf(decoder.decode(root.children[1]?.content));
+		expect(recipient?.get('status')).toBe('4.4.7');
+		expect(recipient?.get('diagnostic-code')).toBe('smtp; 451 Try again later');
+		expect(root.children[0]?.text).toContain(
+			'<joe@example.com>: delivery time expired, still failing: 451 Try again later',
+		);
 	});
 });

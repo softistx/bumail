@@ -109,13 +109,13 @@ export interface QueueOptions {
 	readonly retry?: RetrySchedule;
 	readonly dsn?: DsnOptions;
 	readonly limits?: QueueLimits;
-	/** Items delivered at once, by this worker. Default 20. */
+	/** Items delivered at once, by this worker, each with one session per recipient domain. Default 20. */
 	readonly concurrency?: number;
 	/** Sessions at once to one recipient domain, by this worker. Default 2. */
 	readonly perDomain?: number;
-	/** How long a claim holds an item, renewed while it is delivered; milliseconds. Default 10 minutes. */
+	/** How long a claim holds an item, renewed while it is delivered; milliseconds, 1000 to 6 442 450 941. Default 10 minutes. */
 	readonly leaseMs?: number;
-	/** How often `start()` looks for due items; milliseconds. Default 5000. */
+	/** How often `start()` looks for due items; milliseconds, at most 2 147 483 647. Default 5000. */
 	readonly pollInterval?: number;
 	/** This worker's name on its leases. Default a random UUID. */
 	readonly owner?: string;

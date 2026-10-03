@@ -27,21 +27,27 @@ export interface StatusReport {
 /** Control characters out, CR and LF first: nothing from outside starts a field of its own. */
 const strip = (text: string) => replaceControls(text, '');
 
+/** The longest escaped address: with its field name, within 998 characters a line. */
+const MAX_ESCAPED = 900;
+
 /**
  * An address as a delivery-status field types it: `rfc822; addr` when it
  * is ASCII; otherwise `utf-8;` with each non-ASCII character as
- * `\x{HEX}` (RFC 6533 §3, utf-8-addr-xtext), so the part stays 7-bit.
+ * `\x{HEX}` (RFC 6533 §3, utf-8-addr-xtext), so the part stays 7-bit,
+ * cut at 900 characters so it always fits a header line.
  */
 export function typedAddress(address: string): string {
 	const clean = strip(address).replace(/[\s\\]/g, '');
 	if (/^[\x21-\x7e]*$/.test(clean)) return `rfc822; ${clean}`;
-	const escaped = [...clean]
-		.map((c) =>
-			/[\x21-\x7e]/.test(c)
-				? c
-				: `\\x{${(c.codePointAt(0) ?? 0).toString(16).toUpperCase()}}`,
-		)
-		.join('');
+	let escaped = '';
+	for (const c of clean) {
+		const piece = /[\x21-\x7e]/.test(c)
+			? c
+			: `\\x{${(c.codePointAt(0) ?? 0).toString(16).toUpperCase()}}`;
+		// One word, so it must fit a line (RFC 5322 §2.1.1): cut, never lost.
+		if (escaped.length + piece.length > MAX_ESCAPED) break;
+		escaped += piece;
+	}
 	return `utf-8; ${escaped}`;
 }
 
