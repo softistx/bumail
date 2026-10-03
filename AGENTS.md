@@ -302,8 +302,9 @@ Every PR goes into `develop`. Before merging:
     `received()` re-armed its timer, so a client that never paused kept
     it from firing, and a `shutdown(true)` that came late against a client
     still sending did not always fire `close` on Linux. A `node:net` client
-    writing without pause, refilling on `drain`, held the slot for the
-    5-second grace (5000 ms on Linux, 1265 ms on macOS). Resetting it at
+    writing without pause, refilling on `drain`, held the slot past
+    `LINGER_MAX_MS`: 5000 ms, the grace, on Linux, 1265 ms on macOS in
+    the run measured there. Resetting it at
     `LINGER_MAX_MS` freed the slot 499 to 502 ms after the hang-up on
     Linux and 469 to 501 ms on macOS, and that client, reading, still had
     the 421 or the BYE: both close specs passed 20 runs in 20 on each;
