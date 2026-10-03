@@ -9,10 +9,7 @@ export type {
 	DkimResult,
 	DkimResultWord,
 } from './dkim/result';
-export {
-	RECOMMENDED_HEADERS,
-	type SignDkimOptions,
-	signDkim,
-} from './dkim/sign';
+export { type SignDkimOptions, signDkim } from './dkim/sign';
+export { RECOMMENDED_HEADERS } from './dkim/sign-headers';
 export { type VerifyDkimOptions, verifyDkim } from './dkim/verify';
 export { AuthError, type AuthErrorCode } from './errors';

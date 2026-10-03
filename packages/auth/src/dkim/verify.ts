@@ -27,7 +27,7 @@ export interface VerifyDkimOptions {
 	readonly now?: () => number;
 	/** Seconds `t=` may be ahead and `x=` behind the clock. 300 by default. */
 	readonly clockSkew?: number;
-	/** Bytes the header may take before the message is refused. 256 KiB by default. */
+	/** Bytes the header may take; past them the message gives one `policy`. 256 KiB by default. */
 	readonly maxHeaderBytes?: number;
 	/** Signatures checked at most; the rest come back as `policy`. 10 by default. */
 	readonly maxSignatures?: number;
@@ -85,7 +85,7 @@ function plan(
 	field: RawField,
 	index: number,
 	settings: Settings,
-	hasFrom: boolean,
+	froms: number,
 ): Planned {
 	if (index >= settings.maxSignatures) {
 		return {
@@ -101,7 +101,7 @@ function plan(
 		parsed.tags,
 		'signature' in parsed ? parsed.signature : undefined,
 	);
-	const refused = screen(parsed, settings, hasFrom);
+	const refused = screen(parsed, settings, froms);
 	if (refused !== undefined || !('signature' in parsed)) {
 		return { result: { ...base, ...(refused as Verdict) } };
 	}
@@ -143,7 +143,7 @@ async function hashBody(
 
 function unreadable(
 	reason: string,
-	result: 'permerror' | 'temperror',
+	result: 'policy' | 'temperror',
 ): DkimResult[] {
 	return [{ result, reason, testing: false }];
 }
@@ -169,7 +169,7 @@ export async function verifyDkim(
 		if (error instanceof HeaderTooLarge) {
 			return unreadable(
 				`the header is larger than maxHeaderBytes (${settings.maxHeaderBytes})`,
-				'permerror',
+				'policy',
 			);
 		}
 		return unreadable(
@@ -185,10 +185,8 @@ export async function verifyDkim(
 			{ result: 'none', reason: 'no DKIM-Signature header', testing: false },
 		];
 	}
-	const hasFrom = fields.some((field) => field.name === 'from');
-	const planned = signatures.map((field, i) =>
-		plan(field, i, settings, hasFrom),
-	);
+	const froms = fields.filter((field) => field.name === 'from').length;
+	const planned = signatures.map((field, i) => plan(field, i, settings, froms));
 	const pendings = planned.flatMap((p) =>
 		p.pending === undefined ? [] : [p.pending],
 	);

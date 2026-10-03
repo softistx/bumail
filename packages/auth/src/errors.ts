@@ -13,8 +13,9 @@ export class AuthError extends Error {
 	override readonly name = 'AuthError';
 	readonly code: AuthErrorCode;
 
-	constructor(code: AuthErrorCode, message: string) {
-		super(message);
+	/** `options.cause` keeps the error this one wraps, such as the stream's own failure. */
+	constructor(code: AuthErrorCode, message: string, options?: ErrorOptions) {
+		super(message, options);
 		this.code = code;
 	}
 }

@@ -1,18 +1,20 @@
 import { normalizeName } from '@bumail/dns';
-import { foldHeader } from '@bumail/mime';
+import { foldHeader, MimeError } from '@bumail/mime';
 import { AuthError } from '../errors';
 import { BodyHasher } from './body';
-import { type CanonicalizationPair, canonicalizeHeader } from './canon';
+import {
+	type Canonicalization,
+	type CanonicalizationPair,
+	canonicalizeHeader,
+} from './canon';
 import { signData } from './crypto';
 import { type RawField, selectFields, splitFields } from './headers';
-import {
-	bytesOf,
-	HeaderTooLarge,
-	type MessageInput,
-	splitMessage,
-} from './message';
+import { HeaderTooLarge, type MessageInput, splitMessage } from './message';
+import { DNS_NAME } from './names';
 import type { DkimAlgorithm } from './result';
+import { givenHeaders, hasFrom, headersToSign } from './sign-headers';
 import { encodeBase64 } from './tags';
+import { bytesOf } from './text';
 
 /** What `signDkim` signs with. */
 export interface SignDkimOptions {
@@ -24,7 +26,11 @@ export interface SignDkimOptions {
 	readonly privateKey: CryptoKey;
 	/** Taken from the key when left out. */
 	readonly algorithm?: DkimAlgorithm;
-	/** `h=` exactly, over-signing included; by default RFC 6376 §5.4.1's set as present, and From once more. */
+	/**
+	 * `h=` exactly, over-signing included. By default `RECOMMENDED_HEADERS`
+	 * as present, then From, Subject, Date, To, Cc, Reply-To, Message-ID,
+	 * Content-Type and MIME-Version once more each, when present.
+	 */
 	readonly headers?: readonly string[];
 	/** `c=`; `relaxed/relaxed` by default. */
 	readonly canonicalization?: CanonicalizationPair;
@@ -37,34 +43,6 @@ export interface SignDkimOptions {
 	/** Bytes the header may take. 256 KiB by default. */
 	readonly maxHeaderBytes?: number;
 }
-
-/** RFC 6376 §5.4.1's recommended fields, and Message-ID, which it calls useful. */
-export const RECOMMENDED_HEADERS: readonly string[] = [
-	'from',
-	'reply-to',
-	'subject',
-	'date',
-	'to',
-	'cc',
-	'message-id',
-	'resent-date',
-	'resent-from',
-	'resent-to',
-	'resent-cc',
-	'in-reply-to',
-	'references',
-	'list-id',
-	'list-help',
-	'list-unsubscribe',
-	'list-subscribe',
-	'list-post',
-	'list-owner',
-	'list-archive',
-];
-
-const SELECTOR =
-	/^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*$/i;
-const FIELD_NAME = /^[\x21-\x39\x3b-\x7e]+$/;
 
 function invalid(message: string): AuthError {
 	return new AuthError('INVALID_OPTION', `signDkim(): ${message}`);
@@ -108,7 +86,7 @@ function domainOf(options: SignDkimOptions): {
 	}
 	if (
 		typeof options.selector !== 'string' ||
-		!SELECTOR.test(options.selector)
+		!DNS_NAME.test(options.selector)
 	) {
 		throw invalid(`selector "${String(options.selector)}" is not a selector`);
 	}
@@ -124,30 +102,6 @@ function domainOf(options: SignDkimOptions): {
 		throw invalid(`identity "${identity}" is not an address within ${domain}`);
 	}
 	return { domain, identity };
-}
-
-function headersOf(
-	options: SignDkimOptions,
-	fields: readonly RawField[],
-): string[] {
-	if (!fields.some((field) => field.name === 'from')) {
-		throw new AuthError(
-			'INVALID_MESSAGE',
-			'signDkim(): the message has no From header',
-		);
-	}
-	if (options.headers === undefined) {
-		const present = fields
-			.map((field) => field.name)
-			.filter((name) => RECOMMENDED_HEADERS.includes(name));
-		return [...present, 'from'];
-	}
-	const names = options.headers.map((name) => name.toLowerCase());
-	if (names.some((name) => !FIELD_NAME.test(name)))
-		throw invalid('headers holds a name that is not a header field name');
-	if (!names.includes('from'))
-		throw invalid('headers must include from (RFC 6376 §5.4)');
-	return names;
 }
 
 function canonOf(
@@ -175,6 +129,65 @@ function timesOf(options: SignDkimOptions): string[] {
 	return [`t=${t}`, `x=${t + options.expiresIn}`];
 }
 
+function maxHeaderBytesOf(options: SignDkimOptions): number {
+	const maxHeaderBytes = options.maxHeaderBytes ?? 262_144;
+	if (!Number.isSafeInteger(maxHeaderBytes) || maxHeaderBytes < 1) {
+		throw invalid(
+			`maxHeaderBytes must be an integer of at least 1, not ${maxHeaderBytes}`,
+		);
+	}
+	return maxHeaderBytes;
+}
+
+/** The header's fields and the body hash, every failure to read the message an `AuthError` `INVALID_MESSAGE`. */
+async function readMessage(
+	message: MessageInput,
+	maxHeaderBytes: number,
+	bodyCanon: Canonicalization,
+): Promise<{ fields: RawField[]; bodyHash: Uint8Array }> {
+	try {
+		const split = await splitMessage(message, maxHeaderBytes);
+		const fields = splitFields(split.header);
+		if (!hasFrom(fields)) {
+			await split.cancel();
+			throw new AuthError(
+				'INVALID_MESSAGE',
+				'signDkim(): the message has no From header',
+			);
+		}
+		const hasher = new BodyHasher(bodyCanon);
+		for await (const chunk of split.body) hasher.write(chunk);
+		return { fields, bodyHash: hasher.end().hash };
+	} catch (error) {
+		if (error instanceof AuthError) throw error;
+		if (error instanceof HeaderTooLarge) {
+			throw new AuthError(
+				'INVALID_MESSAGE',
+				`signDkim(): the header is larger than maxHeaderBytes (${maxHeaderBytes})`,
+			);
+		}
+		throw new AuthError(
+			'INVALID_MESSAGE',
+			`signDkim(): the message could not be read: ${String(error)}`,
+			{ cause: error },
+		);
+	}
+}
+
+/** The field folded by `@bumail/mime`; what it cannot fold, such as a word past 998 characters, is an `INVALID_OPTION`. */
+function fold(value: string): string {
+	try {
+		return foldHeader('DKIM-Signature', value);
+	} catch (error) {
+		if (!(error instanceof MimeError)) throw error;
+		throw new AuthError(
+			'INVALID_OPTION',
+			`signDkim(): the DKIM-Signature field cannot be written: ${error.message}`,
+			{ cause: error },
+		);
+	}
+}
+
 /**
  * Signs a message (RFC 6376 §5) and returns the `DKIM-Signature` field to
  * put on top of it, folded at 78 columns, `b=` last, ending with CRLF:
@@ -189,27 +202,14 @@ export async function signDkim(
 	const { domain, identity } = domainOf(options);
 	const [headerCanon, bodyCanon] = canonOf(options);
 	const times = timesOf(options);
-	const maxHeaderBytes = options.maxHeaderBytes ?? 262_144;
-	if (!Number.isSafeInteger(maxHeaderBytes) || maxHeaderBytes < 1) {
-		throw invalid(
-			`maxHeaderBytes must be an integer of at least 1, not ${maxHeaderBytes}`,
-		);
-	}
-	const split = await splitMessage(message, maxHeaderBytes).catch(
-		(error: unknown) => {
-			if (error instanceof HeaderTooLarge) {
-				throw new AuthError(
-					'INVALID_MESSAGE',
-					`signDkim(): the header is larger than maxHeaderBytes (${maxHeaderBytes})`,
-				);
-			}
-			throw error;
-		},
+	const given = givenHeaders(options.headers);
+	const maxHeaderBytes = maxHeaderBytesOf(options);
+	const { fields, bodyHash } = await readMessage(
+		message,
+		maxHeaderBytes,
+		bodyCanon,
 	);
-	const fields = splitFields(split.header);
-	const names = headersOf(options, fields);
-	const hasher = new BodyHasher(bodyCanon);
-	for await (const chunk of split.body) hasher.write(chunk);
+	const names = headersToSign(given, fields);
 	const tags = [
 		'v=1',
 		`a=${algorithm}`,
@@ -219,9 +219,9 @@ export async function signDkim(
 		...(identity === undefined ? [] : [`i=${identity}`]),
 		...times,
 		`h=${names.join(': ')}`,
-		`bh=${encodeBase64(hasher.end().hash)}`,
+		`bh=${encodeBase64(bodyHash)}`,
 	].join('; ');
-	const unsigned = foldHeader('DKIM-Signature', `${tags}; b=`);
+	const unsigned = fold(`${tags}; b=`);
 	const data =
 		selectFields(fields, names)
 			.map((field) => canonicalizeHeader(field.raw, headerCanon))
@@ -230,5 +230,5 @@ export async function signDkim(
 		await signData(algorithm, options.privateKey, bytesOf(data)),
 	);
 	const chunks = b.match(/.{1,72}/g) ?? [];
-	return `${foldHeader('DKIM-Signature', `${tags}; b=${chunks.map((c) => ` ${c}`).join('')}`)}\r\n`;
+	return `${fold(`${tags}; b=${chunks.map((c) => ` ${c}`).join('')}`)}\r\n`;
 }

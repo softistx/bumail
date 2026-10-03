@@ -1,3 +1,5 @@
+import { binary, trimFws } from './text';
+
 /** A tag=value list (RFC 6376 §3.2): names are case-sensitive, values trimmed of folding white space. */
 export type TagList = ReadonlyMap<string, string>;
 
@@ -7,11 +9,6 @@ export type TagListResult =
 	| { readonly error: string };
 
 const NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
-const EDGE_FWS = /^[ \t\r\n]+|[ \t\r\n]+$/g;
-
-function trimFws(text: string): string {
-	return text.replace(EDGE_FWS, '');
-}
 
 /**
  * Parses `tag-list = tag-spec *( ";" tag-spec ) [ ";" ]`. A tag without
@@ -66,17 +63,13 @@ const BASE64 =
 /** The bytes of a base64 value (white space already removed), or `undefined` when it is not base64. */
 export function decodeBase64Strict(text: string): Uint8Array | undefined {
 	if (!BASE64.test(text)) return undefined;
-	const binary = atob(text);
-	const bytes = new Uint8Array(binary.length);
-	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	const decoded = atob(text);
+	const bytes = new Uint8Array(decoded.length);
+	for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
 	return bytes;
 }
 
 /** Bytes as base64. */
 export function encodeBase64(bytes: Uint8Array): string {
-	let binary = '';
-	for (let i = 0; i < bytes.length; i += 0x8000) {
-		binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-	}
-	return btoa(binary);
+	return btoa(binary(bytes));
 }

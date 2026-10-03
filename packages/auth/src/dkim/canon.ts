@@ -1,12 +1,10 @@
+import { lowerAscii, trimWspEnd } from './text';
+
 /** A canonicalisation algorithm (RFC 6376 §3.4). */
 export type Canonicalization = 'simple' | 'relaxed';
 
 /** The header and body canonicalisation pair, as `c=` writes it. */
 export type CanonicalizationPair = `${Canonicalization}/${Canonicalization}`;
-
-function lowerAscii(text: string): string {
-	return text.replace(/[A-Z]+/g, (upper) => upper.toLowerCase());
-}
 
 /**
  * One header field canonicalised, CRLF included (§3.4.1, §3.4.2). `field`
@@ -23,7 +21,7 @@ export function canonicalizeHeader(
 ): string {
 	if (method === 'simple') return `${field}\r\n`;
 	const colon = field.indexOf(':');
-	const name = lowerAscii(field.slice(0, colon).replace(/[ \t]+$/, ''));
+	const name = lowerAscii(trimWspEnd(field.slice(0, colon)));
 	const value = field
 		.slice(colon + 1)
 		.replace(/\r\n/g, '')

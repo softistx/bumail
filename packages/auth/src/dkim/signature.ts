@@ -1,4 +1,5 @@
 import type { Canonicalization } from './canon';
+import { DNS_NAME, FIELD_NAME } from './names';
 import type { DkimAlgorithm, Verdict } from './result';
 import { verdict } from './result';
 import {
@@ -9,6 +10,7 @@ import {
 	type TagList,
 	withoutFws,
 } from './tags';
+import { lowerAscii } from './text';
 
 /** A DKIM-Signature whose tags all passed RFC 6376 §6.1.1's checks. */
 export interface DkimSignature {
@@ -33,9 +35,6 @@ export type ParsedSignature =
 	| { readonly tags?: TagList; readonly verdict: Verdict };
 
 const REQUIRED = ['v', 'a', 'b', 'bh', 'd', 'h', 's'] as const;
-const NAME =
-	/^(?=.{1,253}$)[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*$/i;
-const FIELD_NAME = /^[\x21-\x39\x3b-\x7e]+$/;
 
 class Refused extends Error {
 	constructor(readonly verdict: Verdict) {
@@ -87,7 +86,7 @@ function numberOf(
 }
 
 function headersOf(value: string, maxSignedHeaders: number): string[] {
-	const names = colonList(value).map((name) => name.toLowerCase());
+	const names = colonList(value).map(lowerAscii);
 	if (names.some((name) => !FIELD_NAME.test(name))) permerror('malformed h=');
 	if (names.length > maxSignedHeaders) {
 		throw new Refused(
@@ -101,8 +100,8 @@ function headersOf(value: string, maxSignedHeaders: number): string[] {
 function identityOf(tags: TagList, domain: string): [string, string] {
 	const identity = tags.get('i') ?? `@${domain}`;
 	const at = identity.lastIndexOf('@');
-	const identityDomain = identity.slice(at + 1).toLowerCase();
-	if (at < 0 || !NAME.test(identityDomain)) permerror('malformed i=');
+	const identityDomain = lowerAscii(identity.slice(at + 1));
+	if (at < 0 || !DNS_NAME.test(identityDomain)) permerror('malformed i=');
 	if (identityDomain !== domain && !identityDomain.endsWith(`.${domain}`)) {
 		permerror('i= is not within d=');
 	}
@@ -121,10 +120,10 @@ function checkTags(tags: TagList, maxSignedHeaders: number): DkimSignature {
 	if (q !== undefined && !colonList(q).includes('dns/txt')) {
 		permerror('unsupported query method (q= has no dns/txt)');
 	}
-	const domain = (tags.get('d') ?? '').toLowerCase();
-	if (!NAME.test(domain)) permerror('malformed d=');
-	const selector = (tags.get('s') ?? '').toLowerCase();
-	if (!NAME.test(selector)) permerror('malformed s=');
+	const domain = lowerAscii(tags.get('d') ?? '');
+	if (!DNS_NAME.test(domain)) permerror('malformed d=');
+	const selector = lowerAscii(tags.get('s') ?? '');
+	if (!DNS_NAME.test(selector)) permerror('malformed s=');
 	const [identity, identityDomain] = identityOf(tags, domain);
 	const signedHeaders = headersOf(tags.get('h') ?? '', maxSignedHeaders);
 	const timestamp = numberOf(tags, 't', 12);

@@ -4,7 +4,11 @@ import type { DkimAlgorithm } from './result';
 /** The key types DKIM key records name in `k=`. */
 export type DkimKeyType = 'rsa' | 'ed25519';
 
-const RSA = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
+/** The Web Crypto algorithm of rsa-sha256: RSASSA-PKCS1-v1_5 over SHA-256, to import and to sign with. */
+export const RSA = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
+
+/** The Web Crypto algorithm of ed25519-sha256's keys. */
+export const ED25519 = { name: 'Ed25519' } as const;
 
 /** The key type an algorithm signs with. */
 export function keyTypeOf(algorithm: DkimAlgorithm): DkimKeyType {
@@ -14,7 +18,7 @@ export function keyTypeOf(algorithm: DkimAlgorithm): DkimKeyType {
 async function tryImport(
 	format: 'spki' | 'raw',
 	bytes: Uint8Array,
-	algorithm: typeof RSA | { name: 'Ed25519' },
+	algorithm: typeof RSA | typeof ED25519,
 ): Promise<CryptoKey | undefined> {
 	try {
 		return await crypto.subtle.importKey(
@@ -40,9 +44,7 @@ export async function importPublicKey(
 	bytes: Uint8Array,
 ): Promise<CryptoKey | undefined> {
 	if (type === 'ed25519') {
-		return bytes.length === 32
-			? tryImport('raw', bytes, { name: 'Ed25519' })
-			: undefined;
+		return bytes.length === 32 ? tryImport('raw', bytes, ED25519) : undefined;
 	}
 	return (
 		(await tryImport('spki', bytes, RSA)) ??
@@ -82,7 +84,7 @@ export async function verifyData(
 			);
 		}
 		return await crypto.subtle.verify(
-			{ name: 'Ed25519' },
+			ED25519,
 			key,
 			signature as BufferSource,
 			(await sha256(data)) as BufferSource,
@@ -102,7 +104,7 @@ export async function signData(
 		algorithm === 'rsa-sha256'
 			? await crypto.subtle.sign(RSA, key, data as BufferSource)
 			: await crypto.subtle.sign(
-					{ name: 'Ed25519' },
+					ED25519,
 					key,
 					(await sha256(data)) as BufferSource,
 				);

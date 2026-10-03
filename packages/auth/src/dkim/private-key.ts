@@ -1,9 +1,7 @@
 import { AuthError } from '../errors';
+import { ED25519, RSA } from './crypto';
 import { pkcs8OfEd25519Seed, pkcs8OfRsaPrivateKey } from './der';
 import { decodeBase64Strict, withoutFws } from './tags';
-
-const RSA = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
-const ED25519 = { name: 'Ed25519' } as const;
 
 function invalid(message: string): AuthError {
 	return new AuthError('INVALID_KEY', `importDkimPrivateKey(): ${message}`);

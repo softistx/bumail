@@ -1,3 +1,5 @@
+import { lowerAscii, trimWspEnd } from './text';
+
 /** One header field as written, for hashing. */
 export interface RawField {
 	/** The name, lowercased (ASCII) and without white space before the colon: what `h=` is matched against. */
@@ -20,10 +22,7 @@ export function splitFields(header: string): RawField[] {
 		if (first !== undefined) {
 			const colon = first.indexOf(':');
 			if (colon > 0) {
-				const name = first
-					.slice(0, colon)
-					.replace(/[ \t]+$/, '')
-					.replace(/[A-Z]+/g, (upper) => upper.toLowerCase());
+				const name = lowerAscii(trimWspEnd(first.slice(0, colon)));
 				fields.push({ name, raw: lines.join('\r\n') });
 			}
 		}
@@ -56,7 +55,7 @@ export function selectFields(
 	const taken = new Map<string, number>();
 	const selected: RawField[] = [];
 	for (const wanted of names) {
-		const name = wanted.toLowerCase();
+		const name = lowerAscii(wanted);
 		let index = taken.get(name) ?? fields.length;
 		do index--;
 		while (index >= 0 && fields[index]?.name !== name);

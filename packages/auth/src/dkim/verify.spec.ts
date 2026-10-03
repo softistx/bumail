@@ -193,7 +193,7 @@ describe('verifyDkim', () => {
 			await verifyDkim(unsigned(), { resolver, maxHeaderBytes: 16 }),
 		).toEqual([
 			{
-				result: 'permerror',
+				result: 'policy',
 				reason: 'the header is larger than maxHeaderBytes (16)',
 				testing: false,
 			},

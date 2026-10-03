@@ -4,10 +4,10 @@ import { canonicalizeHeader, withoutSignatureValue } from './canon';
 import { rsaBits, verifyData } from './crypto';
 import { type RawField, selectFields } from './headers';
 import type { DkimKey } from './key';
-import { bytesOf } from './message';
 import { type DkimResult, type Verdict, verdict } from './result';
 import type { DkimSignature, ParsedSignature } from './signature';
 import { type TagList, withoutFws } from './tags';
+import { bytesOf, lowerAscii } from './text';
 
 /** What `verifyDkim` checks with, its options resolved. */
 export interface Settings {
@@ -35,7 +35,9 @@ export function describe(
 	signature?: DkimSignature,
 ): DkimResult {
 	const text = (name: string) => tags?.get(name);
-	const domain = signature?.domain ?? text('d')?.toLowerCase();
+	const d = text('d');
+	const domain =
+		signature?.domain ?? (d === undefined ? undefined : lowerAscii(d));
 	const selector = signature?.selector ?? text('s');
 	const identity = signature?.identity ?? text('i');
 	const algorithm = text('a');
@@ -65,15 +67,28 @@ export function describe(
 	};
 }
 
-/** What can be refused before a key or a body: the tags, the clock, the policy, the From field. */
+/**
+ * What can be refused before a key or a body: the tags, the From fields,
+ * the clock, the policy. `froms` counts the message's From fields: one
+ * that `h=` does not list (the signature over-signs none, and one was
+ * added) is `policy`, since a reader may be shown the unsigned one.
+ */
 export function screen(
 	parsed: ParsedSignature,
 	settings: Settings,
-	hasFrom: boolean,
+	froms: number,
 ): Verdict | undefined {
 	if ('verdict' in parsed) return parsed.verdict;
-	const { expires, timestamp, bodyLength } = parsed.signature;
+	const { expires, timestamp, bodyLength, signedHeaders } = parsed.signature;
+	const hasFrom = froms > 0;
 	if (!hasFrom) return verdict('permerror', 'the message has no From header');
+	const signedFroms = signedHeaders.filter((name) => name === 'from').length;
+	if (froms > signedFroms) {
+		return verdict(
+			'policy',
+			'the message has a From the signature does not cover',
+		);
+	}
 	if (expires !== undefined && settings.now > expires + settings.clockSkew) {
 		return verdict('neutral', 'signature expired (x=)');
 	}

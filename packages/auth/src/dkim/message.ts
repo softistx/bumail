@@ -1,3 +1,5 @@
+import { binary } from './text';
+
 const LF = 0x0a;
 const CR = 0x0d;
 
@@ -27,22 +29,6 @@ export function headerEnd(
 			return { header: i + 1, body: i + 3 };
 	}
 	return undefined;
-}
-
-/** Bytes as a binary string: each byte one char, so nothing is decoded and nothing is lost. */
-export function binary(bytes: Uint8Array): string {
-	let text = '';
-	for (let i = 0; i < bytes.length; i += 0x8000) {
-		text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-	}
-	return text;
-}
-
-/** A binary string back to its bytes. */
-export function bytesOf(text: string): Uint8Array {
-	const bytes = new Uint8Array(text.length);
-	for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff;
-	return bytes;
 }
 
 function fromBytes(bytes: Uint8Array, maxHeaderBytes: number): SplitMessage {

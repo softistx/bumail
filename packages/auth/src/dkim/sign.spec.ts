@@ -38,9 +38,9 @@ describe('signDkim', () => {
 		expect(unfolded).toContain(`t=${NOW / 1000};`);
 	});
 
-	test('signs the recommended fields present, and From once more', async () => {
+	test('signs the recommended fields present, and over-signs the ones a reader sees', async () => {
 		const { privateKey } = await keyPair('ed25519-sha256');
-		const message = `Received: from x\r\nX-Mailer: y\r\n${unsigned()}`;
+		const message = `Received: from x\r\nX-Mailer: y\r\nMIME-Version: 1.0\r\n${unsigned()}`;
 		const signature = await signDkim(message, {
 			domain: 'example.com',
 			selector: 'sel',
@@ -48,12 +48,18 @@ describe('signDkim', () => {
 		});
 		const h = /h=([^;]+);/.exec(signature.replace(/\r\n/g, ''))?.[1];
 		expect(h?.split(':').map((name) => name.trim())).toEqual([
+			'mime-version',
 			'from',
 			'to',
 			'subject',
 			'date',
 			'message-id',
 			'from',
+			'subject',
+			'date',
+			'to',
+			'message-id',
+			'mime-version',
 		]);
 	});
 
@@ -88,9 +94,15 @@ describe('signDkim', () => {
 				{ headers: ['to'] },
 				'signDkim(): headers must include from (RFC 6376 §5.4)',
 			],
+			...['bad name', 'x;y', 'x:y', 'x\ty', 'x\u0001y', 'x\u00e9y', ''].map(
+				(name): [Record<string, unknown>, string] => [
+					{ headers: ['from', name] },
+					'signDkim(): headers holds a name that is not a header field name',
+				],
+			),
 			[
-				{ headers: ['from', 'bad name'] },
-				'signDkim(): headers holds a name that is not a header field name',
+				{ headers: 'from' },
+				'signDkim(): headers must be an array of header field names',
 			],
 			[{ selector: 'a..b' }, 'signDkim(): selector "a..b" is not a selector'],
 			[{ domain: 'a..b' }, 'signDkim(): domain "a..b" is not a domain name'],
