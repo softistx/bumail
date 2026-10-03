@@ -1,4 +1,4 @@
 ---
 ---
 
-The roadmaps say mime, smtp and store 0.1.0 are published.
+The roadmaps say mime, smtp, store and dns 0.1.0 are published.

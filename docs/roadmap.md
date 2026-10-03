@@ -96,8 +96,6 @@ Nothing in progress.
   since a modseq, for the account or one mailbox, behind one interface,
   every call scoped to one account. It is where the SMTP server's
   `onData` delivers.
-### 0.1.0 — awaiting npm's approval of its first publish
-
 - **`@bumail/dns`** — the DNS answers the other packages need (MX, TXT,
   A, AAAA, PTR) behind one small interface: `node:dns` in production, a
   fixture in specs, with a cache that honours TTLs. *Its own package*:
