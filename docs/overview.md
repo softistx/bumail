@@ -50,12 +50,12 @@ them one by one.
 | part | what it does | bumail | status |
 | --- | --- | --- | --- |
 | [Message format](#the-message-mime) | What an e-mail is: headers, body, attachments | [`@bumail/mime`](../packages/mime) | published |
-| [SMTP, receiving](#smtp-receiving-mail) | Takes mail in: MX on 25, submission on 587 | [`@bumail/smtp`](../packages/smtp) | published |
+| [SMTP, receiving](#smtp-receiving-mail) | Takes mail in: MX on 25, submission on 587 | [`@bumail/smtp`](../packages/smtp) | published, with the client on `@bumail/smtp/client` |
 | [DNS](#dns) | MX, TXT, A, AAAA, PTR lookups; the records a domain publishes | [`@bumail/dns`](../packages/dns) | lookups published; record helpers next |
-| [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM published; SPF merged; DMARC in review |
+| [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM and SPF published; DMARC in review |
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
-| [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | `@bumail/queue`, the SMTP client | next |
-| [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | `@bumail/imap`, then `@bumail/jmap` | next |
+| [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp), then `@bumail/queue` | client published; queue next |
+| [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap), then `@bumail/jmap` | IMAP published; JMAP in review |
 | [The server app](#the-server-app) | Wires everything together | an app on alxia | next |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
@@ -157,7 +157,9 @@ leads to a bounce.
   and accepted it.
 - It refuses SMTP smuggling (a bare LF or CR inside the message).
 
-The client side, which sends mail out, comes with the queue.
+The client side, which sends mail out, is `@bumail/smtp/client` in the same
+[package](../packages/smtp): `sendMail` delivers one message to a smarthost
+or to a domain's MX hosts, which `resolveMx` looks up.
 
 ## DNS
 
@@ -286,14 +288,13 @@ broke SPF, or the list's edits broke DKIM.
 **In bumail.** [`@bumail/auth`](../packages/auth):
 
 - `verifyDkim` and `signDkim`: published in 0.1.0;
-- `checkSpf`: merged, not yet published;
+- `checkSpf`: published in 0.2.0;
 - `checkDmarc` and `formatAuthenticationResults`: in review;
 - ARC: later.
 
 Every check answers with RFC 8601's words and never throws on a hostile
-message. The DKIM signer and verifier were cross-checked with dkimpy, each
-verifying the other's signatures; `checkSpf` runs the RFC 7208 test suite
-and was compared with pyspf.
+message. `checkSpf` runs the RFC 7208 test suite and was compared with
+pyspf.
 
 ## Storage
 
@@ -327,8 +328,8 @@ S3 and the metadata in a database.
   it commits;
 - Next: PostgreSQL, MongoDB, and a separate blob store (disk, S3, GridFS).
 
-Every implementation passes the same contract tests, so the SMTP server and
-JMAP never need to know which one they were given.
+Every implementation passes the same contract tests, so the SMTP server,
+IMAP and JMAP never need to know which one they were given.
 
 ## Queue and outbound delivery
 
@@ -345,9 +346,11 @@ JMAP never need to know which one they were given.
     notification (RFC 3464), back to the sender.
 - **Signing with DKIM** before sending.
 
-**In bumail.** This is next: the SMTP client, on its own subpath of
-`@bumail/smtp`, and `@bumail/queue`, a contract with a memory and a
-`bun:sqlite` implementation, like the store.
+**In bumail.** The SMTP client is published, as
+[`@bumail/smtp/client`](../packages/smtp): `sendMail` delivers one message,
+to a smarthost or by MX, and says whether a failure is temporary. Next is
+`@bumail/queue`, which retries and bounces on top of it: a contract with a
+memory and a `bun:sqlite` implementation, like the store.
 
 ## Mailbox access: IMAP and JMAP
 
@@ -359,9 +362,13 @@ JMAP never need to know which one they were given.
   connection. Almost every desktop client speaks it.
 - **POP3** downloads and deletes. bumail does not plan it.
 
-**In bumail.** `@bumail/imap` comes first, since it is what Thunderbird,
-Apple Mail, Outlook and the phone clients speak, and so what a real mail
-client tests bumail with. `@bumail/jmap` follows, as an
+**In bumail.** [`@bumail/imap`](../packages/imap) came first, since it is
+what Thunderbird, Apple Mail, Outlook and the phone clients speak, and so
+what a real mail client tests bumail with. Its first slice is published in
+0.1.0: IMAP4rev2, login only over TLS, IDLE, MOVE and SPECIAL-USE, serving
+any `@bumail/store`. Its second slice adds CONDSTORE and QRESYNC (RFC 7162)
+for quick resync, UIDPLUS (RFC 4315) and BINARY (RFC 3516).
+`@bumail/jmap`, in review, follows as an
 [alxia](https://github.com/softistx/alxia) app: alxia already provides the
 routing, validation and typed client. Later, bumail
 gets its own web mail client on JMAP, built on the same stack (alxia's
