@@ -13,10 +13,6 @@ Nothing scheduled yet.
 
 ## Next
 
-- **`@bumail/store`, its contract and memory store** — accounts, mailboxes,
-  messages, flags, UIDs and modseqs, behind one interface. The SMTP server
-  ships first, delivering through its `onData` hook; once the store lands,
-  it is where those messages go.
 - **`@bumail/dns`** — the DNS answers the other packages need (MX, TXT, A,
   AAAA, PTR) behind one small interface: `node:dns` in production, a fixture
   in specs, with a cache that honours TTLs. *Its own package*: SPF,
@@ -83,5 +79,10 @@ Nothing scheduled yet.
   implicit TLS; AUTH PLAIN and LOGIN, offered only once encrypted; hooks for
   connect, MAIL FROM, RCPT TO and DATA where the app accepts or refuses;
   size limits and timeouts. Delivery goes through the `onData` hook — into
-  `@bumail/store` once it lands — and the server **refuses to relay without
-  AUTH** in every default.
+  `@bumail/store`, or wherever the app keeps mail — and the server
+  **refuses to relay without AUTH** in every default.
+- **`@bumail/store`, its contract and memory store** — accounts,
+  mailboxes with the IANA roles and a subscription, messages with one id
+  across mailboxes, a thread and a UID in each, flags, and the changes
+  since a modseq, behind one interface, every call scoped to one account.
+  It is where the SMTP server's `onData` delivers.

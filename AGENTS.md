@@ -12,6 +12,7 @@ below lists only what has landed.
 | --- | --- | --- |
 | `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
+| `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — and its memory store | — |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
@@ -43,7 +44,10 @@ The repository is **private** until the owner says otherwise.
 - **A store is a contract, with several answers.** What keeps state — the
   mailbox store, the outbound queue — defines its interface and ships a
   memory answer; `bun:sqlite` answers the same interface on disk. Whoever
-  uses a store never knows which one it was given.
+  uses a store never knows which one it was given. The contract's specs are
+  a `describe…` function in a `<subject>.fixtures.ts` beside the stores,
+  run by each store's spec; `tsconfig.build.json` keeps fixtures out of
+  `dist`.
 - **The network is injected.** DNS and sockets reach a package through an
   option, so a spec never leaves the machine: a spec that needs MX, TXT or a
   peer server gets one from a fixture, never from the Internet.
@@ -58,6 +62,7 @@ The repository is **private** until the owner says otherwise.
 ```
 mime            (standalone)
 smtp            (standalone)
+store           (standalone)
 ```
 
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,

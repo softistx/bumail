@@ -11,6 +11,7 @@ package has a runtime dependency. The server app at the end is built on
 | --- | --- |
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH |
+| [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract and a memory store |
 
 Nothing is published yet. What comes, in what order and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
