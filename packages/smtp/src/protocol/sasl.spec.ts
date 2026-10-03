@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { decodeLoginStep, decodePlain } from './sasl';
+import {
+	decodeLoginStep,
+	decodePlain,
+	encodeLoginStep,
+	encodePlain,
+} from './sasl';
 
 const b64 = (text: string) => new TextEncoder().encode(text).toBase64();
 
@@ -47,5 +52,19 @@ describe('decodeLoginStep', () => {
 	test('one base64 line to its text', () => {
 		expect(decodeLoginStep('dGlt')).toBe('tim');
 		expect(decodeLoginStep('not base64')).toBeUndefined();
+	});
+});
+
+describe('encodePlain and encodeLoginStep, the client side', () => {
+	test('§4 example, without an authorization identity, read back by decodePlain', () => {
+		expect(encodePlain('tim', 'tanstaaftanstaaf')).toBe(
+			'AHRpbQB0YW5zdGFhZnRhbnN0YWFm',
+		);
+		expect(decodePlain(encodePlain('zoë', 'pässword'))).toEqual({
+			mechanism: 'PLAIN',
+			username: 'zoë',
+			password: 'pässword',
+		});
+		expect(decodeLoginStep(encodeLoginStep('zoë'))).toBe('zoë');
 	});
 });

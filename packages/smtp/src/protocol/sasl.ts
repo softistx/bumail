@@ -44,3 +44,15 @@ export function decodePlain(response: string): Credentials | undefined {
 export function decodeLoginStep(response: string): string | undefined {
 	return base64ToText(response);
 }
+
+const base64 = (text: string) => new TextEncoder().encode(text).toBase64();
+
+/** A client's PLAIN response (RFC 4616): `NUL username NUL password`, in base64, no authorization identity. */
+export function encodePlain(username: string, password: string): string {
+	return base64(`\0${username}\0${password}`);
+}
+
+/** One step of LOGIN, the username or the password, in base64. */
+export function encodeLoginStep(text: string): string {
+	return base64(text);
+}

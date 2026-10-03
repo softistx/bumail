@@ -10,13 +10,13 @@ Nothing in progress.
 
 ## Next
 
-- **The client, on its own subpath** — outbound delivery: MX lookup,
-  opportunistic STARTTLS, connection reuse per destination. In this
-  package, beside the server, since both share the command and reply
-  grammar.
+- **Connection reuse in the client** — several messages to one
+  destination over one session (`RSET` between them), for a queue that
+  delivers in batches. Today each `sendMail` opens its own connection.
 - **DSN** (RFC 3461) — `RET`, `ENVID`, `NOTIFY` and `ORCPT` accepted and
   handed to the app, so a sender can ask for delivery status
-  notifications. Today they are refused with `555 5.5.4`.
+  notifications. Today they are refused with `555 5.5.4`, and the client
+  sends none.
 - **Delivery into `@bumail/store`, ready-made** — an `onData` that puts
   each message in its recipients' inboxes, instead of the few lines the
   [guide](guide.md#delivering-into-bumailstore) shows today. The store
@@ -33,6 +33,36 @@ Nothing in progress.
 ## Shipped
 
 ### Unreleased — merged, not yet published
+
+- **A client that stops reading no longer holds a connection slot.** When
+  the server hangs up on its own — the idle `timeout`, `maxErrors`, failed
+  AUTH, a refusal — it no longer waits for the client to read what is
+  queued: the connection is counted out at once, and what was never read
+  is dropped. Such a close used to wait forever, so enough clients that
+  pipelined commands and never read could fill `maxConnections`. The
+  same holds on implicit TLS and after STARTTLS, where a client that paused
+  and never answered the hang-up used to keep its slot even with nothing
+  queued. `QUIT` still sends its `221` whole before hanging up, within a
+  5-second grace when the client does not read it.
+
+- **`stop(true)` closes sessions moved to TLS by STARTTLS.** They used to
+  stay open, each holding its slot, because the listener no longer held
+  them. A hang-up on TLS right after queued replies left no longer drops
+  the end of them.
+
+- **The client, as `@bumail/smtp/client`** — `sendMail(message, options)`
+  delivers one message to a host (a smarthost, submission on 587 or 465,
+  a local Mailpit) or to a domain's MX hosts by preference, through a
+  resolver — `@bumail/dns`'s, or any with `mx`, `a` and `aaaa` — the
+  domain's own address without MX, and a null MX refused; `helo` required
+  by MX, by the type itself. STARTTLS opportunistic by default for
+  MX, required — the certificate checked — with AUTH; implicit TLS; AUTH
+  PLAIN and LOGIN only once the certificate checked out; PIPELINING, SIZE, 8BITMIME and
+  SMTPUTF8; the message a string, bytes or a stream, dot-stuffed, a bare
+  CR or LF refused. It resolves with each recipient's reply, and rejects
+  with an `SmtpError` whose `temporary` tells a retry from a bounce. RFC
+  5321's timeouts per step and a deadline; reply lines, replies and their
+  total bounded against a hostile server.
 
 - **`hookTimeout` bounded to what a timer can wait.** A value past
   2 147 483 seconds is refused, where it used to fire after a millisecond
