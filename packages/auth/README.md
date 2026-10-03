@@ -212,10 +212,14 @@ check; with nothing, it writes `none`.
 ### DMARC
 
 - **A message `checkDmarc` cannot evaluate is `permerror` with
-  `disposition: 'reject'`.** No From, two From fields, or one From with
-  two addresses (§6.6.1): a second From is the classic way around a
-  `p=reject`, and a reader may be shown either one. Decide what to do
-  with these on `reason`.
+  `disposition: 'reject'`.** No From, two From fields, one From with
+  two addresses, an empty From, a group, or a From that does not parse
+  as one mailbox (§6.6.1): a second From is the classic way around a
+  `p=reject`, and a reader may be shown either one. From is read
+  strictly, and a display name is never taken as the author. Decide what
+  to do with these on `reason`; the
+  [guide](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/guide.md#when-from-cannot-be-evaluated)
+  lists every case.
 - **`temperror` is not `fail`.** The DMARC record could not be had, or an
   aligned DKIM or SPF check had a temporary error. `disposition` is
   `none`; answer with a 451 so the sender retries.
