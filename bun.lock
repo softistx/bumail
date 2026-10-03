@@ -27,7 +27,7 @@
     },
     "packages/auth": {
       "name": "@bumail/auth",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@bumail/dns": "workspace:^",
         "@bumail/mime": "workspace:^",
@@ -57,7 +57,7 @@
     },
     "packages/imap": {
       "name": "@bumail/imap",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@bumail/mime": "workspace:^",
         "@bumail/store": "workspace:^",
@@ -74,7 +74,7 @@
     },
     "packages/jmap": {
       "name": "@bumail/jmap",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@alxia/core": "^0.2.1",
         "@bumail/mime": "workspace:^",
@@ -94,7 +94,7 @@
     },
     "packages/mime": {
       "name": "@bumail/mime",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },
@@ -107,7 +107,7 @@
     },
     "packages/smtp": {
       "name": "@bumail/smtp",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "devDependencies": {
         "@bumail/auth": "workspace:^",
         "@bumail/dns": "workspace:^",
@@ -123,7 +123,7 @@
     },
     "packages/store": {
       "name": "@bumail/store",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },

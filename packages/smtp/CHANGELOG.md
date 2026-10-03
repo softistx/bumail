@@ -1,5 +1,17 @@
 # @bumail/smtp
 
+## 0.2.1
+
+### Patch Changes
+
+- [#34](https://github.com/softistx/bumail/pull/34) [`5fecf59`](https://github.com/softistx/bumail/commit/5fecf5968a10baf27b28507167d2dc5693182c98) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Free the slot within 500 ms instead of 5 seconds when the server hangs up — the idle timeout, `maxErrors`, a local error, or after `QUIT` — on a client whose input it had paused, as when the client pipelines more than the server can take: the half-close did not complete over the unread input, so the connection kept its place under `maxConnections` for the 5-second grace. The server now reads again before it half-closes, dropping what comes until the client's input stops for 20 ms, and a client whose input went quiet for 20 ms within 500 ms of the hang-up still reads the last reply and a clean end — on Linux too, where a close over input left unread is a reset that lost the reply. It waits 500 ms at most: input not quiet for 20 ms by then — a client still sending, or one that stopped in the last 20 ms — is reset, so the socket closes within 500 ms however the client sends.
+
+- [#34](https://github.com/softistx/bumail/pull/34) [`52646ab`](https://github.com/softistx/bumail/commit/52646abbb7ab0c6416b6021cc848161e791fab69) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Security: refuse a source route in `sendMail`'s `from` and `to`, and any control character in an address. The client checked an address as an RFC 5321 path but dropped a source route (`@host:`) without looking at it, and then wrote the address as given, so on a server offering SMTPUTF8 `to: '@x\r\nRSET\r\nNOOP:a@c.com'` put `RCPT TO:<@x\r\nRSET\r\nNOOP:a@c.com>` on the wire, which the server read as three commands. `sendMail` now refuses any source route before it connects — RFC 5321 §4.1.1.3 says a client should not send one — with `"…" holds a source route (@host:), which RFC 5321 says a client should not send: pass "…" alone` for an otherwise valid one, and `is not an address` for the rest. `parsePath` refuses a C0 control (CR, LF, NUL…), DEL or `>` anywhere in a path, and takes a source route only as `@domain(,@domain)*:` with each hop a valid domain; its new third argument, `'discard'` (the default, the server's) or `'refuse'` (the client's), says what to do with a valid one. The server still accepts and drops a valid route, and answers any other with `501 5.5.4 Syntax`. Upgrade if `from` or `to` can come from user input.
+  
+  `parsePath`, and so `sendMail` and the server, also refuse a lone surrogate (`to: 'a\uD800@c.com'`, which reached the wire as U+FFFD) and an IPv4 address literal with an octet above 255 (`[999.1.1.1]`).
+  
+  `helo: '[IPv6:2001:db8::1]'` is taken, and the server accepts `EHLO [IPv6:2001:db8::1]`: both refused the `IPv6:` tag's `P`, and both took `[999.1.1.1]`. The tag is taken in any case (`[ipv6:2001:db8::1]`), as RFC 5234 reads a quoted string, in `helo`, `EHLO` and an address's domain alike (`a@[ipv6:2001:db8::1]` in `from`, `to`, `MAIL FROM` and `RCPT TO`). An IPv6 literal without its tag (`helo: '[2001:db8::1]'`, `EHLO [2001:db8::1]`), which both took, is now refused, as RFC 5321 §4.1.3 asks: write `[IPv6:2001:db8::1]`.
+
 ## 0.2.0
 
 ### Minor Changes
