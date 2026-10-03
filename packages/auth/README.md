@@ -235,6 +235,9 @@ check; with nothing, it writes `none`.
   aggregate and failure reports is on the roadmap.
 - **A stream is read up to the header's end, then cancelled.** Pass
   `checkDmarc` and `verifyDkim` the same bytes, not the same stream.
+  `timeout` bounds the DNS lookups only: a stream that stalls before
+  its blank line stalls the check, as it does `verifyDkim`. Bound the
+  read in your SMTP server.
 
 ### Authentication-Results
 
@@ -275,7 +278,8 @@ check; with nothing, it writes `none`.
 | `DmarcPolicy` | `'none' \| 'quarantine' \| 'reject'` |
 | `DmarcRecord` | `p`, `sp`, `invalidSp`, `adkim`, `aspf`, `pct`, `rua`, `ruf`, `fo`, `rf`, `ri`, defaults filled in |
 | `DmarcUri` | `uri`, `maxSize` (bytes, from `!10m`) |
-| `organizationalDomain(domain)` | the organizational domain (RFC 7489 §3.2) from the embedded Public Suffix List, in A-labels; `undefined` for a public suffix |
+| `organizationalDomain(domain)` | the organizational domain (RFC 7489 §3.2) from the embedded Public Suffix List, in A-labels; `undefined` for a public suffix or a name that cannot be looked up |
+| `PSL_VERSION` | the `VERSION` of the embedded Public Suffix List snapshot, such as `2026-10-01_23-02-52_UTC`, for logs |
 | `formatAuthenticationResults(authservId, results)` | the `Authentication-Results` field (RFC 8601), folded, CRLF included |
 | `AuthenticationResultsInput` | `dkim` (`DkimResult[]`), `spf` (`SpfCheck`), `dmarc` (`DmarcResult`), each optional |
 | `AuthError`, `AuthErrorCode` | thrown for an option or input, an `ip`, a message to sign or a key: `INVALID_OPTION`, `INVALID_MESSAGE`, `INVALID_KEY`; `cause` holds a wrapped error |

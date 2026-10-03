@@ -84,7 +84,8 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **`@bumail/auth`, DMARC and `Authentication-Results`** — `checkDmarc`:
   the From domain's policy, found there or at its organizational domain
   (an embedded Public Suffix List), DKIM and SPF aligned with From, `pct`
-  and the disposition; a message with two From fields is refused.
+  and the disposition; a message with two From fields gets `permerror` with disposition
+  `reject`.
   `formatAuthenticationResults` writes the three results as one field.
 - **`@bumail/auth`, SPF** — `checkSpf`, RFC 7208's `check_host()` for the
   client IP and the MAIL FROM or HELO domain: every mechanism, `redirect=`,

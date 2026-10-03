@@ -499,7 +499,9 @@ handled. `checkDmarc` answers `permerror` with `disposition: 'reject'`,
 
 A From that is only an empty group (`undisclosed-recipients:;`) names
 no author to protect: it is `none`, `disposition: 'none'`, as §6.6.1
-says such mail is "typically ignored".
+says such mail is "typically ignored". A message stream that fails
+before its header ends is `temperror` (`the message could not be
+read: …`), `domain: ''`, `disposition: 'none'`.
 
 ### Policy discovery
 
@@ -579,7 +581,7 @@ made with `identity: 'helo'` is not DMARC's.
 | `pass` | a DKIM signature or SPF check passed and aligned | `none` |
 | `fail` | none did | the policy if `sampled`; else `reject` → `quarantine`, `quarantine` → `none` (§6.6.4) |
 | `none` | no DMARC record, or From is an empty group | `none` |
-| `temperror` | the record could not be had, or no aligned pass and an aligned check had a temporary error (§6.6.2) | `none`: answer 451 |
+| `temperror` | the record could not be had, the message could not be read, or no aligned pass and an aligned check had a temporary error (§6.6.2) | `none`: answer 451 |
 | `permerror` | two records, a record with no usable policy | `none` |
 | `permerror` | From cannot be evaluated (see above) | `reject` |
 
@@ -603,7 +605,7 @@ private section matters to DMARC: without it, `alice.github.io` and
 `bob.github.io` would share an organizational domain, and one tenant
 could align with the other's From.
 
-`organizationalDomain(domain)` is exported: the domain's public suffix
+`PSL_VERSION` names the snapshot, for your logs. `organizationalDomain(domain)` is exported: the domain's public suffix
 and one label more, in A-labels, or `undefined` when the domain is
 itself a public suffix. A public suffix stands for itself in alignment,
 so `d=com` aligns with nothing but `com` (§3.1.1).

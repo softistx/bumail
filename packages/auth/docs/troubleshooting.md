@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Four kinds of entry. **Errors** are what a call throws: an `AuthError`,
+Three kinds of entry. **Errors** are what a call throws: an `AuthError`,
 headed by its message and listed under its `code`; one that wraps
 another error keeps it as `cause`. **Result reasons** are
 what `verifyDkim`, `checkSpf` and `checkDmarc` give back in `reason`.
@@ -608,6 +608,8 @@ The DNS gave no answer for the query named (`TEMPORARY` or `TIMEOUT`), or
 the resolver threw something that is not a `DnsError`, whose text is
 given instead. Answer the MAIL FROM with a 451 so the sender retries
 later.
+A reason that reads `DNS lookup failed: DnsError: …` means two copies of
+`@bumail/dns` are installed: dedupe the peer.
 
 #### `the check took longer than its timeout (… ms)`
 
@@ -617,9 +619,10 @@ yours is slow; the RFC asks for at least 20 seconds, the default.
 
 ## DMARC result reasons
 
-What `checkDmarc` gives back. Those about From come with
-`disposition: 'reject'` and an empty `domain`; every other one but a
-`fail` comes with `disposition: 'none'`.
+What `checkDmarc` gives back. Every reason about the message itself
+(From, the header, the stream) comes with an empty `domain`; those of
+them under `permerror` come with `disposition: 'reject'`. Every other
+reason but a `fail` comes with `disposition: 'none'`.
 
 ### pass
 
@@ -665,7 +668,11 @@ There is no author domain to protect, so DMARC does not apply (§6.6.1).
 The DNS gave no answer for the record (`TEMPORARY` or `TIMEOUT`), or the
 resolver threw something that is not a `DnsError`, whose text is given
 instead. A failure at the From domain is not followed by the
-organizational domain's lookup. Answer with a 451 so the sender retries.
+organizational domain's lookup. A reason that reads
+`DNS lookup failed: DnsError: …` means the resolver comes from another
+copy of `@bumail/dns` than the one `@bumail/auth` loads, so its
+`NOT_FOUND` is not recognised: dedupe the peer (one `@bumail/dns` in
+`node_modules`). Answer with a 451 so the sender retries.
 
 #### `the check took longer than its timeout (… ms)`
 
@@ -682,7 +689,9 @@ is not aligned is not counted, so a forger cannot ask for this.
 #### `the message could not be read: …`
 
 The message stream failed before its header ended. The error's text
-follows the colon.
+follows the colon. A stream that stalls without failing gives no
+result at all: `timeout` bounds the DNS lookups, not the read, so bound
+the read where the message comes in.
 
 ### permerror
 
