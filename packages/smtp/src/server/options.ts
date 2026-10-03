@@ -52,13 +52,14 @@ export interface ReceivedMessage {
 	 */
 	readonly content: ReadableStream<Uint8Array>;
 	/**
-	 * Aborts, with the `SmtpError` as its `reason`, when the server refuses
-	 * the message after `onData` had it: the stream errored, `onData`
-	 * answered before reading to the end, or it did not answer within
-	 * `hookTimeout`. In that last case the stream may already have ended
+	 * Aborts when the message is refused for a reason `onData` did not
+	 * answer itself: the stream errored, `onData` answered before reading
+	 * to the end, did not answer within `hookTimeout`, threw, or answered
+	 * what is not a refusal, or the client left before hearing the reply.
+	 * Its `reason` is the `SmtpError`, or what `onData` threw. A refusal
+	 * `onData` returns leaves it alone. The stream may already have ended
 	 * cleanly, so check `signal.aborted` (or listen for `abort`) before
-	 * keeping a message for good: the client was told `451` and will send
-	 * it again.
+	 * keeping a message for good: the client will send it again.
 	 */
 	readonly signal: AbortSignal;
 }

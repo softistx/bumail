@@ -21,6 +21,8 @@ export class Input {
 	#paused = false;
 	readonly #lines = new LineSplitter();
 	#intake: Intake | undefined;
+	/** A message whole, while `onData` answers it and before the reply is sent. */
+	#answering: Intake | undefined;
 	/** The work in progress on what the client sent; settled when all of it is answered. */
 	#pumping: Promise<void> | undefined;
 	/** The 220 went out: input before it breaks RFC 5321 §4.3.1. */
@@ -59,6 +61,10 @@ export class Input {
 	abort(): void {
 		this.#intake?.abort();
 		this.#intake = undefined;
+		// The client left before hearing the reply, so it will send the
+		// message again: onData learns it through the signal.
+		this.#answering?.abort();
+		this.#answering = undefined;
 	}
 
 	/**
@@ -156,9 +162,12 @@ export class Input {
 		const { done, rest } = await intake.write(chunk);
 		if (!done || this.#connection.closed) return;
 		this.#intake = undefined;
+		this.#answering = intake;
 		this.#connection.state.waiting = 'command';
 		this.#connection.state.transaction = emptyTransaction();
-		this.#connection.send(await intake.finish());
+		const answer = await intake.finish();
+		this.#answering = undefined;
+		this.#connection.send(answer);
 		if (rest.length > 0) this.#unshift(rest);
 	}
 

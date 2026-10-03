@@ -62,6 +62,7 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: The message is larger than maxMessageSize (… bytes); do not deliver it`](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it)
 - [`SmtpError: The message holds a bare CR or LF (SMTP smuggling); do not deliver it`](#smtperror-the-message-holds-a-bare-cr-or-lf-smtp-smuggling-do-not-deliver-it)
 - [`SmtpError: The client disconnected before the end of the message; do not deliver it`](#smtperror-the-client-disconnected-before-the-end-of-the-message-do-not-deliver-it)
+- [`SmtpError: The client disconnected before the reply to the message; do not deliver it`](#smtperror-the-client-disconnected-before-the-reply-to-the-message-do-not-deliver-it)
 - [`SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-read-the-message-within-hooktimeout--s-do-not-deliver-it)
 - [`SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it)
 
@@ -989,6 +990,21 @@ It sends it again on its next attempt.
 **Fix**: delete what you wrote and let the error propagate, as in
 [the entry above](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it).
 
+### `SmtpError: The client disconnected before the reply to the message; do not deliver it`
+
+**When**: `message.signal` aborts with this `SmtpError`, code
+`CONNECTION_LOST`: the whole message came, but the client hung up while
+`onData` was still answering, so it never heard a reply. The stream may
+already have ended cleanly; if `onData` was still reading, the read throws
+it too.
+
+**Why**: a client that heard no `250` will send the message again, so
+keeping this copy would deliver it twice. A client that leaves once the
+reply was sent does not abort the signal.
+
+**Fix**: check `message.signal` before keeping the message for good, as in
+[the `onData did not answer` entry](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it).
+
 ### `SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`
 
 **When**: the read of `message.content` throws this `SmtpError`, code
@@ -1017,9 +1033,9 @@ the end nor answered within `hookTimeout` seconds. The client got
 that ended cleanly after that would deliver it twice.
 
 **Fix**: read the stream inside `onData`, and before keeping the message
-check `message.signal`: it aborts whenever the server refused the message,
-including when the read had already ended cleanly and only the answer was
-late. Or raise `hookTimeout` above what the slow work takes:
+check `message.signal`: it aborts whenever the message is refused for a
+reason `onData` did not answer itself, including when the read had already
+ended cleanly and only the answer was late. Or raise `hookTimeout` above what the slow work takes:
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';
@@ -1235,8 +1251,10 @@ default). The server hangs up. Before EHLO the reply has no enhanced code.
 
 **Why**: RFC 5321 §4.5.3.2.7 lets a server drop a client that has gone
 quiet, so that a dead client does not hold a connection forever. The time
-counts from the client's last byte, so a slow hook can run into it too —
-keep `hookTimeout` below `timeout`.
+counts from the client's last byte, or from the 220 when nothing came after
+it, so a slow hook can run into it too — keep `hookTimeout` below
+`timeout`. Bun's socket timer ticks in steps of about 4 seconds, so the
+hang-up can come up to that much after `timeout`.
 
 **Fix**, as a client: send `QUIT` when done; a pooled connection that
 waits longer must reconnect, or send `NOOP` within the timeout.

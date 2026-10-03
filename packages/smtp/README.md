@@ -209,29 +209,13 @@ console.log(`listening on ${port}, ${server.connections} open`);
   twice. Await the read inside `onData`.
 - **An `onData` that read everything but answers after `hookTimeout`
   still gets the client `451`**, though its read ended cleanly. Only
-  `message.signal` says so: it aborts, with the `SmtpError` as its reason,
-  whenever the server refuses a message `onData` was given. Check it before
-  keeping a message for good:
-
-  ```ts
-  import { createSmtpServer } from '@bumail/smtp';
-
-  createSmtpServer({
-  	hostname: 'mx.example.com',
-  	localDomains: ['example.com'],
-  	async onData(message) {
-  		const bytes = await new Response(message.content).bytes();
-  		// A scan that may outlast hookTimeout.
-  		await fetch('http://127.0.0.1:3310/scan', { method: 'POST', body: bytes });
-  		// The client was told 451 if it did, and will send the message again.
-  		if (message.signal.aborted) return;
-  		await Bun.write(`spool/${message.id}.eml`, bytes);
-  	},
-  });
-  ```
-
-  RFC 5321 §6.1 tolerates a duplicate over a loss, so a race left open
-  costs a second copy, never a lost message.
+  `message.signal` says so: it aborts whenever the message is refused for a
+  reason `onData` did not answer itself (late, threw, not a refusal, the
+  client gone before the reply). Check `if (message.signal.aborted) return;`
+  just before keeping a message for good —
+  [the guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md#when-the-refusal-comes-after-the-read)
+  has the full example. RFC 5321 §6.1 tolerates a duplicate over a loss, so
+  a race left open costs a second copy, never a lost message.
 - `authenticate` needs `tls`, and so does `mode: 'submission'`:
   `createSmtpServer` throws without it.
 - Ports 25, 465 and 587 are below 1024: binding them needs the privilege to,
@@ -253,7 +237,7 @@ console.log(`listening on ${port}, ${server.connections} open`);
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |
 | `HookResult` | what a hook returns: `undefined` to accept, a `Reply` to refuse |
 | `Session` | `id`, `remoteAddress`, `secure`, `helo`, `esmtp`, `user`, and `data` for your own state |
-| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`) `content`, a `ReadableStream<Uint8Array>`, and `signal`, an `AbortSignal` aborted when the server refuses the message |
+| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`), `content`, a `ReadableStream<Uint8Array>`, and `signal`, an `AbortSignal` aborted when the message is refused for a reason `onData` did not answer itself |
 | `TlsOptions` | `key` and `cert`, as `Bun.listen` takes them |
 | `Credentials` | what `authenticate` receives: `mechanism`, `username`, `password`, `authorizationId?` |
 | `reply(code, status, text)`, `Reply` | a reply, for a hook to refuse with |
