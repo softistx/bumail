@@ -6,11 +6,7 @@ number on it.
 
 ## Now
 
-- **The resolver interface, on `node:dns`, a fixture and a cache.** MX,
-  TXT, A, AAAA and PTR, normalised names, one error type that tells "no
-  such record" from "try later", a fixture that can answer with any error
-  and counts lookups, and a cache that honours TTLs and never keeps a
-  temporary failure.
+Nothing in progress.
 
 ## Next
 
@@ -33,9 +29,18 @@ number on it.
 - **A runtime dependency.** `node:dns` is the platform's.
 - **DNSSEC validation.** `node:dns` does not give it, which is why DANE
   (RFC 7672) is not planned for bumail either.
-- **Telling NXDOMAIN from NODATA.** Bun reports both as `ENOTFOUND`, and
-  nothing in a mail server needs the difference.
+- **Telling NXDOMAIN from NODATA.** Node's `node:dns` keeps them apart,
+  but Bun's reports both as `ENOTFOUND`, and nothing bumail plans now
+  needs the difference: RFC 9091's DMARC `np=` defines a non-existent
+  domain as NXDOMAIN or NODATA, so it takes either.
 
 ## Shipped
 
-Nothing yet.
+### 0.1.0 — merged, not yet published
+
+- **The resolver interface, on `node:dns`, a fixture and a cache.** MX,
+  TXT, A, AAAA and PTR, normalised names that are never swapped for
+  another, one error type that tells "no such record" from "try later", a
+  fixture that can answer with any error and counts lookups, and a cache
+  that honours TTLs, shares identical queries and never keeps a temporary
+  failure.

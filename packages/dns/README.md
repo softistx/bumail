@@ -38,7 +38,9 @@ record's character-strings come joined into one `text`, as SPF (RFC 7208
 ## Errors
 
 ```ts
-import { DnsError, isTemporary } from '@bumail/dns';
+import { DnsError, isTemporary, nodeResolver } from '@bumail/dns';
+
+const dns = nodeResolver();
 
 try {
 	await dns.txt('_dmarc.example.com');
@@ -50,8 +52,11 @@ try {
 ```
 
 `NOT_FOUND` covers both "no such name" (NXDOMAIN) and "no record of that
-type" (NODATA). Bun's `node:dns` reports both as `ENOTFOUND`, and none of
-SPF, DKIM, DMARC or the SMTP client's MX fallback needs them apart.
+type" (NODATA). Node's `node:dns` keeps them apart (`ENOTFOUND`,
+`ENODATA`), but Bun's reports both as `ENOTFOUND`, so a resolver on Bun
+cannot. Nothing bumail plans now needs the difference: SPF, DKIM, DMARC
+(RFC 9091's `np=` included, whose non-existent domain is NXDOMAIN or
+NODATA) and the SMTP client's MX fallback all take either.
 
 ## Specs: a fixture, never the network
 
@@ -76,15 +81,17 @@ dns.queries; // [{ type: 'mx', name: 'nomail.example' }]: count lookups, as SPF'
 ## Caching
 
 ```ts
+import { cachedResolver, nodeResolver } from '@bumail/dns';
+
 const dns = cachedResolver(nodeResolver(), {
 	maxEntries: 1000, // the least recently used answer goes first
-	maxTtl: 86_400, // no answer kept longer than a day
+	maxTtl: 86_400, // no answer kept longer than a day, a NOT_FOUND included
 	negativeTtl: 300, // NOT_FOUND kept 5 minutes (RFC 2308); TEMPORARY and TIMEOUT never
 });
 ```
 
 A cached answer comes back with the TTL it has left. Two identical queries
-made at once share one query.
+made at once share one query, and its answer or its error.
 
 ## Traps
 
@@ -97,6 +104,14 @@ made at once share one query.
   domain at once, with no fallback to its A or AAAA records.
 - **An address is not a name.** `mx('192.0.2.1')` is `INVALID_NAME`. Look
   an address up with `ptr()`.
+- **A name is never swapped for another.** A name holding URL syntax
+  (`@`, `/`, `:`, `?`, `#`, `%`, `\\`) or an invisible character the IDN
+  mapping would drop (a soft hyphen, a zero-width joiner) is
+  `INVALID_NAME`, so a name taken from a message, as SPF and DMARC take
+  them, cannot make the resolver query a domain the sender chose.
+- **`servers`, `timeout` and `tries` configure `node:dns`.** Next to a
+  `backend` they would be ignored, so `nodeResolver` refuses them there
+  with `INVALID_OPTION`.
 
 ## API
 

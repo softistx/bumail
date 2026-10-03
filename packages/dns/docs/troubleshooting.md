@@ -6,6 +6,7 @@ is the group it is listed under. The parts shown as … vary.
 **NOT_FOUND**
 
 - [`DnsError: No … record (…)`](#dnserror-no--record-)
+- [`DnsError: The fixture answers … with …`](#dnserror-the-fixture-answers--with-), when the fixture sets `NOT_FOUND`
 
 **TEMPORARY**
 
@@ -15,6 +16,7 @@ is the group it is listed under. The parts shown as … vary.
 **TIMEOUT**
 
 - [`DnsError: The DNS did not answer … in time (…)`](#dnserror-the-dns-did-not-answer--in-time-)
+- [`DnsError: The fixture answers … with …`](#dnserror-the-fixture-answers--with-), when the fixture sets `TIMEOUT`
 
 **INVALID_NAME**
 
@@ -25,7 +27,9 @@ is the group it is listed under. The parts shown as … vary.
 
 **INVALID_OPTION**
 
-- [`DnsError: nodeResolver(): assumedTtl must be an integer of at least 0, not …`](#dnserror-noderesolver-assumedttl-must-be-an-integer-of-at-least-0-not-)
+- [`DnsError: nodeResolver(): … must be an integer of at least …, not …`](#dnserror-noderesolver--must-be-an-integer-of-at-least--not-)
+- [`DnsError: nodeResolver(): servers must be IP addresses, optionally with a port ('1.1.1.1', '[::1]:53'); …`](#dnserror-noderesolver-servers-must-be-ip-addresses-optionally-with-a-port-1111-153-)
+- [`DnsError: nodeResolver(): … configure node:dns, so they cannot go with a backend; configure the backend itself`](#dnserror-noderesolver--configure-nodedns-so-they-cannot-go-with-a-backend-configure-the-backend-itself)
 - [`DnsError: cachedResolver(): … must be an integer of at least …, not …`](#dnserror-cachedresolver--must-be-an-integer-of-at-least--not-)
 
 ## NOT_FOUND
@@ -35,10 +39,13 @@ is the group it is listed under. The parts shown as … vary.
 **When**: the DNS answered, and there is no such record: `No TXT
 _dmarc.example.com record (ENOTFOUND)`. The parenthesis says how it was
 learnt: `ENOTFOUND` or `ENODATA` from `node:dns`, `empty answer` when it
-answered with no records, or `the fixture has none` from a
-`fixtureResolver`.
+answered with no records, `the fixture has none` from a
+`fixtureResolver`, or `the resolver underneath answered nothing` from a
+`cachedResolver` whose inner resolver broke the contract with an empty
+answer.
 
-**Why**: the name does not exist, or it holds no record of that type. Bun
+**Why**: the name does not exist, or it holds no record of that type.
+Node's `node:dns` tells them apart (`ENOTFOUND`, `ENODATA`); Bun's
 reports both as `ENOTFOUND`, so the error does not say which.
 
 **Fix**: usually none: it is an answer. SPF and DMARC read it as `none`.
@@ -47,6 +54,10 @@ the name you asked for: a DKIM key lives at
 `<selector>._domainkey.<domain>`, a DMARC policy at `_dmarc.<domain>`.
 
 ```ts
+import { DnsError, nodeResolver } from '@bumail/dns';
+
+const dns = nodeResolver();
+const domain = 'example.com';
 try {
 	await dns.txt(`_dmarc.${domain}`);
 } catch (error) {
@@ -76,8 +87,14 @@ port 53. A `cachedResolver` never keeps this error, so the next query
 tries again.
 
 ```ts
-if (isTemporary(error)) {
-	// SPF / DMARC: temperror. SMTP: answer 451 4.4.3 and let the sender retry.
+import { isTemporary, nodeResolver } from '@bumail/dns';
+
+try {
+	await nodeResolver().mx('example.com');
+} catch (error) {
+	if (isTemporary(error)) {
+		// SPF / DMARC: temperror. SMTP: answer 451 4.4.3 and let the sender retry.
+	}
 }
 ```
 
@@ -109,6 +126,8 @@ traffic.
 `tries`, or point `servers` at a resolver nearer the machine.
 
 ```ts
+import { nodeResolver } from '@bumail/dns';
+
 const dns = nodeResolver({ timeout: 5000, tries: 3 });
 ```
 
@@ -125,6 +144,14 @@ of the message says why:
   (`*`, `/`, a leading or trailing hyphen, a label of 64 characters);
 - `it is longer than 253 characters`;
 - `it is an address; look its name up with ptr()`;
+- `it holds "…", which no host name has`: URL syntax (`@`, `/`, `:`,
+  `?`, `#`, `%`, `\`…), which the IDN mapping would read as syntax and
+  so query another name (`évil@good.example` as `good.example`);
+- `it holds an invisible character the IDN mapping would drop`: a soft
+  hyphen, a zero-width joiner, any default-ignorable character;
+- `its IDN mapping changes its labels`: a character the mapping turns
+  into a dot (`。`, U+3002), so the name queried would not have the
+  labels written;
 - `it is not a valid international name`.
 
 **Why**: names are checked before any query, so text from a message (a
@@ -136,6 +163,9 @@ anything into one. Nothing was sent.
 address in a command. To find the name an address points to, use `ptr()`:
 
 ```ts
+import { nodeResolver } from '@bumail/dns';
+
+const dns = nodeResolver();
 await dns.ptr('192.0.2.1'); // not dns.a('192.0.2.1')
 ```
 
@@ -151,12 +181,15 @@ failed.
 
 ### `DnsError: "…" is not an IPv4 or IPv6 address to look up`
 
-**When**: `ptr()` was given something other than an IPv4 or IPv6 address.
+**When**: `ptr()` was given something other than an IPv4 or IPv6 address,
+or an IPv6 address with a zone (`fe80::1%eth0`).
 
 **Why**: `ptr()` takes the address itself (`192.0.2.1`, `2001:db8::1`),
-not a name and not its `in-addr.arpa` form.
+not a name and not its `in-addr.arpa` form. A zone names a local
+interface, which has no meaning in the DNS.
 
-**Fix**: pass the address; the resolver builds the reverse name itself.
+**Fix**: pass the address, without a zone; the resolver builds the
+reverse name itself.
 
 ### `DnsError: The DNS refused the name in … (…)`
 
@@ -172,15 +205,57 @@ Treat it as a malformed name meanwhile.
 
 ## INVALID_OPTION
 
-### `DnsError: nodeResolver(): assumedTtl must be an integer of at least 0, not …`
+### `DnsError: nodeResolver(): … must be an integer of at least …, not …`
 
-**When**: `nodeResolver` was given an `assumedTtl` that is negative, not
-a whole number, or not a number.
+**When**: `nodeResolver` was given an `assumedTtl` below 0, a `timeout`
+or `tries` below 1, or one of them that is not a whole number.
 
-**Why**: it is a number of seconds a cache keeps MX, TXT and PTR answers.
+**Why**: `assumedTtl` is the seconds a cache keeps MX, TXT and PTR
+answers; `timeout` is milliseconds per try, and `tries` counts tries.
 
-**Fix**: give whole seconds: `nodeResolver({ assumedTtl: 300 })`, or 0 to
-let a cache keep none of them.
+**Fix**: give whole numbers:
+
+```ts
+import { nodeResolver } from '@bumail/dns';
+
+nodeResolver({ assumedTtl: 300, timeout: 3000, tries: 2 }); // assumedTtl: 0 lets a cache keep none
+```
+
+### `DnsError: nodeResolver(): servers must be IP addresses, optionally with a port ('1.1.1.1', '[::1]:53'); …`
+
+**When**: `node:dns` refused one of `servers`; the end of the message is
+its own reason.
+
+**Why**: `node:dns` takes servers by address, not by name: it would need
+a DNS to find them.
+
+**Fix**: give addresses, with the port in the IPv6 form when it is not
+53:
+
+```ts
+import { nodeResolver } from '@bumail/dns';
+
+nodeResolver({ servers: ['1.1.1.1', '[2606:4700:4700::1111]:53'] });
+```
+
+### `DnsError: nodeResolver(): … configure node:dns, so they cannot go with a backend; configure the backend itself`
+
+**When**: `nodeResolver` was given a `backend` and also `servers`,
+`timeout` or `tries`; the message names which.
+
+**Why**: those three configure the `node:dns` resolver that a `backend`
+replaces, so they would do nothing.
+
+**Fix**: drop them, and configure the backend you give:
+
+```ts
+import { Resolver } from 'node:dns/promises';
+import { nodeResolver } from '@bumail/dns';
+
+const backend = new Resolver({ timeout: 3000, tries: 2 });
+backend.setServers(['1.1.1.1']);
+const dns = nodeResolver({ backend });
+```
 
 ### `DnsError: cachedResolver(): … must be an integer of at least …, not …`
 
@@ -192,6 +267,8 @@ let a cache keep none of them.
 **Fix**:
 
 ```ts
-cachedResolver(resolver, { maxEntries: 1000, maxTtl: 86_400, negativeTtl: 300 });
+import { cachedResolver, nodeResolver } from '@bumail/dns';
+
+cachedResolver(nodeResolver(), { maxEntries: 1000, maxTtl: 86_400, negativeTtl: 300 });
 // negativeTtl: 0 keeps no NOT_FOUND at all
 ```

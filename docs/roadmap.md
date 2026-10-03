@@ -9,11 +9,7 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
-- **`@bumail/dns`** — in progress: the DNS answers the other packages
-  need (MX, TXT, A, AAAA, PTR) behind one small interface: `node:dns` in
-  production, a fixture in specs, with a cache that honours TTLs. *Its own
-  package*: SPF, DKIM, DMARC, the SMTP client and MTA-STS all query DNS,
-  and each spec needs a deterministic answer instead of the Internet.
+Nothing in progress.
 
 ## Next
 
@@ -27,6 +23,20 @@ No dates. Each entry says what someone running or embedding the server gets.
   the command and reply grammar.
 - **`@bumail/store` on `bun:sqlite`** — the same contract on disk, message
   bodies as blobs on disk addressed by their hash.
+- **A blob store, apart from the mailbox store** — message bytes kept
+  apart from their metadata, behind one small contract: put as a stream,
+  get and delete, by account and hash. Three answers: the disk through
+  `Bun.file`, S3 through `@nxgt/s3`, and GridFS through
+  `@nxgt/mongo/gridfs`. Each mailbox store keeps its bytes in whichever
+  the operator picks.
+- **`@bumail/store-postgres`** — the store contract on PostgreSQL, for a
+  server that runs on several machines: peers on `@nxgt/drizzle` and
+  `drizzle-orm`, with message bytes on S3 or the disk. It runs the same
+  contract specs as the memory store. It comes before MongoDB.
+- **`@bumail/store-mongo`** — the store contract on MongoDB: peers on
+  `@nxgt/mongo`, `mongodb` and `zod`, with message bytes on GridFS or S3,
+  at the operator's choice. It needs a replica set, since UIDs and modseqs
+  are allotted in transactions. The same contract specs again.
 - **`@bumail/queue`** — outbound mail with retries and back-off, a deferred
   and a failed state, bounces and delivery status notifications (RFC 3464).
   A contract with a memory and a `bun:sqlite` answer, like the store.
@@ -85,3 +95,8 @@ No dates. Each entry says what someone running or embedding the server gets.
   across mailboxes, a thread and a UID in each, flags, and the changes
   since a modseq, behind one interface, every call scoped to one account.
   It is where the SMTP server's `onData` delivers.
+- **`@bumail/dns`** — the DNS answers the other packages need (MX, TXT,
+  A, AAAA, PTR) behind one small interface: `node:dns` in production, a
+  fixture in specs, with a cache that honours TTLs. *Its own package*:
+  SPF, DKIM, DMARC, the SMTP client and MTA-STS all query DNS, and each
+  spec needs a deterministic answer instead of the Internet.

@@ -1,4 +1,4 @@
-export { type CacheOptions, cachedResolver } from './cache';
+export { type CacheOptions, cachedResolver } from './cache/resolver';
 export { DnsError, type DnsErrorCode, isTemporary } from './errors';
 export {
 	type FixtureError,

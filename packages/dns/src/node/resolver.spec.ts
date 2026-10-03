@@ -194,6 +194,37 @@ describe('nodeResolver', () => {
 		);
 	});
 
+	test('refuses a timeout or tries that is not a positive whole number', () => {
+		expect(() => nodeResolver({ timeout: 0 })).toThrow(
+			'nodeResolver(): timeout must be an integer of at least 1, not 0',
+		);
+		expect(() => nodeResolver({ tries: 1.5 })).toThrow(
+			'nodeResolver(): tries must be an integer of at least 1, not 1.5',
+		);
+	});
+
+	test('refuses a server node:dns cannot take, as INVALID_OPTION', () => {
+		let error: unknown;
+		try {
+			nodeResolver({ servers: ['not-an-ip'] });
+		} catch (thrown) {
+			error = thrown;
+		}
+		expect(error).toBeInstanceOf(DnsError);
+		expect((error as DnsError).code).toBe('INVALID_OPTION');
+		expect((error as DnsError).message).toStartWith(
+			"nodeResolver(): servers must be IP addresses, optionally with a port ('1.1.1.1', '[::1]:53'); ",
+		);
+	});
+
+	test('refuses node:dns options next to a backend, which would ignore them', () => {
+		expect(() =>
+			nodeResolver({ backend: backend({}), servers: ['192.0.2.53'], tries: 2 }),
+		).toThrow(
+			'nodeResolver(): servers, tries configure node:dns, so they cannot go with a backend; configure the backend itself',
+		);
+	});
+
 	test('a resolver with no backend is on node:dns, and no spec reached it', () => {
 		expect(() =>
 			nodeResolver({ servers: ['192.0.2.53'], timeout: 100, tries: 1 }),

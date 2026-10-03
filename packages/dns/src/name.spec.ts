@@ -72,17 +72,49 @@ describe('normalizeName', () => {
 		expect(refused(() => normalizeName('192.0.2.1')).message).toBe(
 			'"192.0.2.1" is not a name to look up: it is an address; look its name up with ptr()',
 		);
+		expect(refused(() => normalizeName('2001:db8::1')).message).toContain(
+			'it is an address',
+		);
+	});
+
+	test('never swaps a name holding URL syntax for another one', () => {
+		for (const [name, why] of [
+			['évil@good.example', 'it holds "@", which no host name has'],
+			['bücher.example/path', 'it holds "/", which no host name has'],
+			['bücher.example:25', 'it holds ":", which no host name has'],
+			['bücher.example?x', 'it holds "?", which no host name has'],
+			['bücher.example#frag', 'it holds "#", which no host name has'],
+			['bü\\x.example', 'it holds "\\\\", which no host name has'],
+			['ex%41.bü', 'it holds "%", which no host name has'],
+			[
+				'x\u00ady.example',
+				'it holds an invisible character the IDN mapping would drop',
+			],
+			[
+				'bü\u200dx.example',
+				'it holds an invisible character the IDN mapping would drop',
+			],
+			['b\u3002ü.example', 'its IDN mapping changes its labels'],
+		] as const) {
+			const error = refused(() => normalizeName(name));
+			expect(error.code).toBe('INVALID_NAME');
+			expect(error.message).toBe(
+				`${JSON.stringify(name)} is not a name to look up: ${why}`,
+			);
+		}
 	});
 });
 
 describe('normalizeAddress', () => {
-	test('takes IPv4 and IPv6, lowercased', () => {
+	test('takes IPv4 as written and IPv6 in its canonical form', () => {
 		expect(normalizeAddress('192.0.2.1')).toBe('192.0.2.1');
 		expect(normalizeAddress('2001:DB8::1')).toBe('2001:db8::1');
+		expect(normalizeAddress('2001:0DB8:0:0::1')).toBe('2001:db8::1');
+		expect(normalizeAddress('2001:db8:0:0:0:0:0:1')).toBe('2001:db8::1');
 	});
 
-	test('refuses anything else', () => {
-		for (const value of ['example.com', '999.0.0.1', '', 7]) {
+	test('refuses a zone and anything else', () => {
+		for (const value of ['example.com', '999.0.0.1', 'fe80::1%eth0', '', 7]) {
 			expect(refused(() => normalizeAddress(value)).code).toBe('INVALID_NAME');
 		}
 	});

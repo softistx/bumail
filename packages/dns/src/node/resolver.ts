@@ -7,18 +7,58 @@ import type {
 	Resolver,
 	TxtRecord,
 } from '../types';
-import { type NodeResolverOptions, nodeBackend } from './backend';
+import {
+	type DnsBackend,
+	type NodeResolverOptions,
+	nodeBackend,
+} from './backend';
 import { dnsErrorOf } from './errors';
 
-function checkOptions(options: NodeResolverOptions): number {
-	const assumedTtl = options.assumedTtl ?? 300;
-	if (!Number.isInteger(assumedTtl) || assumedTtl < 0) {
-		throw new DnsError(
-			'INVALID_OPTION',
-			`nodeResolver(): assumedTtl must be an integer of at least 0, not ${String(options.assumedTtl)}`,
+function optionError(message: string): DnsError {
+	return new DnsError('INVALID_OPTION', `nodeResolver(): ${message}`);
+}
+
+function checkCount(
+	name: string,
+	value: number | undefined,
+	least: number,
+): void {
+	if (value !== undefined && (!Number.isInteger(value) || value < least)) {
+		throw optionError(
+			`${name} must be an integer of at least ${least}, not ${String(value)}`,
 		);
 	}
+}
+
+/** The options checked, `assumedTtl` resolved; a `DnsError` of code `INVALID_OPTION` otherwise. */
+function checkOptions(options: NodeResolverOptions): number {
+	const assumedTtl = options.assumedTtl ?? 300;
+	checkCount('assumedTtl', assumedTtl, 0);
+	checkCount('timeout', options.timeout, 1);
+	checkCount('tries', options.tries, 1);
+	if (options.backend !== undefined) {
+		const given = (['servers', 'timeout', 'tries'] as const).filter(
+			(key) => options[key] !== undefined,
+		);
+		if (given.length > 0) {
+			throw optionError(
+				`${given.join(', ')} configure node:dns, so they cannot go with a backend; configure the backend itself`,
+			);
+		}
+	}
 	return assumedTtl;
+}
+
+/** `node:dns`' resolver for the options, its refusal of a server as `INVALID_OPTION`. */
+function backendOf(options: NodeResolverOptions): DnsBackend {
+	if (options.backend !== undefined) return options.backend;
+	try {
+		return nodeBackend(options);
+	} catch (error) {
+		throw optionError(
+			`servers must be IP addresses, optionally with a port ('1.1.1.1', '[::1]:53'); ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
 }
 
 /** The answer, or the `DnsError` for what was thrown; an empty answer is `NOT_FOUND` too. */
@@ -41,7 +81,7 @@ async function query<T>(label: string, run: () => Promise<T[]>): Promise<T[]> {
  */
 export function nodeResolver(options: NodeResolverOptions = {}): Resolver {
 	const assumedTtl = checkOptions(options);
-	const backend = options.backend ?? nodeBackend(options);
+	const backend = backendOf(options);
 	return {
 		async mx(name): Promise<readonly MxRecord[]> {
 			const domain = normalizeName(name);

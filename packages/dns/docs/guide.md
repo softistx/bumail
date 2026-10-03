@@ -37,13 +37,18 @@ null MX (RFC 7505), `0 .`, comes back as one record whose `exchange` is
 the empty string:
 
 ```ts
-import { isNullMx } from '@bumail/dns';
+import { isNullMx, nodeResolver } from '@bumail/dns';
 
+const dns = nodeResolver();
 const records = await dns.mx('example.com');
 if (isNullMx(records)) {
 	// the domain says it takes no mail: bounce at once, no A/AAAA fallback
 }
 ```
+
+`isNullMx` is true for that single record only. A broken zone that lists
+`0 .` next to real MX records gives an answer holding an empty `exchange`
+among real ones: an SMTP client skips the empty one and tries the others.
 
 TXT records are long strings cut into character-strings of 255 bytes at
 most. `txt()` joins each record's pieces with nothing between them, as
@@ -51,6 +56,9 @@ SPF (RFC 7208 §3.3) and DKIM (RFC 6376 §3.6.2.2) require. Several records
 stay several:
 
 ```ts
+import { nodeResolver } from '@bumail/dns';
+
+const dns = nodeResolver();
 const records = await dns.txt('example.com');
 const spf = records.filter((record) => record.text.startsWith('v=spf1'));
 // more than one is SPF's permerror (RFC 7208 §4.5)
@@ -74,9 +82,31 @@ A label is 1 to 63 letters, digits, hyphens or underscores, and does not
 start or end with a hyphen. A name is 253 characters at most. Anything
 else throws `INVALID_NAME` **before any query**: a space, a control
 character, an empty label, `*`, an address given where a name is
-expected. So a name taken from a message (a `MAIL FROM` domain, a DKIM
-`d=` tag) cannot smuggle anything into a query. `ptr()` takes an IPv4 or
-IPv6 address instead, and refuses anything else the same way.
+expected.
+
+The IDN mapping goes through the URL API, which would read URL syntax
+and drop what it does not show. So, before it, a name holding `@`, `/`,
+`:`, `?`, `#`, `%` or `\` is refused, and so is one holding an invisible
+character the mapping would drop (a soft hyphen, a zero-width joiner); a
+mapping that would add a dot (`。`, U+3002) is refused too. Without that,
+`évil@good.example` would be queried as `good.example`. A name taken from
+a message (a `MAIL FROM` domain, a DKIM `d=` tag) is therefore queried
+as written, or not at all:
+
+```ts
+import { DnsError, normalizeName } from '@bumail/dns';
+
+try {
+	normalizeName('évil@good.example');
+} catch (error) {
+	if (error instanceof DnsError) error.message; // '"évil@good.example" is not a name to look up: it holds "@", which no host name has'
+}
+```
+
+`ptr()` takes an IPv4 or IPv6 address instead, and refuses anything else
+the same way, a zone (`fe80::1%eth0`) included. An IPv6 address is
+queried in its canonical form (`2001:0DB8:0:0::1` → `2001:db8::1`), so
+one address is one cache entry and one fixture key.
 
 ## Errors, and what a mail server makes of them
 
@@ -93,7 +123,9 @@ anything that is not a `DnsError` at all. It is the "may I retry later?"
 question in one call:
 
 ```ts
-import { DnsError, isTemporary } from '@bumail/dns';
+import { DnsError, isTemporary, nodeResolver } from '@bumail/dns';
+
+const dns = nodeResolver();
 
 async function dmarcRecord(domain: string) {
 	try {
@@ -107,16 +139,20 @@ async function dmarcRecord(domain: string) {
 }
 ```
 
-`NOT_FOUND` does not say whether the name exists. Bun's `node:dns`
-reports NXDOMAIN and NODATA alike as `ENOTFOUND`, so no resolver on it can
-tell them apart. A mail server does not need to: SPF counts both as a void
-lookup (RFC 7208 §4.6.4), DMARC reads both as "no policy", and the SMTP
+`NOT_FOUND` does not say whether the name exists. Node's `node:dns`
+keeps NXDOMAIN and NODATA apart (`ENOTFOUND`, `ENODATA`), but Bun's
+reports both as `ENOTFOUND`, so no resolver on Bun can tell them apart.
+Nothing bumail plans now needs the difference: SPF counts both as a void
+lookup (RFC 7208 §4.6.4), DMARC reads both as "no policy", RFC 9091's
+`np=` defines a non-existent domain as NXDOMAIN *or* NODATA, and the SMTP
 client's fallback from MX to A gives the same result either way, because
 the A query then fails too for a name that does not exist.
 
 ## On node:dns
 
 ```ts
+import { nodeResolver } from '@bumail/dns';
+
 const dns = nodeResolver({
 	servers: ['1.1.1.1', '[2606:4700:4700::1111]:53'], // the system's when left out
 	timeout: 3000, // milliseconds per try; node:dns's default (5000) when left out
@@ -132,6 +168,11 @@ carry `assumedTtl`, which is what a cache keeps them for. Lower it if you
 publish records that change often and read them back; raise it to query
 less.
 
+The options are checked when the resolver is built, and a bad one is
+`INVALID_OPTION`: a `timeout` or `tries` that is not a whole number of at
+least 1, an `assumedTtl` below 0, and a server `node:dns` cannot take
+(`'not-an-ip'`).
+
 `node:dns` error codes map onto `DnsError`:
 
 | node:dns | `DnsError` |
@@ -146,7 +187,7 @@ methods `nodeResolver` calls. That is how its own specs run without a
 network:
 
 ```ts
-import type { DnsBackend } from '@bumail/dns';
+import { type DnsBackend, nodeResolver } from '@bumail/dns';
 
 const backend: DnsBackend = {
 	resolve4: async () => [{ address: '192.0.2.1', ttl: 60 }],
@@ -157,6 +198,10 @@ const backend: DnsBackend = {
 };
 const fake = nodeResolver({ backend });
 ```
+
+`servers`, `timeout` and `tries` configure `node:dns`, so next to a
+`backend` they would do nothing: `nodeResolver` refuses them there with
+`INVALID_OPTION`. Configure the backend itself instead.
 
 ## In specs: the fixture
 
@@ -191,6 +236,9 @@ lists every query made, in order, which is how a spec checks SPF's limit
 of ten DNS lookups (RFC 7208 §4.6.4) or that a cache saved one:
 
 ```ts
+import { fixtureResolver } from '@bumail/dns';
+
+const dns = fixtureResolver({ 'example.com': { txt: ['v=spf1 -all'] } });
 await dns.txt('example.com');
 dns.queries; // [{ type: 'txt', name: 'example.com' }]
 ```
@@ -213,21 +261,27 @@ const dns = cachedResolver(nodeResolver(), {
   capped at `maxTtl`. An answer whose TTL is 0 is not kept. A cached
   answer comes back with the TTL it has left, so a cache in front of
   another cache does not stretch it.
-- **`NOT_FOUND`** is kept for `negativeTtl` (RFC 2308). The SOA minimum
-  that should bound it is not something `node:dns` returns, so it is this
-  fixed time; 0 keeps none.
+- **`NOT_FOUND`** is kept for `negativeTtl` (RFC 2308), and never longer
+  than `maxTtl`. The SOA minimum that should bound it is not something
+  `node:dns` returns, so it is this fixed time; 0 keeps none.
+- **An empty answer** from the resolver underneath breaks the `Resolver`
+  contract; the cache turns it into `NOT_FOUND` and never keeps it as an
+  answer.
 - **`TEMPORARY` and `TIMEOUT` are never kept.** The next query asks again,
   so a server that was down for a second is not remembered as down for
   five minutes.
 - **Memory is bounded**: past `maxEntries`, the least recently used
   answer goes.
 - **Two identical queries at once share one** query to the resolver
-  underneath. Each caller gets its own copy of the records.
+  underneath, its answer or its error. Each caller gets its own copy of
+  the records.
 
 `now` replaces the clock, so a spec can step through a TTL without
 waiting:
 
 ```ts
+import { cachedResolver, fixtureResolver } from '@bumail/dns';
+
 let ms = 0;
 const cached = cachedResolver(fixtureResolver({ 'example.com': { a: ['192.0.2.1'] } }), {
 	now: () => ms,

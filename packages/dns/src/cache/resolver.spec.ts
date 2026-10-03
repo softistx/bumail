@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { cachedResolver } from './cache';
-import { DnsError } from './errors';
-import { fixtureResolver } from './fixture';
-import type { Resolver } from './types';
+import { DnsError } from '../errors';
+import { fixtureResolver } from '../fixture';
+import type { Resolver } from '../types';
+import { cachedResolver } from './resolver';
 
 function clock() {
 	let ms = 1_000_000;
@@ -122,6 +122,60 @@ describe('cachedResolver', () => {
 		expect(asked).toBe(1);
 		expect(first).toEqual(second);
 		expect(first).not.toBe(second);
+	});
+
+	test('shares a failing query too: NOT_FOUND is kept, TEMPORARY is not', async () => {
+		for (const [failure, askedAfter] of [
+			['NOT_FOUND', 1],
+			['TEMPORARY', 2],
+		] as const) {
+			let asked = 0;
+			let release: () => void = () => {};
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			const inner: Resolver = {
+				...fixtureResolver({}),
+				async txt() {
+					asked++;
+					await gate;
+					throw new DnsError(failure, `failed ${failure}`);
+				},
+			};
+			const dns = cachedResolver(inner);
+			const both = Promise.all([
+				code(dns.txt('example.com')),
+				code(dns.txt('Example.com.')),
+			]);
+			release();
+			expect(await both).toEqual([failure, failure]);
+			expect(asked).toBe(1);
+			expect(await code(dns.txt('example.com'))).toBe(failure);
+			expect(asked).toBe(askedAfter);
+		}
+	});
+
+	test('takes an empty answer from the resolver underneath as NOT_FOUND', async () => {
+		const inner: Resolver = { ...fixtureResolver({}), a: async () => [] };
+		let error: unknown;
+		try {
+			await cachedResolver(inner).a('example.com');
+		} catch (thrown) {
+			error = thrown;
+		}
+		expect(error).toBeInstanceOf(DnsError);
+		expect((error as DnsError).code).toBe('NOT_FOUND');
+		expect((error as DnsError).message).toBe(
+			'No A example.com record (the resolver underneath answered nothing)',
+		);
+	});
+
+	test('caps a NOT_FOUND at maxTtl too', async () => {
+		const inner = fixtureResolver({});
+		const dns = cachedResolver(inner, { maxTtl: 0, negativeTtl: 300 });
+		await code(dns.mx('example.com'));
+		await code(dns.mx('example.com'));
+		expect(inner.queries).toHaveLength(2);
 	});
 
 	test('forgets the least recently used answer beyond maxEntries', async () => {

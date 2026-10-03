@@ -79,12 +79,12 @@ export function fixtureResolver(records: FixtureRecords): FixtureResolver {
 	async function answer<T, R>(
 		type: RecordType,
 		name: string,
+		pick: (at: FixtureName) => readonly T[] | FixtureError | undefined,
 		read: (entry: T) => R,
 	): Promise<R[]> {
 		queries.push({ type, name });
 		const at = index.get(name);
-		const set =
-			at?.error ?? (at?.[type] as readonly T[] | FixtureError | undefined);
+		const set = at === undefined ? undefined : (at.error ?? pick(at));
 		const label = `${type.toUpperCase()} ${name}`;
 		if (typeof set === 'string') {
 			throw new DnsError(set, `The fixture answers ${label} with ${set}`);
@@ -101,42 +101,43 @@ export function fixtureResolver(records: FixtureRecords): FixtureResolver {
 		queries,
 		async mx(name) {
 			const domain = normalizeName(name);
-			const out = await answer<
-				Omit<MxRecord, 'ttl'> & { ttl?: number },
-				MxRecord
-			>('mx', domain, (r) => ({
-				exchange: targetName(r.exchange),
-				priority: r.priority,
-				ttl: r.ttl ?? 300,
-			}));
+			const out = await answer(
+				'mx',
+				domain,
+				(at) => at.mx,
+				(r): MxRecord => ({
+					exchange: targetName(r.exchange),
+					priority: r.priority,
+					ttl: r.ttl ?? 300,
+				}),
+			);
 			return out.sort((x, y) => x.priority - y.priority);
 		},
 		async txt(name) {
-			return answer<
-				string | readonly string[] | { text: string; ttl?: number },
-				TxtRecord
-			>('txt', normalizeName(name), (r) =>
-				typeof r === 'string'
-					? { text: r, ttl: 300 }
-					: Array.isArray(r)
-						? { text: r.join(''), ttl: 300 }
-						: {
-								text: (r as { text: string }).text,
-								ttl: (r as { ttl?: number }).ttl ?? 300,
-							},
+			return answer(
+				'txt',
+				normalizeName(name),
+				(at) => at.txt,
+				(r): TxtRecord =>
+					typeof r === 'string'
+						? { text: r, ttl: 300 }
+						: 'text' in r
+							? { text: r.text, ttl: r.ttl ?? 300 }
+							: { text: r.join(''), ttl: 300 },
 			);
 		},
 		async a(name) {
-			return answer('a', normalizeName(name), addressOf);
+			return answer('a', normalizeName(name), (at) => at.a, addressOf);
 		},
 		async aaaa(name) {
-			return answer('aaaa', normalizeName(name), addressOf);
+			return answer('aaaa', normalizeName(name), (at) => at.aaaa, addressOf);
 		},
 		async ptr(address) {
-			return answer<string | { name: string; ttl?: number }, PtrRecord>(
+			return answer(
 				'ptr',
 				normalizeAddress(address),
-				(r) =>
+				(at) => at.ptr,
+				(r): PtrRecord =>
 					typeof r === 'string'
 						? { name: targetName(r), ttl: 300 }
 						: { name: targetName(r.name), ttl: r.ttl ?? 300 },
