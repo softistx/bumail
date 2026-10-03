@@ -11,7 +11,8 @@ Nothing in progress.
 ## Next
 
 - **The lookups DMARC is built from**, if `@bumail/auth` shows a need the
-  interface does not meet; DKIM and SPF needed only the two entries below.
+  interface does not meet; SPF needed only the `AbortSignal` and CNAME
+  fixture entries below, and the wire-level resolver under Later.
 - **MX resolution for delivery**: the MX answer with RFC 5321 §5.1's
   fallback to the domain's A and AAAA, and the null MX, in one call, when
   the SMTP client lands.

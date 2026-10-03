@@ -60,6 +60,8 @@ describe('limits', () => {
 			'421 4.7.0 foo.com Too many errors, closing\r\n',
 		);
 		expect(s.ended).toBe(true);
+		// The server's own close: it never waits on a client that stopped reading.
+		expect(s.aborted).toBe(true);
 		expect(await s.send('NOOP\r\n')).toBe('');
 	});
 

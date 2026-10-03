@@ -1,7 +1,7 @@
 # Roadmap
 
 What bumail is building toward: a mail server native to Bun — SMTP in and
-out, DKIM / SPF / DMARC, mailboxes read over JMAP — as `@bumail/*` packages
+out, DKIM / SPF / DMARC, mailboxes read over IMAP, then JMAP — as `@bumail/*` packages
 with no runtime dependency, and a server app on
 [alxia](https://github.com/softistx/alxia) that wires them together.
 
@@ -9,19 +9,22 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
+- **`@bumail/imap`, IMAP4rev2** (RFC 9051), for the mail clients that do
+  not speak JMAP. Its first slice — login only over TLS, LIST with
+  special-use, SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE, SEARCH, APPEND
+  and IDLE, serving any `@bumail/store` — is published in 0.1.0.
+  CONDSTORE, QRESYNC, UIDPLUS and BINARY follow.
 - **`@bumail/auth`, DKIM, SPF and DMARC** — DKIM signing and verifying
-  (RFC 6376) is published in 0.1.0. SPF checking (RFC 7208), DMARC
-  (RFC 7489) evaluation with its policy and disposition, and the
-  `Authentication-Results` header (RFC 8601) are merged, not yet
+  (RFC 6376) is published in 0.1.0, SPF checking (RFC 7208) in 0.2.0.
+  DMARC (RFC 7489) evaluation with its policy and disposition, and the
+  `Authentication-Results` header (RFC 8601), are merged, not yet
   published. Everything looks up through `@bumail/dns` and answers in
   RFC 8601's words. DMARC reports and ARC follow in the same package.
 
 ## Next
 
-- **`@bumail/smtp`, the client** — outbound delivery: MX lookup through
-  `@bumail/dns`, opportunistic STARTTLS, connection reuse per destination.
-  *Kept in the same package as the server, on its own subpath*: both share
-  the command and reply grammar.
+- **`@bumail/smtp`, connection reuse** — several messages to one
+  destination over one session, for the queue to deliver in batches.
 - **A blob store, apart from the mailbox store** — message bytes kept
   apart from their metadata, behind one small contract: put as a stream,
   get and delete, by account and hash. Three answers: the disk through
@@ -40,10 +43,11 @@ No dates. Each entry says what someone running or embedding the server gets.
   and a failed state, bounces and delivery status notifications (RFC 3464).
   A contract with a memory and a `bun:sqlite` answer, like the store.
 - **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
-  mail), as an alxia app. *JMAP before IMAP*: it is HTTP and JSON, so alxia
-  gives it routing, validation and its typed client for free.
+  mail), as an alxia app. IMAP comes first, in Now, since real mail
+  clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it routing,
+  validation and its typed client for free.
 - **The server app** — SMTP on 25 and submission on 587,
-  the queue, the store and JMAP wired together; an admin API for domains,
+  the queue, and the store served over IMAP and JMAP, wired together; an admin API for domains,
   accounts, aliases and DKIM keys; health and metrics. It starts once
   `@alxia/core` is on npm: it consumes alxia's published packages, not a
   link to its working tree, so bumail's CI never depends on another
@@ -51,7 +55,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Later
 
-- **IMAP4rev2** (RFC 9051), for the mail clients that do not speak JMAP.
 - **Sieve** filtering (RFC 5228) at delivery.
 - **Spam scoring hooks and greylisting** — hooks a scorer plugs into, and
   greylisting on the queue's store; no classifier of our own.
@@ -77,20 +80,37 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ### Unreleased — merged, not yet published
 
+- **`@bumail/auth`, DMARC and `Authentication-Results`** — `checkDmarc`:
+  the From domain's policy, found there or at its organizational domain
+  (an embedded Public Suffix List), DKIM and SPF aligned with From, `pct`
+  and the disposition; a message whose author cannot be told for certain
+  (no From, several, or one that does not parse) gets `permerror` with
+  disposition `reject`. `formatAuthenticationResults` writes the three results as one field.
+
+### Published since 0.1.0
+
 - **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite` — the same
   contract on disk, held to the same specs, with message bodies as blobs on
   disk addressed by their hash. One process per database, and every write
   flushed to disk before it is acknowledged.
-- **`@bumail/auth`, DMARC and `Authentication-Results`** — `checkDmarc`:
-  the From domain's policy, found there or at its organizational domain
-  (an embedded Public Suffix List), DKIM and SPF aligned with From, `pct`
-  and the disposition; a message with two From fields gets `permerror` with disposition
-  `reject`.
-  `formatAuthenticationResults` writes the three results as one field.
 - **`@bumail/auth`, SPF** — `checkSpf`, RFC 7208's `check_host()` for the
   client IP and the MAIL FROM or HELO domain: every mechanism, `redirect=`,
   `exp=`, the macros, the lookup limits and a timeout, never a throw for a
   record.
+- **`@bumail/smtp`, the client**, as `@bumail/smtp/client` — `sendMail`
+  delivers one message to a smarthost, a submission server or a domain's
+  MX hosts (looked up through `@bumail/dns` or any resolver of that
+  shape, with the null MX honoured): STARTTLS, opportunistic or required,
+  implicit TLS, AUTH only once the certificate checked out, PIPELINING, SIZE, 8BITMIME and SMTPUTF8, the
+  message streamed and dot-stuffed, a bare line break refused. Every
+  failure says whether it is temporary, for the queue to come; every reply
+  and every wait is bounded against a hostile server. *Kept in the same
+  package as the server, on its own subpath*: both share the grammar.
+- **`@bumail/imap`, the first slice** — IMAP4rev2 (RFC 9051) on
+  `Bun.listen`, serving any `@bumail/store`: STARTTLS and implicit TLS,
+  login only once encrypted, LIST with special-use, SELECT, FETCH, STORE,
+  COPY, MOVE, EXPUNGE, SEARCH, APPEND and IDLE, with every command and
+  hang-up bounded.
 
 ### 0.1.0 — published
 

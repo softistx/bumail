@@ -57,6 +57,9 @@ number on it.
   writes the DKIM, SPF and DMARC results as one folded field, with
   `header.d`, `header.s`, `header.b`, `smtp.mailfrom` or `smtp.helo` and
   `header.from`, every value a token or a quoted-string.
+
+### 0.2.0
+
 - **SPF** (RFC 7208): `checkSpf`, RFC 7208's `check_host()` for the client
   IP and the MAIL FROM domain, or the HELO name for a bounce or on its own.
   It covers every mechanism and qualifier, `redirect=` and `exp=`, the
