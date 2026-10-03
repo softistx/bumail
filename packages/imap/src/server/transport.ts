@@ -1,4 +1,5 @@
 import type { Socket } from 'bun';
+import { Outgoing } from '../io/outgoing';
 
 /** What a connection needs from its socket: Bun's, or a fake one in specs. */
 export interface Transport {
@@ -48,9 +49,9 @@ export const LINGER_QUIET_MS = 20;
 export const LINGER_MAX_MS = 500;
 
 /**
- * A Bun socket as a Transport. Bun's sockets do not buffer: `write` takes
- * what the kernel takes and says how much. The rest waits here for the
- * `drain` event; a writer that cares awaits `drained` before writing more.
+ * A Bun socket as a Transport. What the socket cannot take now waits in an
+ * `Outgoing` for the `drain` event, so no output is lost to a client that
+ * reads slowly; a writer that cares awaits `drained` before writing more.
  *
  * Adapted from `@bumail/smtp`'s own (`src/server/transport.ts`), which
  * writes text: the two are internal, and differ in what they carry, not in
@@ -61,9 +62,7 @@ export class SocketTransport implements Transport {
 	readonly remoteAddress: string;
 	readonly secure: boolean;
 	readonly #startTls: () => void;
-	#queue: Uint8Array[] = [];
-	#backlog = 0;
-	#waiters: (() => void)[] = [];
+	readonly #outgoing: Outgoing;
 	#ending = false;
 	/** The socket closed: every later write, end or abort is a no-op. */
 	#closed = false;
@@ -89,45 +88,25 @@ export class SocketTransport implements Transport {
 		this.secure = secure;
 		this.#startTls = startTls;
 		this.remoteAddress = remoteAddress;
+		this.#outgoing = new Outgoing((bytes) => socket.write(bytes));
 	}
 
 	get backlog(): number {
-		return this.#backlog;
+		return this.#outgoing.backlog;
 	}
 
 	write(bytes: Uint8Array): void {
 		if (this.#closed) return;
-		if (this.#queue.length > 0) {
-			this.#queue.push(bytes);
-			this.#backlog += bytes.length;
-			return;
-		}
-		const written = Math.max(this.#socket.write(bytes), 0);
-		if (written < bytes.length) {
-			this.#queue.push(bytes.subarray(written));
-			this.#backlog += bytes.length - written;
-		}
+		this.#outgoing.write(bytes);
 	}
 
 	/** Bun's `drain`: the socket can take more. */
 	drain(): void {
-		while (this.#queue.length > 0) {
-			const bytes = this.#queue[0] as Uint8Array;
-			const written = Math.max(this.#socket.write(bytes), 0);
-			this.#backlog -= written;
-			if (written < bytes.length) {
-				this.#queue[0] = bytes.subarray(written);
-				return;
-			}
-			this.#queue.shift();
-		}
-		for (const wake of this.#waiters.splice(0)) wake();
-		if (this.#ending) this.#hangUp(true);
+		if (this.#outgoing.drain() && this.#ending) this.#hangUp(true);
 	}
 
 	drained(): Promise<void> {
-		if (this.#queue.length === 0) return Promise.resolve();
-		return new Promise((wake) => this.#waiters.push(wake));
+		return this.#outgoing.drained();
 	}
 
 	/**
@@ -145,20 +124,20 @@ export class SocketTransport implements Transport {
 		this.#closed = true;
 		this.#disarm();
 		this.#stopLingering();
-		this.#clear();
+		this.#outgoing.clear();
 	}
 
 	/** After `closed()`, does nothing: no grace is armed on a dead socket. */
 	end(): void {
 		if (this.#closed) return;
 		this.#arm();
-		if (this.#queue.length === 0) this.#hangUp(false);
+		if (this.#outgoing.empty) this.#hangUp(false);
 		else this.#ending = true;
 	}
 
 	abort(): void {
 		if (this.#closed) return;
-		if (this.#queue.length === 0) this.end();
+		if (this.#outgoing.empty) this.end();
 		else this.#terminate();
 	}
 
@@ -227,15 +206,8 @@ export class SocketTransport implements Transport {
 	#terminate(): void {
 		this.#disarm();
 		this.#stopLingering();
-		this.#clear();
+		this.#outgoing.clear();
 		this.#socket.terminate();
-	}
-
-	/** Drops what is queued, and lets go whoever waited for it. */
-	#clear(): void {
-		this.#queue = [];
-		this.#backlog = 0;
-		for (const wake of this.#waiters.splice(0)) wake();
 	}
 
 	/** Terminates the socket once the grace is up, unless it closed first; the first deadline stands. */

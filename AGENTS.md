@@ -230,8 +230,9 @@ Every PR goes into `develop`. Before merging:
 - **The socket transport** — writing with a backlog, `drained()`, pause and
   resume, the STARTTLS upgrade, the hang-up — in
   `smtp/src/server/transport.ts` and `imap/src/server/transport.ts`, each
-  adapted to its protocol's flow (smtp writes text through an `Outgoing`,
-  imap writes bytes and exposes its `backlog`). Should a third server need
+  adapted to its protocol's flow (each queues through its own
+  `src/io/outgoing.ts`; smtp writes text, imap writes bytes and exposes
+  its `backlog`). Should a third server need
   it, it becomes a package. Both copies keep one rule, with the same names
   and shape:
   - **a hang-up never waits on the client.** A close the server decides on
