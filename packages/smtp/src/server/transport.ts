@@ -39,6 +39,16 @@ export interface Transport {
 export const CLOSE_GRACE_MS = 5_000;
 
 /**
+ * A hang-up while the server paused reading lingers: it reads again and
+ * drops what the client sent until nothing came for `LINGER_QUIET_MS`, or
+ * for `LINGER_MAX_MS` at most, then half-closes. Bun closes the socket at
+ * once on `shutdown(true)`, and Linux answers a close over unread input
+ * with a reset that loses the last reply.
+ */
+export const LINGER_QUIET_MS = 20;
+export const LINGER_MAX_MS = 500;
+
+/**
  * A Bun socket as a Transport. What the socket cannot take now waits in an
  * `Outgoing` for the `drain` event, so no reply is lost to a client that
  * reads slowly.
@@ -55,6 +65,14 @@ export class SocketTransport implements Transport {
 	/** The server stopped reading: what the client sends waits in the socket. */
 	#paused = false;
 	#grace: ReturnType<typeof setTimeout> | undefined;
+	/** A paused hang-up waiting for the client's input to stop: how it will shut down, when it stops waiting, its timer. */
+	#linger:
+		| {
+				drained: boolean;
+				until: number;
+				timer?: ReturnType<typeof setTimeout>;
+		  }
+		| undefined;
 
 	constructor(
 		socket: Socket<unknown>,
@@ -83,10 +101,21 @@ export class SocketTransport implements Transport {
 		return this.#outgoing.drained();
 	}
 
+	/**
+	 * Bun's `data`: the client sent bytes. While a hang-up lingers, they are
+	 * dropped, and the half-close waits until they stop.
+	 */
+	received(): void {
+		const linger = this.#linger;
+		if (linger)
+			this.#lingerFor(Math.min(LINGER_QUIET_MS, linger.until - Date.now()));
+	}
+
 	/** The socket closed: nothing more will leave. */
 	closed(): void {
 		this.#closed = true;
 		this.#disarm();
+		this.#stopLingering();
 		this.#outgoing.clear();
 	}
 
@@ -121,13 +150,46 @@ export class SocketTransport implements Transport {
 	 *
 	 * Reading paused, it reads again first: over input the server never
 	 * read, a half-close does not fire `close` (Bun 1.4.2), and the slot
-	 * waited for the grace. Reading again, the half-close fires `close` at
-	 * once, and a client that stopped sending still gets the last reply and
-	 * the end; what it sends from then on is dropped, its connection closed.
+	 * waited for the grace. And it lingers: Bun closes the socket as soon as
+	 * it half-closes, and on Linux a close with input still unread is a
+	 * reset, which loses the last reply. So it drops what the client sends
+	 * until that stops for `LINGER_QUIET_MS` (`LINGER_MAX_MS` at most), then
+	 * half-closes: `close` fires at once, and a client that stopped sending
+	 * still gets the last reply and the end. One that sends on is reset.
 	 */
 	#hangUp(drained: boolean): void {
 		this.#ending = false;
-		if (this.#paused) this.resume();
+		if (this.#linger) return;
+		if (!this.#paused) {
+			this.#shutdown(drained);
+			return;
+		}
+		this.resume();
+		this.#linger = { drained, until: Date.now() + LINGER_MAX_MS };
+		this.#lingerFor(LINGER_QUIET_MS);
+	}
+
+	/** Half-closes in `ms`, unless the client sends again first. */
+	#lingerFor(ms: number): void {
+		const linger = this.#linger;
+		if (!linger) return;
+		clearTimeout(linger.timer);
+		linger.timer = setTimeout(
+			() => {
+				this.#stopLingering();
+				this.#shutdown(linger.drained);
+			},
+			Math.max(ms, 0),
+		);
+		linger.timer.unref?.();
+	}
+
+	#stopLingering(): void {
+		clearTimeout(this.#linger?.timer);
+		this.#linger = undefined;
+	}
+
+	#shutdown(drained: boolean): void {
 		if (drained && this.secure) this.#socket.shutdown();
 		else this.#socket.shutdown(true);
 	}
@@ -135,6 +197,7 @@ export class SocketTransport implements Transport {
 	/** Drops what is queued and resets the connection. */
 	#terminate(): void {
 		this.#disarm();
+		this.#stopLingering();
 		this.#outgoing.clear();
 		this.#socket.terminate();
 	}

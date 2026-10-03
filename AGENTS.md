@@ -243,6 +243,11 @@ Every PR goes into `develop`. Before merging:
     alike, whatever the reason (a timeout, a 421, a BYE, QUIT, LOGOUT);
     what the client sends from then on reaches a closed connection and is
     dropped;
+  - **a paused hang-up lingers**: after that `resume()` it half-closes
+    only once the client's input stopped for `LINGER_QUIET_MS` (20 ms),
+    `LINGER_MAX_MS` (500 ms) at most; each server's `data` handler calls
+    `transport.received()`, which puts the half-close back while it
+    lingers. A second `end` or `abort` meanwhile does not shut down early;
   - **every end is bounded by the grace**: each `end`, queue empty or not,
     arms the 5-second `CLOSE_GRACE_MS`, whose timer terminates the socket
     unless `close` came first; a second `end` or `abort` keeps the first
@@ -271,6 +276,17 @@ Every PR goes into `develop`. Before merging:
     clean end (80 runs in 80 on macOS, 300 KiB or 1 MiB left unread),
     where `terminate()` loses that reply to ECONNRESET. A client that
     keeps sending is reset either way;
+  - on Linux (`oven/bun:1.4.2` in Docker, as CI's ubuntu runners), that
+    `resume()` then `shutdown(true)` lost the reply every time, 10 runs in
+    10: Bun closes the socket the moment it half-closes — its `end` and
+    `close` handlers fire at once, before any FIN from the client — and
+    Linux answers a close with input still unread (here about 800 KiB of
+    1 MiB a `node:net` client had already handed the kernel) with a reset,
+    so the client's `error` (EPIPE) came before the 421 and the 421 never
+    reached it. macOS read everything left before the close, so it never
+    showed. Lingering — reading and dropping until the input stopped for
+    20 ms — then half-closing delivered the 421 and a clean end on Linux,
+    and both close specs passed 20 runs in 20 on Linux and on macOS;
   - a `node:tls` client that does read, pipelining about 1 MiB behind
     commands that fail into a close the server decides on while it paused
     reading — smtp's `maxErrors` (refusals from an `onRcptTo` that takes
@@ -294,7 +310,9 @@ Every PR goes into `develop`. Before merging:
   `close.spec.ts` covers a client that never reads with replies queued,
   counted out as soon as the idle time is up, and a hang-up while the
   server paused reading, freed at once, a `node:net` client that stopped
-  sending then reading the 421 and a clean end;
+  sending then reading the 421 and a clean end, and a `maxErrors` hang-up
+  while paused on a real server, freed within 1 s of the decision with no
+  RCPT the client kept pipelining behind it run;
   `server.spec.ts` covers `stop(true)` after STARTTLS. imap's:
   `server.spec.ts` covers a client that never reads with output queued, a
   slow reader of a large FETCH pipelined with LOGOUT, a paused client on a
@@ -305,12 +323,14 @@ Every PR goes into `develop`. Before merging:
   behind a LOGIN whose `authenticate` never settles, so the server paused
   reading with nothing queued, on implicit TLS and after STARTTLS: freed
   within 1 s of the `loginTimeout` decision, then reading the BYE and a
-  clean end, or, sending on, freed as fast;
+  clean end, or, sending on, freed as fast with no LOGIN sent after the
+  first reaching `authenticate`;
   `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`.
   The idle `timeout` (30 minutes at least) runs the same close but no imap
   real-socket spec waits for it. Each copy's `transport.spec.ts` checks,
   on a fake socket, that `shutdown` gets `true` (and nothing on TLS after
-  a drain), that a paused hang-up calls `resume` first, the grace and the
+  a drain), that a paused hang-up calls `resume` first and lingers while
+  `received()` comes, `LINGER_MAX_MS` at most, the grace and the
   `#closed` guard. A fix to one copy is a fix
   to the other.
 

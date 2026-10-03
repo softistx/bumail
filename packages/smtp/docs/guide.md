@@ -884,9 +884,11 @@ and closes at once: the connection is counted out of `connections` then and
 there, and replies the client never read are dropped, the connection reset
 if any were still waiting. When the server had stopped reading a client
 that sent more than it could take, any hang-up, `QUIT`'s included, reads
-again first, dropping whatever comes: a half-close does not complete over
-input left unread. A client that stopped sending then still reads the last
-reply and the end, and one that keeps sending is reset. So a client that
+again first, dropping whatever comes, and half-closes once the client's
+input stops for 20 ms (500 ms at most): a half-close does not complete
+over input left unread, and on Linux a close over unread input is a reset
+that loses the last reply. A client that stopped sending then still reads
+the last reply and the end, and one that keeps sending is reset. So a client that
 pipelines commands and stops reading cannot keep a slot of
 `maxConnections` past its `timeout`.
 

@@ -164,6 +164,7 @@ async function pausedServer(
 				transport.write('220 ready\r\n');
 			},
 			data() {
+				transport?.received();
 				if (!transport || paused) return;
 				paused = true;
 				transport.pause();
@@ -230,6 +231,48 @@ describe('a hang-up while the server paused reading', () => {
 				client.destroy();
 			}
 		});
+	});
+});
+
+describe('a hang-up the server decides while it paused reading', () => {
+	test('nothing the client sends after it runs, however much it keeps sending, and the slot is freed at once', async () => {
+		let rcpts = 0;
+		const port = await start({
+			maxErrors: 5,
+			// Each RCPT takes 20 ms: what is pipelined behind it piles up past
+			// the input limit, and the server stops reading.
+			onRcptTo: async () => {
+				rcpts++;
+				await Bun.sleep(20);
+			},
+		});
+		// A RCPT, then a command that fails: the fifth failure hangs up
+		// (maxErrors), behind the fifth RCPT.
+		const pair = 'RCPT TO:<a@foo.com>\r\nBOGUS\r\n';
+		const client = connect({ host: '127.0.0.1', port });
+		client.on('error', () => {});
+		const flood = setInterval(() => client.write(pair.repeat(2_000)), 20);
+		const { pause } = SocketTransport.prototype;
+		let pauses = 0;
+		SocketTransport.prototype.pause = function () {
+			pauses++;
+			pause.call(this);
+		};
+		try {
+			client.write(`EHLO a\r\nMAIL FROM:<a@b.com>\r\n${pair.repeat(10_000)}`);
+			expect(await within(2_000, () => rcpts >= 5)).toBe(true);
+			expect(pauses).toBeGreaterThan(0);
+			const decided = performance.now();
+			expect(await within(1_000, () => server?.connections === 0)).toBe(true);
+			expect(performance.now() - decided).toBeLessThan(1_000);
+			await Bun.sleep(200);
+			// Nothing pipelined behind the hang-up ran.
+			expect(rcpts).toBe(5);
+		} finally {
+			SocketTransport.prototype.pause = pause;
+			clearInterval(flood);
+			client.destroy();
+		}
 	});
 });
 

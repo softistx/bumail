@@ -35,6 +35,8 @@ function handlers(settings: Settings): SocketHandler<SocketState> {
 	return {
 		data(socket, chunk) {
 			if (socket.data.upgraded) return;
+			// A hang-up that lingers waits for the client to stop sending.
+			socket.data.transport?.received();
 			// Any byte from the client starts the idle time again.
 			socket.timeout(settings.timeout);
 			socket.data.connection?.receive(chunk);

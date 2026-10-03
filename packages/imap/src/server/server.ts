@@ -49,6 +49,8 @@ function handlers(settings: Settings): SocketHandler<SocketState> {
 		data(socket, chunk) {
 			const state = stateOf(socket);
 			if (!state || state.upgraded) return;
+			// A hang-up that lingers waits for the client to stop sending.
+			state.transport?.received();
 			socket.timeout(settings.timeout);
 			state.connection?.receive(chunk);
 		},

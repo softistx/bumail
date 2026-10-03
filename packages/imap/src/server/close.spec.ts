@@ -28,19 +28,26 @@ afterEach(() => {
  */
 async function start(implicitTls: boolean) {
 	const { store, accountId } = await seededStore();
+	logins.count = 0;
 	const server = createImapServer(
 		imapOptions(store, accountId, {
 			tls: await localhostTls(),
 			implicitTls,
 			loginTimeout: 1,
 			hookTimeout: 600,
-			authenticate: () => new Promise<null>(() => {}),
+			authenticate: () => {
+				logins.count++;
+				return new Promise<null>(() => {});
+			},
 		}),
 	);
 	servers.push(server);
 	const { port } = await server.listen({ port: 0, hostname: '127.0.0.1' });
 	return { server, port };
 }
+
+/** How many LOGINs reached `authenticate`. */
+const logins = { count: 0 };
 
 /** Polls `check` every 20 ms for `ms` at most. */
 async function within(ms: number, check: () => boolean): Promise<boolean> {
@@ -125,16 +132,19 @@ describe('a client that sends past INPUT_LIMIT and never reads', () => {
 			expect(text()).toEndWith('* BYE Too slow to log in, closing\r\n');
 		}, 10_000);
 
-		test(`(${path}) and keeps sending is cut at loginTimeout with its slot freed at once`, async () => {
+		test(`(${path}) and keeps sending is cut at loginTimeout with its slot freed at once, and nothing it sent after runs`, async () => {
 			const { server, port } = await start(path === 'implicit TLS');
 			const { client } = await neverReads(port, path);
-			const chunk = 'x'.repeat(64 * 1024);
+			// Commands, each a LOGIN: once the server hangs up, none may run.
+			const chunk = `\r\n${'b LOGIN alice secret\r\n'.repeat(3_000)}`;
 			const flood = setInterval(() => client.write(chunk), 20);
 			try {
 				await freedAtOnce(server);
+				await Bun.sleep(200);
 			} finally {
 				clearInterval(flood);
 			}
+			expect(logins.count).toBe(1);
 		}, 10_000);
 	}
 });
