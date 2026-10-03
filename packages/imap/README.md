@@ -89,8 +89,9 @@ authentication.
 Every timer is at most 2 147 483 seconds, what `setTimeout` can wait. A
 command line is at most 64 KiB, with at most 32 literals and lists or
 search keys nested at most 32 deep; before login, at most 2 literals of
-1 KiB each. A mailbox name has at most 32 levels and 1024 characters, a
-LIST at most 16 patterns, a SEARCH at most 32 TEXT or BODY keys. A
+1 KiB each. A mailbox name has at most 32 levels and 1024 characters
+(255 a level), a LIST at most 16 patterns, a SEARCH at most 32 TEXT or
+BODY keys. A
 sequence set such as `1:4294967295` is resolved from its ranges, never
 expanded. A client that stops reading is still hung up on at
 `loginTimeout` or `timeout`, and gives back its place under

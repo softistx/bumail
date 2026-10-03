@@ -8,12 +8,22 @@ response starts with the client's tag (`a1 NO …`); it is left out here.
 ## `NO [TOOBIG] The message is over … bytes`
 
 APPEND of a message over `maxMessageSize` (25 MiB), announced as
-`APPENDLIMIT`. Raise the option if your store takes larger messages.
+`APPENDLIMIT`. Raise the option if your store takes larger messages. The
+answer comes before the message is sent. A `{n+}` message's bytes follow
+at once, unasked, so the connection is closed instead:
+
+```text
+* BYE [TOOBIG] The message is over … bytes, closing
+```
 
 ## `BAD MULTIAPPEND is not supported`
 
 APPEND takes one message (RFC 3502's MULTIAPPEND is not implemented). With
-`{n+}`, the connection is closed, since the next message's bytes follow.
+`{n+}`, the connection is closed, since the next message's bytes follow:
+
+```text
+* BYE MULTIAPPEND is not supported, closing
+```
 
 ## `BAD Unexpected text after the message`
 

@@ -92,16 +92,26 @@ Two pieces are copied rather than shared, on purpose:
 - **The socket transport** — writing with a backlog, `drained()`, pause and
   resume, the STARTTLS upgrade — in `smtp/src/server/transport.ts` and
   `imap/src/server/transport.ts`, adapted to each protocol's flow. Should a
-  third server need it, it becomes a package. Both copies keep one
-  invariant: **a hang-up never waits on the client.** A close the server
-  decides on — a timeout, a BYE or 421 — must complete even when the client
-  never reads, or the connection keeps a `maxConnections` slot for good:
-  the connection marks itself closed first and queues its last words
-  without awaiting the backlog, and the transport ends within a short grace
-  or, on a forced close, drops its queue and terminates the socket. imap
-  fixed it on `feat/imap-core`, smtp on `fix/smtp-transport-close`; each has
-  a real-socket spec with a client that never reads. A fix to one is a fix
-  to the other.
+  third server need it, it becomes a package. Both copies keep one rule:
+  **a hang-up never waits on the client; a forced close terminates when
+  bytes are queued; every end is bounded by a grace timer.** A close the
+  server decides on — a timeout, a BYE or 421 — must complete even when
+  the client never reads, or the connection keeps a `maxConnections` slot
+  for good: the connection marks itself closed first and queues its last
+  words without awaiting the backlog; a forced close with bytes queued
+  drops them and terminates the socket; and every `end`, queue empty or
+  not, arms `CLOSE_GRACE`, whose timer terminates the socket unless
+  `close` came first (`closed()` clears it). An empty queue is not enough:
+  on TLS, Bun's `socket.end()` waits for the client's own close, which a
+  paused client never sends, and a `terminate()` after that `end()` no
+  longer closes the socket (Bun 1.4) — imap's transport therefore ends with
+  `socket.shutdown()`, which leaves `terminate()` working. imap's
+  real-socket specs (`server.spec.ts`) cover a client that never reads with
+  output queued, and a paused `node:tls` client with nothing queued, on
+  implicit TLS and after STARTTLS, both at `loginTimeout`; the idle
+  `timeout` (30 minutes at least) runs the same close but no real-socket
+  spec waits for it. smtp is fixed on `fix/smtp-transport-close`. A fix to
+  one is a fix to the other.
 
 ## The build
 

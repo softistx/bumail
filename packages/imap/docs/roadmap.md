@@ -6,14 +6,7 @@ number on it.
 
 ## Now
 
-- **The first slice** — what Thunderbird and Apple Mail need to log in,
-  list folders, read messages and set flags: STARTTLS and implicit TLS,
-  LOGIN and AUTHENTICATE PLAIN only once encrypted, LIST with SPECIAL-USE
-  and the LIST-EXTENDED basics, SELECT and EXAMINE, FETCH of envelopes,
-  body structures and sections, STORE, COPY, MOVE, EXPUNGE, SEARCH with
-  ESEARCH, APPEND streamed into the store, and IDLE.
-
-## Next
+The second slice:
 
 - **CONDSTORE and QRESYNC** (RFC 7162) — a client that reconnects asks
   for what changed since the modseq it saw, instead of fetching every
@@ -22,6 +15,11 @@ number on it.
   the UID of a message it appended, copied or moved without searching.
 - **BINARY** (RFC 3516) — parts decoded by the server, and APPEND of
   8-bit messages.
+- **Real clients, tested** — Thunderbird, Apple Mail and a command-line
+  client run against the server, and what they trip on fixed.
+
+## Next
+
 - **A ready-made delivery from `@bumail/smtp`** that calls
   `server.notify()`, so new mail reaches IDLE at once without polling.
 
@@ -48,4 +46,10 @@ number on it.
 
 ### Unreleased — merged, not yet published
 
-- Nothing yet: the first slice is in progress.
+- **The first slice** — what Thunderbird and Apple Mail need to log in,
+  list folders, read messages and set flags: STARTTLS and implicit TLS,
+  LOGIN and AUTHENTICATE PLAIN only once encrypted, LIST with SPECIAL-USE
+  and the LIST-EXTENDED basics, SELECT and EXAMINE, FETCH of envelopes,
+  body structures and sections, STORE, COPY, MOVE, EXPUNGE, SEARCH with
+  ESEARCH, APPEND streamed into the store, and IDLE. Every input is
+  bounded, and a client that stops reading is still cut at its timeout.

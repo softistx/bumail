@@ -47,6 +47,14 @@ delimiter counted. LIST's patterns have the same bound
 ([`BAD The pattern is too long`](#bad-the-pattern-is-too-long)). Use a
 shorter name.
 
+## `NO [LIMIT] A level of a mailbox name is at most 255 characters`
+
+CREATE or RENAME to a name with one level over 255 characters, such as
+`Projects/<300 characters>`: a store keeps a mailbox name of 255
+characters at most, and each level is one mailbox. The name is refused
+whole, before any missing parent is created, so nothing is left behind.
+Shorten that level, or split it in two.
+
 ## `BAD CREATE parameters are not supported`
 
 CREATE with a parenthesised list after the name, such as
@@ -161,3 +169,17 @@ implemented. Create the mailbox and MOVE the messages.
 ## `NO [CANNOT] A mailbox cannot move inside itself`
 
 RENAME of `a` to `a/b`.
+
+## A store's own refusal: `NO [NONEXISTENT] …`, `NO [ALREADYEXISTS] …`, `NO [CANNOT] …`
+
+The server checked the command, but the store refused it, often because
+another session changed the account in between: a mailbox deleted, a name
+taken. The `StoreError`'s code becomes the response code — `NOT_FOUND`
+is `NONEXISTENT`, `ALREADY_EXISTS` is `ALREADYEXISTS`, `INVALID` is
+`CANNOT` — and its message follows, cut after 200 characters (`...`),
+control characters left out. Search
+[`@bumail/store`'s troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/store/docs/troubleshooting.md)
+for the text after the code. Any other failure, a `StoreError` of another
+code included, gets
+[`NO [SERVERBUG] Internal error`](messages.md#no-serverbug-internal-error)
+and goes to `onError`.

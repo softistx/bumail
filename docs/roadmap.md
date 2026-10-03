@@ -1,7 +1,7 @@
 # Roadmap
 
 What bumail is building toward: a mail server native to Bun — SMTP in and
-out, DKIM / SPF / DMARC, mailboxes read over JMAP — as `@bumail/*` packages
+out, DKIM / SPF / DMARC, mailboxes read over IMAP, then JMAP — as `@bumail/*` packages
 with no runtime dependency, and a server app on
 [alxia](https://github.com/softistx/alxia) that wires them together.
 
@@ -12,8 +12,8 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **`@bumail/imap`, IMAP4rev2** (RFC 9051), for the mail clients that do
   not speak JMAP. Its first slice: login only over TLS, LIST with
   special-use, SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE, SEARCH, APPEND
-  and IDLE, serving any `@bumail/store`. CONDSTORE, QRESYNC and UIDPLUS
-  follow.
+  and IDLE, serving any `@bumail/store`, merged, not yet published.
+  CONDSTORE, QRESYNC, UIDPLUS and BINARY follow.
 - **`@bumail/auth`, DKIM and SPF first** — DKIM signing and verifying
   (RFC 6376) is published in 0.1.0. SPF checking (RFC 7208):
   `check_host()` with its ten-lookup and void-lookup limits, macros and a
@@ -50,7 +50,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it routing,
   validation and its typed client for free.
 - **The server app** — SMTP on 25 and submission on 587,
-  the queue, the store and JMAP wired together; an admin API for domains,
+  the queue, and the store served over IMAP and JMAP, wired together; an admin API for domains,
   accounts, aliases and DKIM keys; health and metrics. It starts once
   `@alxia/core` is on npm: it consumes alxia's published packages, not a
   link to its working tree, so bumail's CI never depends on another

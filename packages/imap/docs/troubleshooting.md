@@ -78,6 +78,7 @@ fixed part of the text.
 - [`BAD "…" has an empty level`](troubleshooting/mailboxes.md#bad--has-an-empty-level)
 - [`NO [LIMIT] A mailbox name has at most 32 levels`](troubleshooting/mailboxes.md#no-limit-a-mailbox-name-has-at-most-32-levels)
 - [`NO [LIMIT] A mailbox name is at most 1024 characters`](troubleshooting/mailboxes.md#no-limit-a-mailbox-name-is-at-most-1024-characters)
+- [`NO [LIMIT] A level of a mailbox name is at most 255 characters`](troubleshooting/mailboxes.md#no-limit-a-level-of-a-mailbox-name-is-at-most-255-characters)
 - [`BAD CREATE parameters are not supported`](troubleshooting/mailboxes.md#bad-create-parameters-are-not-supported)
 - [`BAD SELECT parameters are not supported`, `BAD EXAMINE parameters are not supported`](troubleshooting/mailboxes.md#bad-select-parameters-are-not-supported-bad-examine-parameters-are-not-supported)
 - [`BAD Unknown STATUS item …`](troubleshooting/mailboxes.md#bad-unknown-status-item-)
@@ -97,6 +98,7 @@ fixed part of the text.
 - [`NO [INUSE] The mailbox is selected: close it first`](troubleshooting/mailboxes.md#no-inuse-the-mailbox-is-selected-close-it-first)
 - [`NO [CANNOT] Renaming INBOX is not supported`](troubleshooting/mailboxes.md#no-cannot-renaming-inbox-is-not-supported)
 - [`NO [CANNOT] A mailbox cannot move inside itself`](troubleshooting/mailboxes.md#no-cannot-a-mailbox-cannot-move-inside-itself)
+- [A store's own refusal: `NO [NONEXISTENT] …`, `NO [ALREADYEXISTS] …`, `NO [CANNOT] …`](troubleshooting/mailboxes.md#a-stores-own-refusal-no-nonexistent--no-alreadyexists--no-cannot-)
 
 **[Messages](troubleshooting/messages.md)**
 

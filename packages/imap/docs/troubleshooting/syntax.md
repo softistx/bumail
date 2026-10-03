@@ -56,7 +56,12 @@ follow at once, it closes the connection instead:
 
 ## `BAD More than 32 literals in one command`
 
-No command this server implements needs more.
+No command this server implements needs more. When the 33rd is a `{n+}`
+literal, whose bytes follow unasked, the connection is closed instead:
+
+```text
+* BYE More than 32 literals in one command, closing
+```
 
 ## `BAD [TOOBIG] Literal over 1024 bytes before login`
 

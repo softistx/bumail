@@ -267,6 +267,7 @@ amount:
 | before login: one literal | 1 KiB, as LITERAL- (RFC 7888) | `BAD [TOOBIG] Literal over 1024 bytes before login` |
 | lists and search keys nested | 32 deep | `BAD Lists nest too deep`, `BAD Search keys nest too deep` |
 | a mailbox name, CREATE and RENAME | 32 levels, 1024 characters | `NO [LIMIT] A mailbox name has at most 32 levels`, `NO [LIMIT] A mailbox name is at most 1024 characters` |
+| one level of a mailbox name, CREATE and RENAME | 255 characters, what a store keeps; checked before any parent is created | `NO [LIMIT] A level of a mailbox name is at most 255 characters` |
 | a LIST pattern, reference included | 1024 characters | `BAD The pattern is too long` |
 | patterns in one LIST | 16 | `BAD More than 16 patterns in one LIST` |
 | TEXT and BODY keys in one SEARCH | 32 | `BAD More than 32 TEXT or BODY keys in one SEARCH` |
@@ -282,9 +283,11 @@ A client that stops reading is not written to without end: the server
 waits for the socket to drain past 64 KiB of output, and stops reading
 commands meanwhile; a message is read and written 64 KiB at a time, so
 what waits for such a client is a slice, never the whole message. Nor
-does it hold the server for good: `loginTimeout` and `timeout` hang up on
-it at once, dropping what it did not read, and any other hang-up (LOGOUT,
-a `BYE`) waits at most 5 seconds for the client to read what is left. A
+does it hold the server for good: when `loginTimeout` or `timeout` comes
+and output is still queued for it, the server drops that output and cuts
+the connection at once. Every other hang-up — a timeout with nothing
+queued, LOGOUT, a `BYE` — sends its last words and is cut 5 seconds later
+if the client has not closed by then, on TLS as on a clear socket. A
 client that connects and never logs in is cut at `loginTimeout`, however
 slowly it trickles bytes, and whether it reads or not; its place under
 `maxConnections` is free again.
