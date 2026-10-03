@@ -61,7 +61,8 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`554 5.5.1 No valid recipients`](#554-551-no-valid-recipients)
 - [`SmtpError: The message is larger than maxMessageSize (… bytes); do not deliver it`](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it)
 - [`SmtpError: The message holds a bare CR or LF (SMTP smuggling); do not deliver it`](#smtperror-the-message-holds-a-bare-cr-or-lf-smtp-smuggling-do-not-deliver-it)
-- [`SmtpError: The client disconnected before the end of the message; do not deliver it`](#smtperror-the-client-disconnected-before-the-end-of-the-message-do-not-deliver-it)
+- [`SmtpError: The connection closed before the end of the message; do not deliver it`](#smtperror-the-connection-closed-before-the-end-of-the-message-do-not-deliver-it)
+- [`SmtpError: The connection closed before the reply to the message; do not deliver it`](#smtperror-the-connection-closed-before-the-reply-to-the-message-do-not-deliver-it)
 - [`SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-read-the-message-within-hooktimeout--s-do-not-deliver-it)
 - [`SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it)
 
@@ -291,9 +292,11 @@ createSmtpServer({
 **When**: `greetingDelay` is as long as `timeout` or longer — `timeout`'s
 default, 300, included.
 
-**Why**: a client waiting for the 220 sends nothing, so the idle timer
-runs out first: every client would get `421 4.4.2 … Idle too long,
-closing` and never a greeting.
+**Why**: a client waiting for the 220 sends nothing, so the idle timer,
+which runs from the connection, would run out first: every client would get
+`421 4.4.2 … Idle too long, closing` and never a greeting. The bound covers
+only that wait before the greeting: once the 220 is out, the idle time
+starts again, so the client gets the whole `timeout` after it.
 
 **Fix**: keep the delay to a few seconds, well below `timeout`:
 
@@ -976,16 +979,36 @@ To take larger messages, raise `maxMessageSize`.
 **Fix**: delete what you wrote and let the error propagate, as in
 [the entry above](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it).
 
-### `SmtpError: The client disconnected before the end of the message; do not deliver it`
+### `SmtpError: The connection closed before the end of the message; do not deliver it`
 
 **When**: the read of `message.content` throws this `SmtpError`, code
-`CONNECTION_LOST`: the client hung up during `DATA`.
+`CONNECTION_LOST`: the connection closed during `DATA` — the client hung
+up, or the server closed it on its idle `timeout` or a socket error.
 
 **Why**: a message cut short is not the message the client meant to send.
 It sends it again on its next attempt.
 
 **Fix**: delete what you wrote and let the error propagate, as in
 [the entry above](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it).
+
+### `SmtpError: The connection closed before the reply to the message; do not deliver it`
+
+**When**: `message.signal` aborts with this `SmtpError`, code
+`CONNECTION_LOST`: the whole message came, but the connection closed
+while `onData` was still answering — the client hung up, or the server
+closed it on its idle `timeout` or a socket error — so the client never
+heard a reply. The stream may
+already have ended cleanly; if `onData` was still reading, the read throws
+it too.
+
+**Why**: a client that heard no `250` will send the message again, so
+keeping this copy would deliver it twice. A client that leaves once the
+reply was sent does not abort the signal. An idle `timeout` shorter than
+the time `onData` takes to answer closes the connection itself, so keep it
+well above `hookTimeout` (300 s against 60 s by default).
+
+**Fix**: check `message.signal` before keeping the message for good, as in
+[the `onData did not answer` entry](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it).
 
 ### `SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`
 
@@ -1014,8 +1037,29 @@ the end nor answered within `hookTimeout` seconds. The client got
 **Why**: the client was told 451 and will send the message again; a read
 that ended cleanly after that would deliver it twice.
 
-**Fix**: read the stream first and answer once it ended; do the slow work
-— a scan, a forward — after `onData` answered, or raise `hookTimeout`.
+**Fix**: read the stream inside `onData`, and before keeping the message
+check `message.signal`: it aborts whenever the server refuses the message
+on `onData`'s behalf, including when the read had already ended cleanly
+and only the answer was late. Or raise `hookTimeout` above what the slow work takes:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	hookTimeout: 120,
+	async onData(message) {
+		const bytes = await new Response(message.content).bytes();
+		await fetch('http://127.0.0.1:3310/scan', { method: 'POST', body: bytes });
+		if (message.signal.aborted) return; // refused: the client will send it again
+		await Bun.write(`spool/${message.id}.eml`, bytes);
+	},
+});
+```
+
+A check just before the commit narrows the race; RFC 5321 §6.1 prefers a
+duplicate to a loss, so what is left costs a second copy, never a message.
 
 ## Hooks
 
@@ -1068,8 +1112,9 @@ When `onData` itself did not answer in time, its stream ends in
 [`SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it),
 so a read still running then keeps nothing. A read that had already reached
 the end before the timeout is not undone: if `onData` read the whole message
-but never answered, the client was told `451` and will send it again, so do
-not deliver from a hook that ran late.
+but never answered, the client was told `451` and will send it again.
+`message.signal` aborts in that case too; check it before keeping the
+message.
 The client got `451 4.3.0` (or `454 4.7.0` for `authenticate`).
 
 **Why**: while a hook runs, the session waits; a hook that never settles
@@ -1128,16 +1173,22 @@ createSmtpServer({
 resolved without a refusal before it read `message.content` to its end, or
 cancelled the stream. A read it left running counts as not read: the
 stream errors with this same error the moment `onData` answers, so that
-read never reaches a clean end. The
-client got `451 4.3.0 Local error in processing`, never `250`, and keeps
-the message.
+read never reaches a clean end. The client got `451 4.3.0 Local error in
+processing`, never `250`, keeps the message, and `message.signal` aborts
+with this error. An `onData` that refuses before reading gets its own
+refusal sent, its signal left alone and nothing reported; only a read it
+left running ends in this error. That holds unless the client never hears
+the refusal: a later stream failure (whose 552 or 550 replaces
+`onData`'s reply) or a closed connection still aborts the signal, with
+that error.
 
 **Why**: a `250` makes the server responsible for the message. An `onData`
 that stopped early has stored part of it at most, so the server does not
 claim it took it.
 
 **Fix**: read the stream to its end before returning — or refuse with a
-`Reply`, which needs no reading:
+`Reply`, which needs no reading and leaves `message.signal` alone unless
+a later stream failure or a closed connection answers instead:
 
 ```ts
 import { createSmtpServer, reply } from '@bumail/smtp';
@@ -1211,8 +1262,10 @@ default). The server hangs up. Before EHLO the reply has no enhanced code.
 
 **Why**: RFC 5321 §4.5.3.2.7 lets a server drop a client that has gone
 quiet, so that a dead client does not hold a connection forever. The time
-counts from the client's last byte, so a slow hook can run into it too —
-keep `hookTimeout` below `timeout`.
+counts from the client's last byte, or from the 220 when nothing came after
+it, so a slow hook can run into it too — keep `hookTimeout` below
+`timeout`. Bun's socket timer ticks in steps of about 4 seconds, so the
+hang-up can come up to that much after `timeout`.
 
 **Fix**, as a client: send `QUIT` when done; a pooled connection that
 waits longer must reconnect, or send `NOOP` within the timeout.

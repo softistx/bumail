@@ -152,7 +152,7 @@ const server = createSmtpServer({
 	maxRecipients: 50, // per message; default 100 → 452 4.5.3
 	maxConnections: 200, // at once; default 1000 → 421 4.3.2
 	maxErrors: 5, // failed commands before hanging up; default 10 → 421 4.7.0
-	timeout: 120, // idle seconds, counted from the client's last byte; default 300 → 421 4.4.2
+	timeout: 120, // idle seconds, from the client's last byte or the 220; default 300 → 421 4.4.2
 	hookTimeout: 20, // seconds a hook has to settle; default 60 → 451 4.3.0
 	greetingDelay: 5, // seconds before the 220; default 0 → 554 to a client that talks first
 	onData: async (message) => {
@@ -199,7 +199,7 @@ console.log(`listening on ${port}, ${server.connections} open`);
   `onData` that answers before the end gets the client `451 4.3.0`, never
   `250`, and `onError` an `SmtpError` (`MESSAGE_NOT_READ`). The stream ends
   in an `SmtpError` when the message must not be delivered — too big,
-  smuggled, the client gone — and the client is then refused whatever
+  smuggled, the connection gone — and the client is then refused whatever
   `onData` answers. Something written before the stream ended may be a
   message the server refused: delete it when the read throws.
 - **No read may outlive `onData`.** A read left running after `onData`
@@ -207,6 +207,20 @@ console.log(`listening on ${port}, ${server.connections} open`);
   `hookTimeout` ends in `HOOK_TIMEOUT`: in both cases the client was told
   `451` and will send the message again, so keeping it would deliver it
   twice. Await the read inside `onData`.
+- **An `onData` that read everything but answers after `hookTimeout`
+  still gets the client `451`**, though its read ended cleanly. Only
+  `message.signal` says so: it aborts whenever the server refuses the
+  message on `onData`'s behalf — for example late, a throw, an answer that
+  is not a refusal, the stream's own errors, or the connection closed
+  before the reply; the guide's table lists every case. A refusal `onData`
+  returns leaves it alone, unless the client never hears it: a later
+  stream failure (whose 552 or 550 replaces `onData`'s reply) or a closed
+  connection still aborts it, with that error. Check
+  `if (message.signal.aborted) return;`
+  just before keeping a message for good —
+  [the guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md#when-the-refusal-comes-after-the-read)
+  has the full example. RFC 5321 §6.1 tolerates a duplicate over a loss, so
+  a race left open costs a second copy, never a lost message.
 - `authenticate` needs `tls`, and so does `mode: 'submission'`:
   `createSmtpServer` throws without it.
 - Ports 25, 465 and 587 are below 1024: binding them needs the privilege to,
@@ -228,7 +242,7 @@ console.log(`listening on ${port}, ${server.connections} open`);
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |
 | `HookResult` | what a hook returns: `undefined` to accept, a `Reply` to refuse |
 | `Session` | `id`, `remoteAddress`, `secure`, `helo`, `esmtp`, `user`, and `data` for your own state |
-| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`) and `content`, a `ReadableStream<Uint8Array>` |
+| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`), `content`, a `ReadableStream<Uint8Array>`, and `signal`, an `AbortSignal` aborted when the server refuses the message on `onData`'s behalf — a refusal `onData` returns leaves it alone, unless a later stream failure or a closed connection answers instead |
 | `TlsOptions` | `key` and `cert`, as `Bun.listen` takes them |
 | `Credentials` | what `authenticate` receives: `mechanism`, `username`, `password`, `authorizationId?` |
 | `reply(code, status, text)`, `Reply` | a reply, for a hook to refuse with |

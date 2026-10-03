@@ -67,7 +67,7 @@ export interface SmtpServer {
 | `maxRecipients` | `number` | `100` | recipients per message |
 | `maxConnections` | `number` | `1000` | open connections at once |
 | `maxErrors` | `number` | `10` | failed commands before the server hangs up |
-| `timeout` | `number` | `300` | seconds since the client's last byte before the server hangs up |
+| `timeout` | `number` | `300` | seconds since the client's last byte, or since the 220, before the server hangs up |
 | `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0` |
 | `greetingDelay` | `number` | `0` | seconds the server waits, once `onConnect` accepted, before its 220; a client that talks meanwhile gets `554` and is hung up on. Fractions are allowed |
 | `onConnect`, `onMailFrom`, `onRcptTo` | hooks | none | see [Hooks](#hooks-and-their-order) |
@@ -376,6 +376,14 @@ export interface ReceivedMessage {
 	 * delivered.
 	 */
 	readonly content: ReadableStream<Uint8Array>;
+	/**
+	 * Aborts when the server refuses the message on `onData`'s behalf; its
+	 * `reason` says why. A refusal `onData` returns leaves it alone, unless
+	 * the client never hears it: a later stream failure (whose 552 or 550
+	 * replaces `onData`'s reply) or a closed connection still aborts it,
+	 * with that error.
+	 */
+	readonly signal: AbortSignal;
 }
 
 export interface Envelope {
@@ -453,12 +461,13 @@ then refused whatever `onData` answers:
 | --- | --- | --- |
 | `MESSAGE_TOO_BIG` | the message passed `maxMessageSize` | `552 5.3.4 Message too big for system` |
 | `BARE_LINE_BREAK` | a CR or LF that is not part of a CRLF: SMTP smuggling | `550 5.6.11 Bare CR or LF is not allowed in a message` |
-| `CONNECTION_LOST` | the client hung up before the end | nothing: it is gone |
+| `CONNECTION_LOST` | the connection closed before the end — the client hung up, or the server closed it on idle `timeout` or a socket error | nothing: it is gone |
 | `MESSAGE_NOT_READ` | `onData` answered before the end: a read it left running errors the moment it answers | `451 4.3.0 Local error in processing` |
 | `HOOK_TIMEOUT` | `onData` read nothing for `hookTimeout` seconds, or did not answer within `hookTimeout` once the message ended — a late read must not keep a message the client will send again | `451 4.3.0 Local error in processing` |
 
-The refusal goes out as soon as the stream errors; the rest of the message
-is read and dropped, and the session goes on. `onData` itself must settle
+The stream errors at once; the rest of the message is read and dropped,
+and the refusal goes out when the client ends DATA with `<CRLF>.<CRLF>`,
+since SMTP has no reply before then. The session goes on. `onData` itself must settle
 within `hookTimeout` once the message ended, or the client gets `451 4.3.0`.
 
 An `onData` that resolves without a refusal before it read the stream to
@@ -484,6 +493,54 @@ const server = createSmtpServer({
 
 await server.listen({ port: 25 });
 ```
+
+### When the refusal comes after the read
+
+One refusal cannot reach the stream: `onData` read the message to its
+clean end, then took longer than `hookTimeout` to answer — a slow scan, a
+slow disk. The client gets `451 4.3.0` and will send the message again, but
+the read already succeeded. `message.signal` covers that case and the
+others: it aborts whenever the server refuses the message on `onData`'s
+behalf.
+
+| `signal.reason` | when |
+| --- | --- |
+| `SmtpError` `HOOK_TIMEOUT` | `onData` did not answer, or did not read, within `hookTimeout` |
+| `SmtpError` `MESSAGE_NOT_READ` | `onData` accepted (answered `undefined`) before reading to the end, or after cancelling the stream |
+| `SmtpError` `INVALID_HOOK_REPLY` | `onData` answered what is not a refusal, such as a `250` |
+| what `onData` threw | `onData` threw; the client got `451` |
+| `SmtpError` `CONNECTION_LOST` | the connection closed — the client hung up, or the server closed it on idle or a socket error — before the end of the message, or after it but before the reply |
+| `SmtpError` `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK` | the stream's own errors |
+
+A refusal `onData` returns leaves the signal alone, whether it read the
+message or not (a read it left running still errors with
+`MESSAGE_NOT_READ`), unless the client never hears it: a later stream
+failure (whose 552 or 550 replaces `onData`'s reply) or a closed
+connection still aborts it, with that error. A client that leaves once
+the reply was sent does not abort it. Check it, or listen for `abort`,
+before keeping a message for good:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	async onData(message) {
+		const bytes = await new Response(message.content).bytes();
+		// A scan that may outlast hookTimeout.
+		await fetch('http://127.0.0.1:3310/scan', { method: 'POST', body: bytes });
+		if (message.signal.aborted) return; // the client was told 451: it will send it again
+		await Bun.write(`spool/${message.id}.eml`, bytes);
+	},
+});
+
+await server.listen({ port: 25 });
+```
+
+A check just before the commit narrows the race to that last write; it
+cannot close it. RFC 5321 §6.1 prefers a duplicate to a loss, so the worst
+case is a second copy, never a lost message.
 
 To parse the message, collect it first and give the bytes to a parser.
 `@bumail/mime`, a sibling package, is on the
@@ -517,7 +574,7 @@ to the store, and the store reads it.
 `message.content` already starts with the server's `Received` field, so it
 goes into `addMessage` as it is — no buffer of your own, no header to
 prepend. `addMessage` keeps nothing unless the stream ends cleanly, so a
-message the server refuses mid-way (too big, a bare LF, the client gone)
+message the server refuses mid-way (too big, a bare LF, the connection gone)
 is stored nowhere, and the client hears the refusal.
 
 ```ts
@@ -774,14 +831,17 @@ await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 
 | `maxRecipients` | 100, the least RFC 5321 §4.5.3.1.8 asks a server to take | `452 4.5.3` for each extra recipient (RFC 5321 §4.5.3.1.10); the client sends the rest in another transaction |
 | `maxConnections` | 1000 | `421 4.3.2` and the server hangs up, before the greeting and before `onConnect` |
 | `maxErrors` | 10 | `421 4.7.0` and the server hangs up |
-| `timeout` | 300 seconds, RFC 5321 §4.5.3.2.7's, counted from the client's last byte | `421 4.4.2` and the server hangs up |
+| `timeout` | 300 seconds, RFC 5321 §4.5.3.2.7's, counted from the client's last byte, or from the 220; Bun's socket timer ticks in steps of about 4 s, so the hang-up comes up to that much later | `421 4.4.2` and the server hangs up |
 | `hookTimeout` | 60 seconds | `451 4.3.0` for that command; `onError` gets an `SmtpError` `HOOK_TIMEOUT` |
 | `greetingDelay` | 0 seconds | not a limit but a wait: the 220 goes out that long after `onConnect` accepted; a client that talks in the meantime gets `554 <hostname> Talked before the greeting` and the server hangs up |
 
 `greetingDelay` is a cheap filter against spam engines that do not wait for
 the greeting (RFC 5321 §4.3.1), in the manner of Postfix's postscreen: a few
 seconds is usual. Each waiting client holds one of `maxConnections`, and
-the idle `timeout` runs during the wait, so keep the delay well below it: `createSmtpServer` refuses a delay as long as `timeout`.
+the idle `timeout` runs during the wait, so keep the delay well below it:
+`createSmtpServer` refuses a delay as long as `timeout`. The idle time starts
+again when the 220 goes out, so the wait before it, `onConnect`'s included,
+is never taken from the client's `timeout`.
 `onConnect` runs first; its refusal goes out at once, without the delay:
 
 ```ts

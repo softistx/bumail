@@ -57,3 +57,17 @@ describe('SocketTransport keeps what the socket could not take', () => {
 		expect(fake.ended).toBe(true);
 	});
 });
+
+describe('SocketTransport restarts the idle time', () => {
+	test('restartIdle sets the socket timeout again', () => {
+		const timeouts: number[] = [];
+		const socket = {
+			remoteAddress: '192.0.2.10',
+			timeout: (seconds: number) => {
+				timeouts.push(seconds);
+			},
+		} as unknown as Socket<unknown>;
+		new SocketTransport(socket, false, () => {}).restartIdle(300);
+		expect(timeouts).toEqual([300]);
+	});
+});

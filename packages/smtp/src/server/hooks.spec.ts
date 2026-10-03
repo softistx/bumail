@@ -203,6 +203,23 @@ describe('the greeting can wait', () => {
 		expect(s.greeting).toBe('220 foo.com ESMTP ready\r\n');
 	});
 
+	test('the idle time starts again once the 220 is out, so the wait before it costs the client nothing', async () => {
+		const s = await fakeSession(
+			mxOptions({
+				greetingDelay: 0.05,
+				onConnect: () => Bun.sleep(20).then(() => undefined),
+			}),
+		);
+		expect(s.idleRestarts).toEqual(['220 foo.com ESMTP ready\r\n']);
+	});
+
+	test('a refused connection never restarts the idle time', async () => {
+		const s = await fakeSession(
+			mxOptions({ onConnect: () => reply(554, undefined, 'Blocked') }),
+		);
+		expect(s.idleRestarts).toEqual([]);
+	});
+
 	test('greetingDelay: a refusal from onConnect goes out at once', async () => {
 		const started = performance.now();
 		const s = await fakeSession(

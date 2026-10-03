@@ -146,6 +146,9 @@ export class Connection {
 			);
 		}
 		this.send(reply(220, undefined, `${options.hostname} ESMTP ready`));
+		// The client's idle time starts at the greeting, not at connect: what
+		// greetingDelay and onConnect took is not taken from it.
+		this.transport.restartIdle(this.settings.timeout);
 		this.input.greeted();
 	}
 

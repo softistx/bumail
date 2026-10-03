@@ -9,9 +9,7 @@ const transaction =
 /** What onData's read of the stream ended with. */
 async function outcome(content: ReadableStream<Uint8Array>) {
 	try {
-		const text = new TextDecoder().decode(
-			await readContent({ id: '', envelope: undefined as never, content }),
-		);
+		const text = new TextDecoder().decode(await readContent({ content }));
 		return { text };
 	} catch (error) {
 		return { error: error as SmtpError };
@@ -175,13 +173,16 @@ describe('the message reaches onData as a stream', () => {
 	});
 
 	test('onData that answers after hookTimeout: 451, and a late read errors with HOOK_TIMEOUT', async () => {
-		let late: Awaited<ReturnType<typeof outcome>> | undefined;
+		const { promise: go, resolve: release } = Promise.withResolvers<void>();
+		const { promise: late, resolve: done } =
+			Promise.withResolvers<Awaited<ReturnType<typeof outcome>>>();
 		const s = await fakeSession(
 			mxOptions({
 				hookTimeout: 1,
 				onData: async (message) => {
-					await Bun.sleep(1200);
-					late = await outcome(message.content);
+					// Starts reading only once the client was told 451.
+					await go;
+					done(await outcome(message.content));
 				},
 			}),
 			{ raw: true },
@@ -190,8 +191,8 @@ describe('the message reaches onData as a stream', () => {
 		expect(await s.send('hi\r\n.\r\n')).toBe(
 			'451 4.3.0 Local error in processing\r\n',
 		);
-		await Bun.sleep(300);
-		expect(late?.error?.code).toBe('HOOK_TIMEOUT');
+		release();
+		expect((await late).error?.code).toBe('HOOK_TIMEOUT');
 	});
 
 	test('onData that leaves a read running and answers: 451, even if the read ends first', async () => {
