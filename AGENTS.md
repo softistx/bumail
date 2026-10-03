@@ -8,9 +8,10 @@ A mail server native to Bun, published as `@bumail/*`. What is planned, in
 what order and why, is in [docs/roadmap.md](./docs/roadmap.md); the table
 below lists only what has landed.
 
-| package | what it is | peers |
+| package | what it is | peers (besides the optional `typescript`) |
 | --- | --- | --- |
 | `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
+| `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — and its memory store | — |
 
@@ -24,8 +25,13 @@ The repository is **private** until the owner says otherwise.
 ## Principles
 
 - **No package has a dependency.** What one needs at runtime is a peer: a
-  sibling `@bumail/*`, or `@alxia/core` for what speaks HTTP — once it is on
-  npm: `verify:artifacts` refuses a required peer that is on no registry, so
+  sibling `@bumail/*`, `@alxia/core` for what speaks HTTP, or — for a store
+  answer only, as the roadmap plans — the published client it wraps
+  (`@nxgt/drizzle` and `drizzle-orm`, `@nxgt/mongo`, `mongodb` and `zod`,
+  `@nxgt/s3`). Apart from those store answers, nothing peers outside
+  `@bumail/*` and `@alxia/core`; every package also names `typescript` as
+  an optional peer, for its types only. Any peer only once it is on npm:
+  `verify:artifacts` refuses a required peer that is on no registry, so
   nothing here peers on alxia before its first publish. Bun's and the
   web platform's own APIs — `Bun.listen`, `socket.upgradeTLS`, `bun:sqlite`,
   `Bun.file`, Web Crypto, `TextDecoder`, `node:dns` — are not dependencies.
@@ -60,6 +66,7 @@ The repository is **private** until the owner says otherwise.
 ## Layering
 
 ```
+dns             (standalone)
 mime            (standalone)
 smtp            (standalone; its delivery spec uses store, as a devDependency only)
 store           (standalone)
