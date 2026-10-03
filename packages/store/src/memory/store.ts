@@ -1,3 +1,4 @@
+import { checkMaxTombstones } from '../contract/checks';
 import type { MailStore } from '../contract/mail-store';
 import type {
 	Account,
@@ -26,7 +27,7 @@ import { mailboxChanges, messageChanges } from './changes';
 import * as mailboxes from './mailboxes';
 import * as membership from './membership';
 import * as messages from './messages';
-import { type MemoryMailStoreOptions, maxTombstones } from './options';
+import type { MemoryMailStoreOptions } from './options';
 import { MemoryState } from './state';
 
 export type { MemoryMailStoreOptions } from './options';
@@ -40,7 +41,7 @@ export class MemoryMailStore implements MailStore {
 	readonly #state: MemoryState;
 
 	constructor(options: MemoryMailStoreOptions = {}) {
-		this.#state = new MemoryState(maxTombstones(options));
+		this.#state = new MemoryState(checkMaxTombstones(options.maxTombstones));
 	}
 
 	async createAccount(name: string): Promise<Account> {
