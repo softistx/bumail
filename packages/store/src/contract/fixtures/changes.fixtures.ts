@@ -183,6 +183,22 @@ function mailboxes(create: CreateStore): void {
 		expect([...after.updated].sort()).toEqual([a.id, inbox.id].sort());
 	});
 
+	test('mailboxes changed at one modseq come in the order they were created', async () => {
+		const { store, account, inbox } = await setup(create);
+		// Created Z, then A: their names sort the other way.
+		const z = await store.createMailbox(account.id, { name: 'Z' });
+		const a = await store.createMailbox(account.id, { name: 'A' });
+		const message = await store.addMessage(account.id, z.id, {
+			content: bytes('x'),
+		});
+		const { modseq } = await store.mailboxChanges(account.id, 0);
+		// A move changes both mailboxes at one modseq.
+		await store.moveMessages(account.id, [message.id], z.id, a.id);
+		const changes = await store.mailboxChanges(account.id, modseq);
+		expect(changes.updated).toEqual([z.id, a.id]);
+		expect(changes.updated).not.toContain(inbox.id);
+	});
+
 	test('accounts count their changes apart', async () => {
 		const { store, account, inbox } = await setup(create);
 		const other = await store.createAccount('john@example.net');

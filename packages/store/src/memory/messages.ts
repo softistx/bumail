@@ -1,11 +1,7 @@
 import { readBlob } from '../contract/blob';
-import { checkCount, checkThreadId } from '../contract/checks';
-import {
-	applyFlagChange,
-	normalizeChange,
-	normalizeFlags,
-	sameFlags,
-} from '../contract/flags';
+import { checkCount } from '../contract/checks';
+import { flagsAfter, normalizeChange } from '../contract/flags';
+import { checkNewMessage } from '../contract/message-checks';
 import type {
 	AccountListOptions,
 	FlagChange,
@@ -17,7 +13,6 @@ import type {
 	MessagesResult,
 	NewMessage,
 } from '../contract/types';
-import { StoreError } from '../errors';
 import type { MailboxState, MemoryState, MessageState } from './state';
 
 /** Joins a message to a mailbox, with the mailbox's next UID. */
@@ -37,19 +32,7 @@ export async function addMessage(
 	input: NewMessage,
 ): Promise<Message> {
 	state.mailbox(accountId, mailboxId);
-	if (typeof input !== 'object' || input === null) {
-		throw new StoreError('INVALID', 'A new message is an object');
-	}
-	const flags = normalizeFlags(input.flags ?? []);
-	if (input.receivedAt !== undefined && !(input.receivedAt instanceof Date)) {
-		throw new StoreError('INVALID', 'receivedAt is not a valid date');
-	}
-	const receivedAt = input.receivedAt?.getTime() ?? Date.now();
-	if (!Number.isFinite(receivedAt)) {
-		throw new StoreError('INVALID', 'receivedAt is not a valid date');
-	}
-	const threadId = input.threadId;
-	checkThreadId(threadId);
+	const { flags, receivedAt, threadId } = checkNewMessage(input);
 	const blob = await readBlob(input.content);
 	// Everything from here on runs in one go: the mailbox is looked up again.
 	const mailbox = state.mailbox(accountId, mailboxId);
@@ -132,12 +115,12 @@ export function setFlags(
 	const result: Message[] = [];
 	const modified: string[] = [];
 	for (const message of found) {
-		if (unchangedSince !== undefined && message.modseq > unchangedSince) {
+		const flags = flagsAfter(message, clean, unchangedSince);
+		if (flags === 'modified') {
 			modified.push(message.id);
 			continue;
 		}
-		const flags = applyFlagChange(message.flags, clean);
-		if (!sameFlags(flags, message.flags)) {
+		if (flags) {
 			message.flags = flags;
 			state.touch(message);
 		}

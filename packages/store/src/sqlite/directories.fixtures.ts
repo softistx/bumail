@@ -2,6 +2,7 @@ import { afterAll } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { SqliteMailStoreOptions } from './open';
 import { SqliteMailStore } from './store';
 
 /**
@@ -23,8 +24,11 @@ export function temporaryStores() {
 		directories.push(made);
 		return made;
 	};
-	const open = (at = directory()) => {
-		const store = SqliteMailStore.open({ directory: at });
+	const open = (
+		at = directory(),
+		options: Omit<SqliteMailStoreOptions, 'directory'> = {},
+	) => {
+		const store = SqliteMailStore.open({ ...options, directory: at });
 		stores.push(store);
 		return store;
 	};

@@ -57,6 +57,45 @@ export const MIGRATIONS: readonly string[] = [
 	CREATE INDEX tombstones_mailbox
 		ON tombstones (account_id, kind, mailbox_id, modseq);
 	`,
+	// 2: messages, where they are, and which account holds which blob.
+	`
+	CREATE TABLE account_blobs (
+		account_id TEXT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+		blob_id TEXT NOT NULL,
+		uses INTEGER NOT NULL CHECK (uses > 0),
+		PRIMARY KEY (account_id, blob_id)
+	) STRICT, WITHOUT ROWID;
+	CREATE INDEX account_blobs_blob ON account_blobs (blob_id);
+
+	CREATE TABLE messages (
+		id TEXT PRIMARY KEY,
+		account_id TEXT NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+		thread_id TEXT NOT NULL,
+		blob_id TEXT NOT NULL,
+		size INTEGER NOT NULL,
+		flags TEXT NOT NULL CHECK (json_valid(flags)),
+		received_at INTEGER NOT NULL,
+		created_modseq INTEGER NOT NULL,
+		modseq INTEGER NOT NULL,
+		FOREIGN KEY (account_id, blob_id)
+			REFERENCES account_blobs (account_id, blob_id)
+	) STRICT;
+	CREATE INDEX messages_created ON messages (account_id, created_modseq);
+	CREATE INDEX messages_changed ON messages (account_id, modseq);
+	CREATE INDEX messages_blob ON messages (account_id, blob_id);
+
+	CREATE TABLE memberships (
+		mailbox_id TEXT NOT NULL REFERENCES mailboxes (id) ON DELETE CASCADE,
+		uid INTEGER NOT NULL,
+		message_id TEXT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+		joined_modseq INTEGER NOT NULL,
+		PRIMARY KEY (mailbox_id, uid)
+	) STRICT, WITHOUT ROWID;
+	CREATE UNIQUE INDEX memberships_message
+		ON memberships (message_id, mailbox_id);
+
+	CREATE INDEX tombstones_account ON tombstones (account_id, seq);
+	`,
 ];
 
 /**

@@ -39,6 +39,25 @@ export function uniqueIds(ids: readonly string[]): string[] {
 	return [...new Set(ids)];
 }
 
+/**
+ * The messages for these ids, each once, in their first order, and the ids
+ * that name none: `find` answers `undefined` for no such message, another
+ * account's, or one the call does not act on.
+ */
+export function partitionIds<T>(
+	ids: readonly string[],
+	find: (id: string) => T | undefined,
+): { found: T[]; notFound: string[] } {
+	const found: T[] = [];
+	const notFound: string[] = [];
+	for (const id of uniqueIds(ids)) {
+		const thing = find(id);
+		if (thing === undefined) notFound.push(id);
+		else found.push(thing);
+	}
+	return { found, notFound };
+}
+
 /** Refuses a mailbox that has no room for `count` more UIDs. */
 export function checkUids(
 	mailbox: { readonly name: string; readonly uidNext: number },

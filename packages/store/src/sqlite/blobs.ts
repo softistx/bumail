@@ -12,7 +12,15 @@ import {
 } from './disk';
 
 const STAGING = '.staging';
+
+/** Content written to a staging file, flushed, not yet under its name. */
+export interface Staged {
+	readonly blobId: string;
+	readonly size: number;
+	readonly staging: string;
+}
 const BLOB_ID = /^[0-9a-f]{64}$/;
+const SHARD = /^[0-9a-f]{2}$/;
 
 async function exists(path: string): Promise<boolean> {
 	try {
@@ -48,6 +56,32 @@ export class BlobFiles {
 		syncDirectorySync(dirname(directory));
 	}
 
+	/**
+	 * Removes every blob `held` says no account holds: what a crash between
+	 * a blob and its commit left, or a removal that failed. Only for
+	 * opening, under the database's lock, when no add can be pending. It
+	 * reads every shard, so opening takes longer as the store grows. What
+	 * is not a file, or cannot be removed, is left for the next open: a
+	 * leftover is harmless, a store that will not open is not.
+	 */
+	sweep(held: (blobId: string) => boolean): void {
+		for (const shard of readdirSync(this.directory, { withFileTypes: true })) {
+			if (!shard.isDirectory() || !SHARD.test(shard.name)) continue;
+			const at = join(this.directory, shard.name);
+			for (const entry of readdirSync(at, { withFileTypes: true })) {
+				const name = entry.name;
+				if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+				if (!BLOB_ID.test(name) || !name.startsWith(shard.name)) continue;
+				if (held(name)) continue;
+				try {
+					rmSync(join(at, name), { force: true });
+				} catch {
+					// Left for the next open.
+				}
+			}
+		}
+	}
+
 	/** Where a blob lives, or `undefined` for a string that is no blob id. */
 	pathOf(blobId: string): string | undefined {
 		if (typeof blobId !== 'string' || !BLOB_ID.test(blobId)) return undefined;
@@ -60,24 +94,39 @@ export class BlobFiles {
 	 * way nothing is left behind.
 	 */
 	async write(content: Content): Promise<{ blobId: string; size: number }> {
+		const staged = await this.stage(content);
+		await this.place(staged);
+		return { blobId: staged.blobId, size: staged.size };
+	}
+
+	/**
+	 * Writes content to a staging file of its own and flushes it, without
+	 * naming it yet: `place` names it. What fails leaves nothing behind.
+	 */
+	async stage(content: Content): Promise<Staged> {
 		const staging = join(this.directory, `${crypto.randomUUID()}${STAGING}`);
 		const handle = await open(staging, 'wx', PRIVATE_FILE);
-		let read: { blobId: string; size: number };
 		try {
-			read = await readChunks(content, (chunk) => writeAll(handle, chunk));
+			const read = await readChunks(content, (chunk) =>
+				writeAll(handle, chunk),
+			);
+			// On macOS a plain fsync, yet the blob reaches stable storage before
+			// its row: the commit's F_FULLFSYNC flushes the drive's cache too.
 			await handle.sync();
+			await handle.close();
+			return { ...read, staging };
 		} catch (error) {
 			await handle.close().catch(() => undefined);
 			await unlink(staging).catch(() => undefined);
 			throw error;
 		}
-		await handle.close();
-		await this.#place(staging, read.blobId);
-		return read;
 	}
 
-	/** Moves a staged blob to its name, or drops it when that name is taken. */
-	async #place(staging: string, blobId: string): Promise<void> {
+	/**
+	 * Moves a staged blob to its name and flushes its directories, or drops
+	 * it when that name is taken: once it returns, the blob survives a crash.
+	 */
+	async place({ staging, blobId }: Staged): Promise<void> {
 		const target = this.pathOf(blobId) as string;
 		if (await exists(target)) {
 			await unlink(staging);
@@ -97,11 +146,15 @@ export class BlobFiles {
 		await syncDirectory(this.directory);
 	}
 
-	/** The blob as a lazy file, or `undefined` when there is none by that id. */
+	/**
+	 * The blob, read lazily from its file, or `undefined` when there is none
+	 * by that id. Its `type` is empty, as the memory store's is: `Bun.file`
+	 * alone says `application/octet-stream`, and ignores `{ type: '' }`.
+	 */
 	async file(blobId: string): Promise<Blob | undefined> {
 		const path = this.pathOf(blobId);
 		if (path === undefined || !(await exists(path))) return undefined;
-		return Bun.file(path);
+		return new Blob([Bun.file(path)], { type: '' });
 	}
 
 	/** Removes a blob no message uses any more; one already gone is fine. */

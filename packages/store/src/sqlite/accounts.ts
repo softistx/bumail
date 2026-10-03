@@ -1,6 +1,7 @@
 import { loginKey, normalizeLogin } from '../contract/checks';
 import { accountExists } from '../contract/conflicts';
 import type { Account } from '../contract/types';
+import { releaseAll } from './ownership';
 import type { SqliteState } from './state';
 
 export function getAccount(
@@ -42,11 +43,15 @@ export function createAccount(state: SqliteState, name: string): Account {
 	});
 }
 
-/** Deletes the account, its mailboxes and what it remembers of its changes. */
+/**
+ * Deletes the account, its mailboxes, its messages and what it remembers
+ * of its changes; the blobs only it held are collected once it is gone.
+ */
 export function deleteAccount(state: SqliteState, id: string): void {
 	state.atomic(() => {
 		state.account(id);
-		// Mailboxes and tombstones go with the account (ON DELETE CASCADE).
+		releaseAll(state, id);
+		// The rest goes with the account (ON DELETE CASCADE).
 		state.db.query('DELETE FROM accounts WHERE id = ?').run(id);
 	});
 }

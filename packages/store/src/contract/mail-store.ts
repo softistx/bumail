@@ -127,7 +127,9 @@ export interface MailStore {
 	/**
 	 * A message's content, in the account that holds it; `blob.slice(start,
 	 * end)` reads a range. Another account's blob is `undefined`, even with
-	 * the same bytes: a blob id is no key to someone else's mail.
+	 * the same bytes: a blob id is no key to someone else's mail. The Blob
+	 * is valid until its message leaves the account (destroyed, or its last
+	 * mailbox removed), and reading it afterwards may fail.
 	 */
 	readContent(accountId: string, blobId: string): Promise<Blob | undefined>;
 	/** Changes the flags of messages; each one changed takes a new modseq. */

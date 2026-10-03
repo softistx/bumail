@@ -1,4 +1,4 @@
-import { checkUids as checkUidRoom, uniqueIds } from '../contract/checks';
+import { checkUids as checkUidRoom, partitionIds } from '../contract/checks';
 import type { Account, Mailbox, MailboxRole, Message } from '../contract/types';
 import { StoreError } from '../errors';
 
@@ -118,18 +118,12 @@ export class MemoryState {
 		keep: (message: MessageState) => boolean = () => true,
 	): { found: MessageState[]; notFound: string[] } {
 		this.account(accountId);
-		const unique = uniqueIds(ids);
-		const found: MessageState[] = [];
-		const notFound: string[] = [];
-		for (const id of unique) {
+		return partitionIds(ids, (id) => {
 			const message = this.messages.get(id);
-			if (message && message.accountId === accountId && keep(message)) {
-				found.push(message);
-			} else {
-				notFound.push(id);
-			}
-		}
-		return { found, notFound };
+			return message && message.accountId === accountId && keep(message)
+				? message
+				: undefined;
+		});
 	}
 
 	/** Refuses a mailbox that has no room for `count` more UIDs. */

@@ -28,3 +28,10 @@ export function roleTaken(role: MailboxRole): StoreError {
 export function hasChildren(): StoreError {
 	return new StoreError('INVALID', 'A mailbox with children cannot be deleted');
 }
+
+export function notEmpty(): StoreError {
+	return new StoreError(
+		'INVALID',
+		'Only an empty mailbox can be deleted without removeMessages',
+	);
+}

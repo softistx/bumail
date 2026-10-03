@@ -35,7 +35,9 @@ only in it: another account's mailbox is `NOT_FOUND`, its message lands in
 `notFound`, and `getMessage` or `getMailbox` returns `undefined` for it.
 Content is kept per account too: `readContent` reads only the given
 account's blobs, so the same bytes elsewhere are another blob, and a blob
-id from someone else's mail gives `undefined`.
+id from someone else's mail gives `undefined`. The Blob is valid until its
+message leaves the account (destroyed, or its last mailbox removed):
+reading it afterwards may fail.
 
 ## Messages and mailboxes
 

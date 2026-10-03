@@ -9,7 +9,10 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
-Nothing in progress.
+- **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite` — the same
+  contract on disk, message bodies as blobs on disk addressed by their
+  hash. It passes the whole contract; exporting it and its documentation
+  are left. Not exported yet.
 
 ## Next
 
@@ -21,8 +24,6 @@ Nothing in progress.
   `@bumail/dns`, opportunistic STARTTLS, connection reuse per destination.
   *Kept in the same package as the server, on its own subpath*: both share
   the command and reply grammar.
-- **`@bumail/store` on `bun:sqlite`** — the same contract on disk, message
-  bodies as blobs on disk addressed by their hash.
 - **A blob store, apart from the mailbox store** — message bytes kept
   apart from their metadata, behind one small contract: put as a stream,
   get and delete, by account and hash. Three answers: the disk through

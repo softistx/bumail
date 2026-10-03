@@ -2,6 +2,8 @@ import type { Database } from 'bun:sqlite';
 import { isMailboxRole } from '../contract/mailbox-name';
 import type { Account, Mailbox } from '../contract/types';
 import { StoreError } from '../errors';
+import type { BlobFiles } from './blobs';
+import { BlobKeeper } from './content';
 
 export interface AccountRow {
 	id: string;
@@ -24,17 +26,56 @@ export interface MailboxRow {
 	highest_modseq: number;
 }
 
+const SEEN = '\\Seen';
+
 /** The SQLite store's database, and the lookups and bookkeeping its operations share. */
 export class SqliteState {
 	readonly db: Database;
+	readonly blobs: BlobKeeper;
+	readonly maxTombstones: number;
+	/** Blobs an account stopped holding in the operation running: maybe no one holds them now. */
+	readonly released = new Set<string>();
+	#closed = false;
 
-	constructor(db: Database) {
+	constructor(db: Database, files: BlobFiles, maxTombstones: number) {
 		this.db = db;
+		this.maxTombstones = maxTombstones;
+		// Closed, the database cannot say: a blob is held until it can.
+		this.blobs = new BlobKeeper(
+			files,
+			(blobId) =>
+				this.#closed ||
+				this.db
+					.query('SELECT 1 FROM account_blobs WHERE blob_id = ? LIMIT 1')
+					.get(blobId) !== null,
+		);
 	}
 
-	/** Runs `fn` in one transaction: all of it, or none of it. */
+	get closed(): boolean {
+		return this.#closed;
+	}
+
+	/** Lets go of the database, and of its lock; closing twice is fine. */
+	close(): void {
+		if (this.#closed) return;
+		this.#closed = true;
+		this.db.close();
+	}
+
+	/**
+	 * Runs `fn` in one transaction: all of it, or none of it. Closed, it is
+	 * `INVALID`: an operation that awaited its content finds out here.
+	 */
 	atomic<T>(fn: () => T): T {
+		if (this.#closed) throw new StoreError('INVALID', 'The store is closed');
 		return this.db.transaction(fn)();
+	}
+
+	/** Removes the files of the blobs the last operations released that no one holds now. */
+	async collect(): Promise<void> {
+		const released = [...this.released];
+		this.released.clear();
+		await this.blobs.collect(released);
 	}
 
 	/** The account, or `NOT_FOUND`. */
@@ -112,23 +153,17 @@ export class SqliteState {
 		return next;
 	}
 
-	/** Remembers a mailbox destroyed at `modseq`, for the changes. */
-	buryMailbox(
-		accountId: string,
-		id: string,
-		modseq: number,
-		createdModseq: number,
-	): void {
-		this.db
-			.query(
-				"INSERT INTO tombstones (account_id, kind, modseq, id, created_modseq) VALUES (?, 'mailbox', ?, ?, ?)",
-			)
-			.run(accountId, modseq, id, createdModseq);
-	}
-
 	/** A copy of the mailbox, with its counts. */
 	mailboxView(row: MailboxRow): Mailbox {
-		// No message is stored before the messages slice: every count is 0.
+		const { messages, unseen } = this.db
+			.query<{ messages: number; unseen: number }, [string, string]>(
+				`SELECT count(*) AS messages, coalesce(sum(NOT EXISTS (
+					SELECT 1 FROM json_each(m.flags) WHERE value = ?
+				)), 0) AS unseen
+				FROM memberships ms JOIN messages m ON m.id = ms.message_id
+				WHERE ms.mailbox_id = ?`,
+			)
+			.get(SEEN, row.id) as { messages: number; unseen: number };
 		return {
 			id: row.id,
 			accountId: row.account_id,
@@ -139,8 +174,8 @@ export class SqliteState {
 			uidValidity: row.uid_validity,
 			uidNext: row.uid_next,
 			highestModseq: row.highest_modseq,
-			messages: 0,
-			unseen: 0,
+			messages,
+			unseen,
 		};
 	}
 

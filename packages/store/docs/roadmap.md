@@ -9,8 +9,9 @@ only number on it.
 - **A `bun:sqlite` store**, to come as `@bumail/store/sqlite` — the same
   contract on disk, message content as files addressed by their hash, held
   to the same specs. One process opens a database at a time, and every
-  write is flushed to disk before it is acknowledged. Accounts and
-  mailboxes are written; messages come next. Not exported yet.
+  write is flushed to disk before it is acknowledged. It passes the whole
+  contract, messages included; what is left is exporting it and its
+  documentation. Not exported yet.
 
 ## Next
 
