@@ -12,7 +12,25 @@ export type {
 export { type SignDkimOptions, signDkim } from './dkim/sign';
 export { RECOMMENDED_HEADERS } from './dkim/sign-headers';
 export { type VerifyDkimOptions, verifyDkim } from './dkim/verify';
+export {
+	type CheckDmarcOptions,
+	checkDmarc,
+	type DmarcInput,
+} from './dmarc/check-dmarc';
+export { organizationalDomain } from './dmarc/psl';
+export type {
+	DmarcPolicy,
+	DmarcRecord,
+	DmarcResult,
+	DmarcResultWord,
+	DmarcUri,
+	SpfCheck,
+} from './dmarc/result';
 export { AuthError, type AuthErrorCode } from './errors';
+export {
+	type AuthenticationResultsInput,
+	formatAuthenticationResults,
+} from './results/authentication-results';
 export {
 	type CheckSpfOptions,
 	checkSpf,
