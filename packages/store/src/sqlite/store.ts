@@ -1,3 +1,4 @@
+import { checkMaxTombstones } from '../contract/checks';
 import type { MailStore } from '../contract/mail-store';
 import type {
 	Account,
@@ -23,41 +24,37 @@ import type {
 } from '../contract/types';
 import { StoreError } from '../errors';
 import * as accounts from './accounts';
-import { mailboxChanges } from './changes';
+import { mailboxChanges, messageChanges } from './changes';
+import * as copies from './copies';
+import { setFlags } from './flags';
 import * as mailboxes from './mailboxes';
-import {
-	type Opened,
-	openDirectory,
-	type SqliteMailStoreOptions,
-} from './open';
+import * as membership from './membership';
+import * as messages from './messages';
+import { openDirectory, type SqliteMailStoreOptions } from './open';
 import { deleteMailbox } from './removal';
 import { SqliteState } from './state';
 
 export type { SqliteMailStoreOptions } from './open';
 
-/** What a later slice answers: refused loudly, never faked. */
-function notYet(): never {
-	throw new Error('not implemented in this slice');
-}
-
 /**
  * A `MailStore` on `bun:sqlite`: one directory holding `mail.sqlite` and
  * the blobs, opened by one process at a time. Every operation runs in one
- * transaction, without awaiting, so concurrent calls never interleave.
+ * transaction, without awaiting, so concurrent calls never interleave; an
+ * add writes its content before its transaction, and a removal drops the
+ * blobs no account holds any more once its transaction is over.
  */
 export class SqliteMailStore implements MailStore {
 	readonly #opened: SqliteState;
-	#closed = false;
 
-	// The blobs are opened with the database, staging files cleared; the
-	// messages slice keeps them, to write and read content.
-	private constructor({ db }: Opened) {
-		this.#opened = new SqliteState(db);
+	private constructor(state: SqliteState) {
+		this.#opened = state;
 	}
 
 	/** The database, or `INVALID` once closed, rather than SQLite's own error. */
 	get #state(): SqliteState {
-		if (this.#closed) throw new StoreError('INVALID', 'The store is closed');
+		if (this.#opened.closed) {
+			throw new StoreError('INVALID', 'The store is closed');
+		}
 		return this.#opened;
 	}
 
@@ -66,14 +63,24 @@ export class SqliteMailStore implements MailStore {
 	 * another store holds open, or one that cannot be opened, is `INVALID`.
 	 */
 	static open(options: SqliteMailStoreOptions): SqliteMailStore {
-		return new SqliteMailStore(openDirectory(options));
+		const max = checkMaxTombstones(
+			(options as SqliteMailStoreOptions | undefined)?.maxTombstones,
+		);
+		const { db, blobs } = openDirectory(options);
+		return new SqliteMailStore(new SqliteState(db, blobs, max));
 	}
 
 	/** Lets go of the database, and of its lock; closing twice is fine. */
 	close(): void {
-		if (this.#closed) return;
-		this.#closed = true;
-		this.#opened.db.close();
+		this.#opened.close();
+	}
+
+	/** Runs an operation that may release blobs, then drops those no one holds. */
+	async #releasing<T>(run: (state: SqliteState) => T): Promise<T> {
+		const state = this.#state;
+		const result = run(state);
+		await state.collect();
+		return result;
 	}
 
 	async createAccount(name: string): Promise<Account> {
@@ -88,8 +95,8 @@ export class SqliteMailStore implements MailStore {
 		return accounts.findAccount(this.#state, name);
 	}
 
-	async deleteAccount(id: string): Promise<void> {
-		accounts.deleteAccount(this.#state, id);
+	deleteAccount(id: string): Promise<void> {
+		return this.#releasing((state) => accounts.deleteAccount(state, id));
 	}
 
 	async createMailbox(
@@ -133,106 +140,123 @@ export class SqliteMailStore implements MailStore {
 		return mailboxes.setSubscribed(this.#state, accountId, id, subscribed);
 	}
 
-	async deleteMailbox(
+	deleteMailbox(
 		accountId: string,
 		id: string,
-		_options: { readonly removeMessages?: boolean } = {},
+		options: { readonly removeMessages?: boolean } = {},
 	): Promise<void> {
-		deleteMailbox(this.#state, accountId, id);
+		return this.#releasing((state) =>
+			deleteMailbox(state, accountId, id, options?.removeMessages === true),
+		);
 	}
 
 	async addMessage(
-		_accountId: string,
-		_mailboxId: string,
-		_message: NewMessage,
+		accountId: string,
+		mailboxId: string,
+		message: NewMessage,
 	): Promise<Message> {
-		notYet();
+		return messages.addMessage(this.#state, accountId, mailboxId, message);
 	}
 
 	async getMessage(
-		_accountId: string,
-		_id: string,
+		accountId: string,
+		id: string,
 	): Promise<Message | undefined> {
-		notYet();
+		return messages.getMessage(this.#state, accountId, id);
 	}
 
 	async listMessages(
-		_accountId: string,
-		_mailboxId: string,
-		_options?: ListOptions,
+		accountId: string,
+		mailboxId: string,
+		options: ListOptions = {},
 	): Promise<MailboxEntry[]> {
-		notYet();
+		return messages.listMessages(
+			this.#state,
+			accountId,
+			mailboxId,
+			options ?? {},
+		);
 	}
 
 	async listAccountMessages(
-		_accountId: string,
-		_options?: AccountListOptions,
+		accountId: string,
+		options: AccountListOptions = {},
 	): Promise<MessagePage> {
-		notYet();
+		return messages.listAccountMessages(this.#state, accountId, options ?? {});
 	}
 
 	async readContent(
-		_accountId: string,
-		_blobId: string,
+		accountId: string,
+		blobId: string,
 	): Promise<Blob | undefined> {
-		notYet();
+		return messages.readContent(this.#state, accountId, blobId);
 	}
 
 	async setFlags(
-		_accountId: string,
-		_ids: readonly string[],
-		_change: FlagChange,
-		_options?: FlagOptions,
+		accountId: string,
+		ids: readonly string[],
+		change: FlagChange,
+		options: FlagOptions = {},
 	): Promise<FlagResult> {
-		notYet();
+		return setFlags(
+			this.#state,
+			accountId,
+			ids,
+			change,
+			options?.unchangedSince,
+		);
 	}
 
 	async copyMessages(
-		_accountId: string,
-		_ids: readonly string[],
-		_mailboxId: string,
+		accountId: string,
+		ids: readonly string[],
+		mailboxId: string,
 	): Promise<MessagesResult> {
-		notYet();
+		return copies.copyMessages(this.#state, accountId, ids, mailboxId);
 	}
 
 	async linkMessages(
-		_accountId: string,
-		_ids: readonly string[],
-		_mailboxId: string,
+		accountId: string,
+		ids: readonly string[],
+		mailboxId: string,
 	): Promise<MessagesResult> {
-		notYet();
+		return copies.linkMessages(this.#state, accountId, ids, mailboxId);
 	}
 
 	async moveMessages(
-		_accountId: string,
-		_ids: readonly string[],
-		_from: string,
-		_to: string,
+		accountId: string,
+		ids: readonly string[],
+		from: string,
+		to: string,
 	): Promise<MessagesResult> {
-		notYet();
+		return membership.moveMessages(this.#state, accountId, ids, from, to);
 	}
 
-	async removeMessages(
-		_accountId: string,
-		_ids: readonly string[],
-		_mailboxId: string,
+	removeMessages(
+		accountId: string,
+		ids: readonly string[],
+		mailboxId: string,
 	): Promise<ExpungeResult> {
-		notYet();
+		return this.#releasing((state) =>
+			membership.removeMessages(state, accountId, ids, mailboxId),
+		);
 	}
 
-	async destroyMessages(
-		_accountId: string,
-		_ids: readonly string[],
+	destroyMessages(
+		accountId: string,
+		ids: readonly string[],
 	): Promise<ExpungeResult> {
-		notYet();
+		return this.#releasing((state) =>
+			membership.destroyMessages(state, accountId, ids),
+		);
 	}
 
 	async messageChanges(
-		_accountId: string,
-		_since: number,
-		_options?: MessageChangesOptions,
+		accountId: string,
+		since: number,
+		options: MessageChangesOptions = {},
 	): Promise<MessageChanges> {
-		notYet();
+		return messageChanges(this.#state, accountId, since, options ?? {});
 	}
 
 	async mailboxChanges(

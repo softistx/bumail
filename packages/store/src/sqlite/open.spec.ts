@@ -2,7 +2,7 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { bytes, rejects } from '../contract/fixtures/setup.fixtures';
+import { bytes } from '../contract/fixtures/setup.fixtures';
 import { BlobFiles } from './blobs';
 import { temporaryStores } from './directories.fixtures';
 import { MIGRATIONS } from './schema';
@@ -176,17 +176,5 @@ describe('SqliteMailStore.open: the schema', () => {
 			'not a database, just text '.repeat(40),
 		);
 		refused(() => SqliteMailStore.open({ directory: at }), 'cannot be opened');
-	});
-
-	test('what the next slices answer is refused, never faked', async () => {
-		const store = open();
-		const account = await store.createAccount('mary@example.net');
-		await expect(store.getMessage(account.id, 'x')).rejects.toThrow(
-			'not implemented in this slice',
-		);
-		await expect(store.messageChanges(account.id, 0)).rejects.toThrow(
-			'not implemented in this slice',
-		);
-		await rejects(store.mailboxChanges('nope', 0), 'NOT_FOUND');
 	});
 });

@@ -12,6 +12,13 @@ import {
 } from './disk';
 
 const STAGING = '.staging';
+
+/** Content written to a staging file, flushed, not yet under its name. */
+export interface Staged {
+	readonly blobId: string;
+	readonly size: number;
+	readonly staging: string;
+}
 const BLOB_ID = /^[0-9a-f]{64}$/;
 
 async function exists(path: string): Promise<boolean> {
@@ -60,24 +67,37 @@ export class BlobFiles {
 	 * way nothing is left behind.
 	 */
 	async write(content: Content): Promise<{ blobId: string; size: number }> {
+		const staged = await this.stage(content);
+		await this.place(staged);
+		return { blobId: staged.blobId, size: staged.size };
+	}
+
+	/**
+	 * Writes content to a staging file of its own and flushes it, without
+	 * naming it yet: `place` names it. What fails leaves nothing behind.
+	 */
+	async stage(content: Content): Promise<Staged> {
 		const staging = join(this.directory, `${crypto.randomUUID()}${STAGING}`);
 		const handle = await open(staging, 'wx', PRIVATE_FILE);
-		let read: { blobId: string; size: number };
 		try {
-			read = await readChunks(content, (chunk) => writeAll(handle, chunk));
+			const read = await readChunks(content, (chunk) =>
+				writeAll(handle, chunk),
+			);
 			await handle.sync();
+			await handle.close();
+			return { ...read, staging };
 		} catch (error) {
 			await handle.close().catch(() => undefined);
 			await unlink(staging).catch(() => undefined);
 			throw error;
 		}
-		await handle.close();
-		await this.#place(staging, read.blobId);
-		return read;
 	}
 
-	/** Moves a staged blob to its name, or drops it when that name is taken. */
-	async #place(staging: string, blobId: string): Promise<void> {
+	/**
+	 * Moves a staged blob to its name and flushes its directories, or drops
+	 * it when that name is taken: once it returns, the blob survives a crash.
+	 */
+	async place({ staging, blobId }: Staged): Promise<void> {
 		const target = this.pathOf(blobId) as string;
 		if (await exists(target)) {
 			await unlink(staging);

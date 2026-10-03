@@ -1,5 +1,5 @@
 import { renameTarget } from '../contract/checks';
-import { hasChildren } from '../contract/conflicts';
+import { hasChildren, notEmpty } from '../contract/conflicts';
 import {
 	checkNewMailbox,
 	checkSubscribed,
@@ -14,7 +14,6 @@ import type {
 	MailboxRole,
 	NewMailbox,
 } from '../contract/types';
-import { StoreError } from '../errors';
 import { expunge } from './membership';
 import type { MailboxState, MemoryState } from './state';
 
@@ -129,10 +128,7 @@ export function deleteMailbox(
 		message.mailboxes.has(id),
 	);
 	if (inside.length > 0 && !removeMessages) {
-		throw new StoreError(
-			'INVALID',
-			'Only an empty mailbox can be deleted without removeMessages',
-		);
+		throw notEmpty();
 	}
 	const expunged = inside.map((message) => expunge(state, message, id));
 	const modseq = state.bump(mailbox.accountId);

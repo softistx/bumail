@@ -75,3 +75,20 @@ export function applyFlagChange(
 export function sameFlags(a: readonly string[], b: readonly string[]): boolean {
 	return a.length === b.length && a.every((flag, i) => flag === b[i]);
 }
+
+/**
+ * What a normalised flag change does to one message: `'modified'` when
+ * `unchangedSince` refuses it (RFC 7162), its new flags when they differ,
+ * `undefined` when they stay as they are.
+ */
+export function flagsAfter(
+	message: { readonly flags: readonly string[]; readonly modseq: number },
+	change: FlagChange,
+	unchangedSince: number | undefined,
+): 'modified' | string[] | undefined {
+	if (unchangedSince !== undefined && message.modseq > unchangedSince) {
+		return 'modified';
+	}
+	const flags = applyFlagChange(message.flags, change);
+	return sameFlags(flags, message.flags) ? undefined : flags;
+}
