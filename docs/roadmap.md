@@ -91,6 +91,11 @@ No dates. Each entry says what someone running or embedding the server gets.
   client IP and the MAIL FROM or HELO domain: every mechanism, `redirect=`,
   `exp=`, the macros, the lookup limits and a timeout, never a throw for a
   record.
+- **`@bumail/imap`, the first slice** — IMAP4rev2 (RFC 9051) on
+  `Bun.listen`, serving any `@bumail/store`: STARTTLS and implicit TLS,
+  login only once encrypted, LIST with special-use, SELECT, FETCH, STORE,
+  COPY, MOVE, EXPUNGE, SEARCH, APPEND and IDLE, with every command and
+  hang-up bounded.
 
 ### 0.1.0 — published
 
