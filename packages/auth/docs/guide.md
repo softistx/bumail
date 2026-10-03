@@ -32,7 +32,8 @@ It follows RFC 6376 §6 for each signature, in this order:
 1. The tags are read and checked. A tag given twice, a required tag
    missing (`v a b bh d h s`), a value that cannot be, or an `h=` without
    From is a `permerror`. Tags it does not know (`z=`, or any future
-   tag) are ignored.
+   tag) are ignored. A message with more From fields than `h=` lists is
+   `policy`: one From is not signed, and a reader may be shown it.
 2. The clock is checked. An `x=` in the past or a `t=` in the future,
    beyond `clockSkew`, is `neutral`.
 3. The key is looked up at `<s>._domainkey.<d>`. The lookup starts at
@@ -54,7 +55,9 @@ A stream is read only as far as the header needs before the key lookups
 start. Then the body flows through the hashers chunk by chunk, so a 50 MB
 message never sits in memory. If the stream fails partway through, every
 signature still in progress gives a `temperror`
-("the message could not be read: …").
+("the message could not be read: …"). If it fails before the header is
+complete, no signature was read yet: you get one `temperror` for the
+whole message, with no `domain` or other signature field.
 
 ```ts
 const file = Bun.file('/var/spool/bumail/incoming/1a2b.eml');
@@ -77,7 +80,7 @@ the RFC says.
 | `neutral` | the signature expired, or is dated in the future | treat as unsigned |
 | `temperror` | the key could not be fetched now (DNS `TEMPORARY` or `TIMEOUT`), or the stream broke | defer the message with a 4xx, or treat as unsigned |
 | `permerror` | the signature or its key cannot be valid: bad tags, no key, revoked key, rsa-sha1, a key too short | treat as unsigned |
-| `policy` | a limit you set refused it: `maxSignatures`, `maxSignedHeaders`, `minRsaBits`, `rejectBodyLength` | treat as unsigned |
+| `policy` | a limit refused it (`maxHeaderBytes`, `maxSignatures`, `maxSignedHeaders`, `minRsaBits`, `rejectBodyLength`), or the message has a From the signature does not cover | treat as unsigned |
 | `none` | the message carries no DKIM-Signature | — |
 
 Each result carries what the signature said, as far as it could be read:
@@ -106,7 +109,7 @@ Every limit has a default that suits a public MX:
 await verifyDkim(message, {
 	resolver,
 	clockSkew: 300, // seconds of tolerance on t= and x=
-	maxHeaderBytes: 262_144, // beyond: one permerror, nothing else read
+	maxHeaderBytes: 262_144, // beyond: one policy, nothing else read
 	maxSignatures: 10, // the 11th and later: policy, never looked up
 	maxSignedHeaders: 64, // a longer h=: policy
 	minRsaBits: 1024, // raise to 2048 to refuse 1024-bit keys as policy
@@ -142,19 +145,31 @@ to put on top. It comes folded at 78 columns, `b=` last, ending in CRLF:
 ```
 DKIM-Signature: v=1; a=ed25519-sha256; c=relaxed/relaxed; d=example.com;
  s=mail2026; t=1700000000; x=1700604800; h=from: to: subject: date:
- message-id: from; bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=; b=
- Wk8yYm1jUzR0aE5pbmc…
+ message-id: from: subject: date: to: message-id;
+ bh=2jUSOH9NhtVGCQWNr9BrIAPreKQjO6Sn7XIkfJVOzv8=; b=
+ 1ioBu7kSJ0R9+vw+8VToCZ/2cRI3JI/H84uJC2zOGv0ejQCz7yD1PLdJ2zLDcwLXziIBPjFQ
+ Sk32dyyUHAfUBQ==
 ```
 
 ### Which fields are signed
 
 By default, every field of `RECOMMENDED_HEADERS` the message has: From,
 Reply-To, Subject, Date, To, Cc, Message-ID, the Resent-* fields,
-In-Reply-To, References and the List-* fields (RFC 6376 §5.4.1). Each one
-is listed once per instance, and From once more. Listing a field one more
-time than the message has it is *over-signing* (§5.4.2): the extra entry
-signs "no further From". A From added in transit then breaks the
-signature, instead of being shown to the reader above the signed one.
+In-Reply-To, References and the List-* fields (RFC 6376 §5.4.1), and
+MIME-Version and Content-Type, which say how the body is read. Each one
+is listed once per instance.
+
+Then From, Subject, Date, To, Cc, Reply-To, Message-ID, Content-Type and
+MIME-Version are listed once more each, when the message has them.
+Listing a field one more time than the message has it is *over-signing*
+(§5.4.2): the extra entry signs "no further From". A From, Subject, To or
+Date added in transit then breaks the signature, instead of being shown
+to the reader above the signed one. A field the message does not have is
+not over-signed.
+
+```
+h=from: to: subject: date: message-id: from: subject: date: to: message-id
+```
 
 `headers` replaces the list, written into `h=` as given:
 
@@ -168,7 +183,32 @@ await signDkim(message, {
 ```
 
 It must include `from`. A name the message does not have is still
-allowed: it signs that the field is absent.
+allowed: it signs that the field is absent. Each name must be a bare
+field name: printable ASCII, without white space, `:` or `;`, which
+would end the name or the tag. Anything else throws `AuthError`
+`INVALID_OPTION` before the message is read.
+
+### When signing fails
+
+`signDkim` throws `AuthError`. Every failure to read the message is
+`INVALID_MESSAGE`: no From field, a header past `maxHeaderBytes`, or a
+stream that fails, header or body ("the message could not be read: …").
+The stream's own error is kept as `cause`:
+
+```ts
+import { AuthError, signDkim } from '@bumail/auth';
+
+try {
+	await signDkim(Bun.file(path).stream(), options);
+} catch (error) {
+	if (error instanceof AuthError && error.code === 'INVALID_MESSAGE') {
+		console.error(error.message, error.cause);
+	}
+}
+```
+
+A field `@bumail/mime` cannot fold, such as a header name longer than
+998 characters, is `INVALID_OPTION`, with the `MimeError` as `cause`.
 
 ### Identity
 

@@ -6,17 +6,12 @@ number on it.
 
 ## Now
 
-- **DKIM** (RFC 6376): verifying every signature on a message and signing
-  outbound mail, with rsa-sha256 and ed25519-sha256 (RFC 8463) through Web
-  Crypto, simple and relaxed canonicalisation, a streamed body, key lookups
-  through `@bumail/dns`, and results in RFC 8601's words. Merged, not yet
-  published.
-
-## Next
-
 - **SPF** (RFC 7208): `check_host()` for the client IP, the HELO name and
   the MAIL FROM domain, with its ten-lookup and two-void-lookup limits,
   macros and every result word, over the same injected `Resolver`.
+
+## Next
+
 - **DMARC** (RFC 7489): the policy record and its organisational-domain
   fallback, relaxed and strict alignment of the DKIM `d=` and SPF domains
   with From, and the disposition a receiver applies.
@@ -45,4 +40,10 @@ number on it.
 
 ### Unreleased: merged, not yet published
 
-Nothing yet: DKIM, under Now, is the first release.
+- **DKIM** (RFC 6376): verifying every signature on a message and signing
+  outbound mail, with rsa-sha256 and ed25519-sha256 (RFC 8463) through Web
+  Crypto, simple and relaxed canonicalisation, a streamed body, key lookups
+  through `@bumail/dns`, and results in RFC 8601's words. The signer
+  over-signs the fields a reader sees, and the verifier answers `policy`
+  for a From the signature does not cover. This is the package's first
+  release.

@@ -1,7 +1,8 @@
 # Troubleshooting
 
 Two kinds of entry. **Errors** are what a call throws: an `AuthError`,
-headed by its message and listed under its `code`. **Result reasons** are
+headed by its message and listed under its `code`; one that wraps
+another error keeps it as `cause`. **Result reasons** are
 what `verifyDkim` gives back in `reason`. It never throws for a message,
 so everything wrong with one comes back this way. Entries are listed under
 their `result`. The parts shown as … vary.
@@ -73,8 +74,24 @@ twice, to over-sign it: `['from', 'from', 'to', 'subject', 'date']`.
 
 #### `AuthError: signDkim(): headers holds a name that is not a header field name`
 
-**When**: an entry of `headers` holds white space, a colon, or a control
-character. **Fix**: pass bare field names: `'list-unsubscribe'`.
+**When**: an entry of `headers` is empty, is not a string, or holds white
+space, a `:`, a `;`, a control character or anything outside ASCII. A
+`:` ends a field name, and a `;` would end the `h=` tag. **Fix**: pass
+bare field names: `'list-unsubscribe'`.
+
+#### `AuthError: signDkim(): headers must be an array of header field names`
+
+**When**: `headers` is a string or anything else that is not an array.
+**Fix**: `headers: ['from', 'to', 'subject']`, or leave it out for the
+default.
+
+#### `AuthError: signDkim(): the DKIM-Signature field cannot be written: …`
+
+**When**: `@bumail/mime`'s `foldHeader` refused the field, and its
+`MimeError` is the `cause`. In practice, an entry of `headers` (or the
+selector, or `identity`) is longer than the 998 characters a header line
+may hold (RFC 5322 §2.1.1), so the field cannot be folded. **Fix**: use
+the real field names; no field name is that long.
 
 #### `AuthError: signDkim(): canonicalization … is not one of simple|relaxed/simple|relaxed`
 
@@ -106,6 +123,14 @@ requires From to be signed, and RFC 5322 requires the message to have one.
 header is that large, or the message was given without the blank line
 between header and body. **Fix**: check the message is complete. Raise
 `maxHeaderBytes` only for a header you know is that large.
+
+#### `AuthError: signDkim(): the message could not be read: …`
+
+**When**: the `ReadableStream` given to sign failed, in the header or in
+the body, for example a file read that broke or a socket that closed.
+The stream's own error follows the colon and is kept as `cause`. No
+signature is made from part of a message. **Fix**: look at `cause`, then
+sign again once the whole message can be read.
 
 ### INVALID_KEY
 
@@ -142,13 +167,6 @@ kind of key. Perhaps it is an EC or DSA key in PKCS #8, or it is damaged.
 The message is not signed. Nothing to fix on your side.
 
 ### permerror
-
-#### `the header is larger than maxHeaderBytes (…)`
-
-No blank line was found within `maxHeaderBytes`, so no signature was even
-looked for. You get one result for the whole message. This is usually a
-hostile or broken message. Raise `maxHeaderBytes` only if real mail you
-receive has larger headers.
 
 #### `malformed tag list: an empty tag`, `malformed tag list: "…" has no "="`, `malformed tag list: "…" is not a tag name`
 
@@ -307,9 +325,29 @@ temporary, and look at the resolver.
 #### `the message could not be read: …`
 
 The message stream failed before its end, for example because the
-connection dropped. Every signature still in progress gives this.
+connection dropped. The stream's own error follows the colon. If it
+failed in the body, every signature still in progress gives this, with
+its signature fields. If it failed before the header was complete, no
+signature was read yet: you get one `temperror` for the whole message,
+with no `domain`, `selector` or other signature field.
 
 ### policy
+
+#### `the header is larger than maxHeaderBytes (…)`
+
+No blank line was found within `maxHeaderBytes`, so no signature was even
+looked for. You get one result for the whole message, as for the other
+limits. This is usually a hostile or broken message. Raise
+`maxHeaderBytes` only if real mail you receive has larger headers.
+
+#### `the message has a From the signature does not cover`
+
+The message has more From fields than `h=` lists, so at least one From
+is not signed, and a reader may be shown that one. It was added after
+signing, above or below the signed one. No key is looked up. A signer
+that over-signs From (lists it once more than the message has it, as
+`signDkim` does by default) gets `fail` "signature did not verify"
+instead.
 
 #### `more than … signatures (maxSignatures)`
 

@@ -56,13 +56,21 @@ const signed = signature + message; // the field ends with CRLF
 ```
 
 By default it signs the fields of RFC 6376 §5.4.1 that the message has,
-plus Message-ID, and lists From once more: this "over-signing" means a
-second From added later breaks the signature. The field comes folded at
-78 columns, with `b=` last, `c=relaxed/relaxed` and a `t=`. The key
+plus Message-ID, MIME-Version and Content-Type. It then lists From,
+Subject, Date, To, Cc, Reply-To, Message-ID, Content-Type and
+MIME-Version once more each, when present: this "over-signing" means a
+second copy of any of them, added later, breaks the signature. The field
+comes folded at 78 columns, with `b=` last, `c=relaxed/relaxed` and a
+`t=`. The key
 record to publish at `mail2026._domainkey.example.com` is `v=DKIM1;
 k=rsa; p=<the base64 SubjectPublicKeyInfo>`, or `k=ed25519; p=<the 32 raw
 bytes>`. The [guide](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/guide.md#publishing-the-key)
 shows how to make both.
+
+`signDkim` throws `AuthError` for what it cannot sign: an option it
+cannot take (`INVALID_OPTION`), a message with no From, a header past
+`maxHeaderBytes`, or a stream that fails (`INVALID_MESSAGE`). A wrapped
+failure is kept as the error's `cause`.
 
 ## Traps
 
@@ -74,6 +82,12 @@ shows how to make both.
 - **`pass` is about the signing domain, not about From.** A signature
   from `d=bulk-mailer.example` passes on mail "From" anyone. Whether that
   domain matches From is DMARC's question.
+- **A From the signature does not cover is `policy`.** When the message
+  has more From fields than `h=` lists, one of them is unsigned, and a
+  reader may be shown that one. A signer that over-signs From gets
+  `fail` instead, as RFC 6376 §5.4.2 intends.
+- **A header past `maxHeaderBytes` is one `policy`** for the whole
+  message, like the other limits: nothing else is read.
 - **`testing: true`** (the key says `t=y`) asks you to treat a failure
   like no signature at all.
 - **rsa-sha1 and RSA keys under 1024 bits are `permerror`** (RFC 8301).
@@ -92,12 +106,12 @@ shows how to make both.
 | `DkimResultWord` | `'pass' \| 'fail' \| 'neutral' \| 'temperror' \| 'permerror' \| 'policy' \| 'none'` |
 | `signDkim(message, options)` | the `DKIM-Signature` field to put on top, CRLF included |
 | `SignDkimOptions` | `domain`, `selector`, `privateKey` (required); `algorithm`, `headers`, `canonicalization`, `identity`, `expiresIn`, `now`, `maxHeaderBytes` |
-| `RECOMMENDED_HEADERS` | the fields signed by default, when present |
+| `RECOMMENDED_HEADERS` | the fields signed by default, when present: RFC 6376 §5.4.1's, Message-ID, MIME-Version and Content-Type |
 | `importDkimPrivateKey(text)` | a PEM `RSA PRIVATE KEY` (PKCS #1), a PEM `PRIVATE KEY` (PKCS #8) or a base64 Ed25519 key, as a signing `CryptoKey` |
 | `DkimAlgorithm` | `'rsa-sha256' \| 'ed25519-sha256'` |
 | `Canonicalization`, `CanonicalizationPair` | `'simple' \| 'relaxed'`, and `'relaxed/relaxed'` and the three others |
 | `MessageInput` | `Uint8Array \| string \| ReadableStream<Uint8Array>` |
-| `AuthError`, `AuthErrorCode` | thrown for an option, a message to sign or a key: `INVALID_OPTION`, `INVALID_MESSAGE`, `INVALID_KEY` |
+| `AuthError`, `AuthErrorCode` | thrown for an option, a message to sign or a key: `INVALID_OPTION`, `INVALID_MESSAGE`, `INVALID_KEY`; `cause` holds a wrapped error |
 
 ## Documentation
 
