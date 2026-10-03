@@ -4,6 +4,7 @@ import { bytes, type CreateStore, rejects, setup } from './setup.fixtures';
 export function describeFlags(create: CreateStore): void {
 	describe('flags', () => {
 		naming(create);
+		keywordCase(create);
 		changing(create);
 		conditional(create);
 		sharing(create);
@@ -28,6 +29,37 @@ function naming(create: CreateStore): void {
 		);
 	});
 
+	test('RFC 8621 §4.1.1: a keyword is printable ASCII, 255 characters at most, no atom-special', async () => {
+		const { store, account, inbox } = await setup(create);
+		for (const flag of [
+			'é',
+			'a b',
+			'a(',
+			'a"',
+			'a]',
+			'%x',
+			'\\Recent',
+			'\\Custom',
+			'',
+			'x'.repeat(256),
+		]) {
+			await rejects(
+				store.addMessage(account.id, inbox.id, {
+					content: bytes('x'),
+					flags: [flag],
+				}),
+				'INVALID',
+			);
+		}
+		const message = await store.addMessage(account.id, inbox.id, {
+			content: bytes('x'),
+			flags: ['k'.repeat(255)],
+		});
+		expect(message.flags).toEqual(['k'.repeat(255)]);
+	});
+}
+
+function keywordCase(create: CreateStore): void {
 	test('RFC 9051 §2.3.2: keywords compare without case, and keep the case first stored', async () => {
 		const { store, account, inbox } = await setup(create);
 		const message = await store.addMessage(account.id, inbox.id, {
@@ -63,35 +95,6 @@ function naming(create: CreateStore): void {
 		expect((await store.getMessage(account.id, message.id))?.flags).toEqual(
 			added?.flags,
 		);
-	});
-
-	test('RFC 8621 §4.1.1: a keyword is printable ASCII, 255 characters at most, no atom-special', async () => {
-		const { store, account, inbox } = await setup(create);
-		for (const flag of [
-			'é',
-			'a b',
-			'a(',
-			'a"',
-			'a]',
-			'%x',
-			'\\Recent',
-			'\\Custom',
-			'',
-			'x'.repeat(256),
-		]) {
-			await rejects(
-				store.addMessage(account.id, inbox.id, {
-					content: bytes('x'),
-					flags: [flag],
-				}),
-				'INVALID',
-			);
-		}
-		const message = await store.addMessage(account.id, inbox.id, {
-			content: bytes('x'),
-			flags: ['k'.repeat(255)],
-		});
-		expect(message.flags).toEqual(['k'.repeat(255)]);
 	});
 }
 
