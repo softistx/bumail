@@ -1,4 +1,5 @@
 import type { Socket } from 'bun';
+import { Outgoing } from '../io/outgoing';
 
 /** What a connection needs from its socket: Bun's, or a fake one in specs. */
 export interface Transport {
@@ -20,17 +21,16 @@ export interface Transport {
 }
 
 /**
- * A Bun socket as a Transport. Bun's sockets do not buffer: `write` takes
- * what the kernel takes and says how much. The rest waits here for the
- * `drain` event, so no reply is lost to a client that reads slowly.
+ * A Bun socket as a Transport. What the socket cannot take now waits in an
+ * `Outgoing` for the `drain` event, so no reply is lost to a client that
+ * reads slowly.
  */
 export class SocketTransport implements Transport {
 	readonly #socket: Socket<unknown>;
 	readonly remoteAddress: string;
 	readonly secure: boolean;
 	readonly #startTls: () => void;
-	#queue: Uint8Array[] = [];
-	#waiters: (() => void)[] = [];
+	readonly #outgoing: Outgoing;
 	#ending = false;
 
 	constructor(
@@ -43,46 +43,29 @@ export class SocketTransport implements Transport {
 		this.secure = secure;
 		this.#startTls = startTls;
 		this.remoteAddress = remoteAddress;
+		this.#outgoing = new Outgoing((bytes) => socket.write(bytes));
 	}
 
 	write(text: string): void {
-		const bytes = new TextEncoder().encode(text);
-		if (this.#queue.length > 0) {
-			this.#queue.push(bytes);
-			return;
-		}
-		const written = this.#socket.write(bytes);
-		if (written < bytes.length) this.#queue.push(bytes.subarray(written));
+		this.#outgoing.write(new TextEncoder().encode(text));
 	}
 
 	/** Bun's `drain`: the socket can take more. */
 	drain(): void {
-		while (this.#queue.length > 0) {
-			const bytes = this.#queue[0] as Uint8Array;
-			const written = this.#socket.write(bytes);
-			if (written < bytes.length) {
-				this.#queue[0] = bytes.subarray(written);
-				return;
-			}
-			this.#queue.shift();
-		}
-		for (const wake of this.#waiters.splice(0)) wake();
-		if (this.#ending) this.#socket.end();
+		if (this.#outgoing.drain() && this.#ending) this.#socket.end();
 	}
 
 	drained(): Promise<void> {
-		if (this.#queue.length === 0) return Promise.resolve();
-		return new Promise((wake) => this.#waiters.push(wake));
+		return this.#outgoing.drained();
 	}
 
 	/** The socket closed: nothing more will leave. */
 	closed(): void {
-		this.#queue = [];
-		for (const wake of this.#waiters.splice(0)) wake();
+		this.#outgoing.clear();
 	}
 
 	end(): void {
-		if (this.#queue.length === 0) this.#socket.end();
+		if (this.#outgoing.empty) this.#socket.end();
 		else this.#ending = true;
 	}
 

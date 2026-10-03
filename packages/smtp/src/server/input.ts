@@ -1,8 +1,8 @@
+import { LineSplitter } from '../protocol/lines';
 import { reply } from '../protocol/reply';
 import { runCommand } from './commands';
 import type { Connection } from './connection';
 import { Intake } from './intake';
-import { LineSplitter } from './lines';
 import { emptyTransaction } from './state';
 
 /** Bytes waiting to be read past which the server stops reading the client. */

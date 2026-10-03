@@ -4,7 +4,10 @@ An SMTP server for Bun, on `Bun.listen`: RFC 5321 with PIPELINING, SIZE,
 8BITMIME, SMTPUTF8 and ENHANCEDSTATUSCODES; STARTTLS or implicit TLS; AUTH
 PLAIN and LOGIN, only once encrypted; hooks where your app accepts or
 refuses a connection, a sender, a recipient or a message. It is never an
-open relay. No dependency; `typescript` is an optional peer, for the types.
+open relay. And, on `@bumail/smtp/client`, a client that delivers one
+message to a smarthost, a submission server or a domain's MX hosts. No
+dependency; `typescript` is an optional peer, for the types, and
+`@bumail/dns` an optional one, for MX delivery.
 
 ```sh
 bun add @bumail/smtp
@@ -165,6 +168,82 @@ console.log(`listening on ${port}, ${server.connections} open`);
 // later: server.stop(true) hangs up on every client too
 ```
 
+## Send mail: to a smarthost, a submission server or Mailpit
+
+`sendMail(message, options)` from `@bumail/smtp/client` delivers one
+message to one host. The message is the whole RFC 5322 text — a string,
+bytes, or a `ReadableStream` — with lines ending in CRLF.
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+const message = [
+	'From: Alice <alice@example.com>',
+	'To: <bob@example.org>',
+	'Subject: Hello',
+	`Date: ${new Date().toUTCString()}`,
+	'',
+	'Hi Bob.',
+	'',
+].join('\r\n');
+
+// Submission on 587: STARTTLS, the certificate checked, then AUTH.
+const result = await sendMail(message, {
+	host: 'smtp.example.com',
+	port: 587,
+	from: 'alice@example.com',
+	to: ['bob@example.org'],
+	auth: { username: 'alice', password: Bun.env['SMTP_PASSWORD'] ?? '' },
+});
+console.log(result.reply.code, result.accepted, result.rejected);
+
+// Implicit TLS on 465.
+await sendMail(message, { host: 'smtp.example.com', secure: true, from: 'alice@example.com', to: 'bob@example.org', auth: { username: 'alice', password: 'secret' } });
+
+// Mailpit on 1025 (docker run -p 8025:8025 -p 1025:1025 axllent/mailpit): no TLS, no AUTH.
+await sendMail(message, { host: 'localhost', port: 1025, from: 'alice@example.com', to: 'bob@example.org' });
+```
+
+It resolves once the server took the message for one recipient at least:
+`accepted` and `rejected` give each recipient with the server's reply,
+`reply` the reply to the final dot, and `tls` whether the session was
+encrypted and the certificate checked. Anything else rejects with an
+`SmtpError` whose `temporary` says whether trying later may succeed.
+
+## Send mail: direct to a domain's MX
+
+`{ domain, resolver }` instead of `{ host }` looks up the domain's MX
+records through a `Resolver` from `@bumail/dns`, and tries its hosts by
+preference (RFC 5321 §5.1), the domain's own address when it has none.
+TLS is opportunistic: STARTTLS when offered, the certificate not checked.
+
+```ts
+import { cachedResolver, nodeResolver } from '@bumail/dns';
+import { SmtpError, sendMail } from '@bumail/smtp/client';
+
+const resolver = cachedResolver(nodeResolver());
+
+try {
+	const result = await sendMail(message, {
+		domain: 'example.org',
+		resolver,
+		from: 'alice@example.com',
+		to: ['bob@example.org', 'carol@example.org'],
+		helo: 'mail.example.com',
+	});
+	console.log(`taken by ${result.host}`, result.tls);
+	for (const { recipient, reply } of result.rejected) {
+		console.log(recipient, reply.code >= 500 ? 'bounce' : 'try again later');
+	}
+} catch (error) {
+	if (!(error instanceof SmtpError)) throw error;
+	console.log(error.code, error.temporary ? 'try again later' : 'bounce', error.message);
+}
+```
+
+A connection that fails, or a 4xx before MAIL FROM, moves on to the next
+host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
+
 ## Security
 
 - **Never an open relay.** A recipient outside `localDomains` is refused
@@ -194,6 +273,24 @@ console.log(`listening on ${port}, ${server.connections} open`);
   client that reads slowly wait in the server, none is lost.
 
 ## Traps
+
+- **Opportunistic TLS does not check the certificate.** It is the default
+  for MX delivery, as RFC 7435 has it: it beats a passive eavesdropper,
+  not an active attacker. `result.tls.verified` says whether the
+  certificate checked out anyway; pass `tls: 'required'` to refuse a host
+  whose certificate does not. With `auth` or `secure`, `required` is the
+  default.
+- **`sendMail` is not a queue.** It tries one destination once — every MX
+  host of it, in turn — and gives up. Retrying a `temporary` failure later,
+  and bouncing a permanent one, is the caller's job until `@bumail/queue`.
+- **Credentials never go out in clear.** Without TLS, `auth` fails with
+  `AUTH_UNAVAILABLE` before the password is sent. `allowPlaintextAuth:
+  true` lifts that, for a local test server only.
+- **A bare CR or LF in the message is refused** with `BARE_LINE_BREAK`, as
+  a server must refuse it (SMTP smuggling). End every line with CRLF, or
+  pass `normalizeLineEnds: true`.
+- **One destination per call.** By MX, every recipient should be at
+  `domain`; group them by domain first.
 
 - **Read `message.content` to its end before keeping anything.** An
   `onData` that answers before the end gets the client `451 4.3.0`, never
@@ -238,7 +335,7 @@ console.log(`listening on ${port}, ${server.connections} open`);
 | `createSmtpServer(options)` | the server; throws an `SmtpError` (`INVALID_OPTION`) on a bad option |
 | `SmtpServer` | `listen({ port, hostname? })` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)`, `connections` |
 | `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits, `hookTimeout`, `greetingDelay`, `onError`, and the hooks |
-| `SmtpError`, `SmtpErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and what a content stream or `onError` can get: `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `CONNECTION_LOST`, `HOOK_TIMEOUT`, `INVALID_HOOK_REPLY`, `MESSAGE_NOT_READ` |
+| `SmtpError`, `SmtpErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and what a content stream or `onError` can get: `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `CONNECTION_LOST`, `HOOK_TIMEOUT`, `INVALID_HOOK_REPLY`, `MESSAGE_NOT_READ`; `sendMail`'s are listed below. `temporary`, `reply` and `rejected` are set for `sendMail`'s errors |
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |
 | `HookResult` | what a hook returns: `undefined` to accept, a `Reply` to refuse |
 | `Session` | `id`, `remoteAddress`, `secure`, `helo`, `esmtp`, `user`, and `data` for your own state |
@@ -253,11 +350,27 @@ console.log(`listening on ${port}, ${server.connections} open`);
 | `DataReader`, `DataChunk` | reads DATA: dot-unstuffing, the terminator, bare CR and LF counted |
 | `decodePlain(response)`, `decodeLoginStep(response)` | SASL PLAIN (RFC 4616) and LOGIN responses to `Credentials` or text |
 
+### `@bumail/smtp/client`
+
+| export | |
+| --- | --- |
+| `sendMail(message, options)` | delivers one message; resolves to a `SendMailResult`, rejects with an `SmtpError` |
+| `SendMailOptions` | `from`, `to`, and `{ host, port? }` or `{ domain, resolver, port? }`; `helo`, `tls`, `secure`, `ca`, `auth`, `allowPlaintextAuth`, `size`, `smtputf8`, `normalizeLineEnds`, `timeouts`, `deadline` |
+| `HostDestination`, `MxDestination`, `SendMailEnvelope` | the parts of `SendMailOptions` |
+| `SendMailResult` | `accepted`, `rejected`, `reply`, `host`, `port`, `tls` (`false` or `{ verified }`), `authenticated` |
+| `SendMailAuth` | `username`, `password`, `mechanism?` (`PLAIN` or `LOGIN`) |
+| `SendMailTimeouts` | seconds: `connect`, `greeting`, `command`, `mail`, `rcpt`, `dataStart`, `dataBlock`, `dataEnd` |
+| `TlsMode` | `'opportunistic'`, `'required'` or `'none'` |
+| `MessageSource` | `Uint8Array`, `string` or `ReadableStream<Uint8Array>` |
+| `MxResolver` | the `mx`, `a` and `aaaa` of `@bumail/dns`'s `Resolver` |
+| `resolveMx(domain, resolver)`, `MailHost` | a domain's mail hosts in the order to try them: `{ host, priority, implicit }`; `NULL_MX` or `DNS_FAILED` otherwise |
+| `SmtpError`, `SmtpErrorCode`, `SmtpErrorDetails`, `RecipientReply`, `Reply` | as above; `sendMail` adds the codes `CONNECTION_FAILED`, `CONNECTION_LOST`, `TIMEOUT`, `BAD_REPLY`, `REFUSED`, `RECIPIENTS_REFUSED`, `TLS_UNAVAILABLE`, `TLS_FAILED`, `AUTH_UNAVAILABLE`, `EXTENSION_MISSING`, `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `NULL_MX`, `DNS_FAILED`, `INVALID_OPTION` |
+
 ## Documentation
 
 These pages ship in the package, under `docs/`.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/README.md): the pages, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md): the session and every reply, hooks and their order, `Session.data`, what `onData` receives, TLS, the RFCs implemented and what is not.
-- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/troubleshooting.md): every error, and the replies a client reports.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md): the session and every reply, hooks and their order, `Session.data`, what `onData` receives, TLS, sending mail with the client and trying it with Mailpit, the RFCs implemented and what is not.
+- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/troubleshooting.md): every error, the replies a client reports, and every error `sendMail` rejects with.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/roadmap.md): what is coming, and what is not planned.

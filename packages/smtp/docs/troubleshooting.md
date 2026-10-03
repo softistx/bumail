@@ -4,6 +4,10 @@ Each entry is headed by the text you see: the message of the error thrown,
 or the reply the server sends, as a client or a log prints it. `…` stands
 for the part that varies, often the server's `hostname`.
 
+What `sendMail` (`@bumail/smtp/client`) rejects with is under *Sending
+mail*. There `…` is often the host the client spoke to — `host`, or the MX
+host — and an error's `temporary` says whether to retry it later.
+
 A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 `EHLO`. After `HELO`, or before either, the same reply comes without it:
 `554 Relay access denied`, not `554 5.7.1 Relay access denied`.
@@ -81,6 +85,65 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
 - [`421 4.4.2 … Idle too long, closing`](#421-442--idle-too-long-closing)
 - [`554 … Talked before the greeting`](#554--talked-before-the-greeting)
+
+**Sending mail: options**
+
+- [`SmtpError: sendMail(): "…" is not an address (local@domain)`](#smtperror-sendmail--is-not-an-address-localdomain)
+- [`SmtpError: sendMail(): to must name one recipient or more`](#smtperror-sendmail-to-must-name-one-recipient-or-more)
+- [`SmtpError: sendMail(): helo "…" is not a host name`](#smtperror-sendmail-helo--is-not-a-host-name)
+- [`SmtpError: sendMail(): … must be a number of seconds above 0 and at most 2147483, not …`](#smtperror-sendmail--must-be-a-number-of-seconds-above-0-and-at-most-2147483-not-)
+- [`SmtpError: sendMail(): tls must be 'opportunistic', 'required' or 'none', not …`](#smtperror-sendmail-tls-must-be-opportunistic-required-or-none-not-)
+- [`SmtpError: sendMail(): secure is TLS from the first byte: it cannot go with tls: 'none'`](#smtperror-sendmail-secure-is-tls-from-the-first-byte-it-cannot-go-with-tls-none)
+- [`SmtpError: sendMail(): auth with tls: 'none' would send the password in clear; pass allowPlaintextAuth: true for a local test server`](#smtperror-sendmail-auth-with-tls-none-would-send-the-password-in-clear-pass-allowplaintextauth-true-for-a-local-test-server)
+- [`SmtpError: sendMail(): auth.username must be a non-empty string`](#smtperror-sendmail-authusername-must-be-a-non-empty-string)
+- [`SmtpError: sendMail(): auth.password must be a non-empty string`](#smtperror-sendmail-authpassword-must-be-a-non-empty-string)
+- [`SmtpError: sendMail(): auth.mechanism must be 'PLAIN' or 'LOGIN', not …`](#smtperror-sendmail-authmechanism-must-be-plain-or-login-not-)
+- [`SmtpError: sendMail(): size must be a number of bytes, not …`](#smtperror-sendmail-size-must-be-a-number-of-bytes-not-)
+- [`SmtpError: sendMail(): port must be an integer from 1 to 65535, not …`](#smtperror-sendmail-port-must-be-an-integer-from-1-to-65535-not-)
+- [`SmtpError: sendMail(): host must be a host name or an address, not …`](#smtperror-sendmail-host-must-be-a-host-name-or-an-address-not-)
+- [`SmtpError: sendMail(): domain must be a domain name`](#smtperror-sendmail-domain-must-be-a-domain-name)
+- [`SmtpError: sendMail(): resolver must be a Resolver, such as @bumail/dns gives`](#smtperror-sendmail-resolver-must-be-a-resolver-such-as-bumaildns-gives)
+- [`SmtpError: sendMail(): options must be an object`](#smtperror-sendmail-options-must-be-an-object)
+- [`SmtpError: sendMail(): the message must be a Uint8Array, a string or a ReadableStream`](#smtperror-sendmail-the-message-must-be-a-uint8array-a-string-or-a-readablestream)
+- [`SmtpError: sendMail(): a message stream must give Uint8Array chunks`](#smtperror-sendmail-a-message-stream-must-give-uint8array-chunks)
+- [`SmtpError: sendMail(): a message stream can be sent once only`](#smtperror-sendmail-a-message-stream-can-be-sent-once-only)
+
+**Sending mail: the message**
+
+- [`SmtpError: sendMail(): the message holds a bare CR or LF, which a server must refuse (SMTP smuggling); end every line with CRLF, or pass normalizeLineEnds: true`](#smtperror-sendmail-the-message-holds-a-bare-cr-or-lf-which-a-server-must-refuse-smtp-smuggling-end-every-line-with-crlf-or-pass-normalizelineends-true)
+- [`SmtpError: The message (… bytes) is larger than the … bytes … takes (SIZE)`](#smtperror-the-message--bytes-is-larger-than-the--bytes--takes-size)
+- [`SmtpError: … does not offer 8BITMIME, which the message needs: it has 8-bit bytes`](#smtperror--does-not-offer-8bitmime-which-the-message-needs-it-has-8-bit-bytes)
+- [`SmtpError: … does not offer SMTPUTF8, which an address that is not ASCII needs (or smtputf8 asked for)`](#smtperror--does-not-offer-smtputf8-which-an-address-that-is-not-ascii-needs-or-smtputf8-asked-for)
+
+**Sending mail: connections, TLS and AUTH**
+
+- [`SmtpError: Could not connect to … (…:…): …`](#smtperror-could-not-connect-to---)
+- [`SmtpError: Timed out after … s waiting for … (…)`](#smtperror-timed-out-after--s-waiting-for--)
+- [`SmtpError: The deadline of … s passed waiting for … (…)`](#smtperror-the-deadline-of--s-passed-waiting-for--)
+- [`SmtpError: The connection to … closed before …`](#smtperror-the-connection-to--closed-before-)
+- [`SmtpError: The connection to … closed while the message was sent`](#smtperror-the-connection-to--closed-while-the-message-was-sent)
+- [`SmtpError: TLS with … failed: …`](#smtperror-tls-with--failed-)
+- [`SmtpError: … does not offer STARTTLS, and tls is 'required'`](#smtperror--does-not-offer-starttls-and-tls-is-required)
+- [`SmtpError: … refused STARTTLS, and tls is 'required': …`](#smtperror--refused-starttls-and-tls-is-required-)
+- [`SmtpError: Refusing to send credentials to … in clear: it did not start TLS (allowPlaintextAuth is for a local test server only)`](#smtperror-refusing-to-send-credentials-to--in-clear-it-did-not-start-tls-allowplaintextauth-is-for-a-local-test-server-only)
+- [`SmtpError: … offers no AUTH mechanism this client speaks (…): AUTH …`](#smtperror--offers-no-auth-mechanism-this-client-speaks--auth-)
+
+**Sending mail: replies**
+
+- [`SmtpError: … refused …: …`](#smtperror--refused--)
+- [`SmtpError: … refused every recipient, … with …`](#smtperror--refused-every-recipient--with-)
+- [`SmtpError: … sent a reply line longer than 2048 bytes`](#smtperror--sent-a-reply-line-longer-than-2048-bytes)
+- [`SmtpError: … sent a reply of more than 100 lines`](#smtperror--sent-a-reply-of-more-than-100-lines)
+- [`SmtpError: … sent more than 1048576 bytes of replies`](#smtperror--sent-more-than-1048576-bytes-of-replies)
+- [`SmtpError: … sent a line that is not an SMTP reply: "…"`](#smtperror--sent-a-line-that-is-not-an-smtp-reply-)
+- [`SmtpError: … sent a reply whose lines change code, from … to …`](#smtperror--sent-a-reply-whose-lines-change-code-from--to-)
+- [`SmtpError: … sent more after its 220 to STARTTLS`](#smtperror--sent-more-after-its-220-to-starttls)
+
+**Sending mail: DNS**
+
+- [`SmtpError: … accepts no mail: its MX record is the null MX (RFC 7505)`](#smtperror--accepts-no-mail-its-mx-record-is-the-null-mx-rfc-7505)
+- [`SmtpError: Could not look up the MX records of …: …`](#smtperror-could-not-look-up-the-mx-records-of--)
+- [`SmtpError: No mail host of … has an address: …`](#smtperror-no-mail-host-of--has-an-address-)
 
 ## Configuration
 
@@ -1332,3 +1395,495 @@ client library does; a hand-written client or a test script may not.
 **Fix**, as the operator: if a legitimate sender is refused, lower
 `greetingDelay`, or leave it at `0`; a test client that writes at once
 needs it at `0`.
+
+## Sending mail: options
+
+### `SmtpError: sendMail(): "…" is not an address (local@domain)`
+
+**When**: `from` or a recipient in `to` is not an RFC 5321 path: no `@`, a
+display name (`Bob <b@example.org>`), angle brackets, a space, or a CR or
+LF. For `from` the message ends `(local@domain, or '' for a bounce)`.
+
+**Why**: the address goes into `MAIL FROM:<…>` or `RCPT TO:<…>` as it is;
+anything else could break the command or inject another.
+
+**Fix**: pass the bare address, and `''` for the null sender of a bounce:
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+await sendMail(message, { host: 'relay.example.net', from: '', to: ['b@example.org'] });
+```
+
+### `SmtpError: sendMail(): to must name one recipient or more`
+
+**When**: `to` is an empty array, or neither a string nor an array.
+
+**Why**: a message with no recipient goes nowhere.
+
+**Fix**: pass one address, or an array of them.
+
+### `SmtpError: sendMail(): helo "…" is not a host name`
+
+**When**: `helo` is not a host name nor an address literal such as
+`[192.0.2.1]`.
+
+**Why**: it is the argument of EHLO and HELO (RFC 5321 §4.1.1.1).
+
+**Fix**: pass your server's public name, the one its address resolves back
+to: `helo: 'mail.example.com'`.
+
+### `SmtpError: sendMail(): … must be a number of seconds above 0 and at most 2147483, not …`
+
+**When**: a value in `timeouts`, or `deadline`, is `0`, negative, not a
+number, or past 2 147 483 seconds.
+
+**Why**: each is a `setTimeout`, which fires after 1 ms for a delay past
+2^31 − 1 ms; and none can be switched off.
+
+**Fix**: pass seconds, fractions allowed, or leave it out for its default:
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+await sendMail(message, {
+	host: 'relay.example.net',
+	from: 'a@example.com', to: 'b@example.org',
+	timeouts: { greeting: 30, dataEnd: 120 }, // seconds
+	deadline: 300,
+});
+```
+
+### `SmtpError: sendMail(): tls must be 'opportunistic', 'required' or 'none', not …`
+
+**When**: `tls` is anything else, such as `true`.
+
+**Why**: these are the three modes; see the guide's TLS table.
+
+**Fix**: `tls: 'required'` to check the certificate, `secure: true` for TLS
+from the first byte.
+
+### `SmtpError: sendMail(): secure is TLS from the first byte: it cannot go with tls: 'none'`
+
+**When**: `secure: true` and `tls: 'none'`.
+
+**Why**: the two contradict each other.
+
+**Fix**: leave `tls` out (`required` is then the default), or pass
+`'opportunistic'` to skip the certificate check.
+
+### `SmtpError: sendMail(): auth with tls: 'none' would send the password in clear; pass allowPlaintextAuth: true for a local test server`
+
+**When**: `auth` with `tls: 'none'`.
+
+**Why**: the credentials would cross the network in base64.
+
+**Fix**: leave `tls` out: with `auth` it defaults to `'required'`. For a
+local test server without TLS, such as Mailpit, pass `allowPlaintextAuth:
+true`.
+
+### `SmtpError: sendMail(): auth.username must be a non-empty string`
+
+**When**: `auth.username` is missing, empty or not a string.
+
+**Why**: PLAIN and LOGIN both need one.
+
+**Fix**: pass `auth: { username, password }`, or leave `auth` out.
+
+### `SmtpError: sendMail(): auth.password must be a non-empty string`
+
+**When**: `auth.password` is missing, empty or not a string — often an
+environment variable that is not set.
+
+**Why**: PLAIN and LOGIN both need one.
+
+**Fix**: check the variable before sending: `Bun.env['SMTP_PASSWORD']`.
+
+### `SmtpError: sendMail(): auth.mechanism must be 'PLAIN' or 'LOGIN', not …`
+
+**When**: `auth.mechanism` names another SASL mechanism.
+
+**Why**: the client speaks PLAIN and LOGIN only.
+
+**Fix**: leave it out: PLAIN when offered, else LOGIN.
+
+### `SmtpError: sendMail(): size must be a number of bytes, not …`
+
+**When**: `size` is negative, a fraction or not a number.
+
+**Why**: it is declared as `SIZE=` in MAIL FROM (RFC 1870).
+
+**Fix**: pass the stream's length in bytes, or leave it out.
+
+### `SmtpError: sendMail(): port must be an integer from 1 to 65535, not …`
+
+**When**: `port` is out of range or not an integer.
+
+**Why**: it is a TCP port.
+
+**Fix**: 25 for MX and relay, 587 for submission, 465 with `secure: true`,
+1025 for Mailpit.
+
+### `SmtpError: sendMail(): host must be a host name or an address, not …`
+
+**When**: `host` is empty, holds a space or a `/` — often a URL such as
+`smtp://…`.
+
+**Why**: it is what the client connects to, and what TLS checks.
+
+**Fix**: pass the bare name: `host: 'smtp.example.com'`.
+
+### `SmtpError: sendMail(): domain must be a domain name`
+
+**When**: `domain` is empty or not a string.
+
+**Why**: MX delivery looks it up.
+
+**Fix**: pass the recipients' domain.
+
+### `SmtpError: sendMail(): resolver must be a Resolver, such as @bumail/dns gives`
+
+**When**: `{ domain }` without a `resolver`, or one without `mx`.
+
+**Why**: the client asks no DNS of its own; the resolver is injected.
+
+**Fix**: install the optional peer and pass one:
+
+```ts
+import { nodeResolver } from '@bumail/dns';
+import { sendMail } from '@bumail/smtp/client';
+
+await sendMail(message, { domain: 'example.org', resolver: nodeResolver(), from: 'a@example.com', to: 'b@example.org' });
+```
+
+### `SmtpError: sendMail(): options must be an object`
+
+**When**: `options` is missing or `null`.
+
+**Why**: it holds `from`, `to` and the destination.
+
+**Fix**: `sendMail(message, { host, from, to })`.
+
+### `SmtpError: sendMail(): the message must be a Uint8Array, a string or a ReadableStream`
+
+**When**: the message is another type: an object, a `Blob`, a `Response`.
+
+**Why**: those are the three forms read.
+
+**Fix**: `await blob.bytes()`, `blob.stream()` or `response.body`.
+
+### `SmtpError: sendMail(): a message stream must give Uint8Array chunks`
+
+**When**: a stream gave a string or another value; the client hung up before
+the final dot.
+
+**Why**: the bytes are sent as they are.
+
+**Fix**: pipe it through a `TextEncoderStream`, or give bytes.
+
+### `SmtpError: sendMail(): a message stream can be sent once only`
+
+**When**: the same `ReadableStream` was read twice.
+
+**Why**: a stream is consumed as it is sent.
+
+**Fix**: make a new stream per `sendMail`, or pass bytes.
+
+## Sending mail: the message
+
+### `SmtpError: sendMail(): the message holds a bare CR or LF, which a server must refuse (SMTP smuggling); end every line with CRLF, or pass normalizeLineEnds: true`
+
+**When**: a line of the message ends with LF alone (or CR alone): text
+written with `\n`, a file saved on Unix. For a string or bytes, before
+connecting; for a stream, while sending — the client then hangs up before
+the dot, and nothing is delivered.
+
+**Why**: a server that read a bare LF as a line end could be made to see two
+messages in one (SMTP smuggling); this package's server refuses such a
+message, as it should.
+
+**Fix**: end every line with `\r\n`, or let the client do it:
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+await sendMail('Subject: hi\n\nhello\n', { host: 'relay.example.net', from: 'a@example.com', to: 'b@example.org', normalizeLineEnds: true });
+```
+
+### `SmtpError: The message (… bytes) is larger than the … bytes … takes (SIZE)`
+
+**When**: the server announced a SIZE smaller than the message. Nothing was
+sent past EHLO.
+
+**Why**: RFC 1870: the server would refuse it with `552` anyway.
+
+**Fix**: send a smaller message — a link rather than an attachment. It is
+permanent: do not retry.
+
+### `SmtpError: … does not offer 8BITMIME, which the message needs: it has 8-bit bytes`
+
+**When**: the message holds a byte above 127 (UTF-8 text, a raw attachment)
+and the server does not offer 8BITMIME. For a stream, the client hangs up
+before the dot.
+
+**Why**: a server without 8BITMIME may strip the eighth bit.
+
+**Fix**: encode the body: quoted-printable or base64 (`@bumail/mime` writes
+both), so the message is 7-bit.
+
+### `SmtpError: … does not offer SMTPUTF8, which an address that is not ASCII needs (or smtputf8 asked for)`
+
+**When**: an address in `from` or `to` is not ASCII (`zoë@example.org`), or
+`smtputf8: true`, and the server does not offer SMTPUTF8.
+
+**Why**: RFC 6531 §3.2: such a message cannot be sent to it.
+
+**Fix**: use an ASCII address if the user has one; else it is permanent for
+that server.
+
+## Sending mail: connections, TLS and AUTH
+
+### `SmtpError: Could not connect to … (…:…): …`
+
+**When**: the TCP connection failed: `ECONNREFUSED` (nothing listens there:
+Mailpit not started, the wrong port), `ENOTFOUND`, a firewall. Temporary.
+
+**Fix**: check the server is up and the port; many networks block outbound
+port 25 — use a smarthost on 587 then.
+
+### `SmtpError: Timed out after … s waiting for … (…)`
+
+**When**: a step took longer than its timeout: `the connection`, `the
+greeting`, `the reply to MAIL FROM`, `the server to take the message`…
+Temporary.
+
+**Why**: every wait is bounded, so a slow or silent server cannot hold the
+delivery.
+
+**Fix**: retry later; raise that step in `timeouts` if the server is known
+to be slow, such as a greylisting MX that delays its greeting.
+
+### `SmtpError: The deadline of … s passed waiting for … (…)`
+
+**When**: the whole delivery, every MX host together, took longer than
+`deadline`. Temporary.
+
+**Why**: one bound on the delivery, whatever the steps.
+
+**Fix**: retry later, or raise `deadline` (1800 s by default).
+
+### `SmtpError: The connection to … closed before …`
+
+**When**: the server hung up while the client waited for a reply. Temporary.
+
+**Why**: a server that drops a session it will not serve, or crashed.
+
+**Fix**: retry later. If it happens right after EHLO, look at the server's
+log: it may refuse the client's `helo` or address.
+
+### `SmtpError: The connection to … closed while the message was sent`
+
+**When**: the server hung up during DATA. Temporary; the message was not
+delivered.
+
+**Why**: often a size limit the server did not announce, or a time limit.
+
+**Fix**: retry later; check the server's limits.
+
+### `SmtpError: TLS with … failed: …`
+
+**When**: the TLS handshake failed. With `tls: 'required'` or `secure:
+true`, the reason is the certificate's: `DEPTH_ZERO_SELF_SIGNED_CERT`,
+`UNABLE_TO_VERIFY_LEAF_SIGNATURE`, `ERR_TLS_CERT_ALTNAME_INVALID` (a
+certificate for another name). Temporary.
+
+**Why**: a certificate that does not check out against the host name may be
+an attacker's.
+
+**Fix**: connect by the name the certificate is for; trust a private CA or a
+test's self-signed certificate with `ca`:
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+await sendMail(message, {
+	host: 'mail.internal.example',
+	port: 587,
+	tls: 'required',
+	ca: await Bun.file('/etc/ssl/internal-ca.pem').text(),
+	from: 'a@example.com', to: 'b@example.org',
+});
+```
+
+### `SmtpError: … does not offer STARTTLS, and tls is 'required'`
+
+**When**: `tls: 'required'` — the default with `auth` — and the server's
+EHLO reply has no STARTTLS. Temporary.
+
+**Why**: credentials, and a message that must be encrypted, are not sent in
+clear.
+
+**Fix**: use the server's submission port (587, or 465 with `secure: true`).
+For a local test server without TLS, pass `allowPlaintextAuth: true`, or
+`tls: 'opportunistic'` without `auth`.
+
+### `SmtpError: … refused STARTTLS, and tls is 'required': …`
+
+**When**: the server offers STARTTLS but answered it with another reply than
+220, such as `454 4.7.0 TLS not available`. Temporary.
+
+**Fix**: retry later; the server's TLS is broken.
+
+### `SmtpError: Refusing to send credentials to … in clear: it did not start TLS (allowPlaintextAuth is for a local test server only)`
+
+**When**: `auth` and the session is not encrypted: `tls: 'opportunistic'`
+and the server offers no STARTTLS. Permanent.
+
+**Why**: the password would cross the network in base64.
+
+**Fix**: use TLS. For a local test server only, such as Mailpit started with
+`--smtp-auth-accept-any --smtp-auth-allow-insecure`:
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+await sendMail(message, {
+	host: 'localhost',
+	port: 1025,
+	from: 'a@example.com', to: 'b@example.org',
+	auth: { username: 'test', password: 'test' },
+	allowPlaintextAuth: true,
+});
+```
+
+### `SmtpError: … offers no AUTH mechanism this client speaks (…): AUTH …`
+
+**When**: the server offers no AUTH, or only mechanisms other than PLAIN and
+LOGIN (or not the `auth.mechanism` asked). Permanent.
+
+**Fix**: leave `auth.mechanism` out; if AUTH is missing, the server may
+offer it only on another port, or only after TLS.
+
+## Sending mail: replies
+
+### `SmtpError: … refused …: …`
+
+**When**: the server answered the connection, EHLO, HELO, `AUTH PLAIN` or
+`AUTH LOGIN`, the sender (MAIL FROM), DATA, or the message (the final dot)
+with a 4xx or 5xx; the reply follows the colon, and is in `error.reply`. A
+4xx is temporary, a 5xx permanent.
+
+**Why**: the server's policy: `535 5.7.8` bad credentials, `550 5.7.1` a
+sender it refuses, `421` busy, `554` a spam verdict.
+
+**Fix**: read the reply and its enhanced status code; this package's own
+replies are explained above. Retry a 4xx later; do not retry a 5xx.
+
+### `SmtpError: … refused every recipient, … with …`
+
+**When**: every RCPT TO got another reply than 250 or 251; the first is in
+the message, all of them in `error.rejected`. Temporary if one of them was a
+4xx.
+
+**Why**: no recipient, no message: DATA is not sent.
+
+**Fix**: check the addresses; retry the 4xx ones later. When only some are
+refused, `sendMail` resolves and lists them in `result.rejected`.
+
+### `SmtpError: … sent a reply line longer than 2048 bytes`
+
+**When**: a line from the server, before its CRLF, is longer than 2048
+bytes. Temporary.
+
+**Why**: RFC 5321 §4.5.3.1.5 bounds a reply line at 512; the client allows
+four times that, and no more, so a server cannot make it buffer without end.
+
+**Fix**: none on your side; the server is broken or hostile. It is
+temporary: by MX, the next host is tried when it came before MAIL
+FROM.
+
+### `SmtpError: … sent a reply of more than 100 lines`
+
+**When**: a multiline reply (`250-…`) went past 100 lines. Temporary.
+
+**Why**: an EHLO reply has a dozen; a reply that never ends would hold the
+client.
+
+**Fix**: none on your side; the server is broken or hostile. It is
+temporary: by MX, the next host is tried when it came before MAIL
+FROM.
+
+### `SmtpError: … sent more than 1048576 bytes of replies`
+
+**When**: the server sent more than 1 MiB in one session, every reply
+together. Temporary.
+
+**Why**: a bound on what a server can make the client hold.
+
+**Fix**: none on your side; the server is broken or hostile. It is
+temporary: by MX, the next host is tried when it came before MAIL
+FROM.
+
+### `SmtpError: … sent a line that is not an SMTP reply: "…"`
+
+**When**: a line does not start with three digits (2 to 5 first) and a
+space, a hyphen or its end: the port is not SMTP (an HTTP server, a TLS port
+spoken to in clear), or a proxy answered. Temporary.
+
+**Why**: the client never guesses at what a reply means.
+
+**Fix**: check the port, and `secure: true` for 465.
+
+### `SmtpError: … sent a reply whose lines change code, from … to …`
+
+**When**: the lines of one multiline reply carry different codes. Temporary.
+
+**Why**: RFC 5321 §4.2.1: every line of a reply has the same code.
+
+**Fix**: none on your side; the server is broken. It is temporary: by MX,
+the next host is tried when it came before MAIL
+FROM.
+
+### `SmtpError: … sent more after its 220 to STARTTLS`
+
+**When**: the server sent more after its `220` to STARTTLS, before the TLS
+handshake. Temporary.
+
+**Why**: those bytes would be read as if they came over TLS: a man in the
+middle can inject replies there (CVE-2011-0411).
+
+**Fix**: none on your side; the path to the server is not to be trusted. It
+is temporary: by MX, the next host is tried when it came before MAIL
+FROM.
+
+## Sending mail: DNS
+
+### `SmtpError: … accepts no mail: its MX record is the null MX (RFC 7505)`
+
+**When**: the domain publishes `MX 0 .`. Permanent.
+
+**Why**: RFC 7505: the domain says it takes no mail; a sender gives up at
+once, with no fallback to its address.
+
+**Fix**: bounce the message: the address cannot receive mail.
+
+### `SmtpError: Could not look up the MX records of …: …`
+
+**When**: the resolver failed for the MX query: `TEMPORARY`, `TIMEOUT`
+(temporary), or `INVALID_NAME` (permanent).
+
+**Why**: the client tries no host it cannot find.
+
+**Fix**: retry later; for `INVALID_NAME`, the recipient's domain is wrong.
+
+### `SmtpError: No mail host of … has an address: …`
+
+**When**: neither the MX hosts nor (with no MX) the domain itself have an A
+or AAAA record. Permanent when the DNS said so, temporary when a lookup
+failed.
+
+**Why**: RFC 5321 §5.1: a domain with no MX is reached at its own address,
+and this one has none.
+
+**Fix**: check the domain; a typo in the recipient's domain gives this,
+permanently.

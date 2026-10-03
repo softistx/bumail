@@ -12,7 +12,7 @@ below lists only what has landed.
 | --- | --- | --- |
 | `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
-| `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
+| `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | `@bumail/dns`, optional: the client's `Resolver` type, never imported at runtime |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, and SPF checking (RFC 7208), results in RFC 8601's words; DMARC next | `@bumail/dns`, `@bumail/mime` |
 
@@ -69,7 +69,7 @@ The repository is **private** until the owner says otherwise.
 ```
 dns             (standalone)
 mime            (standalone)
-smtp            (standalone; its delivery spec uses store, as a devDependency only)
+smtp            ⇢ dns (optional peer, types only); its specs use store and dns, its Mailpit example auth, as devDependencies
 store           (standalone)
 auth            → dns, mime
 ```

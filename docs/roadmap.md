@@ -19,10 +19,8 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
-- **`@bumail/smtp`, the client** — outbound delivery: MX lookup through
-  `@bumail/dns`, opportunistic STARTTLS, connection reuse per destination.
-  *Kept in the same package as the server, on its own subpath*: both share
-  the command and reply grammar.
+- **`@bumail/smtp`, connection reuse** — several messages to one
+  destination over one session, for the queue to deliver in batches.
 - **A blob store, apart from the mailbox store** — message bytes kept
   apart from their metadata, behind one small contract: put as a stream,
   get and delete, by account and hash. Three answers: the disk through
@@ -86,6 +84,15 @@ No dates. Each entry says what someone running or embedding the server gets.
   client IP and the MAIL FROM or HELO domain: every mechanism, `redirect=`,
   `exp=`, the macros, the lookup limits and a timeout, never a throw for a
   record.
+- **`@bumail/smtp`, the client**, as `@bumail/smtp/client` — `sendMail`
+  delivers one message to a smarthost, a submission server or a domain's
+  MX hosts (looked up through `@bumail/dns`, an optional peer, with the
+  null MX honoured): STARTTLS, opportunistic or required, implicit TLS,
+  AUTH only once encrypted, PIPELINING, SIZE, 8BITMIME and SMTPUTF8, the
+  message streamed and dot-stuffed, a bare line break refused. Every
+  failure says whether it is temporary, for the queue to come; every reply
+  and every wait is bounded against a hostile server. *Kept in the same
+  package as the server, on its own subpath*: both share the grammar.
 
 ### 0.1.0 — published
 
