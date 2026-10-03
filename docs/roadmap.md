@@ -55,11 +55,18 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **`@bumail/queue`** — outbound mail with retries and back-off, a deferred
   and a failed state, bounces and delivery status notifications (RFC 3464).
   A contract with a memory and a `bun:sqlite` answer, like the store.
+- **`@bumail/imap`** — mailbox access over IMAP4rev2 (RFC 9051), with
+  CONDSTORE and QRESYNC (RFC 7162) for quick resync, IDLE (RFC 2177) for
+  new mail as it arrives, and LOGIN only once encrypted. *IMAP before JMAP*:
+  Thunderbird, Apple Mail, Outlook and the phone clients speak IMAP, so
+  it is what a real mail client tests bumail with. The store already keeps
+  the UIDs, UIDVALIDITY and modseqs IMAP needs.
 - **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
-  mail), as an alxia app. *JMAP before IMAP*: it is HTTP and JSON, so alxia
-  gives it routing, validation and its typed client for free.
+  mail), as an alxia app: it is HTTP and JSON, so alxia gives it routing,
+  validation and its typed client for free. It is what bumail's own web
+  client will speak.
 - **The server app** — SMTP on 25 and submission on 587,
-  the queue, the store and JMAP wired together; an admin API for domains,
+  the queue, the store, IMAP and JMAP wired together; an admin API for domains,
   accounts, aliases and DKIM keys; health and metrics. It starts once
   `@alxia/core` is on npm: it consumes alxia's published packages, not a
   link to its working tree, so bumail's CI never depends on another
@@ -67,7 +74,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Later
 
-- **IMAP4rev2** (RFC 9051), for the mail clients that do not speak JMAP.
 - **Sieve** filtering (RFC 5228) at delivery.
 - **Spam scoring hooks and greylisting** — hooks a scorer plugs into, and
   greylisting on the queue's store; no classifier of our own.

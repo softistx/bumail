@@ -20,7 +20,7 @@ flowchart LR
     Q -- "4. SMTP, port 25" --> C["example.com<br/>MX server"]
     C -- "5. SPF, DKIM, DMARC" --> D
     C -- "6. delivery" --> S[("Joe's mailbox<br/>store")]
-    S -- "7. JMAP or IMAP" --> J["Joe's mail client"]
+    S -- "7. IMAP or JMAP" --> J["Joe's mail client"]
 ```
 
 1. **Submission.** Mary's client hands the message to her own server on
@@ -40,7 +40,7 @@ flowchart LR
    - **DMARC**: what does the domain ask to be done with mail that fails?
 6. **Delivery.** The message is filed in Joe's mailbox, and the result of
    the checks is written on top of it.
-7. **Access.** Joe's client reads his mailbox over JMAP or IMAP.
+7. **Access.** Joe's client reads his mailbox over IMAP or JMAP.
 
 Every numbered step is one part of a mail server. The sections below take
 them one by one.
@@ -55,7 +55,7 @@ them one by one.
 | [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM published; SPF merged; DMARC in review |
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | `@bumail/queue`, the SMTP client | next |
-| [Mailbox access](#mailbox-access-jmap-and-imap) | Lets clients read mail | `@bumail/jmap`; IMAP later | next |
+| [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | `@bumail/imap`, then `@bumail/jmap` | next |
 | [The server app](#the-server-app) | Wires everything together | an app on alxia | next |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
@@ -349,7 +349,7 @@ JMAP never need to know which one they were given.
 `@bumail/smtp`, and `@bumail/queue`, a contract with a memory and a
 `bun:sqlite` implementation, like the store.
 
-## Mailbox access: JMAP and IMAP
+## Mailbox access: IMAP and JMAP
 
 **What it is.** How a mail client reads and organises mail on the server.
 
@@ -359,9 +359,11 @@ JMAP never need to know which one they were given.
   connection. Almost every desktop client speaks it.
 - **POP3** downloads and deletes. bumail does not plan it.
 
-**In bumail.** `@bumail/jmap` comes first, as an
+**In bumail.** `@bumail/imap` comes first, since it is what Thunderbird,
+Apple Mail, Outlook and the phone clients speak, and so what a real mail
+client tests bumail with. `@bumail/jmap` follows, as an
 [alxia](https://github.com/softistx/alxia) app: alxia already provides the
-routing, validation and typed client. IMAP4rev2 follows. Later, bumail
+routing, validation and typed client. Later, bumail
 gets its own web mail client on JMAP, built on the same stack (alxia's
 typed client, `@nxgt/material`); any other JMAP or IMAP client keeps
 working.
@@ -372,7 +374,7 @@ working.
 together:
 
 - SMTP on 25 (MX) and 587 (submission);
-- the queue, the store and JMAP;
+- the queue, the store, IMAP and JMAP;
 - an admin API for domains, accounts, aliases and DKIM keys;
 - health checks and metrics.
 
