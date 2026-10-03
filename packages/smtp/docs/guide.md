@@ -977,9 +977,10 @@ or not: RFC 5321 §4.1.1.3 says a client should not send one, and the
 address is written as it is given.
 
 Code that keeps addresses to send to later — a queue — checks
-each one when it takes it with `isMailbox`, an RFC 5321 Mailbox with no
-source route, which `sendMail` always takes, so the refusal comes back to
-whoever gave it:
+each one when it takes it with `isMailbox`, which says yes to exactly the
+addresses `sendMail` takes — it checks with the same predicate: an RFC 5321
+Mailbox with no source route, no control character, no `>` and no lone
+surrogate — so the refusal comes back to whoever gave it:
 
 ```ts
 import { isMailbox } from '@bumail/smtp/client';

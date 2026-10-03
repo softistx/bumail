@@ -54,9 +54,10 @@ process.on('SIGTERM', () => queue.stop()); // lets deliveries under way end
 
 The message is a `Uint8Array`, a string or a `ReadableStream<Uint8Array>`,
 with CRLF line ends: a bare CR or LF is refused, as `sendMail` would
-refuse it. Every address is checked as an RFC 5321 Mailbox, which
-`sendMail` always takes (`@bumail/smtp/client`'s `isMailbox`), so a bad
-one is refused at `enqueue`, never at delivery.
+refuse it. Every address is checked as one `sendMail` takes
+(`@bumail/smtp/client`'s `isMailbox`: an RFC 5321 Mailbox with no source
+route, no control character, no `>` and no lone surrogate), so a bad one
+is refused at `enqueue`, never at delivery.
 Delivery groups the recipients by domain: one session per domain per
 attempt, with STARTTLS when offered.
 

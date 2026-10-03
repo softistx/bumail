@@ -62,9 +62,10 @@ const item = await queue.enqueue(message, { from: 'mary@example.net', to: ['joe@
 
 Every address is checked: `local@domain`, 254 characters at most, with no
 space, no control character and no angle bracket — nothing that could
-break an SMTP command line or a header field — and as an RFC 5321
-Mailbox with no source route, which `sendMail` always takes
-(`@bumail/smtp/client`'s `isMailbox`):
+break an SMTP command line or a header field — and as exactly what
+`sendMail` takes (`@bumail/smtp/client`'s `isMailbox`: an RFC 5321
+Mailbox with no source route, no control character, no `>` and no lone
+surrogate):
 `a,b@example.com`, `a@b@example.com` or `a@-example` are refused at
 `enqueue`, never at delivery. An address a store holds that `sendMail`
 would refuse anyway (written there by other code) fails alone, as

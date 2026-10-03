@@ -1,6 +1,11 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { SmtpError } from '../errors';
 import { isMailbox } from './address';
+import { startServer, stopServers } from './client.fixtures';
+import { sendMail } from './send';
 import { settingsOf } from './settings';
+
+afterEach(stopServers);
 
 const takes = (address: string) => {
 	try {
@@ -60,5 +65,40 @@ describe('isMailbox', () => {
 		]) {
 			expect(takes(address)).toBe(false);
 		}
+	});
+});
+
+describe('isMailbox and sendMail agree', () => {
+	const MESSAGE = 'From: a@foo.com\r\nSubject: hi\r\n\r\nhello\r\n';
+
+	/** Whether sendMail takes `address` as the sender, and as a recipient: anything but INVALID_OPTION. */
+	const sendMailTakes = async (port: number, address: string) => {
+		const outcomes = await Promise.all(
+			[
+				{ from: address, to: 'b@foo.com' },
+				{ from: 'a@foo.com', to: address },
+			].map((envelope) =>
+				sendMail(MESSAGE, { host: '127.0.0.1', port, ...envelope }).then(
+					() => true,
+					(error: unknown) =>
+						!(error instanceof SmtpError && error.code === 'INVALID_OPTION'),
+				),
+			),
+		);
+		return outcomes;
+	};
+
+	test.each([
+		['@x\r\nRSET\r\nNOOP:a@c.com', false],
+		['"a>b"@c.com', false],
+		['a\uD800@c.com', false],
+		['a@[999.1.1.1]', false],
+		['a@[ipv6:2001:db8::1]', true],
+		['"a b"@c.com', true],
+		['@a,@b:x@c.com', false],
+	] as const)('%p: %p, for both', async (address, expected) => {
+		const { port } = await startServer({}, true);
+		expect(isMailbox(address)).toBe(expected);
+		expect(await sendMailTakes(port, address)).toEqual([expected, expected]);
 	});
 });
