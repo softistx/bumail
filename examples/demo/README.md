@@ -60,11 +60,12 @@ That is right for this demo only.
 
 - **Thunderbird**, before adding the account: *Settings → Privacy &
   Security → Manage Certificates… → Servers → Add Exception…*, location
-  `localhost:1993` (or `localhost:1143` for STARTTLS), *Get Certificate*,
-  *Permanently store this exception*, *Confirm Security Exception*.
-  Without it, the account wizard stops at "The certificate is not trusted
-  because it is self-signed". SMTP on `2587` is STARTTLS, which that
-  dialog cannot fetch: Thunderbird asks to accept it at the first send.
+  `localhost:1993`, *Get Certificate*, *Permanently store this
+  exception*, *Confirm Security Exception*. Without it, the account
+  wizard stops at "The certificate is not trusted because it is
+  self-signed". That dialog cannot fetch a certificate over STARTTLS, so
+  use `1993` for IMAP; for SMTP on `2587` (and IMAP on `1143`, if you use
+  it), Thunderbird asks to accept the certificate at the first connection.
 - **Apple Mail**: *Show Certificate*, then trust it for `localhost`, once
   for IMAP and once for SMTP.
 
@@ -80,9 +81,9 @@ That is right for this demo only.
 **Thunderbird**: the app menu → *New Account → Email* (older versions:
 *Account Settings → Account Actions → Add Mail Account*). Give the name
 and address, then *Configure manually* and the values above:
-autodetection will not find `example.test`. Recent versions have no
-password field in the wizard; the password is asked at the first fetch
-(*Get Messages*). Tick *Use Password Manager* to keep it.
+autodetection will not find `example.test`. If the wizard has no
+password field, Thunderbird asks for it at the first *Get Messages*;
+tick *Use Password Manager* to keep it.
 
 **Apple Mail**: *Mail → Add Account → Other Mail Account*, then the
 address and password; when it cannot verify the account name, enter
