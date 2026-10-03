@@ -156,6 +156,44 @@ describe("the message's signal tells onData the server refused it", () => {
 		expect(signal?.aborted).toBe(false);
 	});
 
+	test('a refusal before reading leaves the signal alone, and a read left running errors', async () => {
+		let signal: AbortSignal | undefined;
+		let background: Promise<Awaited<ReturnType<typeof outcome>>> | undefined;
+		const s = await fakeSession(
+			mxOptions({
+				onData: (message) => {
+					signal = message.signal;
+					background = outcome(message.content);
+					return reply(554, '5.7.1', 'Spam');
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hi\r\n.\r\n')).toBe('554 5.7.1 Spam\r\n');
+		expect(signal?.aborted).toBe(false);
+		const read = await background;
+		expect(read?.text).toBeUndefined();
+		expect(read?.error?.code).toBe('MESSAGE_NOT_READ');
+	});
+
+	test('a refusal after cancelling the stream leaves the signal alone', async () => {
+		let signal: AbortSignal | undefined;
+		const s = await fakeSession(
+			mxOptions({
+				onData: async (message) => {
+					signal = message.signal;
+					await message.content.cancel();
+					return reply(554, '5.7.1', 'Spam');
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hi\r\n.\r\n')).toBe('554 5.7.1 Spam\r\n');
+		expect(signal?.aborted).toBe(false);
+	});
+
 	test('the client leaving after the final dot, before the reply: the signal aborts with CONNECTION_LOST', async () => {
 		const read = Promise.withResolvers<AbortSignal>();
 		const answer = Promise.withResolvers<void>();
@@ -179,7 +217,7 @@ describe("the message's signal tells onData the server refused it", () => {
 			'CONNECTION_LOST',
 		);
 		expect((signal.reason as SmtpError).message).toBe(
-			'The client disconnected before the reply to the message; do not deliver it',
+			'The connection closed before the reply to the message; do not deliver it',
 		);
 	});
 

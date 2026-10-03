@@ -27,16 +27,20 @@ const HIGH_WATER_MARK = 64 * 1024;
  * `onData` to read, and so stops reading the client.
  *
  * The stream ends in an `SmtpError` when the message must not be
- * delivered — too big, a bare CR or LF (SMTP smuggling), the client gone —
+ * delivered — too big, a bare CR or LF (SMTP smuggling), the connection gone —
  * and the reply to DATA is then the refusal, whatever `onData` answered.
  * The 250 goes out only when `onData` read the stream to its clean end and
- * resolved without a refusal: an `onData` that answers before the end, or
- * cancels the stream, gets `451 4.3.0` and a `MESSAGE_NOT_READ` report.
- * Whenever the message is refused for a reason `onData` did not answer
- * itself — the stream failed, it timed out, threw, answered what is not a
- * refusal, did not read to the end, or the client left before the reply —
+ * resolved without a refusal. An `onData` that accepts before the end, or
+ * after cancelling the stream, gets `451 4.3.0` and a `MESSAGE_NOT_READ`
+ * report; one that refuses gets its own refusal, read or not. Either way a
+ * stream left unread errors with `MESSAGE_NOT_READ`, so a reader still
+ * running never reaches a clean end.
+ *
+ * Whenever the server refuses the message on `onData`'s behalf — the stream
+ * failed, it timed out, threw, answered what is not a refusal, accepted
+ * without reading to the end, or the connection closed before the reply —
  * the message's `signal` aborts with the reason, even once the stream had
- * ended cleanly.
+ * ended cleanly. A refusal `onData` returns itself leaves it alone.
  */
 export class Intake {
 	readonly id = crypto.getRandomValues(new Uint8Array(10)).toHex();
@@ -104,24 +108,30 @@ export class Intake {
 	 */
 	async #deliver(message: ReceivedMessage): Promise<Reply | undefined> {
 		const connection = this.#connection;
+		/** onData refused the message itself, with a valid 4xx or 5xx reply. */
+		let ownRefusal = false;
 		const refuse = (error: unknown) => {
 			this.#refusal.abort(error);
 			connection.report(error);
 		};
 		try {
+			// onData starts once Input has set the transaction waiting on it.
+			await Promise.resolve();
 			const answer = await connection.settings.options.onData(
 				message,
 				connection.session,
 			);
-			return refusalOf('onData', answer, refuse);
+			const refusal = refusalOf('onData', answer, refuse);
+			ownRefusal = refusal !== undefined && refusal === answer;
+			return refusal;
 		} catch (error) {
 			refuse(error);
 			return LOCAL_ERROR;
 		} finally {
 			this.#readWhenAnswered = this.#read;
-			// Answered before the end: the client will hear 451 and send it
-			// again, so a reader left running must not reach a clean end.
-			if (!this.#read) this.#stop();
+			// Answered before the end: a reader left running must not reach a
+			// clean end. The signal aborts only if the server refuses for it.
+			if (!this.#read) this.#stop(!ownRefusal);
 			this.#wake();
 		}
 	}
@@ -167,7 +177,7 @@ export class Intake {
 		return reply(250, '2.0.0', `OK queued as ${this.id}`);
 	}
 
-	/** The client went away, mid-message or before hearing the reply. */
+	/** The connection closed, mid-message or before the reply was sent. */
 	abort(): void {
 		this.#fail(LOCAL_ERROR, connectionLost(this.#ended));
 	}
@@ -201,11 +211,14 @@ export class Intake {
 		}
 	}
 
-	/** onData answered without reading to the end: the stream errors, and takes no more. */
-	#stop(): void {
+	/**
+	 * onData answered without reading to the end: the stream errors, and
+	 * takes no more. The signal aborts too, unless onData refused itself.
+	 */
+	#stop(abortSignal: boolean): void {
 		if (this.#state !== 'open') return;
 		const error = notRead();
-		this.#refusal.abort(error);
+		if (abortSignal) this.#refusal.abort(error);
 		this.#controller.error(error);
 		this.#state = 'cancelled';
 		this.#queue = [];

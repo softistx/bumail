@@ -496,20 +496,22 @@ One refusal cannot reach the stream: `onData` read the message to its
 clean end, then took longer than `hookTimeout` to answer — a slow scan, a
 slow disk. The client gets `451 4.3.0` and will send the message again, but
 the read already succeeded. `message.signal` covers that case and the
-others: it aborts whenever the message is refused for a reason `onData`
-did not answer itself.
+others: it aborts whenever the server refuses the message on `onData`'s
+behalf.
 
 | `signal.reason` | when |
 | --- | --- |
 | `SmtpError` `HOOK_TIMEOUT` | `onData` did not answer, or did not read, within `hookTimeout` |
-| `SmtpError` `MESSAGE_NOT_READ` | `onData` answered, or cancelled, before reading to the end |
+| `SmtpError` `MESSAGE_NOT_READ` | `onData` accepted (answered `undefined`) before reading to the end, or after cancelling the stream |
 | `SmtpError` `INVALID_HOOK_REPLY` | `onData` answered what is not a refusal, such as a `250` |
 | what `onData` threw | `onData` threw; the client got `451` |
-| `SmtpError` `CONNECTION_LOST` | the client left before the end of the message, or after it but before the reply |
+| `SmtpError` `CONNECTION_LOST` | the connection closed — the client hung up, or the server closed it on idle or a socket error — before the end of the message, or after it but before the reply |
 | `SmtpError` `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK` | the stream's own errors |
 
-A refusal `onData` returns itself leaves the signal alone, and so does a
-client that leaves once the reply was sent. Check it, or listen for
+A refusal `onData` returns itself leaves the signal alone, whether it read
+the message or not (a read it left running still errors with
+`MESSAGE_NOT_READ`), and so does a client that leaves once the reply was
+sent. Check it, or listen for
 `abort`, before keeping a message for good:
 
 ```ts
@@ -566,7 +568,7 @@ to the store, and the store reads it.
 `message.content` already starts with the server's `Received` field, so it
 goes into `addMessage` as it is — no buffer of your own, no header to
 prepend. `addMessage` keeps nothing unless the stream ends cleanly, so a
-message the server refuses mid-way (too big, a bare LF, the client gone)
+message the server refuses mid-way (too big, a bare LF, the connection gone)
 is stored nowhere, and the client hears the refusal.
 
 ```ts

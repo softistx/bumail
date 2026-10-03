@@ -61,8 +61,8 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`554 5.5.1 No valid recipients`](#554-551-no-valid-recipients)
 - [`SmtpError: The message is larger than maxMessageSize (… bytes); do not deliver it`](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it)
 - [`SmtpError: The message holds a bare CR or LF (SMTP smuggling); do not deliver it`](#smtperror-the-message-holds-a-bare-cr-or-lf-smtp-smuggling-do-not-deliver-it)
-- [`SmtpError: The client disconnected before the end of the message; do not deliver it`](#smtperror-the-client-disconnected-before-the-end-of-the-message-do-not-deliver-it)
-- [`SmtpError: The client disconnected before the reply to the message; do not deliver it`](#smtperror-the-client-disconnected-before-the-reply-to-the-message-do-not-deliver-it)
+- [`SmtpError: The connection closed before the end of the message; do not deliver it`](#smtperror-the-connection-closed-before-the-end-of-the-message-do-not-deliver-it)
+- [`SmtpError: The connection closed before the reply to the message; do not deliver it`](#smtperror-the-connection-closed-before-the-reply-to-the-message-do-not-deliver-it)
 - [`SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-read-the-message-within-hooktimeout--s-do-not-deliver-it)
 - [`SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it)
 
@@ -979,10 +979,11 @@ To take larger messages, raise `maxMessageSize`.
 **Fix**: delete what you wrote and let the error propagate, as in
 [the entry above](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it).
 
-### `SmtpError: The client disconnected before the end of the message; do not deliver it`
+### `SmtpError: The connection closed before the end of the message; do not deliver it`
 
 **When**: the read of `message.content` throws this `SmtpError`, code
-`CONNECTION_LOST`: the client hung up during `DATA`.
+`CONNECTION_LOST`: the connection closed during `DATA` — the client hung
+up, or the server closed it on its idle `timeout` or a socket error.
 
 **Why**: a message cut short is not the message the client meant to send.
 It sends it again on its next attempt.
@@ -990,17 +991,21 @@ It sends it again on its next attempt.
 **Fix**: delete what you wrote and let the error propagate, as in
 [the entry above](#smtperror-the-message-is-larger-than-maxmessagesize--bytes-do-not-deliver-it).
 
-### `SmtpError: The client disconnected before the reply to the message; do not deliver it`
+### `SmtpError: The connection closed before the reply to the message; do not deliver it`
 
 **When**: `message.signal` aborts with this `SmtpError`, code
-`CONNECTION_LOST`: the whole message came, but the client hung up while
-`onData` was still answering, so it never heard a reply. The stream may
+`CONNECTION_LOST`: the whole message came, but the connection closed
+while `onData` was still answering — the client hung up, or the server
+closed it on its idle `timeout` or a socket error — so the client never
+heard a reply. The stream may
 already have ended cleanly; if `onData` was still reading, the read throws
 it too.
 
 **Why**: a client that heard no `250` will send the message again, so
 keeping this copy would deliver it twice. A client that leaves once the
-reply was sent does not abort the signal.
+reply was sent does not abort the signal. An idle `timeout` shorter than
+the time `onData` takes to answer closes the connection itself, so keep it
+well above `hookTimeout` (300 s against 60 s by default).
 
 **Fix**: check `message.signal` before keeping the message for good, as in
 [the `onData did not answer` entry](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it).
@@ -1168,16 +1173,18 @@ createSmtpServer({
 resolved without a refusal before it read `message.content` to its end, or
 cancelled the stream. A read it left running counts as not read: the
 stream errors with this same error the moment `onData` answers, so that
-read never reaches a clean end. The
-client got `451 4.3.0 Local error in processing`, never `250`, and keeps
-the message.
+read never reaches a clean end. The client got `451 4.3.0 Local error in
+processing`, never `250`, keeps the message, and `message.signal` aborts
+with this error. An `onData` that refuses before reading gets its own
+refusal sent, its signal left alone and nothing reported; only a read it
+left running ends in this error.
 
 **Why**: a `250` makes the server responsible for the message. An `onData`
 that stopped early has stored part of it at most, so the server does not
 claim it took it.
 
 **Fix**: read the stream to its end before returning — or refuse with a
-`Reply`, which needs no reading:
+`Reply`, which needs no reading and leaves `message.signal` alone:
 
 ```ts
 import { createSmtpServer, reply } from '@bumail/smtp';

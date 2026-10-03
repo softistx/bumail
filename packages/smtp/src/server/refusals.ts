@@ -26,13 +26,16 @@ export function bareLineBreak(): SmtpError {
 	);
 }
 
-/** The client left mid-message, or after its end but before the reply. */
+/**
+ * The connection closed mid-message, or after its end but before the reply:
+ * the client hung up, or the server closed it (idle timeout, socket error).
+ */
 export function connectionLost(ended: boolean): SmtpError {
 	return new SmtpError(
 		'CONNECTION_LOST',
 		ended
-			? 'The client disconnected before the reply to the message; do not deliver it'
-			: 'The client disconnected before the end of the message; do not deliver it',
+			? 'The connection closed before the reply to the message; do not deliver it'
+			: 'The connection closed before the end of the message; do not deliver it',
 	);
 }
 

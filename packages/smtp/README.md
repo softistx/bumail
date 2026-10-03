@@ -199,7 +199,7 @@ console.log(`listening on ${port}, ${server.connections} open`);
   `onData` that answers before the end gets the client `451 4.3.0`, never
   `250`, and `onError` an `SmtpError` (`MESSAGE_NOT_READ`). The stream ends
   in an `SmtpError` when the message must not be delivered — too big,
-  smuggled, the client gone — and the client is then refused whatever
+  smuggled, the connection gone — and the client is then refused whatever
   `onData` answers. Something written before the stream ended may be a
   message the server refused: delete it when the read throws.
 - **No read may outlive `onData`.** A read left running after `onData`
@@ -209,9 +209,11 @@ console.log(`listening on ${port}, ${server.connections} open`);
   twice. Await the read inside `onData`.
 - **An `onData` that read everything but answers after `hookTimeout`
   still gets the client `451`**, though its read ended cleanly. Only
-  `message.signal` says so: it aborts whenever the message is refused for a
-  reason `onData` did not answer itself (late, threw, not a refusal, the
-  client gone before the reply). Check `if (message.signal.aborted) return;`
+  `message.signal` says so: it aborts whenever the server refuses the
+  message on `onData`'s behalf — for example late, a throw, an answer that
+  is not a refusal, the stream's own errors, or the connection closed
+  before the reply; the guide's table lists every case. Check
+  `if (message.signal.aborted) return;`
   just before keeping a message for good —
   [the guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md#when-the-refusal-comes-after-the-read)
   has the full example. RFC 5321 §6.1 tolerates a duplicate over a loss, so

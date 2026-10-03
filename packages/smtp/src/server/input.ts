@@ -61,7 +61,7 @@ export class Input {
 	abort(): void {
 		this.#intake?.abort();
 		this.#intake = undefined;
-		// The client left before hearing the reply, so it will send the
+		// The connection closed before the reply, so the client will send the
 		// message again: onData learns it through the signal.
 		this.#answering?.abort();
 		this.#answering = undefined;
