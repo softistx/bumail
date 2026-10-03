@@ -50,6 +50,16 @@ function isMessage(message: unknown): boolean {
 	);
 }
 
+/** An entry `verifyDkim` could have given: a result word, and a domain if any, both strings. */
+function isDkimResult(entry: unknown): boolean {
+	if (typeof entry !== 'object' || entry === null) return false;
+	const { result, domain } = entry as Partial<DkimResult>;
+	return (
+		typeof result === 'string' &&
+		(domain === undefined || typeof domain === 'string')
+	);
+}
+
 function checkSpfInput(spf: SpfCheck | undefined): void {
 	if (spf === undefined) return;
 	if (
@@ -72,7 +82,7 @@ function checkInput(input: DmarcInput, options: CheckDmarcOptions): void {
 	if (!isMessage(input?.message)) {
 		fail('message must be a Uint8Array, a string or a ReadableStream');
 	}
-	if (!Array.isArray(input.dkim)) {
+	if (!Array.isArray(input.dkim) || !input.dkim.every(isDkimResult)) {
 		fail('dkim must be the array verifyDkim returned');
 	}
 	checkSpfInput(input.spf);

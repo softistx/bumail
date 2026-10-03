@@ -18,6 +18,7 @@ export {
 	type DmarcInput,
 } from './dmarc/check-dmarc';
 export { organizationalDomain } from './dmarc/psl';
+export { PSL_VERSION } from './dmarc/psl-data';
 export type {
 	DmarcPolicy,
 	DmarcRecord,

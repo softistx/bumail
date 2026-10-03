@@ -129,6 +129,16 @@ describe('checkDmarc refuses what the caller controls', () => {
 			'checkDmarc(): dkim must be the array verifyDkim returned',
 		],
 		[
+			{ ...input, dkim: [{ result: 'pass', domain: 5 }] },
+			{ resolver },
+			'checkDmarc(): dkim must be the array verifyDkim returned',
+		],
+		[
+			{ ...input, dkim: [null] },
+			{ resolver },
+			'checkDmarc(): dkim must be the array verifyDkim returned',
+		],
+		[
 			{ ...input, spf: { identity: 'mailfrom' } },
 			{ resolver },
 			'checkDmarc(): spf.result must be what checkSpf returned',

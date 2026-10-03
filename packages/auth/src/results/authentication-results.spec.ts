@@ -113,6 +113,17 @@ describe('formatAuthenticationResults', () => {
 		expect(writtenValue('a "b" \\c')).toBe('"a \\"b\\" \\\\c"');
 		expect(writtenValue('bücher.example')).toBe('"bücher.example"');
 		expect(writtenValue('')).toBeUndefined();
+		for (const char of [
+			'\u0085',
+			'\u009f',
+			'\u2028',
+			'\u2029',
+			'\ud800',
+			'\udc00',
+		]) {
+			expect(writtenValue(`a${char}b`)).toBeUndefined();
+		}
+		expect(writtenValue('a😀b')).toBe('"a😀b"');
 		expect(writtenValue('x'.repeat(256))).toBeUndefined();
 	});
 });
@@ -162,6 +173,16 @@ describe('no value can end a result or add a line', () => {
 		expect(call('mx', { dmarc: { result: 'reject' } })).toThrow(
 			'formatAuthenticationResults(): dmarc result "reject" is not one of pass|fail|none|temperror|permerror',
 		);
+		expect(call('mx', { spf: null })).toThrow(AuthError);
+		expect(
+			unfold(
+				formatAuthenticationResults('mx', {
+					dkim: [{ result: 'pass', domain: 5 } as never],
+				}),
+			),
+		).toBe('Authentication-Results: mx; dkim=pass');
+		expect(call('mx', { dmarc: null })).toThrow(AuthError);
+		expect(call('mx', { dkim: [null] })).toThrow(AuthError);
 		expect(call('mx', { dkim: {} })).toThrow(
 			'formatAuthenticationResults(): dkim must be the array verifyDkim returned',
 		);

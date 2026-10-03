@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { decodeRules, organizationalDomain } from './psl';
-import { PSL_VERSION } from './psl-data';
+import { PSL_RULES, PSL_VERSION } from './psl-data';
 
 /**
  * The Public Suffix List's own test vectors (publicsuffix/list,
@@ -127,7 +127,31 @@ describe('the embedded list', () => {
 	});
 });
 
+/** The trie written back the way scripts/refresh-psl.ts writes it. */
+function encode(level: ReturnType<typeof decodeRules>): string {
+	return [...level.keys()]
+		.sort()
+		.map((label) => {
+			const node = level.get(label);
+			if (node?.kids === undefined) return label;
+			return `${label}${node.rule ? '' : '?'}(${encode(node.kids)})`;
+		})
+		.join(',');
+}
+
 describe('decodeRules', () => {
+	test('reads back exactly what the refresh script wrote', () => {
+		expect(encode(decodeRules(PSL_RULES))).toBe(PSL_RULES);
+	});
+
+	test('the snapshot keeps its MPL notice', async () => {
+		const source = await Bun.file(
+			new URL('./psl-data.ts', import.meta.url),
+		).text();
+		expect(source).toStartWith('/*!');
+		expect(source).toContain('Mozilla Public');
+	});
+
 	test('reads rules, steps, wildcards and exceptions', () => {
 		const root = decodeRules('jp?(ac,kobe?(!city,*)),uk?(co)');
 		const kobe = root.get('jp')?.kids?.get('kobe');
