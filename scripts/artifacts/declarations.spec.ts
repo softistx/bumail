@@ -52,21 +52,41 @@ describe('declarationSpecifiers', () => {
 		).toEqual(['k', 'l', 'm', 'n']);
 	});
 
-	test('a reference inside a block comment or a template is no reference', () => {
+	test('a reference counts only among the leading comments, as for tsc', () => {
 		expect(
 			declarationSpecifiers(
 				[
 					'/*',
 					'/// <reference types="in-block" />',
 					'*/',
+					'  /// <reference types="leading" />',
+					'/// <reference resolution-mode="import" types="attribute-second" />',
 					'export type T = `',
 					'/// <reference types="in-template" />',
 					'`;',
-					'  /// <reference types="indented" />',
-					'export type U = 1; /// <reference types="after-code" />',
+					'/// <reference types="after-code" />',
+					'export type U = 1; /// <reference types="same-line" />',
 				].join('\n'),
 			),
-		).toEqual(['indented']);
+		).toEqual(['leading', 'attribute-second']);
+	});
+
+	test('reads a module augmentation, not the ambient module of a script', () => {
+		expect(
+			declarationSpecifiers(
+				"import type { A } from './a';\ndeclare module '@bumail/store' {\n\texport interface X {}\n}",
+			).sort(),
+		).toEqual(['./a', '@bumail/store']);
+		expect(
+			declarationSpecifiers(
+				"declare module 'ambient' {\n\texport type T = import('inner').T;\n}",
+			),
+		).toEqual(['inner']);
+		expect(
+			declarationSpecifiers(
+				"declare module 'x' {}\ntype T = import('y').T;",
+			).sort(),
+		).toEqual(['x', 'y']);
 	});
 
 	test('string escapes are decoded', () => {
@@ -75,6 +95,22 @@ describe('declarationSpecifiers', () => {
 				"import type { A } from '\\u0061';\nimport type { B } from '\\x62\\u{63}';",
 			),
 		).toEqual(['a', 'bc']);
+	});
+
+	test('a line continuation and a legacy octal read as JavaScript reads them', () => {
+		expect(
+			declarationSpecifiers(
+				"import type { A } from 'a\\\nb';\nimport type { C } from '\\101';",
+			),
+		).toEqual(['ab', 'A']);
+	});
+
+	test('an unclosed \\u{ stays in its string and swallows nothing after it', () => {
+		expect(
+			declarationSpecifiers(
+				"export type V = '\\u{61';\nimport type { B } from 'b';",
+			),
+		).toEqual(['b']);
 	});
 
 	test('an escaped quote does not end a string early', () => {
