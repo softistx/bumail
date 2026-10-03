@@ -9,6 +9,8 @@
 - [Choosing a canonicalisation](#choosing-a-canonicalisation)
 - [Body lengths (`l=`)](#body-lengths-l)
 - [Checking SPF](#checking-spf)
+- [Checking DMARC](#checking-dmarc)
+- [Writing Authentication-Results](#writing-authentication-results)
 - [Writing specs](#writing-specs)
 
 ## Verifying a message
@@ -435,6 +437,255 @@ the suite accepts several results, any of them counts. The other six:
   address in uppercase, as its input was written. This writes them in
   lowercase, as the RFC's own example (§7.4) does.
 
+## Checking DMARC
+
+DMARC (RFC 7489) asks the question DKIM and SPF leave open: does the
+domain a reader sees in From vouch for this message? It takes the From
+domain, finds that domain's policy in the DNS, and checks whether a
+DKIM signature or the SPF check that passed is *aligned* with From. Ask
+it once the message is in, with what `verifyDkim` and `checkSpf` gave:
+
+```ts
+import { checkDmarc, checkSpf, verifyDkim } from '@bumail/auth';
+import { cachedResolver, nodeResolver } from '@bumail/dns';
+
+const resolver = cachedResolver(nodeResolver());
+
+const dkim = await verifyDkim(message, { resolver });
+const spf = { result: await checkSpf(session, { resolver }), identity: 'mailfrom' as const };
+const dmarc = await checkDmarc({ message, dkim, spf }, { resolver, timeout: 10_000 });
+
+switch (dmarc.disposition) {
+	case 'reject': return reply(550, '5.7.1 Rejected by DMARC policy');
+	case 'quarantine': folder = 'Junk'; break;
+}
+if (dmarc.result === 'temperror') return reply(451, '4.7.0 Try again later');
+```
+
+### What it is given
+
+| input | what it is |
+| --- | --- |
+| `message` | the message, as `verifyDkim` takes it: bytes, a string or a stream. Only the header is read, for From |
+| `dkim` | every result `verifyDkim` gave for the same message |
+| `spf` | `{ result, identity }`: what `checkSpf` gave, and `'mailfrom'` or `'helo'` for the identity it checked. Leave it out when SPF was not checked |
+
+**Why the message, and not a parsed From.** DMARC must see every From
+field: a message with two is the classic way around a domain's
+`p=reject`, since a reader may be shown either one, and a parsed value
+cannot tell you there was a second. `checkDmarc` reads the header
+itself, the fields through `@bumail/mime`'s `parseHeaderBlock` and the
+From value through a strict reader of its own (below), from the same
+bytes DKIM verified. A stream is read
+up to its blank line and then cancelled, so give both functions the
+same bytes rather than the same stream.
+
+The From domain is lowercased and, for an IDN, written in its A-labels
+(§6.6.1), as every domain in the result is.
+
+### When From cannot be evaluated
+
+§6.6.1 leaves these to the receiver, and says how they are "typically"
+handled. `checkDmarc` answers `permerror` with `disposition: 'reject'`,
+`policy: 'none'` and `domain: ''`, and looks nothing up:
+
+| the message | `reason` |
+| --- | --- |
+| has no From field | `the message has no From header` |
+| has two or more From fields | `the message has more than one From header` |
+| has one From with several addresses | `From holds more than one address` |
+| has an empty From | `From holds no address` |
+| has a From that is not exactly one mailbox | `From does not parse as one mailbox` |
+| has a From that is a group (`undisclosed-recipients:;`) | `From holds a group, not a mailbox` |
+| has a From whose domain is not a name (`a@[192.0.2.1]`) | `the From domain "…" is not a domain name` |
+| has a header past `maxHeaderBytes` | `the header is larger than maxHeaderBytes (…)` |
+
+**From is read strictly.** `@bumail/mime`'s `parseAddressList` leaves
+out what it cannot read, which is right for showing an address and
+wrong for DMARC: a reader and the check could then take different
+authors from one field. So the From value must be exactly one RFC 5322
+mailbox — `a@example.com`, `<a@example.com>` or `Name <a@example.com>`,
+with comments and folding anywhere between tokens — and anything else
+is `permerror`: an address in an unquoted display name, two angle
+addresses, text after the `>`, something left unterminated, a control
+character. The domain is always the address's own; a display name is
+never read, so `"a@good.example" <x@evil.example>` is evaluated for
+`evil.example`, whose owner signs and publishes for it. Flag such a
+display name in your own policy if you want to. A group, even an empty
+one, is refused too: what a reader is shown is the group's name, which
+no policy protects. A message stream that fails
+before its header ends is `temperror` (`the message could not be
+read: …`), `domain: ''`, `disposition: 'none'`.
+
+### Policy discovery
+
+1. The TXT records at `_dmarc.<From domain>` are fetched, and those that
+   do not start with `v=DMARC1` dropped (§6.6.3).
+2. If none is left, the same at `_dmarc.<organizational domain>`, when
+   it differs from the From domain.
+3. No record: `none`. Two or more: `permerror` (`more than one DMARC
+   record at …`), with no policy.
+4. A record whose `p=` is missing or not `none`, `quarantine` or
+   `reject`, or whose `sp=` is not one of the three, is read as `p=none`
+   when its `rua=` holds a URI that parses; otherwise it is `permerror`
+   (§6.6.3 step 6).
+
+A temporary DNS failure (`TEMPORARY`, `TIMEOUT`, or anything a resolver
+throws that is not a `DnsError`) ends discovery with `temperror`, and
+with no fallback: the organizational domain's policy might be milder
+than the one the DNS did not return. `NOT_FOUND`, and a name
+`@bumail/dns` refuses to look up (`_dmarc.` with a From domain of 247
+characters or more), read as no record. `timeout` bounds both lookups
+together, 20 000 ms by default and at most 2 147 483 647 ms.
+
+The policy that applies is `p=` for the domain the record was found at,
+and `sp=` (or `p=` without one) for a subdomain that fell back to its
+organizational domain's record. A record published on the subdomain
+itself applies its `p=`; its `sp=` is ignored, as §6.3 says.
+
+### The record
+
+Read leniently, as §6.3 asks: unknown tags are ignored, a tag given
+twice keeps its first value, tag names and policy values ignore case,
+and a value written wrong takes its default. `v=DMARC1` must be first,
+in that case.
+
+| tag | in `record` | default |
+| --- | --- | --- |
+| `p`, `sp` | `p`, `sp`; absent when missing or invalid, and `invalidSp` when `sp=` is written wrong | — |
+| `adkim`, `aspf` | `'r'` or `'s'` | `'r'` |
+| `pct` | 0 to 100 | 100 |
+| `rua`, `ruf` | `[{ uri, maxSize? }]`, the URIs that parse; `!10m` is `maxSize: 10485760` | `[]` |
+| `fo` | `['0']`, `['1', 'd', 's']`… | `['0']` |
+| `rf` | `['afrf']` | `['afrf']` |
+| `ri` | seconds | 86 400 |
+
+**No report is sent.** `rua` and `ruf` are there for an app that sends
+aggregate or failure reports itself; the package will, later (see the
+roadmap). §7.1's check that a third party agreed to receive reports is
+not made either.
+
+### Alignment
+
+A passing DKIM signature aligns when its `d=` matches the From domain;
+SPF aligns when it passed for a domain that matches. Strict (`adkim=s`,
+`aspf=s`) is an exact match; relaxed, the default, is the same
+organizational domain (§3.1). `alignedDkim` is the `d=` of the first
+signature that aligns, `alignedSpf` the SPF domain.
+
+| From | DKIM `d=` or SPF domain | strict | relaxed |
+| --- | --- | --- | --- |
+| `example.com` | `example.com` | aligned | aligned |
+| `news.example.com` | `example.com` | — | aligned |
+| `example.com` | `bounces.example.com` | — | aligned |
+| `a.example.com` | `b.example.com` | — | aligned |
+| `example.com` | `example.net` | — | — |
+| `example.com` | `com` | — | — |
+| `example.co.uk` | `other.co.uk` | — | — |
+| `bob.github.io` | `alice.github.io` | — | — |
+
+SPF counts only for `identity: 'mailfrom'`. `checkSpf` checks the HELO
+name in its place for a bounce, which RFC 7489 §3.1.2 allows; a check
+made with `identity: 'helo'` is not DMARC's.
+
+### The result
+
+| `result` | means | `disposition` |
+| --- | --- | --- |
+| `pass` | a DKIM signature or SPF check passed and aligned | `none` |
+| `fail` | none did | the policy if `sampled`; else `reject` → `quarantine`, `quarantine` → `none` (§6.6.4) |
+| `none` | no DMARC record | `none` |
+| `temperror` | the record could not be had, the message could not be read, or no aligned pass and an aligned check had a temporary error (§6.6.2) | `none`: answer 451 |
+| `permerror` | two records, a record with no usable policy | `none` |
+| `permerror` | From cannot be evaluated (see above) | `reject` |
+
+A temporary error counts only on an identifier aligned with From: a
+forger who signs with a domain whose DNS they make time out still gets
+`fail`. `sampled` is drawn for every message with a record, through
+`random()`: `random() * 100 < pct`. `pct=100` and `pct=0` draw nothing.
+Pass `random` in specs to choose.
+
+Final disposition is always the receiver's (§6.7): a known forwarder,
+or a mailing list that breaks DKIM, may deserve an exception.
+
+### The organizational domain
+
+RFC 7489 §3.2 defines the organizational domain with a public suffix
+list. The package embeds a snapshot of the
+[Public Suffix List](https://publicsuffix.org), both its ICANN and its
+private sections, as a compact trie of every rule past one label:
+76 KB, a third of the list's text, decoded once on first use. The
+private section matters to DMARC: without it, `alice.github.io` and
+`bob.github.io` would share an organizational domain, and one tenant
+could align with the other's From.
+
+`PSL_VERSION` names the snapshot, for your logs. `organizationalDomain(domain)` is exported: the domain's public suffix
+and one label more, in A-labels, or `undefined` when the domain is
+itself a public suffix. A public suffix stands for itself in alignment,
+so `d=com` aligns with nothing but `com` (§3.1.1).
+
+The snapshot ages with the package. To use a fresher list, or the one
+your platform already keeps, pass your own:
+
+```ts
+const dmarc = await checkDmarc(input, {
+	resolver,
+	organizationalDomain: (domain) => myPsl.registrableDomain(domain) ?? undefined,
+});
+```
+
+Your function gets a lowercase name in A-labels. An answer that is
+neither that name nor one of its parents is ignored, and the name
+stands for itself: no function can send the lookup to another domain's
+policy.
+
+The repository refreshes the snapshot with
+`bun run scripts/refresh-psl.ts`, released as a patch. RFC 9091's
+public suffix domains and DMARCbis' DNS tree walk, which replaces the
+list with lookups, are on the roadmap.
+
+## Writing Authentication-Results
+
+RFC 8601's `Authentication-Results` field tells the rest of your system
+— a filter, the mail client — what was checked and what came of it.
+Write it once, with everything this receiver checked:
+
+```ts
+import { formatAuthenticationResults } from '@bumail/auth';
+
+const field = formatAuthenticationResults('mx.example.org', { dkim, spf, dmarc });
+await store(field + message);
+```
+
+```
+Authentication-Results: mx.example.org; dkim=pass header.d=example.com
+ header.s=sel header.b="kbV+/mUa"; spf=pass smtp.mailfrom=bounces.example.com;
+ dmarc=pass header.from=news.example.com
+```
+
+| method | properties |
+| --- | --- |
+| `dkim=` | one per `verifyDkim` result: `header.d` (`d=`), `header.s` (`s=`), `header.b` (the first 8 characters of `b=`, RFC 6008), each when the signature had it |
+| `spf=` | `smtp.mailfrom`, or `smtp.helo` for `identity: 'helo'`: the domain checked |
+| `dmarc=` | `header.from`: the From domain, when there was one |
+
+Each argument may be left out; with none, the field is `authserv-id;
+none` (RFC 8601 Appendix B.2). The result is folded at 78 columns by
+`@bumail/mime`'s `foldHeader` and ends with CRLF.
+
+**Values are written so none can end a result or add a line.** A token
+is written as it is; anything else (`header.b`'s `/` and `=`, a `;`, a
+space, a non-ASCII domain) is a quoted-string, its `"` and `\`
+escaped (§2.2). A value holding a control character (CR and LF among
+them), or longer than 255 characters, is left out with its property: a
+MAIL FROM domain checkSpf could not read can hold anything. An
+`authservId` that cannot be written, or a result word that is not one
+of the method's, is an `AuthError`.
+
+Before you add yours, remove any `Authentication-Results` field already
+on the message that names your `authserv-id`: a sender can forge one
+that says `dmarc=pass` (RFC 8601 §5).
+
 ## Writing specs
 
 Give `verifyDkim` a `fixtureResolver` from `@bumail/dns`, and no spec
@@ -470,4 +721,17 @@ const resolver = fixtureResolver({
 });
 const spf = await checkSpf({ ip: '192.0.2.25', mailFrom: 'joe@example.com', helo: 'mx.example.com' }, { resolver });
 // spf.result === 'pass', spf.lookups === 1: the include was never reached
+```
+
+DMARC needs only a record at `_dmarc.<domain>`; give `random` to choose
+whether `pct` samples:
+
+```ts
+const resolver = fixtureResolver({
+	'_dmarc.example.com': { txt: ['v=DMARC1; p=reject; pct=50'] },
+	'_dmarc.down.example': { txt: 'TEMPORARY' }, // temperror
+});
+const message = 'From: joe@news.example.com\r\nSubject: hi\r\n\r\nHello\r\n';
+const dmarc = await checkDmarc({ message, dkim: [] }, { resolver, random: () => 0.9 });
+// dmarc.result === 'fail', policyDomain === 'example.com', sampled === false, disposition === 'quarantine'
 ```

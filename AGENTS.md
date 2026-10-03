@@ -15,7 +15,7 @@ below lists only what has landed.
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
 | `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
-| `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, and SPF checking (RFC 7208), results in RFC 8601's words; DMARC next | `@bumail/dns`, `@bumail/mime` |
+| `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
@@ -39,6 +39,15 @@ The repository is **private** until the owner says otherwise.
   `Bun.file`, Web Crypto, `TextDecoder`, `node:dns` — are not dependencies.
   `verify:artifacts` fails a manifest with a `dependencies` field that lists
   anything.
+- **Data a package needs is a snapshot it embeds**, never fetched at
+  runtime: `@bumail/auth`'s Public Suffix List is
+  `src/dmarc/psl-data.ts`, written by `bun run scripts/refresh-psl.ts`
+  (MPL 2.0, its notice kept in the file, its text shipped as
+  `LICENSE-MPL-2.0`). A refresh is a patch changeset. A module that is
+  only data is listed under `bumail.unmappedSources`, so the build leaves
+  its content out of the source map and it ships once. `verify:artifacts`
+  refuses a packed map that still embeds a listed module, or embeds any
+  source over 32 KiB that is not listed, so dropping the entry fails it.
 - **Never an open relay.** A message for a domain the server does not host
   is refused unless the session authenticated. That is the default of every
   server option, and every spec that relays authenticates first. A spec
@@ -153,7 +162,10 @@ longer accepts a classic token for publishing, and says "two-factor
 authentication is required".
 
 Every package is **public on npm** — the repository's privacy is a separate
-matter — and MIT, with its own copy of `LICENSE`. Its manifest sets
+matter — and MIT, with its own copy of `LICENSE`. A package that embeds
+a file under another license declares `MIT AND <SPDX id>` and ships that
+license's text as `LICENSE-<id>`, which `verify:artifacts` checks:
+`@bumail/auth` is `MIT AND MPL-2.0`, for its Public Suffix List. Its manifest sets
 `publishConfig: { "registry": "https://registry.npmjs.org", "access":
 "public" }`: `bun publish` never reads the changeset config's `access`, and
 publishes a scoped package as restricted without it. `verify:artifacts`
@@ -187,6 +199,14 @@ Every PR goes into `develop`. Before merging:
 
 ## Deliberate duplications
 
+- `packages/auth/src/dmarc/from-mailbox.ts` tokenizes a From value as
+  `@bumail/mime`'s `headers/tokens.ts` does, but strictly: the mime
+  parser is lenient by design (it leaves out what it cannot read), and
+  for DMARC that leniency lets a reader and the check take different
+  authors from one field. The two differ on purpose — anything left
+  unterminated, a control character or a stray `)` is refused here — so
+  a fix to the RFC 5322 grammar in one is checked against the other, not
+  copied blindly.
 - `packages/smtp/src/client/mx.ts` copies `@bumail/dns`'s `isTemporary`
   (and reads a `DnsError` by its `name` and `code`): the client imports
   nothing of `@bumail/dns`, so a smarthost-only app never installs it.
