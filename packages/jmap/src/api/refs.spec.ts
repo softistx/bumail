@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { MethodError } from './errors';
 import { jsonExcess } from './json';
+import { pageOf } from './query';
 import { pointer, resolveReferences } from './refs';
 import type { Invocation } from './request';
 
@@ -83,5 +84,43 @@ describe('the JSON guard', () => {
 		expect(jsonExcess('[[[[1]]]]', 3, 100)).toBe('depth');
 		expect(jsonExcess('[1,2,3,4,5]', 10, 5)).toBe('tokens');
 		expect(jsonExcess('"]]]]]]]]"', 1, 10)).toBeUndefined();
+	});
+});
+
+describe('RFC 8620 §5.5 query paging', () => {
+	const ids = ['a', 'b', 'c', 'd', 'e'];
+
+	test('position, a negative position, an anchor with an offset, and the total', () => {
+		expect(pageOf(ids, { position: 1, limit: 2 }, 10)).toEqual({
+			position: 1,
+			ids: ['b', 'c'],
+		});
+		expect(pageOf(ids, { position: -2 }, 10)).toEqual({
+			position: 3,
+			ids: ['d', 'e'],
+		});
+		expect(pageOf(ids, { position: -9 }, 10)).toEqual({ position: 0, ids });
+		expect(
+			pageOf(ids, { anchor: 'c', anchorOffset: -1, limit: 1 }, 10),
+		).toEqual({ position: 1, ids: ['b'] });
+		expect(pageOf(ids, { calculateTotal: true, position: 9 }, 10)).toEqual({
+			position: 9,
+			ids: [],
+			total: 5,
+		});
+	});
+
+	test('a limit clamped to the maximum is returned', () => {
+		expect(pageOf(ids, { limit: 50 }, 3)).toEqual({
+			position: 0,
+			ids: ['a', 'b', 'c'],
+			limit: 3,
+		});
+		expect(pageOf(ids, {}, 3)).toEqual({
+			position: 0,
+			ids: ['a', 'b', 'c'],
+			limit: 3,
+		});
+		expect(pageOf(ids, {}, 10)).toEqual({ position: 0, ids });
 	});
 });

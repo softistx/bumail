@@ -18,11 +18,15 @@ export function pageOf(
 		position = Math.max(0, ids.length + position);
 	}
 	const taken = Math.min(limit ?? maxLimit, maxLimit);
+	// RFC 8620 §5.5: a limit clamped — asked above the maximum, or not asked
+	// with more results than it — is returned, so the client knows.
+	const clamped =
+		limit === undefined ? ids.length - position > maxLimit : limit > maxLimit;
 	return {
 		position,
 		ids: ids.slice(position, position + taken),
 		...(args['calculateTotal'] === true ? { total: ids.length } : {}),
-		...(limit !== undefined && limit > maxLimit ? { limit: maxLimit } : {}),
+		...(clamped ? { limit: maxLimit } : {}),
 	};
 }
 
