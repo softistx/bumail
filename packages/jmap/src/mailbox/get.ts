@@ -45,11 +45,20 @@ export async function mailboxGet(args: Args, ctx: CallContext): Promise<Args> {
 		properties.includes('totalThreads') || properties.includes('unreadThreads');
 	const list: Args[] = [];
 	const notFound: string[] = [];
+	const scan = ctx.settings.limits.maxQueryScan;
+	let left = scan;
 	for (const id of new Set(wanted)) {
 		const mailbox = byId.get(id);
 		if (mailbox === undefined) {
 			notFound.push(id);
 			continue;
+		}
+		if (countThreads) left -= mailbox.messages;
+		if (left < 0) {
+			throw new MethodError(
+				'tooLarge',
+				`Counting threads would read more than ${scan} emails: leave totalThreads and unreadThreads out`,
+			);
 		}
 		const threads: ThreadCounts | undefined = countThreads
 			? await threadCounts(ctx.store, accountId, id)

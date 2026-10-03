@@ -5,7 +5,7 @@ import {
 } from '@bumail/mime';
 import type { Args } from '../api/args';
 import { headerProperty, headerValue } from './headers';
-import { type Part, partIdOf } from './parse';
+import { isMultipart, type Part, partIdOf } from './parse';
 
 export const BODY_PART_PROPERTIES = [
 	'partId',
@@ -35,8 +35,6 @@ export const DEFAULT_BODY_PROPERTIES = [
 	'language',
 	'location',
 ] as const;
-
-const isMultipart = (part: Part) => part.contentType.type === 'multipart';
 
 /** A part's blob id: the email's blob and the part's id, `-` for `.`. */
 export const partBlobId = (blobId: string, part: Part) =>

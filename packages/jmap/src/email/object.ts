@@ -101,14 +101,14 @@ export async function emailObject(
 	const bodies = root === undefined ? undefined : bodiesOf(root);
 	const object: Args = { id: message.id };
 	for (const property of properties) {
-		if (property in meta) object[property] = meta[property];
+		if (Object.hasOwn(meta, property)) object[property] = meta[property];
 		else if (root === undefined || bodies === undefined) continue;
 		else if (property === 'headers') {
 			object[property] = [...root.headers].map(({ name, value }) => ({
 				name,
 				value,
 			}));
-		} else if (property in CONVENIENCE) {
+		} else if (Object.hasOwn(CONVENIENCE, property)) {
 			object[property] = headerValue(
 				root.headers,
 				CONVENIENCE[property] as never,

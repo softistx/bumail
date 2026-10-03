@@ -1,5 +1,5 @@
 import type { MailStore } from '@bumail/store';
-import { parseEmail, partIdOf, walk } from '../email/parse';
+import { isMultipart, parseEmail, partIdOf, walk } from '../email/parse';
 import type { Uploads } from './uploads';
 
 /** A blob found for a download: its bytes and, for an upload, the type it came with. */
@@ -25,8 +25,7 @@ async function partOf(
 		keepPart: blob.size,
 	});
 	for (const part of walk(root)) {
-		if (part.contentType.type === 'multipart' || partIdOf(part) !== partId)
-			continue;
+		if (isMultipart(part) || partIdOf(part) !== partId) continue;
 		const type = part.contentType.mediaType.toLowerCase();
 		return { blob: new Blob(part.kept as BlobPart[], { type }), type };
 	}

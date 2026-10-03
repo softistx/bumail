@@ -65,7 +65,9 @@ const ENTITIES: Readonly<Record<string, string>> = {
  * pattern, so a hostile body costs time in proportion to its size.
  */
 export function htmlText(html: string): string {
-	const lower = html.toLowerCase();
+	// ASCII letters only: a lowercase of the same length, so an index in
+	// `lower` is the same index in `html` (`İ` lowercases to two units).
+	const lower = html.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
 	let out = '';
 	let i = 0;
 	while (i < html.length) {

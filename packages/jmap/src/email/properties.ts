@@ -47,7 +47,8 @@ export const DEFAULT_EMAIL_PROPERTIES = [
 export function levelOf(property: string): Level | undefined {
 	if (METADATA.includes(property)) return 'metadata';
 	if (BODY.includes(property)) return 'body';
-	if (property === 'headers' || property in CONVENIENCE) return 'header';
+	if (property === 'headers' || Object.hasOwn(CONVENIENCE, property))
+		return 'header';
 	return headerProperty(property) === undefined ? undefined : 'header';
 }
 

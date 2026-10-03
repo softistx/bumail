@@ -153,6 +153,15 @@ export function* walk(part: Part): Generator<Part> {
 	for (const child of part.children) yield* walk(child);
 }
 
+/**
+ * Whether a part holds other parts. A multipart with no boundary has no
+ * delimiter to split it by (RFC 2046 §5.1.1 makes the parameter
+ * mandatory): it is read as one opaque part, its body kept as content.
+ */
+export const isMultipart = (part: Part): boolean =>
+	part.contentType.type === 'multipart' &&
+	Boolean(part.contentType.parameters['boundary']);
+
 /** The JMAP partId of a part that is not multipart: its path, `1` for a message that is not. */
 export const partIdOf = (part: Part): string =>
 	part.path === '' ? '1' : part.path;

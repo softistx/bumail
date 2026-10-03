@@ -138,23 +138,23 @@ export async function emailQuery(args: Args, ctx: CallContext): Promise<Args> {
 	const collapse = boolOf(args, 'collapseThreads');
 	const state = await stateOf(ctx.store, accountId);
 	const budget: ReadBudget = { left: ctx.settings.limits.maxQueryScan };
-	const found: { candidate: Candidate; keys: (string | number)[] }[] = [];
+	// Only the record and the sort keys are kept: a candidate's parsed text
+	// is dropped as soon as its conditions are tested.
+	const found: { message: Message; keys: (string | number)[] }[] = [];
 	for (const message of await candidatesOf(filter, ctx)) {
 		const candidate = new Candidate(message, ctx, budget);
 		if (await matches(filter, candidate, test)) {
-			found.push({ candidate, keys: await sortKeys(candidate, sort) });
+			found.push({ message, keys: await sortKeys(candidate, sort) });
 		}
 	}
 	found.sort(
 		(a, b) =>
 			compareKeys(a.keys, b.keys, sort) ||
-			compareText(a.candidate.message.id, b.candidate.message.id),
+			compareText(a.message.id, b.message.id),
 	);
 	const threads = new Set<string>();
 	const ids: string[] = [];
-	for (const {
-		candidate: { message },
-	} of found) {
+	for (const { message } of found) {
 		if (collapse && threads.has(message.threadId)) continue;
 		threads.add(message.threadId);
 		ids.push(message.id);
