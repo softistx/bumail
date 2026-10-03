@@ -34,7 +34,7 @@ Nothing scheduled yet.
 
 ## Shipped
 
-### 0.1.0 — merged, not yet published
+### 0.1.0
 
 - **Reading and writing messages** — headers, addresses, dates, encoded
   words, RFC 2231 parameters, multipart, base64 and quoted-printable,

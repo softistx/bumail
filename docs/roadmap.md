@@ -76,7 +76,7 @@ Nothing in progress.
 
 ## Shipped
 
-### Merged, not yet published
+### 0.1.0 — published
 
 - **`@bumail/mime`** — read and write e-mail messages. RFC 5322 headers,
   encoded-words (RFC 2047) and parameter continuations (RFC 2231),

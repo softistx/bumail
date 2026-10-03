@@ -36,7 +36,7 @@ Nothing in progress.
 
 ## Shipped
 
-### 0.1.0 — merged, not yet published
+### 0.1.0
 
 - **The resolver interface, on `node:dns`, a fixture and a cache.** MX,
   TXT, A, AAAA and PTR, normalised names that are never swapped for
