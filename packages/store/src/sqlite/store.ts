@@ -1,27 +1,6 @@
 import { checkMaxTombstones } from '../contract/checks';
 import type { MailStore } from '../contract/mail-store';
-import type {
-	Account,
-	AccountListOptions,
-	ChangesOptions,
-	ExpungeResult,
-	FlagChange,
-	FlagOptions,
-	FlagResult,
-	ListOptions,
-	Mailbox,
-	MailboxChanges,
-	MailboxEntry,
-	MailboxRename,
-	MailboxRole,
-	Message,
-	MessageChanges,
-	MessageChangesOptions,
-	MessagePage,
-	MessagesResult,
-	NewMailbox,
-	NewMessage,
-} from '../contract/types';
+import type * as T from '../contract/types';
 import { StoreError } from '../errors';
 import * as accounts from './accounts';
 import { mailboxChanges, messageChanges } from './changes';
@@ -76,22 +55,22 @@ export class SqliteMailStore implements MailStore {
 	}
 
 	/** Runs an operation that may release blobs, then drops those no one holds. */
-	async #releasing<T>(run: (state: SqliteState) => T): Promise<T> {
+	async #releasing<R>(run: (state: SqliteState) => R): Promise<R> {
 		const state = this.#state;
 		const result = run(state);
 		await state.collect();
 		return result;
 	}
 
-	async createAccount(name: string): Promise<Account> {
+	async createAccount(name: string): Promise<T.Account> {
 		return accounts.createAccount(this.#state, name);
 	}
 
-	async getAccount(id: string): Promise<Account | undefined> {
+	async getAccount(id: string): Promise<T.Account | undefined> {
 		return accounts.getAccount(this.#state, id);
 	}
 
-	async findAccount(name: string): Promise<Account | undefined> {
+	async findAccount(name: string): Promise<T.Account | undefined> {
 		return accounts.findAccount(this.#state, name);
 	}
 
@@ -101,34 +80,34 @@ export class SqliteMailStore implements MailStore {
 
 	async createMailbox(
 		accountId: string,
-		mailbox: NewMailbox,
-	): Promise<Mailbox> {
+		mailbox: T.NewMailbox,
+	): Promise<T.Mailbox> {
 		return mailboxes.createMailbox(this.#state, accountId, mailbox);
 	}
 
 	async getMailbox(
 		accountId: string,
 		id: string,
-	): Promise<Mailbox | undefined> {
+	): Promise<T.Mailbox | undefined> {
 		return mailboxes.getMailbox(this.#state, accountId, id);
 	}
 
-	async listMailboxes(accountId: string): Promise<Mailbox[]> {
+	async listMailboxes(accountId: string): Promise<T.Mailbox[]> {
 		return mailboxes.listMailboxes(this.#state, accountId);
 	}
 
 	async findMailbox(
 		accountId: string,
-		role: MailboxRole,
-	): Promise<Mailbox | undefined> {
+		role: T.MailboxRole,
+	): Promise<T.Mailbox | undefined> {
 		return mailboxes.findMailbox(this.#state, accountId, role);
 	}
 
 	async renameMailbox(
 		accountId: string,
 		id: string,
-		change: MailboxRename,
-	): Promise<Mailbox> {
+		change: T.MailboxRename,
+	): Promise<T.Mailbox> {
 		return mailboxes.renameMailbox(this.#state, accountId, id, change);
 	}
 
@@ -136,7 +115,7 @@ export class SqliteMailStore implements MailStore {
 		accountId: string,
 		id: string,
 		subscribed: boolean,
-	): Promise<Mailbox> {
+	): Promise<T.Mailbox> {
 		return mailboxes.setSubscribed(this.#state, accountId, id, subscribed);
 	}
 
@@ -153,23 +132,23 @@ export class SqliteMailStore implements MailStore {
 	async addMessage(
 		accountId: string,
 		mailboxId: string,
-		message: NewMessage,
-	): Promise<Message> {
+		message: T.NewMessage,
+	): Promise<T.Message> {
 		return messages.addMessage(this.#state, accountId, mailboxId, message);
 	}
 
 	async getMessage(
 		accountId: string,
 		id: string,
-	): Promise<Message | undefined> {
+	): Promise<T.Message | undefined> {
 		return messages.getMessage(this.#state, accountId, id);
 	}
 
 	async listMessages(
 		accountId: string,
 		mailboxId: string,
-		options: ListOptions = {},
-	): Promise<MailboxEntry[]> {
+		options: T.ListOptions = {},
+	): Promise<T.MailboxEntry[]> {
 		return messages.listMessages(
 			this.#state,
 			accountId,
@@ -180,8 +159,8 @@ export class SqliteMailStore implements MailStore {
 
 	async listAccountMessages(
 		accountId: string,
-		options: AccountListOptions = {},
-	): Promise<MessagePage> {
+		options: T.AccountListOptions = {},
+	): Promise<T.MessagePage> {
 		return messages.listAccountMessages(this.#state, accountId, options ?? {});
 	}
 
@@ -195,9 +174,9 @@ export class SqliteMailStore implements MailStore {
 	async setFlags(
 		accountId: string,
 		ids: readonly string[],
-		change: FlagChange,
-		options: FlagOptions = {},
-	): Promise<FlagResult> {
+		change: T.FlagChange,
+		options: T.FlagOptions = {},
+	): Promise<T.FlagResult> {
 		return setFlags(
 			this.#state,
 			accountId,
@@ -211,7 +190,7 @@ export class SqliteMailStore implements MailStore {
 		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
-	): Promise<MessagesResult> {
+	): Promise<T.MessagesResult> {
 		return copies.copyMessages(this.#state, accountId, ids, mailboxId);
 	}
 
@@ -219,7 +198,7 @@ export class SqliteMailStore implements MailStore {
 		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
-	): Promise<MessagesResult> {
+	): Promise<T.MessagesResult> {
 		return copies.linkMessages(this.#state, accountId, ids, mailboxId);
 	}
 
@@ -228,7 +207,7 @@ export class SqliteMailStore implements MailStore {
 		ids: readonly string[],
 		from: string,
 		to: string,
-	): Promise<MessagesResult> {
+	): Promise<T.MessagesResult> {
 		return membership.moveMessages(this.#state, accountId, ids, from, to);
 	}
 
@@ -236,7 +215,7 @@ export class SqliteMailStore implements MailStore {
 		accountId: string,
 		ids: readonly string[],
 		mailboxId: string,
-	): Promise<ExpungeResult> {
+	): Promise<T.ExpungeResult> {
 		return this.#releasing((state) =>
 			membership.removeMessages(state, accountId, ids, mailboxId),
 		);
@@ -245,7 +224,7 @@ export class SqliteMailStore implements MailStore {
 	destroyMessages(
 		accountId: string,
 		ids: readonly string[],
-	): Promise<ExpungeResult> {
+	): Promise<T.ExpungeResult> {
 		return this.#releasing((state) =>
 			membership.destroyMessages(state, accountId, ids),
 		);
@@ -254,16 +233,16 @@ export class SqliteMailStore implements MailStore {
 	async messageChanges(
 		accountId: string,
 		since: number,
-		options: MessageChangesOptions = {},
-	): Promise<MessageChanges> {
+		options: T.MessageChangesOptions = {},
+	): Promise<T.MessageChanges> {
 		return messageChanges(this.#state, accountId, since, options ?? {});
 	}
 
 	async mailboxChanges(
 		accountId: string,
 		since: number,
-		options: ChangesOptions = {},
-	): Promise<MailboxChanges> {
+		options: T.ChangesOptions = {},
+	): Promise<T.MailboxChanges> {
 		return mailboxChanges(this.#state, accountId, since, options ?? {});
 	}
 }

@@ -90,16 +90,38 @@ describe('SqliteMailStore.open: privacy', () => {
 });
 
 describe('SqliteMailStore.close', () => {
-	test("a call after it is INVALID, never SQLite's own error", async () => {
+	test("every call after it is INVALID, never SQLite's own error", async () => {
 		const store = open();
-		const account = await store.createAccount('mary@example.net');
+		const a = await store.createAccount('mary@example.net');
+		const box = await store.createMailbox(a.id, { name: 'INBOX' });
+		const m = await store.addMessage(a.id, box.id, { content: bytes('x') });
 		store.close();
+		const ids = [m.id];
 		for (const call of [
 			store.createAccount('john@example.net'),
-			store.getAccount(account.id),
-			store.listMailboxes(account.id),
-			store.deleteMailbox(account.id, 'x'),
-			store.mailboxChanges(account.id, 0),
+			store.getAccount(a.id),
+			store.findAccount('mary@example.net'),
+			store.deleteAccount(a.id),
+			store.createMailbox(a.id, { name: 'A' }),
+			store.getMailbox(a.id, box.id),
+			store.listMailboxes(a.id),
+			store.findMailbox(a.id, 'inbox'),
+			store.renameMailbox(a.id, box.id, { name: 'B' }),
+			store.setSubscribed(a.id, box.id, false),
+			store.deleteMailbox(a.id, box.id),
+			store.addMessage(a.id, box.id, { content: bytes('y') }),
+			store.getMessage(a.id, m.id),
+			store.listMessages(a.id, box.id),
+			store.listAccountMessages(a.id),
+			store.readContent(a.id, m.blobId),
+			store.setFlags(a.id, ids, { add: ['\\Seen'] }),
+			store.copyMessages(a.id, ids, box.id),
+			store.linkMessages(a.id, ids, box.id),
+			store.moveMessages(a.id, ids, box.id, box.id),
+			store.removeMessages(a.id, ids, box.id),
+			store.destroyMessages(a.id, ids),
+			store.messageChanges(a.id, 0),
+			store.mailboxChanges(a.id, 0),
 		]) {
 			await expect(call).rejects.toMatchObject({
 				name: 'StoreError',
@@ -107,6 +129,26 @@ describe('SqliteMailStore.close', () => {
 				message: 'The store is closed',
 			});
 		}
+	});
+
+	test('an add whose content was still being read when it closed is INVALID too', async () => {
+		const store = open();
+		const a = await store.createAccount('mary@example.net');
+		const box = await store.createMailbox(a.id, { name: 'INBOX' });
+		let finish = () => {};
+		const content = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(bytes('slow'));
+				finish = () => controller.close();
+			},
+		});
+		const adding = store.addMessage(a.id, box.id, { content });
+		store.close();
+		finish();
+		await expect(adding).rejects.toMatchObject({
+			code: 'INVALID',
+			message: 'The store is closed',
+		});
 	});
 });
 
