@@ -1,8 +1,8 @@
-import type { FreeReplyFunction } from '@alxia/core';
+import type { AnyReply, FreeReplyFunction } from '@alxia/core';
 import type { Runtime } from '../server/runtime';
 import type { Authenticated } from './auth';
-import { readBounded } from './body';
-import { limitProblem, problem } from './problem';
+import { ACCOUNT_NOT_FOUND } from './params';
+import { jmapProblem, limitProblem } from './problem';
 
 const MEDIA_TYPE =
 	/^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
@@ -22,21 +22,15 @@ async function store(
 	auth: Authenticated,
 	request: Request,
 	reply: FreeReplyFunction,
-) {
+): Promise<AnyReply> {
 	const { limits } = runtime.settings;
-	const body = await readBounded(request, limits.maxSizeUpload);
-	if (!body.ok) {
-		return limitProblem(
-			reply,
-			'maxSizeUpload',
-			`The upload is larger than ${limits.maxSizeUpload} bytes`,
-		);
-	}
+	// The route's `bodyLimit` (maxSizeUpload) bounds this read: past it,
+	// alxia stops reading and the route's `onRefusal` answers.
+	const bytes = new Uint8Array(await request.arrayBuffer());
 	const type = typeOf(request);
-	const upload = runtime.uploads.add(auth.accountId, body.bytes, type);
+	const upload = runtime.uploads.add(auth.accountId, bytes, type);
 	if (upload === undefined) {
-		return problem(
-			reply,
+		return jmapProblem(
 			413,
 			'urn:ietf:params:jmap:error:limit',
 			`The account holds ${limits.uploadQuota} bytes of uploads already: use them or wait for them to expire`,
@@ -62,10 +56,10 @@ export function handleUpload(
 	accountId: string,
 	request: Request,
 	reply: FreeReplyFunction,
-) {
+): AnyReply | Promise<AnyReply> {
 	if (accountId !== auth.accountId) {
 		request.body?.cancel().catch(() => undefined);
-		return problem(reply, 404, 'about:blank', 'No account has this id');
+		return jmapProblem(404, 'about:blank', ACCOUNT_NOT_FOUND);
 	}
 	return runtime.uploading.run(
 		auth.accountId,
@@ -73,7 +67,6 @@ export function handleUpload(
 		() => {
 			request.body?.cancel().catch(() => undefined);
 			return limitProblem(
-				reply,
 				'maxConcurrentUpload',
 				`The account has ${runtime.settings.limits.maxConcurrentUpload} uploads in flight already`,
 			);

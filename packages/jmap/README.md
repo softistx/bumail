@@ -12,8 +12,8 @@ back-references, Mailbox, Email and Thread, and blob download and upload.
 bun add @bumail/jmap @alxia/core @bumail/store @bumail/mime
 ```
 
-`@alxia/core`, `@bumail/store` and `@bumail/mime` are peers: install the
-versions your app uses. `typescript` is an optional peer, for the types.
+`@alxia/core` (0.2.0 or later), `@bumail/store` and `@bumail/mime` are
+peers: install the versions your app uses. `typescript` is an optional peer, for the types.
 
 ## Mounting it in an alxia app
 
@@ -120,11 +120,11 @@ A download serves an email's bytes, one of its parts (each part's
 
 | limit | default | |
 | --- | --- | --- |
-| `maxSizeRequest` | 10 MB | the API body, read streaming whatever `Content-Length` says |
+| `maxSizeRequest` | 10 MB | the API body: a `Content-Length` past it refused unread, a chunked body cut once past it |
 | `maxCallsInRequest` | 16 | method calls in one request |
 | `maxConcurrentRequests` | 4 | API requests in flight, per account |
 | `maxObjectsInGet`, `maxObjectsInSet` | 500 | ids in a `/get`; creates, updates and destroys in a `/set`; and the page of a query |
-| `maxSizeUpload` | 25 MiB | one upload |
+| `maxSizeUpload` | 25 MiB | one upload, held like `maxSizeRequest` |
 | `maxConcurrentUpload` | 4 | uploads in flight, per account |
 | `uploadQuota` | 100 MiB | bytes of uploads held per account |
 | `uploadTtl` | 3600 s | how long an upload is kept |

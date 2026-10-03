@@ -76,9 +76,10 @@ A name in `using` is not `urn:ietf:params:jmap:core` or
 ## `urn:ietf:params:jmap:error:limit` — `The request is larger than … bytes`
 
 `limit: "maxSizeRequest"`, with a 413. The body is past the session's
-`maxSizeRequest`; it was refused as soon as its `Content-Length` said so,
-or cut while streaming past it. Split the request, or raise
-`limits.maxSizeRequest`.
+`maxSizeRequest`; it was refused unread when its `Content-Length` said so,
+or, chunked or with a false `Content-Length`, at the first chunk past it.
+RFC 8620's own example of this problem answers 400; a 413 is HTTP's status
+for a body too large. Split the request, or raise `limits.maxSizeRequest`.
 
 ## `urn:ietf:params:jmap:error:limit` — `The JSON nests deeper than … levels`
 
@@ -114,7 +115,8 @@ answer, then retry.
 ## `urn:ietf:params:jmap:error:limit` — `The upload is larger than … bytes`
 
 `limit: "maxSizeUpload"`, with a 413. One upload is past the session's
-`maxSizeUpload`.
+`maxSizeUpload`: refused unread when its `Content-Length` said so, or at the
+first chunk past it. Upload less, or raise `limits.maxSizeUpload`.
 
 ## `urn:ietf:params:jmap:error:limit` — `The account has … uploads in flight already`
 
@@ -136,7 +138,8 @@ another account's mail.
 
 ## `404 No account has this id`
 
-An upload named an `accountId` other than the authenticated account's.
+An upload named an `accountId` other than the authenticated account's,
+or one that is not an id.
 Use the session's `primaryAccounts["urn:ietf:params:jmap:mail"]`.
 
 ## `404 {"error":"not_found"}`

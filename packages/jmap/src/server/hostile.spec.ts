@@ -6,6 +6,20 @@ type Problem = { type: string; status: number; limit?: string; detail: string };
 const body = (methodCalls: unknown[]) =>
 	JSON.stringify({ using: [CORE, MAIL], methodCalls });
 
+/** A chunked body that counts what was pulled from it: `size` bytes of spaces, no Content-Length. */
+function counted(size: number, chunk = 64 * 1024) {
+	const pulled = { bytes: 0 };
+	const stream = new ReadableStream<Uint8Array>({
+		pull(controller) {
+			const n = Math.min(chunk, size - pulled.bytes);
+			if (n <= 0) return controller.close();
+			controller.enqueue(new Uint8Array(n).fill(0x20));
+			pulled.bytes += n;
+		},
+	});
+	return { stream, pulled };
+}
+
 /** A body that streams `size` bytes of spaces, no Content-Length. */
 function streamOf(size: number, chunk = 64 * 1024): ReadableStream<Uint8Array> {
 	let sent = 0;
@@ -156,5 +170,76 @@ describe('hostile input', () => {
 		expect(
 			(await h.fetch('/jmap/api', { method: 'POST', body: body([]) })).status,
 		).toBe(200);
+	});
+
+	test('a chunked body past maxSizeRequest or maxSizeUpload is refused early, as the limit problem', async () => {
+		h = await harness('memory', {
+			limits: {
+				maxSizeRequest: 100_000,
+				maxSizeUpload: 100_000,
+				maxConcurrentRequests: 1,
+				maxConcurrentUpload: 1,
+			},
+		});
+		const offered = 64 * 1024 * 1024;
+		for (const [path, limit] of [
+			['/jmap/api', 'maxSizeRequest'],
+			[`/jmap/upload/${h.alice.id}`, 'maxSizeUpload'],
+		] as const) {
+			const { stream, pulled } = counted(offered);
+			const response = await h.fetch(path, { method: 'POST', body: stream });
+			expect(response.headers.get('content-type')).toBe(
+				'application/problem+json',
+			);
+			expect(await problem(response)).toEqual({
+				type: 'urn:ietf:params:jmap:error:limit',
+				status: 413,
+				limit,
+				detail: `The ${limit === 'maxSizeUpload' ? 'upload' : 'request'} is larger than 100000 bytes`,
+			});
+			// Read no further than the chunk that passed the limit, and a
+			// little read-ahead: never the 64 MiB offered.
+			expect(pulled.bytes).toBeLessThan(1024 * 1024);
+		}
+		// The refusal gave the account's request and upload slots back.
+		expect(
+			(await h.fetch('/jmap/api', { method: 'POST', body: body([]) })).status,
+		).toBe(200);
+		expect(
+			(
+				await h.fetch(`/jmap/upload/${h.alice.id}`, {
+					method: 'POST',
+					body: 'a',
+				})
+			).status,
+		).toBe(201);
+	});
+
+	test('a path parameter that is not an Id is the 404 problem, by download and by upload', async () => {
+		h = await harness();
+		for (const [path, init, detail] of [
+			[`/jmap/download/${h.alice.id}/..%2Fetc/x`, {}, 'No blob has this id'],
+			[`/jmap/download/a%20b/blob/x`, {}, 'No blob has this id'],
+			[
+				`/jmap/upload/${'x'.repeat(256)}`,
+				{ method: 'POST', body: 'x' },
+				'No account has this id',
+			],
+		] as const) {
+			const response = await h.fetch(path, init);
+			expect(response.headers.get('content-type')).toBe(
+				'application/problem+json',
+			);
+			expect(await problem(response)).toEqual({
+				type: 'about:blank',
+				status: 404,
+				detail,
+			});
+		}
+		// Authentication still comes first.
+		const anonymous = await h.fetch(`/jmap/download/a%20b/blob/x`, {
+			headers: { authorization: 'Bearer nobody' },
+		});
+		expect(anonymous.status).toBe(401);
 	});
 });

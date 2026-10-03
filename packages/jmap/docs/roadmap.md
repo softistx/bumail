@@ -12,8 +12,8 @@ The second slice:
   client that shows a query result keeps it current from the changes,
   instead of running the query again. `canCalculateChanges` turns true.
 - **Push via EventSource** (RFC 8620 §7.3) — `eventSourceUrl` served with
-  `StateChange` events, its own `event:` and `id:` frames (alxia's
-  `eventStream` writes only `data:` lines), and `notify(accountId)` waking
+  named `state` and `ping` events through alxia's `eventStream`, each
+  `StateChange` with its `id:`, and `notify(accountId)` waking
   the account's streams at once after a delivery.
 - **`Thread/changes`**, and threads that group replies by `In-Reply-To`
   and `References` as mail is delivered.
@@ -71,7 +71,7 @@ and bounded. Each comes out once the store contract grows it.
 
 ### Unreleased — merged, not yet published
 
-- **The first slice** — a JMAP server on alxia, mounted in a host app,
+- **The first slice** — a JMAP server on `@alxia/core` 0.2.0, mounted in a host app,
   serving any `@bumail/store`: the session with every core limit, Basic
   only over HTTPS and Bearer through an `authenticate` hook, the API with
   back-references and RFC 7807 problems, `Core/echo`, `Mailbox/get`,

@@ -1,9 +1,9 @@
 import { type FreeReplyFunction, parseRange } from '@alxia/core';
 import { resolveBlob } from '../blob/resolve';
 import type { Runtime } from '../server/runtime';
-import { isId } from '../shared/text';
 import type { Authenticated } from './auth';
-import { problem } from './problem';
+import { BLOB_NOT_FOUND } from './params';
+import { jmapProblem } from './problem';
 
 /** A media type a client may ask a download to be served as, without parameters. */
 const MEDIA_TYPE =
@@ -51,10 +51,8 @@ export async function handleDownload(
 	request: Request,
 	reply: FreeReplyFunction,
 ) {
-	const notFound = () =>
-		problem(reply, 404, 'about:blank', 'No blob has this id');
-	if (params.accountId !== auth.accountId || !isId(params.blobId))
-		return notFound();
+	const notFound = () => jmapProblem(404, 'about:blank', BLOB_NOT_FOUND);
+	if (params.accountId !== auth.accountId) return notFound();
 	const found = await resolveBlob(
 		runtime.settings.store,
 		runtime.uploads,

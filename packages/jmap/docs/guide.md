@@ -149,8 +149,10 @@ name do; every API response carries it as `sessionState`. The
 }
 ```
 
-The body is read streaming and refused past `maxSizeRequest`, whatever its
-`Content-Length` says. Before it is parsed it must be UTF-8 and nest at
+The body is held to `maxSizeRequest` as the route's alxia `bodyLimit`: a
+`Content-Length` past it is refused without reading a byte, and a body
+without one — chunked — or with a false one is counted as it arrives and
+refused at the first chunk past it, never read whole. Before it is parsed it must be UTF-8 and nest at
 most `maxJsonDepth` levels with at most `maxJsonTokens` tokens. Then it
 must be a Request object: `using` an array of names, `methodCalls` an
 array of `[name, arguments, callId]` with a name and a call id of at most
@@ -332,7 +334,8 @@ message is its own thread unless the code that adds it passes a
 ## Blobs
 
 `POST {basePath}/upload/{accountId}` reads the body — at most
-`maxSizeUpload` bytes, streaming — and answers `201 { accountId, blobId,
+`maxSizeUpload` bytes, the route's `bodyLimit`, held as the API's is — and
+answers `201 { accountId, blobId,
 type, size }`. The type is the `Content-Type` without its parameters, or
 `application/octet-stream`. The `blobId` is the SHA-256 of the bytes, as
 the store names a message's content, so the same bytes uploaded twice are
