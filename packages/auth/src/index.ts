@@ -13,3 +13,9 @@ export { type SignDkimOptions, signDkim } from './dkim/sign';
 export { RECOMMENDED_HEADERS } from './dkim/sign-headers';
 export { type VerifyDkimOptions, verifyDkim } from './dkim/verify';
 export { AuthError, type AuthErrorCode } from './errors';
+export {
+	type CheckSpfOptions,
+	checkSpf,
+	type SpfInput,
+} from './spf/check-spf';
+export type { SpfResult, SpfResultWord } from './spf/result';
