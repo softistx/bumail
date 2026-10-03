@@ -61,8 +61,10 @@ async function tarballsSound({ tarballs }: Packed): Promise<boolean> {
 		'\nA `link:` or `file:` no consumer can resolve, a required peer that is\n' +
 			'on no registry, an exact pin on a sibling, a sibling range that\n' +
 			'excludes the sibling published beside it, a package that lists\n' +
-			'itself, a license other than MIT or no LICENSE shipped, a `files`\n' +
-			'entry the tarball does not hold, or test code shipped. See AGENTS.md.',
+			'itself, a license other than MIT (or MIT AND <id> with its\n' +
+			'LICENSE-<id>) or no LICENSE shipped, a `files`\n' +
+			'entry the tarball does not hold, test code shipped, or a source map\n' +
+			'that embeds data the bundle already holds. See AGENTS.md.',
 	);
 	return false;
 }

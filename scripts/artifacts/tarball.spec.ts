@@ -12,9 +12,34 @@ describe('licenseProblems', () => {
 			licenseProblems({ name: 'x', license: 'MIT' }, ['package/LICENSE']),
 		).toEqual([]);
 		expect(licenseProblems({ name: 'x', license: 'ISC' }, [])).toEqual([
-			'x: license is ISC, not MIT',
+			'x: license is ISC, not MIT or MIT AND <SPDX id>',
 			'x: the tarball has no LICENSE',
 		]);
+	});
+
+	test('takes MIT AND another license when its text ships as LICENSE-<id>', () => {
+		const manifest = { name: 'x', license: 'MIT AND MPL-2.0' };
+		expect(
+			licenseProblems(manifest, ['package/LICENSE', 'package/LICENSE-MPL-2.0']),
+		).toEqual([]);
+		expect(licenseProblems(manifest, ['package/LICENSE'])).toEqual([
+			'x: license names MPL-2.0, but the tarball has no LICENSE-MPL-2.0',
+		]);
+	});
+
+	test('refuses another license first, or an expression it cannot read', () => {
+		expect(
+			licenseProblems({ name: 'x', license: 'MPL-2.0 AND MIT' }, [
+				'package/LICENSE',
+			]),
+		).toEqual(['x: license is MPL-2.0 AND MIT, not MIT or MIT AND <SPDX id>']);
+		expect(
+			licenseProblems({ name: 'x', license: 'MIT AND (GPL-3.0 OR ISC)' }, [
+				'package/LICENSE',
+			]),
+		).toContain(
+			'x: license is MIT AND (GPL-3.0 OR ISC), not MIT or MIT AND <SPDX id>',
+		);
 	});
 });
 
