@@ -868,8 +868,9 @@ Some limits are fixed: a command line is at most 2048 bytes (RFC 5321
 §4.5.3.1.4 asks for 512 at least); a session gets three AUTH attempts; and
 the server holds at most 64 KiB of a client's unread input, and of a
 message `onData` has not read, before it stops reading that client. Replies
-to a client that does not read them wait in the server, and the server reads
-no further command until they went out.
+to a client that does not read them wait in the server while the connection
+is open, none lost, and the server reads no further command until they went
+out.
 
 How the server hangs up depends on who decided. After `QUIT` it is
 graceful: the `221` leaves whole, then the connection closes. When the
@@ -878,8 +879,17 @@ attempts, a refusal from `onConnect`, a local error — it writes its reply
 and closes at once: the connection is counted out of `connections` then and
 there, and replies the client never read are dropped, the connection reset
 if any were still waiting. So a client that pipelines commands and stops
-reading cannot keep a slot of `maxConnections` past its `timeout`; the
-same holds after `QUIT` when the `221` itself is never read.
+reading cannot keep a slot of `maxConnections` past its `timeout`.
+
+Every hang-up is bounded, on a clear socket, on implicit TLS and after
+STARTTLS alike. The server never waits for the client to answer its
+hang-up: the connection is counted out at once, even when the client has
+stopped reading, and a client that reads later still gets the last reply,
+then the end. A graceful
+close — after `QUIT`, or a reply that still has to leave — waits 5 seconds
+at most for what is queued to go out; past that, what is left is dropped
+and the connection reset. So a `221` behind replies that are never read
+holds the slot 5 seconds, not until the `timeout`.
 
 Stop a server with `stop()`; `stop(true)` also hangs up on every client.
 `connections` counts the clients currently connected:

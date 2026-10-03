@@ -187,6 +187,32 @@ Every PR goes into `develop`. Before merging:
   `Resolver` is assignable to it, so a change to either that breaks the
   fit fails `typecheck`. With nothing of `@bumail/dns` imported, smtp
   lists it as a devDependency only, never a peer (see Layering).
+- **The socket transport** — writing with a backlog, `drained()`, pause and
+  resume, the STARTTLS upgrade — in `smtp/src/server/transport.ts` and
+  `imap/src/server/transport.ts`, adapted to each protocol's flow. Should a
+  third server need it, it becomes a package. Both copies keep one rule:
+  **a hang-up never waits on the client; a forced close terminates when
+  bytes are queued; every end is bounded by a grace timer.** A close the
+  server decides on — a timeout, a BYE or 421 — must complete even when
+  the client never reads, or the connection keeps a `maxConnections` slot
+  for good: the connection marks itself closed first and queues its last
+  words without awaiting the backlog; a forced close with bytes queued
+  drops them and terminates the socket; and every `end`, queue empty or
+  not, arms a 5-second grace (`CLOSE_GRACE` in imap, `CLOSE_GRACE_MS` in
+  smtp), whose timer terminates the socket unless `close` came first
+  (`closed()` clears it). An empty queue is not enough: on TLS, Bun's
+  `socket.end()` waits for the client's own close, which a paused client
+  never sends, and a `terminate()` after that `end()` no longer closes the
+  socket (Bun 1.4) — both transports therefore end with
+  `socket.shutdown()`, never `end()`, which leaves `terminate()` working.
+  smtp half-closes, `shutdown(true)`: measured on Bun 1.4.2, it fires
+  `close` at once and a paused client that reads later still gets the last
+  reply and a clean end, where a full `shutdown()` holds that client until
+  the grace and loses the reply to the reset. smtp's real-socket specs
+  (`quiet.spec.ts`, with a `node:tls` client) cover a paused client on a
+  clear socket, on implicit TLS and after STARTTLS, at the idle `timeout`
+  and after `QUIT`; `close.spec.ts` covers a client that never reads with
+  replies queued. A fix to one is a fix to the other.
 
 ## Prior work
 

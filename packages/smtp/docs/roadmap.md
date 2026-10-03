@@ -39,8 +39,11 @@ Nothing in progress.
   AUTH, a refusal — it no longer waits for the client to read what is
   queued: the connection is counted out at once, and what was never read
   is dropped. Such a close used to wait forever, so enough clients that
-  pipelined commands and never read could fill `maxConnections`. `QUIT`
-  still sends its `221` whole before hanging up.
+  pipelined commands and never read could fill `maxConnections`. The
+  same holds on implicit TLS and after STARTTLS, where a client that paused
+  and never answered the hang-up used to keep its slot even with nothing
+  queued. `QUIT` still sends its `221` whole before hanging up, within a
+  5-second grace when the client does not read it.
 
 - **The client, as `@bumail/smtp/client`** — `sendMail(message, options)`
   delivers one message to a host (a smarthost, submission on 587 or 465,

@@ -637,8 +637,9 @@ createSmtpServer({
 
 ### `421 4.7.0 … Too many failed authentications, closing`
 
-**When**: the third `535 5.7.8` in one session. The server hangs up. `…`
-is the server's `hostname`.
+**When**: the third `535 5.7.8` in one session. The server hangs up at
+once: replies the client has not read are dropped, not waited for. `…` is
+the server's `hostname`.
 
 **Why**: it bounds password guessing on one connection. The limit is
 three, and is not an option. A response that is not valid base64 gets
@@ -1302,8 +1303,9 @@ too, even to drop it.
 
 ### `421 4.3.0 Local error, closing`
 
-**When**: during a session, then the server hangs up. The reply carries
-no enhanced code before EHLO.
+**When**: during a session, then the server hangs up at once: replies
+the client has not read are dropped, not waited for. The reply carries no
+enhanced code before EHLO.
 
 **Why**: the server failed while handling a command, outside any hook:
 a bug in this package. `onError` gets the error.
@@ -1366,7 +1368,8 @@ it, so a slow hook can run into it too — keep `hookTimeout` below
 hang-up can come up to that much after `timeout`. The hang-up is at once
 even when the client stopped reading: replies it never read, and the 421
 itself if the socket cannot take it, are dropped, and the connection is
-counted out of `connections` then.
+counted out of `connections` then — on implicit TLS and after STARTTLS
+too, where the server does not wait for the client to answer the hang-up.
 
 **Fix**, as a client: send `QUIT` when done; a pooled connection that
 waits longer must reconnect, or send `NOOP` within the timeout.
