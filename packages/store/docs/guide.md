@@ -291,7 +291,8 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   created then changed again is `created` on the first page that reaches
   it and `updated` on a later one — RFC 8620 §5.2's intermediate states.
   A page never splits the changes of one modseq, so it holds more than
-  `limit` only when one modseq alone has more.
+  `limit` only when one modseq alone has more, or, since 0, to reach the
+  oldest `since` the store answers (below).
 - `mailboxId` narrows the answer to one mailbox, for a client that holds
   only that one — an IMAP session on it, or a JMAP view of a folder. A
   message that came into it since `since` is `created`, even when the

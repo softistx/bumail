@@ -36,8 +36,8 @@ function limitCountsExpunged(create: CreateStore): void {
 }
 
 /**
- * Follows every page from `since`, applying each to what the client held
- * then: created is added, destroyed removed, and updated must name one it
+ * Follows every page from `since`, applying each to `held`, what the
+ * client held then: created is added, destroyed removed, and updated must name one it
  * holds. Returns what it holds at the end, the expunged entries in order
  * and each page's size.
  */
@@ -45,16 +45,10 @@ async function replay(
 	store: MailStore,
 	accountId: string,
 	since: number,
+	held: Set<string>,
 	filter: MessageChangesOptions,
 	limit: number,
 ) {
-	const held = new Set(
-		(await store.messageChanges(accountId, 0, filter)).created,
-	);
-	const start = await store.messageChanges(accountId, since, filter);
-	// What the client held at `since`: what is there now, undone.
-	for (const id of start.created) held.delete(id);
-	for (const id of start.destroyed) held.add(id);
 	const expunged: unknown[] = [];
 	const sizes: number[] = [];
 	let modseq = since;
@@ -128,6 +122,14 @@ function pagesAddUp(create: CreateStore): void {
 				];
 				const x = await add(a.id, 'x');
 				const { modseq } = await store.messageChanges(account.id, 0);
+				// What a client holds at `modseq`, taken from the messages.
+				const held = new Set(
+					filtered
+						? (await store.listMessages(account.id, inbox.id)).map(
+								(e) => e.message.id,
+							)
+						: [m1, m2, m3, x],
+				);
 				const move = (id: string, from: string, to: string) =>
 					store.moveMessages(account.id, [id], from, to);
 				await move(x, a.id, inbox.id);
@@ -146,7 +148,14 @@ function pagesAddUp(create: CreateStore): void {
 				const options = filtered ? { mailboxId: inbox.id } : {};
 				const whole = await store.messageChanges(account.id, modseq, options);
 				const now = await store.messageChanges(account.id, 0, options);
-				const paged = await replay(store, account.id, modseq, options, limit);
+				const paged = await replay(
+					store,
+					account.id,
+					modseq,
+					held,
+					options,
+					limit,
+				);
 				expect(paged.modseq).toBe(whole.modseq);
 				expect([...paged.held].sort()).toEqual([...now.created].sort());
 				expect(paged.expunged).toEqual([...whole.expunged]);
