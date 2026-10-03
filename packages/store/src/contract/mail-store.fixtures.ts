@@ -3,6 +3,7 @@ import { describeAccounts } from './fixtures/accounts.fixtures';
 import { describeChanges } from './fixtures/changes.fixtures';
 import { describeChangesFilter } from './fixtures/changes-filter.fixtures';
 import { describeChangesPaging } from './fixtures/changes-paging.fixtures';
+import { describeContent } from './fixtures/content.fixtures';
 import { describeFlags } from './fixtures/flags.fixtures';
 import { describeGuarantees } from './fixtures/guarantees.fixtures';
 import { describeMailboxes } from './fixtures/mailboxes.fixtures';
@@ -22,6 +23,7 @@ export function describeMailStore(name: string, create: CreateStore): void {
 		describeMailboxes(create);
 		describeRenames(create);
 		describeMessages(create);
+		describeContent(create);
 		describeFlags(create);
 		describeMoves(create);
 		describeChanges(create);
