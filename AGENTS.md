@@ -14,7 +14,7 @@ below lists only what has landed.
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
-| `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, and SPF checking (RFC 7208), results in RFC 8601's words; DMARC next | `@bumail/dns`, `@bumail/mime` |
+| `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
@@ -38,6 +38,11 @@ The repository is **private** until the owner says otherwise.
   `Bun.file`, Web Crypto, `TextDecoder`, `node:dns` — are not dependencies.
   `verify:artifacts` fails a manifest with a `dependencies` field that lists
   anything.
+- **Data a package needs is a snapshot it embeds**, never fetched at
+  runtime: `@bumail/auth`'s Public Suffix List is
+  `src/dmarc/psl-data.ts`, written by `bun run scripts/refresh-psl.ts`
+  (MPL 2.0, its notice kept in the file). A refresh is a patch
+  changeset.
 - **Never an open relay.** A message for a domain the server does not host
   is refused unless the session authenticated. That is the default of every
   server option, and every spec that relays authenticates first. A spec

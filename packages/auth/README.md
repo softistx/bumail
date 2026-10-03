@@ -1,13 +1,16 @@
 # @bumail/auth
 
-Message authentication for a mail server. This first release is **DKIM**
-(RFC 6376) and **SPF** (RFC 7208). Verify every `DKIM-Signature` on a
-message, and sign the mail you send, with rsa-sha256 and ed25519-sha256
-(RFC 8463) through Web Crypto and simple or relaxed canonicalisation.
-Check whether the connecting IP may send for the MAIL FROM domain, with
-RFC 7208's lookup limits and macros. Results are in RFC 8601's words.
-DMARC and the `Authentication-Results` header come next. No dependency:
-the DNS comes from `@bumail/dns`, and header folding from `@bumail/mime`.
+Message authentication for a mail server: **DKIM** (RFC 6376), **SPF**
+(RFC 7208), **DMARC** (RFC 7489) and the **`Authentication-Results`**
+header (RFC 8601). Verify every `DKIM-Signature` on a message, and sign
+the mail you send, with rsa-sha256 and ed25519-sha256 (RFC 8463) through
+Web Crypto and simple or relaxed canonicalisation. Check whether the
+connecting IP may send for the MAIL FROM domain, with RFC 7208's lookup
+limits and macros. Find the From domain's DMARC policy, align DKIM and
+SPF with From, and get the disposition the policy asks for. Write it all
+into one `Authentication-Results` field. Results are in RFC 8601's words.
+No dependency: the DNS comes from `@bumail/dns`, header parsing and
+folding from `@bumail/mime`.
 
 **Bun only**, like every `@bumail/*` package: it runs on Bun 1.4.2 or
 later.
@@ -107,6 +110,56 @@ of the 203 cases of the OpenSPF RFC 7208 test suite; the
 [guide](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/guide.md#checking-spf)
 lists the other six.
 
+## Check DMARC
+
+```ts
+import { checkDmarc, checkSpf, formatAuthenticationResults, verifyDkim } from '@bumail/auth';
+import { cachedResolver, nodeResolver } from '@bumail/dns';
+
+const resolver = cachedResolver(nodeResolver());
+
+// In the SMTP server's DATA hook, with the message as bytes or a string:
+const dkim = await verifyDkim(message, { resolver });
+const spf = {
+	result: await checkSpf({ ip, mailFrom, helo }, { resolver }), // or keep the one from MAIL FROM
+	identity: 'mailfrom' as const,
+};
+const dmarc = await checkDmarc({ message, dkim, spf }, { resolver });
+dmarc.result; // 'pass' | 'fail' | 'none' | 'temperror' | 'permerror'
+dmarc.disposition; // 'none' | 'quarantine' | 'reject': what the domain asks for this message
+dmarc.policy; // the p= (or sp=) that applies; dmarc.policyDomain is where it was found
+dmarc.alignedDkim; // 'example.com': the d= that passed and aligned with From
+dmarc.record?.rua; // [{ uri: 'mailto:dmarc@example.com' }]: parsed, never sent to
+
+const field = formatAuthenticationResults('mx.example.org', { dkim, spf, dmarc });
+// Authentication-Results: mx.example.org; dkim=pass header.d=example.com
+//  header.s=sel header.b=EToRSuvU; spf=pass smtp.mailfrom=example.com;
+//  dmarc=pass header.from=example.com
+const delivered = field + message; // the field ends with CRLF
+
+if (dmarc.disposition === 'reject') reply(550, '5.7.1 Rejected by the sender domain\'s DMARC policy');
+if (dmarc.result === 'temperror') reply(451, '4.7.0 DMARC check failed, try again later');
+```
+
+`checkDmarc` reads the message's header only, for From. It looks the
+policy up at `_dmarc.<From domain>`, and then at the organizational domain
+(`_dmarc.example.com` for `news.example.com`). A passing DKIM signature or
+SPF check aligned with From makes it `pass`: relaxed alignment (the
+default) needs the same organizational domain, strict (`adkim=s`,
+`aspf=s`) an exact match. `pct` is applied through `random` (by default
+`Math.random`). **`checkDmarc` never throws for what the message, the DNS
+or a record holds.** It throws `AuthError` only for an input or option it
+cannot take.
+
+The organizational domain comes from a snapshot of the
+[Public Suffix List](https://publicsuffix.org) the package embeds, ICANN
+and private sections both. Pass `organizationalDomain` to use your own;
+`organizationalDomain(domain)` is exported too.
+
+`formatAuthenticationResults` writes one `dkim=` per signature, then
+`spf=` and `dmarc=`, folded at 78 columns. Leave out what you did not
+check; with nothing, it writes `none`.
+
 ## Traps
 
 ### DKIM
@@ -156,6 +209,43 @@ lists the other six.
   (10 terms, each `mx` or `ptr` with up to 10 names to look up);
   `cachedResolver` shares them between messages.
 
+### DMARC
+
+- **A message `checkDmarc` cannot evaluate is `permerror` with
+  `disposition: 'reject'`.** No From, two From fields, or one From with
+  two addresses (§6.6.1): a second From is the classic way around a
+  `p=reject`, and a reader may be shown either one. Decide what to do
+  with these on `reason`.
+- **`temperror` is not `fail`.** The DMARC record could not be had, or an
+  aligned DKIM or SPF check had a temporary error. `disposition` is
+  `none`; answer with a 451 so the sender retries.
+- **A temporary error counts only on an aligned identifier.** A forger
+  who signs with a domain whose DNS they make time out still gets `fail`.
+- **`pct` lets some failing mail through, one step milder.** Not sampled,
+  `reject` becomes `quarantine` and `quarantine` becomes `none`
+  (§6.6.4). `sampled` says which it was.
+- **SPF aligns only for `identity: 'mailfrom'`.** A HELO check is not
+  DMARC's (§3.1.2), except the HELO name `checkSpf` checks for a bounce,
+  which it does as `mailfrom`.
+- **The Public Suffix List is a snapshot.** A suffix added after this
+  version of the package is not known: its tenants share one
+  organizational domain until you update the package, or pass a fresher
+  `organizationalDomain`.
+- **No report is sent.** `rua` and `ruf` are parsed and returned; sending
+  aggregate and failure reports is on the roadmap.
+- **A stream is read up to the header's end, then cancelled.** Pass
+  `checkDmarc` and `verifyDkim` the same bytes, not the same stream.
+
+### Authentication-Results
+
+- **Remove the fields already on the message that claim your
+  `authserv-id`** before adding yours (RFC 8601 §5): a sender can write
+  one that says `dmarc=pass`.
+- **A value that holds a control character is left out.** A domain from a
+  hostile MAIL FROM can hold anything; the property goes rather than a
+  line break. A value that is not a token, such as `header.b`'s base64,
+  is quoted.
+
 ## API
 
 | export | what it is |
@@ -176,14 +266,28 @@ lists the other six.
 | `CheckSpfOptions` | `resolver` (required), `identity` (`'mailfrom'` or `'helo'`), `timeout` (20 000 ms, at most 2 147 483 647), `receiver` (`%{r}`), `now` |
 | `SpfResult` | `result`, `reason`, `domain`, `mechanism`, `explanation`, `lookups` |
 | `SpfResultWord` | `'none' \| 'neutral' \| 'pass' \| 'fail' \| 'softfail' \| 'temperror' \| 'permerror'` |
-| `AuthError`, `AuthErrorCode` | thrown for an option, an `ip`, a message to sign or a key: `INVALID_OPTION`, `INVALID_MESSAGE`, `INVALID_KEY`; `cause` holds a wrapped error |
+| `checkDmarc(input, options)` | RFC 7489 for a message: `Promise<DmarcResult>` |
+| `DmarcInput` | `message` (as `verifyDkim` takes it; only the header is read), `dkim` (`verifyDkim`'s results), `spf` (an `SpfCheck`, optional) |
+| `SpfCheck` | `result` (what `checkSpf` gave), `identity` (`'mailfrom'` or `'helo'`) |
+| `CheckDmarcOptions` | `resolver` (required), `organizationalDomain` (the embedded PSL), `random` (`Math.random`), `timeout` (20 000 ms, at most 2 147 483 647), `maxHeaderBytes` (256 KiB) |
+| `DmarcResult` | `result`, `reason`, `domain` (From), `policyDomain`, `policy`, `disposition`, `alignedDkim`, `alignedSpf`, `sampled`, `record` |
+| `DmarcResultWord` | `'pass' \| 'fail' \| 'none' \| 'temperror' \| 'permerror'` |
+| `DmarcPolicy` | `'none' \| 'quarantine' \| 'reject'` |
+| `DmarcRecord` | `p`, `sp`, `invalidSp`, `adkim`, `aspf`, `pct`, `rua`, `ruf`, `fo`, `rf`, `ri`, defaults filled in |
+| `DmarcUri` | `uri`, `maxSize` (bytes, from `!10m`) |
+| `organizationalDomain(domain)` | the organizational domain (RFC 7489 §3.2) from the embedded Public Suffix List, in A-labels; `undefined` for a public suffix |
+| `formatAuthenticationResults(authservId, results)` | the `Authentication-Results` field (RFC 8601), folded, CRLF included |
+| `AuthenticationResultsInput` | `dkim` (`DkimResult[]`), `spf` (`SpfCheck`), `dmarc` (`DmarcResult`), each optional |
+| `AuthError`, `AuthErrorCode` | thrown for an option or input, an `ip`, a message to sign or a key: `INVALID_OPTION`, `INVALID_MESSAGE`, `INVALID_KEY`; `cause` holds a wrapped error |
 
 ## Documentation
 
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/guide.md): verifying, results, signing, keys, limits, SPF and specs
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/guide.md): verifying, results, signing, keys, limits, SPF, DMARC, `Authentication-Results` and specs
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/troubleshooting.md): every error and every result reason
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/roadmap.md)
 
 ## License
 
-MIT
+MIT. The embedded Public Suffix List snapshot
+(`src/dmarc/psl-data.ts`, in `dist/index.js`) is the Mozilla Public
+License 2.0's, from [publicsuffix.org](https://publicsuffix.org/list/).

@@ -9,13 +9,12 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
-- **`@bumail/auth`, DKIM and SPF first** — DKIM signing and verifying
-  (RFC 6376) is published in 0.1.0. SPF checking (RFC 7208):
-  `check_host()` with its ten-lookup and void-lookup limits, macros and a
-  timeout, merged, not yet published. Both look up through `@bumail/dns`
-  and answer in RFC 8601's words. DMARC (RFC 7489) evaluation and its
-  policy, and the `Authentication-Results` header, follow in the same
-  package.
+- **`@bumail/auth`, DKIM, SPF and DMARC** — DKIM signing and verifying
+  (RFC 6376) is published in 0.1.0. SPF checking (RFC 7208), DMARC
+  (RFC 7489) evaluation with its policy and disposition, and the
+  `Authentication-Results` header (RFC 8601) are merged, not yet
+  published. Everything looks up through `@bumail/dns` and answers in
+  RFC 8601's words. DMARC reports and ARC follow in the same package.
 
 ## Next
 
@@ -82,6 +81,11 @@ No dates. Each entry says what someone running or embedding the server gets.
   contract on disk, held to the same specs, with message bodies as blobs on
   disk addressed by their hash. One process per database, and every write
   flushed to disk before it is acknowledged.
+- **`@bumail/auth`, DMARC and `Authentication-Results`** — `checkDmarc`:
+  the From domain's policy, found there or at its organizational domain
+  (an embedded Public Suffix List), DKIM and SPF aligned with From, `pct`
+  and the disposition; a message with two From fields is refused.
+  `formatAuthenticationResults` writes the three results as one field.
 - **`@bumail/auth`, SPF** — `checkSpf`, RFC 7208's `check_host()` for the
   client IP and the MAIL FROM or HELO domain: every mechanism, `redirect=`,
   `exp=`, the macros, the lookup limits and a timeout, never a throw for a

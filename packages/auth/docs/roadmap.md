@@ -6,20 +6,24 @@ number on it.
 
 ## Now
 
-- **DMARC** (RFC 7489): the policy record and its organisational-domain
-  fallback, relaxed and strict alignment of the DKIM `d=` and SPF domains
-  with From, and the disposition a receiver applies.
+- Nothing in progress: DMARC and `Authentication-Results` are merged,
+  waiting for a release.
 
 ## Next
 
-- **The `Authentication-Results` header** (RFC 8601): DKIM, SPF and DMARC
-  results written as one field, `header.d`, `header.b` and `smtp.mailfrom`
-  included, and read back with its `authserv-id` checked.
+- **DMARC reports** (RFC 7489 §7): aggregate reports to `rua=` and
+  failure reports to `ruf=`, with §7.1's check that a third party agreed
+  to receive them. The URIs are already parsed and returned.
+- **ARC** (RFC 8617), so forwarded mail keeps its authentication: the
+  chain sealed and verified with the DKIM code already here.
+- **Reading `Authentication-Results` back**, with its `authserv-id`
+  checked, and removing the fields a sender forged with yours.
 
 ## Later
 
-- **ARC** (RFC 8617), so forwarded mail keeps its authentication: the
-  chain sealed and verified with the DKIM code already here.
+- **DMARCbis**: the DNS tree walk that replaces the Public Suffix List
+  for the organizational domain, and RFC 9091's policies for public
+  suffix domains (`np=`, `psd=`).
 - **A key-rotation helper**: generating a key pair and the TXT record to
   publish, for the server app's admin API.
 
@@ -33,12 +37,26 @@ number on it.
 - **The SPF record type (99).** RFC 7208 §3.1 retired it: only TXT
   records are read.
 - **A runtime dependency.** Web Crypto and `Bun.CryptoHasher` are the
-  platform's.
+  platform's, and the Public Suffix List is a snapshot embedded in the
+  package, refreshed by a repository script.
 
 ## Shipped
 
 ### Unreleased — merged, not yet published
 
+- **DMARC** (RFC 7489): `checkDmarc` finds the From domain's policy at
+  `_dmarc.<domain>` or its organizational domain, aligns the DKIM `d=`
+  and SPF domains with From, strict or relaxed, applies `p=`, `sp=` and
+  `pct` through an injectable `random`, and gives the disposition. A
+  message with no From, two From fields or two addresses in one is a
+  `permerror` to reject. The organizational domain comes from an
+  embedded Public Suffix List snapshot (ICANN and private sections),
+  replaceable through an option; `rua=` and `ruf=` are parsed, not sent
+  to. Never a throw for a message, the DNS or a record.
+- **`Authentication-Results`** (RFC 8601): `formatAuthenticationResults`
+  writes the DKIM, SPF and DMARC results as one folded field, with
+  `header.d`, `header.s`, `header.b`, `smtp.mailfrom` or `smtp.helo` and
+  `header.from`, every value a token or a quoted-string.
 - **SPF** (RFC 7208): `checkSpf`, RFC 7208's `check_host()` for the client
   IP and the MAIL FROM domain, or the HELO name for a bounce or on its own.
   It covers every mechanism and qualifier, `redirect=` and `exp=`, the
