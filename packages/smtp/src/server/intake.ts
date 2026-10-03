@@ -1,10 +1,20 @@
-import { SmtpError } from '../errors';
+import type { SmtpError } from '../errors';
 import { DataReader } from '../protocol/data';
 import { type Reply, reply } from '../protocol/reply';
 import type { Connection } from './connection';
-import { hookTimeout, LOCAL_ERROR, timedOut, within } from './guard';
+import { hookTimeout, LOCAL_ERROR, refusalOf, timedOut, within } from './guard';
 import type { ReceivedMessage } from './options';
 import { receivedField } from './received';
+import {
+	BARE_LINE_BREAK,
+	bareLineBreak,
+	connectionLost,
+	notAnswered,
+	notRead,
+	notReadInTime,
+	TOO_BIG,
+	tooBig,
+} from './refusals';
 import type { Transaction } from './state';
 
 /** Bytes of message held for `onData` before the server stops reading the client. */
@@ -17,11 +27,11 @@ const HIGH_WATER_MARK = 64 * 1024;
  * `onData` to read, and so stops reading the client.
  *
  * The stream ends in an `SmtpError` when the message must not be
- * delivered — too big, a bare CR or LF (SMTP smuggling), the client gone —
- * and the reply to DATA is then the refusal, whatever `onData` answered.
- * The 250 goes out only when `onData` read the stream to its clean end and
- * resolved without a refusal: an `onData` that answers before the end, or
- * cancels the stream, gets `451 4.3.0` and a `MESSAGE_NOT_READ` report.
+ * delivered, and the reply to DATA is then that refusal, whatever `onData`
+ * answered. The 250 goes out only when `onData` read the stream to its
+ * clean end and accepted; a stream left unread errors with
+ * `MESSAGE_NOT_READ`. When the message's `signal` aborts is set out on
+ * `ReceivedMessage.signal`.
  */
 export class Intake {
 	readonly id = crypto.getRandomValues(new Uint8Array(10)).toHex();
@@ -41,6 +51,8 @@ export class Intake {
 	readonly #delivery: Promise<Reply | undefined>;
 	/** Whether `onData` had read to the end when it answered. */
 	#readWhenAnswered = false;
+	/** Aborts when the server refuses the message after `onData` had it. */
+	readonly #refusal = new AbortController();
 
 	constructor(connection: Connection, transaction: Transaction) {
 		this.#connection = connection;
@@ -75,17 +87,45 @@ export class Intake {
 				body: transaction.body,
 			},
 			content,
+			signal: this.#refusal.signal,
 		};
-		const { options } = connection.settings;
-		this.#delivery = connection
-			.hook('onData', () => options.onData(message, connection.session), false)
-			.finally(() => {
-				this.#readWhenAnswered = this.#read;
-				// Answered before the end: the client will hear 451 and send it
-				// again, so a reader left running must not reach a clean end.
-				if (!this.#read) this.#stop();
-				this.#wake();
-			});
+		this.#delivery = this.#deliver(message);
+	}
+
+	/**
+	 * `onData`'s answer as the reply: `undefined`, its refusal, or 451 when
+	 * it threw or answered what is not a refusal — which also aborts the
+	 * signal, since the message was not taken.
+	 */
+	async #deliver(message: ReceivedMessage): Promise<Reply | undefined> {
+		const connection = this.#connection;
+		/** onData refused the message itself, with a valid 4xx or 5xx reply. */
+		let ownRefusal = false;
+		const refuse = (error: unknown) => {
+			this.#refusal.abort(error);
+			connection.report(error);
+		};
+		try {
+			// Keeps onData starting after Input has set up the transaction, as
+			// connection.hook did; nothing observable depends on it today.
+			await Promise.resolve();
+			const answer = await connection.settings.options.onData(
+				message,
+				connection.session,
+			);
+			const refusal = refusalOf('onData', answer, refuse);
+			ownRefusal = refusal !== undefined && refusal === answer;
+			return refusal;
+		} catch (error) {
+			refuse(error);
+			return LOCAL_ERROR;
+		} finally {
+			this.#readWhenAnswered = this.#read;
+			// Answered before the end: a reader left running must not reach a
+			// clean end. The signal aborts only if the server refuses for it.
+			if (!this.#read) this.#stop(!ownRefusal);
+			this.#wake();
+		}
 	}
 
 	/** A chunk of DATA; resolves once there is room for the next. */
@@ -94,22 +134,10 @@ export class Intake {
 		const { maxMessageSize } = this.#connection.settings;
 		if (this.#failure) return { done, rest };
 		if (this.#reader.size > maxMessageSize) {
-			this.#fail(
-				reply(552, '5.3.4', 'Message too big for system'),
-				new SmtpError(
-					'MESSAGE_TOO_BIG',
-					`The message is larger than maxMessageSize (${maxMessageSize} bytes); do not deliver it`,
-				),
-			);
+			this.#fail(TOO_BIG, tooBig(maxMessageSize));
 		} else if (this.#reader.bareLineBreaks > 0) {
 			// A bare CR or LF is how SMTP smuggling hides a second message.
-			this.#fail(
-				reply(550, '5.6.11', 'Bare CR or LF is not allowed in a message'),
-				new SmtpError(
-					'BARE_LINE_BREAK',
-					'The message holds a bare CR or LF (SMTP smuggling); do not deliver it',
-				),
-			);
+			this.#fail(BARE_LINE_BREAK, bareLineBreak());
 		} else if (this.#state === 'open' && data.length > 0) {
 			this.#push(data);
 			await this.#room();
@@ -126,38 +154,24 @@ export class Intake {
 		const answer = await within(this.#delivery, seconds);
 		if (timedOut(answer)) {
 			this.#connection.report(hookTimeout('onData', seconds));
-			// The client is told 451 and will try again: a late read must not take it.
-			this.#fail(
-				LOCAL_ERROR,
-				new SmtpError(
-					'HOOK_TIMEOUT',
-					`onData did not answer within hookTimeout (${seconds} s); do not deliver it`,
-				),
-			);
+			// The client is told 451 and will try again: a late read must not
+			// take it, and a read already finished learns it through the signal.
+			this.#fail(LOCAL_ERROR, notAnswered(seconds));
 			return LOCAL_ERROR;
 		}
 		if (answer) return answer;
 		if (!this.#readWhenAnswered) {
-			this.#connection.report(
-				new SmtpError(
-					'MESSAGE_NOT_READ',
-					'onData answered without reading the message to its end; it was not taken',
-				),
-			);
+			const error = notRead();
+			this.#refusal.abort(error);
+			this.#connection.report(error);
 			return LOCAL_ERROR;
 		}
 		return reply(250, '2.0.0', `OK queued as ${this.id}`);
 	}
 
-	/** The client went away mid-message. */
+	/** The connection closed, mid-message or before the reply was sent. */
 	abort(): void {
-		this.#fail(
-			LOCAL_ERROR,
-			new SmtpError(
-				'CONNECTION_LOST',
-				'The client disconnected before the end of the message; do not deliver it',
-			),
-		);
+		this.#fail(LOCAL_ERROR, connectionLost(this.#ended));
 	}
 
 	#push(bytes: Uint8Array): void {
@@ -189,15 +203,15 @@ export class Intake {
 		}
 	}
 
-	/** onData answered without reading to the end: the stream errors, and takes no more. */
-	#stop(): void {
+	/**
+	 * onData answered without reading to the end: the stream errors, and
+	 * takes no more. The signal aborts too, unless onData refused itself.
+	 */
+	#stop(abortSignal: boolean): void {
 		if (this.#state !== 'open') return;
-		this.#controller.error(
-			new SmtpError(
-				'MESSAGE_NOT_READ',
-				'onData answered without reading the message to its end; it was not taken',
-			),
-		);
+		const error = notRead();
+		if (abortSignal) this.#refusal.abort(error);
+		this.#controller.error(error);
 		this.#state = 'cancelled';
 		this.#queue = [];
 		this.#queued = 0;
@@ -205,6 +219,7 @@ export class Intake {
 
 	#fail(answer: Reply, error: SmtpError): void {
 		this.#failure ??= answer;
+		this.#refusal.abort(error);
 		if (this.#state === 'open') this.#controller.error(error);
 		this.#state = 'errored';
 		this.#queue = [];
@@ -222,13 +237,7 @@ export class Intake {
 			);
 			if (timedOut(woken)) {
 				this.#connection.report(hookTimeout('onData', seconds));
-				this.#fail(
-					LOCAL_ERROR,
-					new SmtpError(
-						'HOOK_TIMEOUT',
-						`onData did not read the message within hookTimeout (${seconds} s); do not deliver it`,
-					),
-				);
+				this.#fail(LOCAL_ERROR, notReadInTime(seconds));
 			}
 		}
 	}

@@ -92,6 +92,13 @@ each with a matching key in `exports`.
   fail for a consumer. That check (`scripts/artifacts/imports.ts`) is bumail's
   addition to the scripts copied from alxia and nxgt-http, worth porting
   back.
+- **The lockfile's toolchain is the oldest end of each peer range.** CI's
+  "Newest peers" job runs `scripts/newest-peers.ts` (from alxia), which
+  pins the last alternative of each range — TypeScript 7 for
+  `^6.0.3 || ^7.0.0` — then builds, typechecks, tests and verifies the
+  artifacts. It resolves without a lockfile, so it is read, never required.
+  The repository's scripts therefore stay off TypeScript's JS API, which
+  TypeScript 7 does not export.
 - **Bun 1.4.2**, the version alxia and the nxgt suite pin.
 
 ## TypeScript

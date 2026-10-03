@@ -15,6 +15,8 @@ export interface Transport {
 	resume(): void;
 	/** Starts TLS on the connection, once the 220 to STARTTLS has left. */
 	startTls(): void;
+	/** Starts the idle time again, as a byte from the client does. */
+	restartIdle(seconds: number): void;
 }
 
 /**
@@ -94,5 +96,9 @@ export class SocketTransport implements Transport {
 
 	startTls(): void {
 		this.#startTls();
+	}
+
+	restartIdle(seconds: number): void {
+		this.#socket.timeout(seconds);
 	}
 }

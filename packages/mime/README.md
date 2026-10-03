@@ -116,6 +116,9 @@ is checked: nothing given can add a header, an address or an SMTP command.
 
 ## Documentation
 
+These pages ship in the package, under `docs/`.
+
+- [Index](https://github.com/softistx/bumail/blob/develop/packages/mime/docs/README.md): the pages, and when to read each.
 - [Guide](https://github.com/softistx/bumail/blob/develop/packages/mime/docs/guide.md): parsing whole messages and streams, headers, addresses and dates, charsets, writing messages, and the RFCs each part follows.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/mime/docs/troubleshooting.md): every error, and the traps that print none.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/mime/docs/roadmap.md): what is coming, and what is not planned.
