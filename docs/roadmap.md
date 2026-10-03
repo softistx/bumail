@@ -86,9 +86,9 @@ No dates. Each entry says what someone running or embedding the server gets.
   record.
 - **`@bumail/smtp`, the client**, as `@bumail/smtp/client` — `sendMail`
   delivers one message to a smarthost, a submission server or a domain's
-  MX hosts (looked up through `@bumail/dns`, an optional peer, with the
-  null MX honoured): STARTTLS, opportunistic or required, implicit TLS,
-  AUTH only once encrypted, PIPELINING, SIZE, 8BITMIME and SMTPUTF8, the
+  MX hosts (looked up through `@bumail/dns` or any resolver of that
+  shape, with the null MX honoured): STARTTLS, opportunistic or required,
+  implicit TLS, AUTH only once the certificate checked out, PIPELINING, SIZE, 8BITMIME and SMTPUTF8, the
   message streamed and dot-stuffed, a bare line break refused. Every
   failure says whether it is temporary, for the queue to come; every reply
   and every wait is bounded against a hostile server. *Kept in the same

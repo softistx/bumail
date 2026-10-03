@@ -897,8 +897,9 @@ process.on('SIGTERM', () => {
 `@bumail/smtp/client` is the other side of the conversation: `sendMail`
 delivers one message to one destination and tells you what became of each
 recipient. It shares the server's grammar — paths, replies, dot-stuffing,
-SASL — and imports nothing of `@bumail/dns` at runtime: a `Resolver` is
-needed only for MX delivery, and you pass it in.
+SASL — and imports nothing of `@bumail/dns`, not even its types: a
+resolver is needed only for MX delivery, and you pass it in (install
+`@bumail/dns` for one).
 
 - [Destinations](#destinations)
 - [The session it runs](#the-session-it-runs)
@@ -922,8 +923,9 @@ const message = 'From: a@example.com\r\nTo: b@example.org\r\nSubject: hi\r\n\r\n
 // default, 465 with secure: true.
 await sendMail(message, { host: 'relay.example.net', port: 25, from: 'a@example.com', to: 'b@example.org' });
 
-// A domain: its MX hosts, by preference, through the resolver. Port 25.
-await sendMail(message, { domain: 'example.org', resolver: nodeResolver(), from: 'a@example.com', to: 'b@example.org' });
+// A domain: its MX hosts, by preference, through the resolver. Port 25,
+// and helo is required: your server's public name.
+await sendMail(message, { domain: 'example.org', resolver: nodeResolver(), helo: 'mail.example.com', from: 'a@example.com', to: 'b@example.org' });
 ```
 
 `from` is the envelope's reverse-path — `''` for the null sender of a
@@ -946,9 +948,13 @@ at that domain: group them by domain first, one `sendMail` each.
 | content | `DATA`, the message dot-stuffed, `.` | `354`, then `250` |
 | end | `QUIT` | the `221` is waited for 5 seconds at most |
 
-- `helo` is the name this client gives; it defaults to the machine's host
-  name. An MX may refuse a name that does not resolve back to your address:
-  set it to your server's public name.
+- `helo` is the name this client gives: your server's public name, the
+  one its address resolves back to. By MX it is required — an MX may
+  refuse or penalise a name that does not resolve back to your address,
+  and the machine's own name (`laptop.local`) is rarely one and would leak
+  it — so `{ domain }` without `helo` is `INVALID_OPTION`. To a host
+  (`{ host }`: a smarthost, Mailpit) it defaults to the machine's host
+  name.
 - `SIZE=` is sent when the server offers SIZE and the size is known: a
   string or bytes, or `size` for a stream. A message larger than the
   server's SIZE is refused before MAIL FROM, with `MESSAGE_TOO_BIG`.
@@ -1009,20 +1015,21 @@ TLS (CVE-2011-0411).
 ### AUTH
 
 `auth: { username, password }` uses PLAIN when the server offers it, else
-LOGIN; `mechanism` picks one. The credentials go out only on an encrypted
-connection: in clear, the delivery fails with `AUTH_UNAVAILABLE` before
-they are written. `auth` makes `tls: 'required'` the default, so a server
+LOGIN; `mechanism` picks one. The credentials go out only over TLS whose
+certificate checked out, unless `allowPlaintextAuth` says otherwise. `auth` makes `tls: 'required'` the default, so a server
 that does not offer STARTTLS fails earlier, with `TLS_UNAVAILABLE`.
 
 `allowPlaintextAuth: true` lets AUTH go over a clear connection. It is for
 a local test server, such as Mailpit with `--smtp-auth-allow-insecure`:
 the password crosses the network in base64, which anyone on the path reads.
 Never set it for a server elsewhere. With it, `tls` defaults to
-`'opportunistic'`; `tls: 'none'` with `auth` is refused without it.
+`'opportunistic'`.
 
-`tls: 'opportunistic'` with `auth`, asked for explicitly, is allowed: the
-credentials then go over TLS whose certificate is not checked, which an
-active attacker can intercept. Leave `tls` out to have it checked.
+Without it, `auth` goes only with `tls: 'required'`: `tls: 'none'` would
+send the password in clear, and `tls: 'opportunistic'` to a server whose
+certificate is not checked, which an active attacker can intercept. Both
+are refused with `INVALID_OPTION` before connecting. Leave `tls` out to
+have the certificate checked, and pass `ca` for a private CA.
 
 ### The message
 
@@ -1048,6 +1055,8 @@ time, so a large message never sits in memory whole.
 least:
 
 ```ts
+import type { Reply } from '@bumail/smtp/client';
+
 interface SendMailResult {
 	accepted: { recipient: string; reply: Reply }[]; // 250 or 251 to RCPT TO
 	rejected: { recipient: string; reply: Reply }[]; // any other reply
@@ -1117,7 +1126,9 @@ host's name. It moves on after a failure that is temporary and came before
 MAIL FROM — no connection, a dropped connection, a `421` greeting, a 4xx to
 EHLO, no STARTTLS when it is required, a TLS failure — and stops at a 5xx
 or once MAIL FROM was sent. It tries 10 addresses at most, and looks up
-no host past them. When every host
+10 hosts at most — a host with no address counts too — so a domain with
+hundreds of MX records costs no more than 10 hosts' lookups. Every lookup,
+the MX one included, runs under `deadline`. When every host
 failed, it rejects with the last failure; when none had an address, with
 `DNS_FAILED`.
 
@@ -1138,8 +1149,9 @@ console.log(await resolveMx('example.org', resolver));
 //  { host: 'mx2.example.org', priority: 20, implicit: false }]
 ```
 
-`@bumail/dns` is an optional peer of this package: install it for MX
-delivery, or pass any object with its `mx`, `a` and `aaaa`. A failure is
+Install `@bumail/dns` for MX delivery and pass one of its resolvers, or
+pass any object with `mx`, `a` and `aaaa` (`MxResolver`, declared by shape
+in this package, so its types never need `@bumail/dns`). A failure is
 read by its `DnsError` shape (`name` and `code`), as `@bumail/dns`'s
 `isTemporary` reads it: `TEMPORARY`, `TIMEOUT`, and anything that is not
 a `DnsError` are temporary. A resolver that answers with an empty array
@@ -1164,7 +1176,8 @@ server that trickles a line at a time does not stretch it:
 | `dataEnd` | the reply to the final dot | 600 |
 
 `deadline` (1800 seconds by default) bounds the whole delivery, every host
-together; DNS lookups are bounded by the resolver's own timeout. Each value
+and every DNS lookup together; each lookup is also bounded by the
+resolver's own timeout. Each value
 is a number of seconds above 0, fractions allowed, at most 2 147 483 (what
 `setTimeout` can wait). A slow server ends in `TIMEOUT`, which is
 temporary.

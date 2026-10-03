@@ -6,8 +6,8 @@ PLAIN and LOGIN, only once encrypted; hooks where your app accepts or
 refuses a connection, a sender, a recipient or a message. It is never an
 open relay. And, on `@bumail/smtp/client`, a client that delivers one
 message to a smarthost, a submission server or a domain's MX hosts. No
-dependency; `typescript` is an optional peer, for the types, and
-`@bumail/dns` an optional one, for MX delivery.
+dependency; `typescript` is an optional peer, for the types. MX delivery
+needs a resolver: install `@bumail/dns` for one.
 
 ```sh
 bun add @bumail/smtp
@@ -216,12 +216,30 @@ encrypted and the certificate checked. Anything else rejects with an
 records through a `Resolver` from `@bumail/dns`, and tries its hosts by
 preference (RFC 5321 §5.1), the domain's own address when it has none.
 TLS is opportunistic: STARTTLS when offered, the certificate not checked.
+`helo` is required: your server's public name, the one its address
+resolves back to.
+
+`@bumail/dns` must be installed for this — or pass any object with its
+`mx`, `a` and `aaaa` methods:
+
+```sh
+bun add @bumail/smtp @bumail/dns
+```
 
 ```ts
 import { cachedResolver, nodeResolver } from '@bumail/dns';
 import { SmtpError, sendMail } from '@bumail/smtp/client';
 
 const resolver = cachedResolver(nodeResolver());
+const message = [
+	'From: Alice <alice@example.com>',
+	'To: <bob@example.org>, <carol@example.org>',
+	'Subject: Hello',
+	`Date: ${new Date().toUTCString()}`,
+	'',
+	'Hi both.',
+	'',
+].join('\r\n');
 
 try {
 	const result = await sendMail(message, {
@@ -274,6 +292,8 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 
 ## Traps
 
+**Client**
+
 - **Opportunistic TLS does not check the certificate.** It is the default
   for MX delivery, as RFC 7435 has it: it beats a passive eavesdropper,
   not an active attacker. `result.tls.verified` says whether the
@@ -283,14 +303,20 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 - **`sendMail` is not a queue.** It tries one destination once — every MX
   host of it, in turn — and gives up. Retrying a `temporary` failure later,
   and bouncing a permanent one, is the caller's job until `@bumail/queue`.
-- **Credentials never go out in clear.** Without TLS, `auth` fails with
-  `AUTH_UNAVAILABLE` before the password is sent. `allowPlaintextAuth:
-  true` lifts that, for a local test server only.
+- **Credentials go only to a checked certificate.** `auth` with `tls:
+  'none'` or `'opportunistic'` is refused with `INVALID_OPTION` before
+  connecting; leave `tls` out and it is `'required'`.
+  `allowPlaintextAuth: true` lifts that, for a local test server only.
+- **By MX, `helo` is required.** The machine's own name (`laptop.local`)
+  is rarely one that resolves back to your address, which receiving hosts
+  penalise; to a `{ host }` it stays the default.
 - **A bare CR or LF in the message is refused** with `BARE_LINE_BREAK`, as
   a server must refuse it (SMTP smuggling). End every line with CRLF, or
   pass `normalizeLineEnds: true`.
 - **One destination per call.** By MX, every recipient should be at
   `domain`; group them by domain first.
+
+**Server**
 
 - **Read `message.content` to its end before keeping anything.** An
   `onData` that answers before the end gets the client `451 4.3.0`, never
@@ -362,7 +388,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | `SendMailTimeouts` | seconds: `connect`, `greeting`, `command`, `mail`, `rcpt`, `dataStart`, `dataBlock`, `dataEnd` |
 | `TlsMode` | `'opportunistic'`, `'required'` or `'none'` |
 | `MessageSource` | `Uint8Array`, `string` or `ReadableStream<Uint8Array>` |
-| `MxResolver` | the `mx`, `a` and `aaaa` of `@bumail/dns`'s `Resolver` |
+| `MxResolver` | what MX delivery asks of the DNS, by shape: `mx`, `a` and `aaaa`, as `@bumail/dns`'s `Resolver` has them |
 | `resolveMx(domain, resolver)`, `MailHost` | a domain's mail hosts in the order to try them: `{ host, priority, implicit }`; `NULL_MX` or `DNS_FAILED` otherwise |
 | `SmtpError`, `SmtpErrorCode`, `SmtpErrorDetails`, `RecipientReply`, `Reply` | as above; `sendMail` adds the codes `CONNECTION_FAILED`, `CONNECTION_LOST`, `TIMEOUT`, `BAD_REPLY`, `REFUSED`, `RECIPIENTS_REFUSED`, `TLS_UNAVAILABLE`, `TLS_FAILED`, `AUTH_UNAVAILABLE`, `EXTENSION_MISSING`, `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `NULL_MX`, `DNS_FAILED`, `INVALID_OPTION` |
 

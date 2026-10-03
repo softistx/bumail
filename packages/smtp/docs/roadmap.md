@@ -37,10 +37,11 @@ Nothing in progress.
 - **The client, as `@bumail/smtp/client`** — `sendMail(message, options)`
   delivers one message to a host (a smarthost, submission on 587 or 465,
   a local Mailpit) or to a domain's MX hosts by preference, through a
-  `Resolver` of `@bumail/dns` (an optional peer), the domain's own address
-  without MX, and a null MX refused. STARTTLS opportunistic by default for
+  resolver — `@bumail/dns`'s, or any with `mx`, `a` and `aaaa` — the
+  domain's own address without MX, and a null MX refused; `helo` required
+  by MX. STARTTLS opportunistic by default for
   MX, required — the certificate checked — with AUTH; implicit TLS; AUTH
-  PLAIN and LOGIN only once encrypted; PIPELINING, SIZE, 8BITMIME and
+  PLAIN and LOGIN only once the certificate checked out; PIPELINING, SIZE, 8BITMIME and
   SMTPUTF8; the message a string, bytes or a stream, dot-stuffed, a bare
   CR or LF refused. It resolves with each recipient's reply, and rejects
   with an `SmtpError` whose `temporary` tells a retry from a bounce. RFC

@@ -91,10 +91,12 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: sendMail(): "…" is not an address (local@domain)`](#smtperror-sendmail--is-not-an-address-localdomain)
 - [`SmtpError: sendMail(): to must name one recipient or more`](#smtperror-sendmail-to-must-name-one-recipient-or-more)
 - [`SmtpError: sendMail(): helo "…" is not a host name`](#smtperror-sendmail-helo--is-not-a-host-name)
+- [`SmtpError: sendMail(): helo is required for delivery by MX: pass your server's public name, such as helo: 'mail.example.com'`](#smtperror-sendmail-helo-is-required-for-delivery-by-mx-pass-your-servers-public-name-such-as-helo-mailexamplecom)
 - [`SmtpError: sendMail(): … must be a number of seconds above 0 and at most 2147483, not …`](#smtperror-sendmail--must-be-a-number-of-seconds-above-0-and-at-most-2147483-not-)
 - [`SmtpError: sendMail(): tls must be 'opportunistic', 'required' or 'none', not …`](#smtperror-sendmail-tls-must-be-opportunistic-required-or-none-not-)
 - [`SmtpError: sendMail(): secure is TLS from the first byte: it cannot go with tls: 'none'`](#smtperror-sendmail-secure-is-tls-from-the-first-byte-it-cannot-go-with-tls-none)
 - [`SmtpError: sendMail(): auth with tls: 'none' would send the password in clear; pass allowPlaintextAuth: true for a local test server`](#smtperror-sendmail-auth-with-tls-none-would-send-the-password-in-clear-pass-allowplaintextauth-true-for-a-local-test-server)
+- [`SmtpError: sendMail(): auth with tls: 'opportunistic' would send the password to a server whose certificate is not checked; leave tls out to check it, or pass allowPlaintextAuth: true for a local test server`](#smtperror-sendmail-auth-with-tls-opportunistic-would-send-the-password-to-a-server-whose-certificate-is-not-checked-leave-tls-out-to-check-it-or-pass-allowplaintextauth-true-for-a-local-test-server)
 - [`SmtpError: sendMail(): auth.username must be a non-empty string`](#smtperror-sendmail-authusername-must-be-a-non-empty-string)
 - [`SmtpError: sendMail(): auth.password must be a non-empty string`](#smtperror-sendmail-authpassword-must-be-a-non-empty-string)
 - [`SmtpError: sendMail(): auth.mechanism must be 'PLAIN' or 'LOGIN', not …`](#smtperror-sendmail-authmechanism-must-be-plain-or-login-not-)
@@ -1433,6 +1435,34 @@ await sendMail(message, { host: 'relay.example.net', from: '', to: ['b@example.o
 **Fix**: pass your server's public name, the one its address resolves back
 to: `helo: 'mail.example.com'`.
 
+### `SmtpError: sendMail(): helo is required for delivery by MX: pass your server's public name, such as helo: 'mail.example.com'`
+
+**When**: `{ domain, resolver }` without `helo`.
+
+**Why**: by MX, the receiving host reads the EHLO name. The machine's own
+name — `os.hostname()`, often `laptop.local` or a bare `web-1` — is rarely
+a fully-qualified name that resolves back to the sending address, which
+receiving hosts penalise or refuse, and it tells them the machine's name.
+So delivery by MX has no default; to a host (`{ host }`: a smarthost,
+Mailpit) the machine's name stays the default.
+
+**Fix**: pass the public name of the host that sends, the name its
+address's PTR record gives:
+
+```ts
+import { nodeResolver } from '@bumail/dns';
+import { sendMail } from '@bumail/smtp/client';
+
+const message = 'From: a@example.com\r\nTo: b@example.org\r\nSubject: hi\r\n\r\nhello\r\n';
+await sendMail(message, {
+	domain: 'example.org',
+	resolver: nodeResolver(),
+	helo: 'mail.example.com',
+	from: 'a@example.com',
+	to: 'b@example.org',
+});
+```
+
 ### `SmtpError: sendMail(): … must be a number of seconds above 0 and at most 2147483, not …`
 
 **When**: a value in `timeouts`, or `deadline`, is `0`, negative, not a
@@ -1470,7 +1500,8 @@ from the first byte.
 **Why**: the two contradict each other.
 
 **Fix**: leave `tls` out (`required` is then the default), or pass
-`'opportunistic'` to skip the certificate check.
+`'opportunistic'` to skip the certificate check (not with `auth`, unless
+`allowPlaintextAuth`).
 
 ### `SmtpError: sendMail(): auth with tls: 'none' would send the password in clear; pass allowPlaintextAuth: true for a local test server`
 
@@ -1481,6 +1512,32 @@ from the first byte.
 **Fix**: leave `tls` out: with `auth` it defaults to `'required'`. For a
 local test server without TLS, such as Mailpit, pass `allowPlaintextAuth:
 true`.
+
+### `SmtpError: sendMail(): auth with tls: 'opportunistic' would send the password to a server whose certificate is not checked; leave tls out to check it, or pass allowPlaintextAuth: true for a local test server`
+
+**When**: `auth` with `tls: 'opportunistic'`, explicitly.
+
+**Why**: opportunistic TLS does not check the certificate (RFC 7435), so
+whoever sits on the path can present any certificate and read the
+password. Credentials go only to a server whose certificate checked out,
+unless `allowPlaintextAuth` says it is a local test server.
+
+**Fix**: leave `tls` out — with `auth` it defaults to `'required'` — and
+pass `ca` if the server's certificate is from a private CA:
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+const message = 'From: a@example.com\r\nTo: b@example.org\r\nSubject: hi\r\n\r\nhello\r\n';
+await sendMail(message, {
+	host: 'smtp.example.com',
+	port: 587,
+	from: 'a@example.com',
+	to: 'b@example.org',
+	auth: { username: 'a', password: Bun.env['SMTP_PASSWORD'] ?? '' },
+	ca: await Bun.file('/etc/ssl/internal-ca.pem').text(), // only for a private CA
+});
+```
 
 ### `SmtpError: sendMail(): auth.username must be a non-empty string`
 
@@ -1547,13 +1604,15 @@ environment variable that is not set.
 
 **Why**: the client asks no DNS of its own; the resolver is injected.
 
-**Fix**: install the optional peer and pass one:
+**Fix**: install `@bumail/dns` (`bun add @bumail/dns`) and pass one of
+its resolvers, or any object with `mx`, `a` and `aaaa` (`MxResolver`):
 
 ```ts
 import { nodeResolver } from '@bumail/dns';
 import { sendMail } from '@bumail/smtp/client';
 
-await sendMail(message, { domain: 'example.org', resolver: nodeResolver(), from: 'a@example.com', to: 'b@example.org' });
+const message = 'From: a@example.com\r\nTo: b@example.org\r\nSubject: hi\r\n\r\nhello\r\n';
+await sendMail(message, { domain: 'example.org', resolver: nodeResolver(), helo: 'mail.example.com', from: 'a@example.com', to: 'b@example.org' });
 ```
 
 ### `SmtpError: sendMail(): options must be an object`
@@ -1667,8 +1726,9 @@ to be slow, such as a greylisting MX that delays its greeting.
 
 ### `SmtpError: The deadline of … s passed waiting for … (…)`
 
-**When**: the whole delivery, every MX host together, took longer than
-`deadline`. Temporary.
+**When**: the whole delivery, every MX host and DNS lookup together, took
+longer than `deadline`. Temporary. By MX, `the MX lookup (example.org)` or
+`the address lookup (mx1.example.org)` is a resolver that answered too late.
 
 **Why**: one bound on the delivery, whatever the steps.
 
@@ -1738,8 +1798,11 @@ For a local test server without TLS, pass `allowPlaintextAuth: true`, or
 
 ### `SmtpError: Refusing to send credentials to … in clear: it did not start TLS (allowPlaintextAuth is for a local test server only)`
 
-**When**: `auth` and the session is not encrypted: `tls: 'opportunistic'`
-and the server offers no STARTTLS. Permanent.
+**When**: `auth` and the session is not encrypted. The option checks
+already refuse every combination that leads here — `auth` with `tls:
+'none'` or `'opportunistic'` needs `allowPlaintextAuth`, and `'required'`
+fails without TLS — so this is the last guard before the password is
+written, and should not be seen. Permanent.
 
 **Why**: the password would cross the network in base64.
 
