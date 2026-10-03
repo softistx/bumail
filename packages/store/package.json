@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/store",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Mailbox storage for a mail server: accounts, mailboxes, messages, flags, UIDs and modseqs behind one contract, with a memory store",
 	"license": "MIT",
 	"type": "module",
