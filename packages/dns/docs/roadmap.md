@@ -16,9 +16,18 @@ Nothing in progress.
 - **MX resolution for delivery**: the MX answer with RFC 5321 §5.1's
   fallback to the domain's A and AAAA, and the null MX, in one call, when
   the SMTP client lands.
+- **An `AbortSignal` on `Resolver`**, so a caller that gives up — SPF's
+  `timeout` — stops the lookup instead of only no longer waiting for it.
+- **CNAME in `fixtureResolver`**, so a spec can serve an alias the way a
+  real DNS follows it (the RFC 7208 test suite's zones have a few, which `@bumail/auth`'s
+  specs resolve by hand today).
 
 ## Later
 
+- **A wire-level resolver** that queries any name the DNS allows, not only
+  host names: names `normalizeName` and Bun's `node:dns` refuse, holding
+  `+`, `=`, `@`, `%`, `:`, `/` or a space, which SPF macros build from a
+  sender's local part (`%{l}` for `bob+news@`, SRS and BATV addresses).
 - **Real TTLs for MX, TXT and PTR**, if `node:dns` comes to report them, or
   through a small DNS client of our own over UDP and TCP.
 - **TLSA and other records** MTA-STS and DANE-adjacent policies read, when

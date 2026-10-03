@@ -10,13 +10,12 @@ No dates. Each entry says what someone running or embedding the server gets.
 ## Now
 
 - **`@bumail/auth`, DKIM and SPF first** — DKIM signing and verifying
-  (RFC 6376): rsa-sha256 and ed25519-sha256 (RFC 8463) through Web
-  Crypto, simple and relaxed canonicalisation, a streamed body. SPF
-  checking (RFC 7208): `check_host()` with its ten-lookup and void-lookup
-  limits, macros and a timeout. Both look up through `@bumail/dns` and
-  answer in RFC 8601's words. Merged, not yet published. DMARC (RFC 7489)
-  evaluation and its policy, and the `Authentication-Results` header,
-  follow in the same package.
+  (RFC 6376) is published in 0.1.0. SPF checking (RFC 7208):
+  `check_host()` with its ten-lookup and void-lookup limits, macros and a
+  timeout, merged, not yet published. Both look up through `@bumail/dns`
+  and answer in RFC 8601's words. DMARC (RFC 7489) evaluation and its
+  policy, and the `Authentication-Results` header, follow in the same
+  package.
 
 ## Next
 
@@ -83,8 +82,17 @@ No dates. Each entry says what someone running or embedding the server gets.
   contract on disk, held to the same specs, with message bodies as blobs on
   disk addressed by their hash. One process per database, and every write
   flushed to disk before it is acknowledged.
+- **`@bumail/auth`, SPF** — `checkSpf`, RFC 7208's `check_host()` for the
+  client IP and the MAIL FROM or HELO domain: every mechanism, `redirect=`,
+  `exp=`, the macros, the lookup limits and a timeout, never a throw for a
+  record.
 
 ### 0.1.0 — published
+
+- **`@bumail/auth`, DKIM** — signing and verifying (RFC 6376):
+  rsa-sha256 and ed25519-sha256 (RFC 8463) through Web Crypto, simple and
+  relaxed canonicalisation, a streamed body, key lookups through
+  `@bumail/dns`, results in RFC 8601's words.
 
 - **`@bumail/mime`** — read and write e-mail messages. RFC 5322 headers,
   encoded-words (RFC 2047) and parameter continuations (RFC 2231),
