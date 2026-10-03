@@ -93,8 +93,9 @@ Nothing in progress.
 - **`@bumail/store`, its contract and memory store** — accounts,
   mailboxes with the IANA roles and a subscription, messages with one id
   across mailboxes, a thread and a UID in each, flags, and the changes
-  since a modseq, for the account or one mailbox, behind one interface, every call scoped to one account.
-  It is where the SMTP server's `onData` delivers.
+  since a modseq, for the account or one mailbox, behind one interface,
+  every call scoped to one account. It is where the SMTP server's
+  `onData` delivers.
 - **`@bumail/dns`** — the DNS answers the other packages need (MX, TXT,
   A, AAAA, PTR) behind one small interface: `node:dns` in production, a
   fixture in specs, with a cache that honours TTLs. *Its own package*:

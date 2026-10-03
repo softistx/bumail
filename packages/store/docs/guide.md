@@ -299,9 +299,13 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   account had it before; one that was in it at `since` and left is
   `destroyed`, even when it is still in another mailbox; one that left
   and came back is `updated`; and `expunged` lists only its UIDs, every
-  one expunged after `since` as above. Paging works the same. A mailbox
-  the account does not have, or no longer has, is `NOT_FOUND`: after
-  deleting a mailbox, a client drops what it held of it. A change in
+  one expunged after `since` as above. Paging works the same, except
+  that a `created` message sorts by its first coming in after `since`
+  and a `destroyed` one by its first leaving after `since`. Sorted by
+  its last coming in, a message could be passed by one page and called
+  `updated` by the next. A mailbox the account does not have, or no
+  longer has, is `NOT_FOUND`: after deleting a mailbox, a client drops
+  what it held of it. A change in
   another mailbox counts too: linking a message elsewhere makes it
   `updated` here, since its mailboxes are part of it.
 - Pages are intermediate states. Across pages, a message that left a
