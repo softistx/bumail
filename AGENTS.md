@@ -79,9 +79,11 @@ imap            → store, mime
 `examples/demo` is an app, not a package: a private workspace that wires
 every package into a runnable server, with its end-to-end script
 (`bun run demo`, `bun run demo:e2e`; see its README). Nothing depends on
-it; the build, `typecheck`, `test`, `verify:artifacts` and publishing glob
+it; the build, `test`, `verify:artifacts` and publishing glob
 `packages/*` only, and the changeset config's `privatePackages` keeps it
-out of versioning.
+out of versioning. `typecheck` ends with `typecheck:demo`, so CI
+typechecks the demo, in both jobs; its e2e is not run in CI, because it
+needs Docker (for Mailpit).
 
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
 this section draws their arrows. A package that uses a sibling declares it by

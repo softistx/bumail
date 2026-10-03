@@ -146,7 +146,17 @@ over real sockets:
 
 It prints a PASS/FAIL table, stops the demo, and exits 1 if any check
 failed, printing what the demo logged. The demo must not already be
-running: the script needs its ports.
+running on the same ports: the script needs them. To run it beside a
+running demo, give it other ports through the same variables; its check
+labels name the ports it used:
+
+```sh
+DEMO_MX_PORT=12525 DEMO_SUBMISSION_PORT=12587 \
+DEMO_IMAP_PORT=11143 DEMO_IMAPS_PORT=11993 bun run demo:e2e
+```
+
+CI typechecks the demo (`bun run typecheck` ends with `typecheck:demo`)
+but does not run this script, which needs Docker.
 
 ## Files
 
@@ -159,7 +169,9 @@ running: the script needs its ports.
 | `src/mailboxes.ts` | alice's account, her login and delivery into INBOX |
 | `src/dns.ts` | the fixture DNS: SPF and DKIM records for `example.test` and `sender.test` |
 | `src/tls.ts` | the fixture certificate, from `packages/smtp/src/server/fixtures` |
-| `e2e.ts`, `e2e/` | the end-to-end script, its raw IMAP and SMTP clients, Mailpit, the report |
+| `e2e.ts` | the end-to-end script: runs the steps in order |
+| `e2e/steps/` | one file per step: `inbound`, `idle`, `submission`, `no-relay`, `imap-ops` |
+| `e2e/` | what the steps share (`context.ts`), the raw IMAP and SMTP clients, Mailpit, the report |
 
-To type-check it: `bun run --cwd examples/demo typecheck`, after
-`bun run build`.
+To type-check it: `bun run typecheck:demo` from the root (or
+`bun run --cwd examples/demo typecheck`), after `bun run build`.
