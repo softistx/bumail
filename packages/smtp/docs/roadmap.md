@@ -6,8 +6,7 @@ number on it.
 
 ## Now
 
-Nothing in progress: the server below is merged and waits for its first
-release.
+Nothing in progress.
 
 ## Next
 
@@ -32,6 +31,12 @@ release.
   base64. Use STARTTLS or implicit TLS.
 
 ## Shipped
+
+### Unreleased — merged, not yet published
+
+- **`hookTimeout` bounded to what a timer can wait.** A value past
+  2 147 483 seconds is refused, where it used to fire after a millisecond
+  and time every hook out.
 
 ### 0.1.0
 
