@@ -136,6 +136,32 @@ describe('normalizeName', () => {
 	});
 });
 
+describe('normalizeName: long international names', () => {
+	test('are refused before the IDN mapping, which slows with the length', () => {
+		const started = performance.now();
+		expect(() => normalizeName('ü.'.repeat(320_000))).toThrow(
+			'it is longer than 253 characters',
+		);
+		expect(performance.now() - started).toBeLessThan(100);
+	});
+
+	test('the longest that can fit still maps', () => {
+		const ascii = `${'a'.repeat(63)}.`.repeat(3) + 'a'.repeat(61);
+		expect(normalizeName(ascii)).toHaveLength(253);
+		expect(() => normalizeName(`${ascii}a`)).toThrow(
+			'it is longer than 253 characters',
+		);
+	});
+
+	test('a decomposed name is counted once composed', () => {
+		// 각 written as three jamo: 663 code units, 251 characters as A-labels.
+		const label = '\u1100\u1161\u11a8'.repeat(55);
+		const name = Array(4).fill(label).join('.');
+		expect(name.length).toBe(663);
+		expect(normalizeName(name)).toHaveLength(251);
+	});
+});
+
 describe('normalizeAddress', () => {
 	test('takes IPv4 as written and IPv6 in its canonical form', () => {
 		expect(normalizeAddress('192.0.2.1')).toBe('192.0.2.1');

@@ -142,7 +142,8 @@ of the message says why:
 - `it is empty`, or `it has an empty label` (`a..b`, `.example`);
 - `the label "…" is not 1 to 63 letters, digits, hyphens or underscores`
   (`*`, `/`, a leading or trailing hyphen, a label of 64 characters);
-- `it is longer than 253 characters`;
+- `it is longer than 253 characters`: counted on the A-label form, so an
+  international name can hit it while it looks shorter;
 - `it is an address; look its name up with ptr()`;
 - `it holds "…", which no host name has`: URL syntax (`@`, `/`, `:`,
   `?`, `#`, `%`, `\`…), which the IDN mapping would read as syntax and

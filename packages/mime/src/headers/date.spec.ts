@@ -48,6 +48,22 @@ describe('parseDate', () => {
 		expect(parseDate('1 Feb 2024 25:61:00 +0000')).toBeUndefined();
 	});
 
+	test('nested comments are comments, whole (RFC 5322 §3.2.2)', () => {
+		expect(
+			parseDate('(a (b) c) 21 Nov 1997 09:55:06 -0600')?.toISOString(),
+		).toBe('1997-11-21T15:55:06.000Z');
+		expect(
+			parseDate('21 Nov 1997 09:55:06 -0600 (a \\) b)')?.toISOString(),
+		).toBe('1997-11-21T15:55:06.000Z');
+	});
+
+	test('an unclosed comment costs one pass, however long', () => {
+		const started = performance.now();
+		expect(parseDate('('.repeat(1_000_000))).toBeUndefined();
+		expect(parseDate('(a'.repeat(500_000))).toBeUndefined();
+		expect(performance.now() - started).toBeLessThan(500);
+	});
+
 	test('a leap second reads as 59', () => {
 		expect(parseDate('31 Dec 2016 23:59:60 +0000')?.toISOString()).toBe(
 			'2016-12-31T23:59:59.000Z',

@@ -1,3 +1,4 @@
+import { join } from '../encoding/bytes';
 import { charsetLabel, decodeCharset } from '../encoding/charset';
 import { decodeEncodedWords } from './encoded-words';
 import { MIME_SPECIALS, type Token, tokenize } from './tokens';
@@ -102,14 +103,13 @@ export function parseParameters(
 				list[0] = { ...first, value: first.value.slice(second + 1) };
 			}
 		}
-		const bytes: number[] = [];
-		for (const section of list) {
-			const piece = section.extended
-				? percentDecode(section.value)
-				: new TextEncoder().encode(section.value);
-			bytes.push(...piece);
-		}
-		const raw = Uint8Array.from(bytes);
+		const raw = join(
+			list.map((section) =>
+				section.extended
+					? percentDecode(section.value)
+					: new TextEncoder().encode(section.value),
+			),
+		);
 		result[name] =
 			charsetLabel(charset) === undefined
 				? decodeCharset(raw, 'utf-8')

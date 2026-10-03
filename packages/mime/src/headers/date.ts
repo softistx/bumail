@@ -33,14 +33,35 @@ const ZONES: Readonly<Record<string, number>> = {
 };
 
 /**
+ * The value with each comment, nested ones included (RFC 5322 §3.2.2),
+ * turned into a space, in one pass: a regex would rescan from every `(`
+ * of an unclosed comment. An unclosed comment runs to the end.
+ */
+function withoutComments(value: string): string {
+	let out = '';
+	let depth = 0;
+	let from = 0;
+	for (let i = 0; i < value.length; i++) {
+		const c = value[i];
+		if (depth > 0 && c === '\\') i++;
+		else if (c === '(') {
+			if (depth++ === 0) out += value.slice(from, i);
+		} else if (c === ')' && depth > 0 && --depth === 0) {
+			out += ' ';
+			from = i + 1;
+		}
+	}
+	return depth > 0 ? out : out + value.slice(from);
+}
+
+/**
  * Parses an RFC 5322 date-time (§3.3), with §4.3's obsolete forms: two- and
  * three-digit years, named zones, and comments. A military zone letter
  * other than `Z` is read as UTC, as §4.3 asks, since senders got their sign
  * wrong. `undefined` for what is not a date.
  */
 export function parseDate(value: string): Date | undefined {
-	const text = value
-		.replace(/\([^)]*\)/g, ' ')
+	const text = withoutComments(value)
 		.replace(/^\s*[A-Za-z]+\s*,/, ' ')
 		.trim();
 	const match =
