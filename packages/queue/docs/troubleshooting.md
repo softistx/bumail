@@ -237,15 +237,26 @@ for (let offset = 0; ; offset += 1000) {
 
 ## A store's own checks
 
-`… must be a finite number`, `owner must be a non-empty string`,
-`leaseMs must be a positive number`, `maxItems must be an integer of at
-least 1, not …`, `A new item is an
-object`, `to must be a non-empty array of addresses`, `message must be a
-Uint8Array`, `A claim is an object`, `An attempt result is an object`,
-`attempts must be an integer of at least 0`, `delayNotified must be
-true or false`, `recipients must be an array of { address, status:
-delivered, deferred or failed }`: **code** `INVALID`, from a store called directly with what the
-queue never gives it.
+**Code:** `INVALID`, from a store called directly with what the queue
+never gives it. Each message names what is wrong:
+
+- `QueueError: … must be a finite number` (`createdAt`, `now`,
+  `nextAttemptAt`)
+- `QueueError: owner must be a non-empty string`
+- `QueueError: leaseMs must be a positive number`
+- `QueueError: maxItems must be an integer of at least 1, not …`
+- `QueueError: A new item is an object`
+- `QueueError: from must be a string`
+- `QueueError: to must be a non-empty array of addresses`
+- `QueueError: message must be a Uint8Array`
+- `QueueError: A claim is an object`
+- `QueueError: An attempt result is an object`
+- `QueueError: attempts must be an integer of at least 0`
+- `QueueError: delayNotified must be true or false`
+- `QueueError: recipients must be an array of { address, status:
+  delivered, deferred or failed }`
+
+A list's `offset` and `limit` are checked as under [Listing](#listing).
 
 ## Delivery
 

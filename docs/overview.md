@@ -54,7 +54,7 @@ them one by one.
 | [DNS](#dns) | MX, TXT, A, AAAA, PTR lookups; the records a domain publishes | [`@bumail/dns`](../packages/dns) | lookups published; record helpers next |
 | [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM and SPF published; DMARC merged, not yet published |
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
-| [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | client published; queue in progress, in review |
+| [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | client published; queue in review |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap), then `@bumail/jmap` | IMAP published; JMAP in review |
 | [The server app](#the-server-app) | Wires everything together | an app on alxia | next |
 
@@ -349,7 +349,7 @@ IMAP and JMAP never need to know which one they were given.
 **In bumail.** The SMTP client is published, as
 [`@bumail/smtp/client`](../packages/smtp): `sendMail` delivers one message,
 to a smarthost or by MX, and says whether a failure is temporary.
-[`@bumail/queue`](../packages/queue), in progress and in review, is the
+[`@bumail/queue`](../packages/queue), in review, is the
 queue on top of it:
 
 - each recipient has its own state — pending, delivered, deferred or

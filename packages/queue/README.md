@@ -7,13 +7,6 @@ back when it gives up. Each recipient has its own state, the queue
 survives a restart on `bun:sqlite`, and several workers can share one
 queue. No runtime dependency: only peers.
 
-**Bun only**: the store on disk uses `bun:sqlite`, so it runs on Bun 1.4.2
-or later, not on Node.
-
-**It sends what you enqueue, to anyone.** The queue is not a relay policy:
-enqueue only what an authenticated user submitted, or what your own server
-writes, never what an unauthenticated client handed you.
-
 ## Install
 
 ```sh
@@ -47,7 +40,9 @@ const queue = createQueue({
 });
 queue.start();
 
-// The message as it leaves: whole, headers first, CRLF, already DKIM-signed.
+// The message as it leaves: whole, headers first, CRLF, already DKIM-signed
+// (with @bumail/auth's signDkim, say).
+const signedMessage = await Bun.file('outgoing.eml').bytes();
 const item = await queue.enqueue(signedMessage, {
 	from: 'mary@example.net',
 	to: ['joe@example.com', 'ann@example.org'],
@@ -69,10 +64,14 @@ hours, each plus up to 10% of jitter, and gives up after 5 days
 (RFC 5321 §4.5.4.1). A 5xx fails the recipient at once.
 
 ```ts
+import { nodeResolver } from '@bumail/dns';
+import { createQueue } from '@bumail/queue';
+import { MemoryQueueStore } from '@bumail/queue/memory';
+
 const queue = createQueue({
-	store,
+	store: new MemoryQueueStore(),
 	hostname: 'mail.example.net',
-	resolver,
+	resolver: nodeResolver(),
 	retry: { first: 15 * 60_000, giveUpAfter: 3 * 24 * 3_600_000 },
 	dsn: { delayAfter: 4 * 3_600_000, returnContent: 'headers' },
 });
@@ -86,14 +85,18 @@ sender `<>`, and a message from `<>` never causes one.
 ## Routing
 
 ```ts
+import { createQueue } from '@bumail/queue';
+import { MemoryQueueStore } from '@bumail/queue/memory';
+
+const smtpPassword = (await Bun.file('/run/secrets/smtp').text()).trim(); // from your secrets
 createQueue({
-	store,
+	store: new MemoryQueueStore(),
 	hostname: 'mail.example.net',
 	// Port 25 blocked? Everything through a provider's submission port:
 	route: {
 		host: 'smtp.provider.example',
 		port: 587,
-		auth: { username: 'mary@example.net', password: smtpPassword }, // from your secrets
+		auth: { username: 'mary@example.net', password: smtpPassword },
 	},
 	// …or only some domains, the rest by MX (which needs the resolver):
 	routes: { 'partner.example': { host: 'relay.partner.example' } },
@@ -106,8 +109,16 @@ Credentials go only over TLS whose certificate checked out.
 ## Several workers
 
 ```ts
+import { nodeResolver } from '@bumail/dns';
+import { createQueue } from '@bumail/queue';
+import { SqliteQueueStore } from '@bumail/queue/sqlite';
+
 // In each process, on the same directory: a claim leases an item to one worker.
-const queue = createQueue({ store: SqliteQueueStore.open({ directory }), hostname, resolver });
+const queue = createQueue({
+	store: SqliteQueueStore.open({ directory: '/var/lib/bumail/queue' }),
+	hostname: 'mail.example.net',
+	resolver: nodeResolver(),
+});
 queue.start();
 ```
 
@@ -121,15 +132,16 @@ sessions to one recipient domain.
 ## Events and admin
 
 ```ts
-queue.on('delivered', ({ id, recipient, reply }) => log.info({ id, recipient, reply }));
+// queue: the one created under Usage.
+queue.on('delivered', ({ id, recipient, reply }) => console.info({ id, recipient, reply }));
 queue.on('deferred', ({ recipient, reply, nextAttemptAt }) => {});
 queue.on('failed', ({ recipient, reply }) => {}); // reply: { code?, status?, text, host? }
 queue.on('dsn', ({ kind, of, to }) => {});
-queue.on('error', ({ error, id }) => log.error(error)); // the store, a lost lease
+queue.on('error', ({ error, id }) => console.error(id, error)); // the store, a lost lease
 
-await queue.list({ limit: 50 }); // the next due first
-await queue.retryNow(item.id);
-await queue.cancel(item.id); // no DSN
+const [next] = await queue.list({ limit: 50 }); // the next due first
+if (next) await queue.retryNow(next.id); // true if it was there
+if (next) await queue.cancel(next.id); // no DSN
 ```
 
 ## Testing
@@ -163,10 +175,14 @@ now += 30 * 60_000;
 ## Limits
 
 ```ts
+import { nodeResolver } from '@bumail/dns';
+import { createQueue } from '@bumail/queue';
+import { MemoryQueueStore } from '@bumail/queue/memory';
+
 createQueue({
-	store,
+	store: new MemoryQueueStore(),
 	hostname: 'mail.example.net',
-	resolver,
+	resolver: nodeResolver(),
 	limits: { maxMessageSize: 10 * 1024 * 1024, maxRecipients: 50, maxItems: 100_000 },
 });
 ```
@@ -177,6 +193,14 @@ the reply text kept per recipient (512 characters, control characters
 replaced by spaces), and the original a DSN returns (64 KiB). Nothing a
 remote server says reaches a DSN's header fields with a CR, an LF or a
 control character in it.
+
+## Traps
+
+- **Bun only.** The store on disk uses `bun:sqlite`, so the package runs
+  on Bun 1.4.2 or later, not on Node.
+- **It sends what you enqueue, to anyone.** The queue is not a relay
+  policy: enqueue only what an authenticated user submitted, or what your
+  own server writes, never what an unauthenticated client handed you.
 
 ## API
 
