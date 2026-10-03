@@ -238,8 +238,18 @@ then by id. `sortAsTree` and `filterAsTree` are not supported yet.
 A store message is a JMAP Email: one id for its life, in one mailbox or
 several (`mailboxIds`), its flags as `keywords`. `\Seen`, `\Answered`,
 `\Flagged` and `\Draft` are `$seen`, `$answered`, `$flagged` and
-`$draft`; every other keyword is lowercased; `\Deleted` is not shown
-(RFC 8621 §4.1.1) and survives a change of keywords.
+`$draft`; `\Deleted` is not shown (RFC 8621 §4.1.1) and survives a
+change of keywords.
+
+Keywords compare without case (RFC 8621 §4.1.1), and the server returns
+them lowercased: a store that keeps a keyword as it was first written —
+`$Forwarded`, `$MDNSent`, written over IMAP — shows it as `$forwarded`
+and `$mdnsent`, and two flags that differ only by case are one keyword.
+`hasKeyword` and `notKeyword` match a stored keyword in any case. In
+`Email/set`, a keyword the email already has, in any case, is not added
+again, removing `$forwarded` removes a stored `$Forwarded`, and a whole
+`keywords` keeps the spelling a keyword was stored with. A keyword the
+server stores itself, from `Email/set` or `Email/import`, is lowercased.
 
 ### Email/get
 
@@ -280,7 +290,7 @@ With `ids: null`, the account's emails are returned when there are at most
 
 Conditions: `inMailbox`, `inMailboxOtherThan`, `before` and `after`
 (on `receivedAt`), `minSize` and `maxSize`, `hasKeyword` and
-`notKeyword`, and text: `from`, `to`, `cc`, `bcc` and `subject` match the
+`notKeyword` (without case), and text: `from`, `to`, `cc`, `bcc` and `subject` match the
 decoded header, `body` the text parts (the first MiB of each, HTML tags
 dropped), `text` all of those. Matching is a case-folded substring. `AND`,
 `OR` and `NOT` nest 16 deep, 256 conditions at most. Any other condition —

@@ -16,7 +16,12 @@ const KEYWORD = /^[!#$&'+,\-./0-9:;<=>?@A-Z[^_`a-z|}~]{1,255}$/;
 export const isKeyword = (value: unknown): value is string =>
 	typeof value === 'string' && KEYWORD.test(value);
 
-/** A message's flags as JMAP keywords; `\Deleted` is not one (RFC 8621 §4.1.1). */
+/**
+ * A message's flags as JMAP keywords, each lowercased: keywords compare
+ * without case and a server returns them in lowercase (RFC 8621 §4.1.1), so
+ * a stored `$Forwarded` is `$forwarded`, and two flags that differ only by
+ * case are one keyword. `\Deleted` is not one.
+ */
 export function keywordsOf(flags: readonly string[]): Record<string, true> {
 	const keywords: Record<string, true> = {};
 	for (const flag of flags) {
@@ -24,7 +29,7 @@ export function keywordsOf(flags: readonly string[]): Record<string, true> {
 			const keyword = SYSTEM[flag];
 			if (keyword !== undefined) keywords[keyword] = true;
 		} else {
-			keywords[flag] = true;
+			keywords[flag.toLowerCase()] = true;
 		}
 	}
 	return keywords;
@@ -34,4 +39,23 @@ export function keywordsOf(flags: readonly string[]): Record<string, true> {
 export function flagOf(keyword: string): string {
 	const lower = keyword.toLowerCase();
 	return FLAGS[lower] ?? lower;
+}
+
+/**
+ * Whether a message's flags hold a flag, its case aside: a store may keep a
+ * keyword in the case it was first written with (`$Forwarded`), while
+ * `flagOf` gives it lowercased. System flags are stored in canonical case.
+ */
+export function hasFlag(flags: readonly string[], flag: string): boolean {
+	const key = flag.toLowerCase();
+	return flags.some((one) => one.toLowerCase() === key);
+}
+
+/** The spellings a message's flags give to a flag, its case aside. */
+export function storedSpellings(
+	flags: readonly string[],
+	flag: string,
+): string[] {
+	const key = flag.toLowerCase();
+	return flags.filter((one) => one.toLowerCase() === key);
 }

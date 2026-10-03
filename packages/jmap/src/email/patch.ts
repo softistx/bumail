@@ -2,7 +2,7 @@ import type { FlagChange, Message } from '@bumail/store';
 import { type Args, idOf, isObject } from '../api/args';
 import type { CallContext } from '../api/context';
 import { type SetError, setError } from '../api/errors';
-import { flagOf, isKeyword } from './keywords';
+import { flagOf, hasFlag, isKeyword, storedSpellings } from './keywords';
 
 /** A set of keys changed whole, or one key at a time. */
 interface KeyChange {
@@ -93,12 +93,37 @@ export function emailChangeOf(
 	return change;
 }
 
-/** The flags change a keywords change makes, keeping `\Deleted`, which JMAP does not show. */
+/**
+ * The flags change a keywords change makes, keeping `\Deleted`, which JMAP
+ * does not show. Keywords match the message's flags without case, whichever
+ * way the store compares them: a flag already there is not added again, a
+ * remove takes the stored spelling too (`$forwarded` removes `$Forwarded`),
+ * and a whole set keeps the spelling a flag was stored with.
+ */
 export function flagChangeOf(change: KeyChange, message: Message): FlagChange {
-	if (change.set === undefined)
-		return { add: change.add, remove: change.remove };
-	const kept = message.flags.filter((flag) => flag === '\\Deleted');
-	return { set: [...change.set, ...kept] };
+	const { flags } = message;
+	if (change.set === undefined) {
+		return {
+			add: change.add.filter((flag) => !hasFlag(flags, flag)),
+			remove: [
+				...new Set(
+					change.remove.flatMap((flag) => [
+						flag,
+						...storedSpellings(flags, flag),
+					]),
+				),
+			],
+		};
+	}
+	const set = new Map<string, string>();
+	for (const flag of [
+		...change.set,
+		...flags.filter((f) => f === '\\Deleted'),
+	]) {
+		const key = flag.toLowerCase();
+		if (!set.has(key)) set.set(key, storedSpellings(flags, flag)[0] ?? flag);
+	}
+	return { set: [...set.values()] };
 }
 
 /** The mailboxes a message is to be in after a mailboxIds change. */

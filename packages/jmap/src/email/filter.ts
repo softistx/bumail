@@ -2,7 +2,7 @@ import { type Args, idOf } from '../api/args';
 import type { CallContext } from '../api/context';
 import { MethodError } from '../api/errors';
 import { quoted } from '../shared/text';
-import { flagOf, isKeyword } from './keywords';
+import { flagOf, hasFlag, isKeyword } from './keywords';
 import { type Candidate, contains } from './search';
 
 /** An Email/query FilterCondition (RFC 8621 §4.4.1), checked: dates as ms, keywords as flags. */
@@ -119,9 +119,9 @@ export async function test(
 	if (c.after !== undefined && !(time >= c.after)) return false;
 	if (c.minSize !== undefined && message.size < c.minSize) return false;
 	if (c.maxSize !== undefined && message.size >= c.maxSize) return false;
-	if (c.hasKeyword !== undefined && !message.flags.includes(c.hasKeyword))
+	if (c.hasKeyword !== undefined && !hasFlag(message.flags, c.hasKeyword))
 		return false;
-	if (c.notKeyword !== undefined && message.flags.includes(c.notKeyword))
+	if (c.notKeyword !== undefined && hasFlag(message.flags, c.notKeyword))
 		return false;
 	for (const key of TEXT) {
 		const needle = c[key as keyof Condition] as string | undefined;
