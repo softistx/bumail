@@ -76,16 +76,8 @@ export const MULTIPART = [
 
 export const bytes = (text: string) => new TextEncoder().encode(text);
 
-/**
- * A JMAP server on a store with alice's and bob's accounts, mounted in a
- * host app and called through its `fetch`, in process. Alice's token is
- * `alice-token`, bob's `bob-token`.
- */
-export async function harness(
-	kind: StoreKind = 'memory',
-	overrides: Partial<JmapOptions> = {},
-) {
-	const { store, close } = await openStore(kind);
+/** Alice's account with an INBOX and an Archive, and bob's with an INBOX. */
+async function seed(store: MailStore) {
 	const alice = await store.createAccount('alice@example.com');
 	const bob = await store.createAccount('bob@example.com');
 	const inbox = await store.createMailbox(alice.id, {
@@ -100,36 +92,28 @@ export async function harness(
 		name: 'INBOX',
 		role: 'inbox',
 	});
-	const tokens = new Map([
-		['alice-token', alice.id],
-		['bob-token', bob.id],
-	]);
-	const server = jmap({
-		store,
-		origin: ORIGIN,
-		authenticate: (credentials) =>
-			credentials.scheme === 'bearer'
-				? (tokens.get(credentials.token) ?? null)
-				: null,
-		...overrides,
-	});
-	const host = alxia()
-		.use(server)
-		.get('/health', ({ reply }) => reply(200, 'ok'));
-	const fetch = (path: string, init: RequestInit & { token?: string } = {}) => {
+	return { alice, bob, inbox, archive, bobInbox };
+}
+
+type Init = RequestInit & { token?: string };
+type ApiInit = {
+	using?: string[];
+	token?: string;
+	createdIds?: Record<string, string>;
+};
+
+/** Requests to a host app, as alice unless another token is given. */
+function clientOf(
+	host: { fetch(request: Request): Response | Promise<Response> },
+	accountId: string,
+) {
+	const fetch = async (path: string, init: Init = {}) => {
 		const headers = new Headers(init.headers);
 		if (!headers.has('authorization'))
 			headers.set('authorization', `Bearer ${init.token ?? 'alice-token'}`);
 		return host.fetch(new Request(`${ORIGIN}${path}`, { ...init, headers }));
 	};
-	const api = async (
-		methodCalls: unknown[],
-		init: {
-			using?: string[];
-			token?: string;
-			createdIds?: Record<string, string>;
-		} = {},
-	) => {
+	const api = async (methodCalls: unknown[], init: ApiInit = {}) => {
 		const response = await fetch('/jmap/api', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -146,14 +130,45 @@ export async function harness(
 			createdIds?: Record<string, string>;
 		};
 	};
-	/** One call's response arguments, alice's account filled in. */
+	/** One call's response arguments, the account filled in. */
 	const call = async (name: string, args: Record<string, unknown> = {}) => {
 		const { methodResponses } = await api([
-			[name, { accountId: alice.id, ...args }, 'c'],
+			[name, { accountId, ...args }, 'c'],
 		]);
 		const [response] = methodResponses;
 		return { name: response?.[0], args: response?.[1] as any };
 	};
+	return { fetch, api, call };
+}
+
+/**
+ * A JMAP server on a store with alice's and bob's accounts, mounted in a
+ * host app and called through its `fetch`, in process. Alice's token is
+ * `alice-token`, bob's `bob-token`.
+ */
+export async function harness(
+	kind: StoreKind = 'memory',
+	overrides: Partial<JmapOptions> = {},
+) {
+	const { store, close } = await openStore(kind);
+	const seeded = await seed(store);
+	const { alice, bob, inbox } = seeded;
+	const tokens = new Map([
+		['alice-token', alice.id],
+		['bob-token', bob.id],
+	]);
+	const server = jmap({
+		store,
+		origin: ORIGIN,
+		authenticate: (credentials) =>
+			credentials.scheme === 'bearer'
+				? (tokens.get(credentials.token) ?? null)
+				: null,
+		...overrides,
+	});
+	const host = alxia()
+		.use(server)
+		.get('/health', ({ reply }) => reply(200, 'ok'));
 	const add = (
 		content: string,
 		mailboxId = inbox.id,
@@ -168,16 +183,10 @@ export async function harness(
 	return {
 		store,
 		close,
-		alice,
-		bob,
-		inbox,
-		archive,
-		bobInbox,
+		...seeded,
 		server,
 		host,
-		fetch,
-		api,
-		call,
+		...clientOf(host, alice.id),
 		add,
 	};
 }
