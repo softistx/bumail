@@ -21,22 +21,15 @@ import type {
 	NewMailbox,
 	NewMessage,
 } from '../contract/types';
-import { StoreError } from '../errors';
 import * as accounts from './accounts';
 import { mailboxChanges, messageChanges } from './changes';
 import * as mailboxes from './mailboxes';
 import * as membership from './membership';
 import * as messages from './messages';
+import { type MemoryMailStoreOptions, maxTombstones } from './options';
 import { MemoryState } from './state';
 
-export interface MemoryMailStoreOptions {
-	/**
-	 * How many removals an account remembers for the changes. Past it, the
-	 * oldest are forgotten, and a `since` before them gets
-	 * `CANNOT_CALCULATE_CHANGES`. Default: all of them.
-	 */
-	readonly maxTombstones?: number;
-}
+export type { MemoryMailStoreOptions } from './options';
 
 /**
  * A `MailStore` in memory: for specs, and for a server whose mail need not
@@ -47,19 +40,7 @@ export class MemoryMailStore implements MailStore {
 	readonly #state: MemoryState;
 
 	constructor(options: MemoryMailStoreOptions = {}) {
-		const max = options.maxTombstones ?? Number.POSITIVE_INFINITY;
-		if (
-			!(
-				max === Number.POSITIVE_INFINITY ||
-				(Number.isSafeInteger(max) && max >= 0)
-			)
-		) {
-			throw new StoreError(
-				'INVALID',
-				`maxTombstones must be an integer of at least 0, not ${max}`,
-			);
-		}
-		this.#state = new MemoryState(max);
+		this.#state = new MemoryState(maxTombstones(options));
 	}
 
 	async createAccount(name: string): Promise<Account> {
