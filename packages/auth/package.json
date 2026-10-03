@@ -1,0 +1,58 @@
+{
+	"name": "@bumail/auth",
+	"version": "0.0.0",
+	"description": "Message authentication for a mail server: DKIM signing and verifying (RFC 6376) with rsa-sha256 and ed25519-sha256 through Web Crypto, results in RFC 8601's words",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"docs",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/bumail.git",
+		"directory": "packages/auth"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun test src",
+		"typecheck": "tsc --noEmit"
+	},
+	"bumail": {
+		"entrypoints": [
+			"src/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@bumail/dns": "workspace:^",
+		"@bumail/mime": "workspace:^",
+		"@types/bun": "^1.4.2"
+	},
+	"peerDependencies": {
+		"@bumail/dns": "workspace:^",
+		"@bumail/mime": "workspace:^",
+		"typescript": "^6.0.3 || ^7.0.0"
+	},
+	"peerDependenciesMeta": {
+		"typescript": {
+			"optional": true
+		}
+	}
+}
