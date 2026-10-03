@@ -98,6 +98,11 @@ export function normalizeName(name: unknown): string {
 			name,
 			'it holds an invisible character the IDN mapping would drop',
 		);
+	// Each code point is at least one A-label character, and at most two
+	// code units: past 506 units the name can never fit, so the IDN mapping,
+	// which slows with the length, is not run.
+	if (ascii.length > 506)
+		throw invalid(name, 'it is longer than 253 characters');
 	if (/[^\x21-\x7e]/.test(ascii)) ascii = idnOf(name, ascii);
 	ascii = ascii.toLowerCase();
 	if (ascii.length === 0) throw invalid(name, 'it is empty');

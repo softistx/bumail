@@ -136,6 +136,21 @@ describe('normalizeName', () => {
 	});
 });
 
+describe('normalizeName: long international names', () => {
+	test('are refused before the IDN mapping, which slows with the length', () => {
+		const started = performance.now();
+		expect(() => normalizeName('ü.'.repeat(80_000))).toThrow(
+			'it is longer than 253 characters',
+		);
+		expect(performance.now() - started).toBeLessThan(100);
+	});
+
+	test('the longest that can fit still maps', () => {
+		const label = `${'ü'.repeat(20)}.`;
+		expect(normalizeName(label.repeat(4)).length).toBeLessThanOrEqual(253);
+	});
+});
+
 describe('normalizeAddress', () => {
 	test('takes IPv4 as written and IPv6 in its canonical form', () => {
 		expect(normalizeAddress('192.0.2.1')).toBe('192.0.2.1');
