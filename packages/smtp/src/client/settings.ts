@@ -1,6 +1,6 @@
 import { hostname as machineName } from 'node:os';
 import { SmtpError } from '../errors';
-import { parsePath } from '../protocol/path';
+import { isHelloName, parsePath } from '../protocol/path';
 import type {
 	MxDestination,
 	SendMailAuth,
@@ -46,8 +46,6 @@ export interface ClientSettings {
 /** `INVALID_OPTION`, for an option `sendMail` cannot take. */
 export const invalid = (message: string) =>
 	new SmtpError('INVALID_OPTION', `sendMail(): ${message}`);
-
-const HELO = /^(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*|\[[0-9A-Fa-f:.Iv]+\])$/;
 
 function seconds(name: string, value: unknown, fallback: number): number {
 	if (value === undefined) return fallback;
@@ -104,7 +102,8 @@ function address(value: unknown, allowNull: boolean): string {
  */
 function heloOf(value: string | undefined, byMx: boolean): string {
 	if (value !== undefined) {
-		if (!HELO.test(value)) throw invalid(`helo "${value}" is not a host name`);
+		if (!isHelloName(value))
+			throw invalid(`helo "${value}" is not a host name`);
 		return value;
 	}
 	if (byMx)
@@ -112,7 +111,7 @@ function heloOf(value: string | undefined, byMx: boolean): string {
 			"helo is required for delivery by MX: pass your server's public name, such as helo: 'mail.example.com'",
 		);
 	const name = machineName();
-	return HELO.test(name) ? name : 'localhost';
+	return isHelloName(name) ? name : 'localhost';
 }
 
 function authOf(auth: SendMailAuth | undefined): SendMailAuth | undefined {

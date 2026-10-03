@@ -57,6 +57,12 @@ describe('sendMail options', () => {
 		expect(refused({ to: '@x\r\nRSET\r\nNOOP:a@c.com' })).toBe(
 			'sendMail(): "@x\\r\\nRSET\\r\\nNOOP:a@c.com" is not an address (local@domain)',
 		);
+		expect(refused({ to: 'a\uD800@c.com' })).toBe(
+			'sendMail(): "a\\ud800@c.com" is not an address (local@domain)',
+		);
+		expect(refused({ to: 'a@[999.1.1.1]' })).toBe(
+			'sendMail(): "a@[999.1.1.1]" is not an address (local@domain)',
+		);
 		expect(refused({ to: ['b@foo.com', '@a,@b:x@c.com'] })).toBe(
 			'sendMail(): "@a,@b:x@c.com" holds a source route (@host:), which RFC 5321 says a client should not send: pass "x@c.com" alone',
 		);
@@ -91,6 +97,18 @@ describe('sendMail options', () => {
 		const given = { ...mx, helo: 'mail.bar.com' } as unknown as SendMailOptions;
 		expect(settingsOf(given).helo).toBe('mail.bar.com');
 		expect(settingsOf(base).helo).not.toBe('');
+	});
+
+	test('helo: an address literal, IPv4 or IPv6 (RFC 5321 §4.1.3)', () => {
+		for (const helo of ['[192.0.2.1]', '[IPv6:2001:db8::1]']) {
+			const given = { ...base, helo } as unknown as SendMailOptions;
+			expect(settingsOf(given).helo).toBe(helo);
+		}
+		for (const helo of ['[999.1.1.1]', '[2001:db8::1]', '[1.2.3]']) {
+			expect(refused({ helo })).toBe(
+				`sendMail(): helo "${helo}" is not a host name`,
+			);
+		}
 	});
 
 	test('auth goes over TLS that is not checked only with allowPlaintextAuth', () => {

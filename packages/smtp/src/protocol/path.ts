@@ -12,11 +12,12 @@ const LABEL =
 	/^(?:[A-Za-z0-9\u0080-\u{10ffff}](?:[A-Za-z0-9\-\u0080-\u{10ffff}]*[A-Za-z0-9\u0080-\u{10ffff}])?)$/u;
 
 /**
- * C1 controls, Unicode format characters (zero-width, bidi, BOM) and the
- * line and paragraph separators: none has a place in an address, and each
- * would land as it is in the Received field and the app's records.
+ * C1 controls, Unicode format characters (zero-width, bidi, BOM), the
+ * line and paragraph separators, and lone surrogates: none has a place in
+ * an address, and each would land as it is in the Received field and the
+ * app's records — a lone surrogate as U+FFFD, once encoded for the wire.
  */
-const INVISIBLE = /[\u0080-\u009f\u2028\u2029\p{Cf}]/u;
+const INVISIBLE = /[\u0080-\u009f\u2028\u2029\p{Cf}\p{Cs}]/u;
 
 /**
  * C0 controls (CR, LF and NUL among them), DEL and `>`, anywhere in the
@@ -44,9 +45,28 @@ function isQuotedString(text: string): boolean {
 	);
 }
 
+/**
+ * An address literal (§4.1.3): `[IPv6:…]`, or `[a.b.c.d]` with each octet
+ * at most 255.
+ */
+export function isAddressLiteral(text: string): boolean {
+	if (/^\[IPv6:[0-9A-Fa-f:.]+\]$/.test(text)) return true;
+	const ipv4 = /^\[(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\]$/.exec(text);
+	return ipv4?.slice(1).every((octet) => Number(octet) <= 255) === true;
+}
+
+/**
+ * The argument of EHLO or HELO (RFC 5321 §4.1.1.1): a host name of
+ * letters, digits and hyphens, or an address literal.
+ */
+export function isHelloName(text: string): boolean {
+	return (
+		/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*$/.test(text) || isAddressLiteral(text)
+	);
+}
+
 function isDomain(domain: string): boolean {
-	if (/^\[(?:IPv6:[0-9A-Fa-f:.]+|\d{1,3}(?:\.\d{1,3}){3})\]$/.test(domain))
-		return true;
+	if (isAddressLiteral(domain)) return true;
 	return (
 		domain.length <= 255 &&
 		domain.split('.').every((label) => label.length <= 63 && LABEL.test(label))
@@ -79,8 +99,9 @@ function afterRoute(inner: string): string | undefined {
  * `allowNull`. A source route (`<@a,@b:local@domain>`, §C) is dropped when
  * `sourceRoute` is `'discard'`, the default, provided each hop is
  * `@domain`; with `'refuse'` the path is not one. A C0 control (CR, LF,
- * NUL…), DEL or `>` anywhere refuses the path, as do C1 controls and
- * Unicode format characters.
+ * NUL…), DEL or `>` anywhere refuses the path, as do C1 controls,
+ * Unicode format characters and lone surrogates. An IPv4 address literal
+ * takes octets up to 255.
  * Non-ASCII is allowed: whether the session may use it is SMTPUTF8's
  * question (RFC 6531), not the grammar's. `undefined` when it is not a path.
  *

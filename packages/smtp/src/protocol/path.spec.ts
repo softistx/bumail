@@ -117,6 +117,29 @@ describe('parsePath (RFC 5321 §4.1.2)', () => {
 		}
 	});
 
+	test('a lone surrogate is refused, quoted or not, whatever is done with a source route', () => {
+		for (const route of ['discard', 'refuse'] as const) {
+			for (const char of ['\uD800', '\uDFFF']) {
+				expect(parsePath(`<a${char}@c.com>`, false, route)).toBeUndefined();
+				expect(parsePath(`<"a${char}"@c.com>`, false, route)).toBeUndefined();
+				expect(parsePath(`<a@c${char}.com>`, false, route)).toBeUndefined();
+			}
+			// A pair is one character, and an address may hold it.
+			expect(parsePath('<a\u{1F600}@c.com>', false, route)?.local).toBe(
+				'a\u{1F600}',
+			);
+		}
+	});
+
+	test('an IPv4 address literal takes octets up to 255 (§4.1.3)', () => {
+		expect(parsePath('<a@[255.255.255.255]>', false)?.domain).toBe(
+			'[255.255.255.255]',
+		);
+		for (const literal of ['[999.1.1.1]', '[1.256.1.1]', '[1.1.1.300]']) {
+			expect(parsePath(`<a@${literal}>`, false)).toBeUndefined();
+		}
+	});
+
 	test('a quoted @ or a % stays in the local part, of the domain after the last @', () => {
 		expect(parsePath('<"v@evil.example"@foo.com>', false)).toEqual({
 			address: '"v@evil.example"@foo.com',

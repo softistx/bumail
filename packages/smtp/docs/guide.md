@@ -304,9 +304,10 @@ and `<v%x.example@example.com>` are local parts of `example.com`, and
 passed the relay check as such: code that delivers must take the domain
 after the last `@` — `path.domain` — and never split `address` on its
 first `@`. C0 controls (CR, LF, NUL, tab…), DEL and `>`, C1 controls,
-Unicode format characters (zero-width, bidi, BOM) and U+2028/2029 are
-refused anywhere in a path — the route, the local part quoted or not, the
-domain — even under SMTPUTF8.
+Unicode format characters (zero-width, bidi, BOM), U+2028/2029 and lone
+surrogates are refused anywhere in a path — the route, the local part
+quoted or not, the domain — even under SMTPUTF8. An IPv4 address literal
+takes octets up to 255: `[999.1.1.1]` is not one.
 
 ## Session.data
 

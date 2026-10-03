@@ -117,6 +117,12 @@ describe('a mail transaction', () => {
 			'501 Syntax: EHLO hostname\r\n',
 		);
 		expect(await s.send('EHLO [192.0.2.1]\r\n')).toStartWith('250-');
+		expect(await s.send('EHLO [IPv6:2001:db8::1]\r\n')).toStartWith('250-');
+		for (const literal of ['[999.1.1.1]', '[2001:db8::1]', '[1.2.3]']) {
+			expect(await s.send(`EHLO ${literal}\r\n`)).toBe(
+				'501 5.5.4 Syntax: EHLO hostname\r\n',
+			);
+		}
 	});
 
 	test('the null reverse-path of a bounce (RFC 5321 §4.5.5)', async () => {
