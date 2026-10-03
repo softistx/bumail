@@ -10,6 +10,7 @@ behind each behaviour.
 - [Hooks, and their order](#hooks-and-their-order)
 - [Session.data](#sessiondata)
 - [What onData receives](#what-ondata-receives)
+- [Delivering into @bumail/store](#delivering-into-bumailstore)
 - [Authentication](#authentication)
 - [TLS](#tls)
 - [Limits](#limits)
@@ -56,7 +57,7 @@ export interface SmtpServer {
 
 | Option | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `hostname` | `string` | required | the server's name, in its greeting, its EHLO reply and its Received fields; letters, digits, dots and hyphens |
+| `hostname` | `string` | required, no default | the server's name, in its greeting, its EHLO reply and its Received fields; letters, digits, dots and hyphens |
 | `localDomains` | `string[]` or `(domain) => boolean \| Promise<boolean>` | required | the domains it receives mail for; any other recipient is relaying, refused without AUTH |
 | `mode` | `'mx' \| 'submission'` | `'mx'` | `mx` takes mail for `localDomains` from anyone; `submission` takes mail only from authenticated users (RFC 6409) |
 | `tls` | `{ key, cert }` | none | turns on STARTTLS, or implicit TLS with `implicitTls` |
@@ -100,7 +101,7 @@ await server.listen({ port: 25 });
 
 | Message | Cause |
 | --- | --- |
-| `createSmtpServer(): "<hostname>" is not a host name` | `hostname` has a character other than a letter, a digit, `.` or `-` |
+| `createSmtpServer(): "<hostname>" is not a host name` | `hostname` is missing (`"undefined" is not a host name`), or has a character other than a letter, a digit, `.` or `-` |
 | `createSmtpServer(): onData must be a function: it is where messages go` | no `onData` |
 | `createSmtpServer(): implicitTls needs tls: { key, cert }` | `implicitTls: true` without `tls` |
 | `createSmtpServer(): submission takes mail only from authenticated users, so it needs authenticate` | `mode: 'submission'` without `authenticate` |
@@ -453,7 +454,7 @@ then refused whatever `onData` answers:
 | `MESSAGE_TOO_BIG` | the message passed `maxMessageSize` | `552 5.3.4 Message too big for system` |
 | `BARE_LINE_BREAK` | a CR or LF that is not part of a CRLF: SMTP smuggling | `550 5.6.11 Bare CR or LF is not allowed in a message` |
 | `CONNECTION_LOST` | the client hung up before the end | nothing: it is gone |
-| `MESSAGE_NOT_READ` | `onData` answered before the end, and a read it left running reaches the part the server stopped feeding | `451 4.3.0 Local error in processing` |
+| `MESSAGE_NOT_READ` | `onData` answered before the end: a read it left running errors the moment it answers | `451 4.3.0 Local error in processing` |
 | `HOOK_TIMEOUT` | `onData` read nothing for `hookTimeout` seconds, or did not answer within `hookTimeout` once the message ended — a late read must not keep a message the client will send again | `451 4.3.0 Local error in processing` |
 
 The refusal goes out as soon as the stream errors; the rest of the message
@@ -505,6 +506,69 @@ const server = createSmtpServer({
 
 await server.listen({ port: 25 });
 ```
+
+## Delivering into @bumail/store
+
+[`@bumail/store`](https://github.com/softistx/bumail/tree/develop/packages/store) keeps
+accounts, mailboxes and messages behind one contract, with a memory store
+to start. `@bumail/smtp` does not depend on it: `onData` hands the stream
+to the store, and the store reads it.
+
+`message.content` already starts with the server's `Received` field, so it
+goes into `addMessage` as it is — no buffer of your own, no header to
+prepend. `addMessage` keeps nothing unless the stream ends cleanly, so a
+message the server refuses mid-way (too big, a bare LF, the client gone)
+is stored nowhere, and the client hears the refusal.
+
+```ts
+import { createSmtpServer, reply } from '@bumail/smtp';
+import { MemoryMailStore } from '@bumail/store';
+
+const store = new MemoryMailStore();
+const accounts = new Map<string, string>(); // address → account id
+for (const name of ['alice', 'bob']) {
+	const account = await store.createAccount(name);
+	await store.createMailbox(account.id, { name: 'INBOX', role: 'inbox' });
+	accounts.set(`${name}@example.com`, account.id);
+}
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	// Refuse unknown users at RCPT, before any byte of the message.
+	onRcptTo: (path) =>
+		accounts.has(path.address.toLowerCase())
+			? undefined
+			: reply(550, '5.1.1', 'No such user here'),
+	// One copy per recipient: the stream is teed, not buffered by you.
+	async onData({ envelope, content }) {
+		let rest = content;
+		await Promise.all(
+			envelope.to.map(async (to, index) => {
+				let mine = rest;
+				if (index < envelope.to.length - 1) [mine, rest] = rest.tee();
+				const accountId = accounts.get(to.toLowerCase()) ?? '';
+				const inbox = await store.findMailbox(accountId, 'inbox');
+				await store.addMessage(accountId, inbox?.id ?? '', { content: mine });
+			}),
+		);
+	},
+	onError: (error, session) => console.error(`[${session.id}]`, error),
+});
+await server.listen({ port: 25 });
+```
+
+- **Every copy, or a 451.** `onData` resolves once each `addMessage` has
+  read its branch to the end, so the `250` means every recipient has the
+  message. If one `addMessage` throws, `onData` throws: the client gets
+  `451 4.3.0` and sends again — and a recipient whose copy was already
+  added gets it twice. A server that must avoid that queues the message
+  once, then delivers from the queue.
+- **A relay is refused before `onData`.** Without AUTH, a recipient
+  outside `localDomains` gets `554 5.7.1 Relay access denied` at RCPT, so
+  nothing reaches the store.
+- **The memory store holds every message in memory.** It reads the stream
+  into one `Blob`; a store on disk is on the store's roadmap.
 
 ## Authentication
 

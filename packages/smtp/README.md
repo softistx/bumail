@@ -202,6 +202,11 @@ console.log(`listening on ${port}, ${server.connections} open`);
   smuggled, the client gone — and the client is then refused whatever
   `onData` answers. Something written before the stream ended may be a
   message the server refused: delete it when the read throws.
+- **No read may outlive `onData`.** A read left running after `onData`
+  answers ends in `MESSAGE_NOT_READ`, and one that starts after
+  `hookTimeout` ends in `HOOK_TIMEOUT`: in both cases the client was told
+  `451` and will send the message again, so keeping it would deliver it
+  twice. Await the read inside `onData`.
 - `authenticate` needs `tls`, and so does `mode: 'submission'`:
   `createSmtpServer` throws without it.
 - Ports 25, 465 and 587 are below 1024: binding them needs the privilege to,

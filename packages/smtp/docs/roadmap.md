@@ -6,14 +6,8 @@ number on it.
 
 ## Now
 
-- **The server** — RFC 5321 on `Bun.listen`: EHLO with PIPELINING, SIZE,
-  8BITMIME, SMTPUTF8 and ENHANCEDSTATUSCODES; STARTTLS and implicit TLS;
-  AUTH PLAIN and LOGIN, offered only once encrypted; hooks where the app
-  accepts or refuses a connection, a sender, a recipient or a message;
-  limits on size, recipients, connections, errors and idle time; a
-  greeting delay that turns away senders who talk before the 220; a `250`
-  only once the app read the whole message; and a refusal of SMTP
-  smuggling.
+Nothing in progress: the server below is merged and waits for its first
+release.
 
 ## Next
 
@@ -24,9 +18,10 @@ number on it.
 - **DSN** (RFC 3461) — `RET`, `ENVID`, `NOTIFY` and `ORCPT` accepted and
   handed to the app, so a sender can ask for delivery status
   notifications. Today they are refused with `555 5.5.4`.
-- **Delivery into `@bumail/store`**, once that package lands — an `onData`
-  ready to use that puts each message in the recipients' mailboxes, instead
-  of writing your own.
+- **Delivery into `@bumail/store`, ready-made** — an `onData` that puts
+  each message in its recipients' inboxes, instead of the few lines the
+  [guide](guide.md#delivering-into-bumailstore) shows today. The store
+  itself has landed; only the helper is to come.
 
 ## Not planned
 
@@ -38,4 +33,13 @@ number on it.
 
 ## Shipped
 
-Nothing yet.
+Merged, not yet published:
+
+- **The server** — RFC 5321 on `Bun.listen`: EHLO with PIPELINING, SIZE,
+  8BITMIME, SMTPUTF8 and ENHANCEDSTATUSCODES; STARTTLS and implicit TLS;
+  AUTH PLAIN and LOGIN, offered only once encrypted; hooks where the app
+  accepts or refuses a connection, a sender, a recipient or a message;
+  limits on size, recipients, connections, errors and idle time; a
+  greeting delay that turns away senders who talk before the 220; a `250`
+  only once the app read the whole message; and a refusal of SMTP
+  smuggling.

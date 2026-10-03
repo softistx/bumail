@@ -50,6 +50,16 @@ export function checkRole(role: MailboxRole | undefined): void {
 	}
 }
 
+/**
+ * Refuses anything that is not a role, `undefined` included: for a lookup
+ * by role, where no role is not a role, unlike `checkRole`'s optional field.
+ */
+export function checkRequiredRole(role: unknown): asserts role is MailboxRole {
+	if (!isMailboxRole(role)) {
+		throw new StoreError('INVALID', `"${String(role)}" is not a mailbox role`);
+	}
+}
+
 /** Refuses a parent that is the mailbox itself or one of its descendants. */
 export function checkNoCycle(
 	self: string,

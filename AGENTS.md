@@ -61,7 +61,7 @@ The repository is **private** until the owner says otherwise.
 
 ```
 mime            (standalone)
-smtp            (standalone)
+smtp            (standalone; its delivery spec uses store, as a devDependency only)
 store           (standalone)
 ```
 
@@ -69,7 +69,8 @@ What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
 this section draws their arrows. A package that uses a sibling declares it by
 `workspace:^`, as a peer and a devDependency, and imports it by its
 published name, which resolves through `node_modules` to the sibling's
-`dist/`. **There are no cycles.**
+`dist/`. A sibling only a spec uses is a devDependency alone, never a peer:
+the package still needs nothing of it at runtime. **There are no cycles.**
 
 ## The build
 

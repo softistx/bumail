@@ -106,9 +106,10 @@ try {
 
 ### `SmtpError: createSmtpServer(): "…" is not a host name`
 
-**When**: `hostname` holds anything but letters, digits, dots and hyphens:
-an empty string, a port (`mx.example.com:25`), a URL, an underscore, a
-space, or an address literal in brackets.
+**When**: `hostname` is missing — the message then reads `"undefined" is
+not a host name` — or holds anything but letters, digits, dots and
+hyphens: an empty string, a port (`mx.example.com:25`), a URL, an
+underscore, a space, or an address literal in brackets.
 
 **Why**: `hostname` is the server's own name. It is written into the
 greeting, the EHLO reply and every `Received` field, so it must be a plain
@@ -1063,6 +1064,12 @@ naming what ran late: `onConnect`, `onMailFrom`, `onRcptTo`, `onData`,
 seconds (60 by default) — or `onData` stopped reading the message for that
 long, in which case its stream also ends in
 [`SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-read-the-message-within-hooktimeout--s-do-not-deliver-it).
+When `onData` itself did not answer in time, its stream ends in
+[`SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it),
+so a read still running then keeps nothing. A read that had already reached
+the end before the timeout is not undone: if `onData` read the whole message
+but never answered, the client was told `451` and will send it again, so do
+not deliver from a hook that ran late.
 The client got `451 4.3.0` (or `454 4.7.0` for `authenticate`).
 
 **Why**: while a hook runs, the session waits; a hook that never settles
@@ -1119,8 +1126,9 @@ createSmtpServer({
 
 **When**: `onError` gets this `SmtpError`, code `MESSAGE_NOT_READ`: `onData`
 resolved without a refusal before it read `message.content` to its end, or
-cancelled the stream. A read it left running counts as not read, even if
-it reaches the end later; such a read can also throw this same error. The
+cancelled the stream. A read it left running counts as not read: the
+stream errors with this same error the moment `onData` answers, so that
+read never reaches a clean end. The
 client got `451 4.3.0 Local error in processing`, never `250`, and keeps
 the message.
 
