@@ -256,7 +256,8 @@ Every PR goes into `develop`. Before merging:
     only once the client's input stopped for `LINGER_QUIET_MS` (20 ms);
     each server's `data` handler calls `transport.received()`, which puts
     the half-close back while it lingers. It lingers `LINGER_MAX_MS`
-    (500 ms) at most: a client still sending then is reset (`terminate()`),
+    (500 ms) at most: input not quiet for 20 ms by then is reset
+    (`terminate()`), a client that stopped in the last 20 ms included,
     from the timer or from the first `received()` past that time. A second
     `end` or `abort` meanwhile does not shut down early;
   - **every end is bounded by the grace**: each `end`, queue empty or not,
@@ -354,7 +355,7 @@ Every PR goes into `develop`. Before merging:
   real-socket spec waits for it. Each copy's `transport.spec.ts` checks,
   on a fake socket, that `shutdown` gets `true` (and nothing on TLS after
   a drain), that a paused hang-up calls `resume` first and lingers while
-  `received()` comes, and resets at `LINGER_MAX_MS` a client still sending,
+  `received()` comes, and resets at `LINGER_MAX_MS` input not yet quiet for 20 ms,
   even when no timer can fire between its chunks, the grace and the
   `#closed` guard. A fix to one copy is a fix
   to the other.

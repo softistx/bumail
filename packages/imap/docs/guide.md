@@ -295,9 +295,11 @@ reads again. When the server had stopped reading the client, which sent
 more than it could take, it reads again first, dropping whatever comes,
 and half-closes once the client's input stops for 20 ms: a half-close
 does not complete over input left unread, and on Linux a close over
-unread input is a reset that loses the `BYE`. A client that stopped
-sending still reads the `BYE` and the end. It waits 500 ms at most: a
-client still sending at 500 ms is reset, so the connection leaves
+unread input is a reset that loses the `BYE`. A client whose input went
+quiet for 20 ms within 500 ms of the hang-up still reads the `BYE` and
+the end. It waits 500 ms at most: input not quiet for 20 ms by then, a
+client still sending or one that stopped in the last 20 ms, is reset,
+so the connection leaves
 `connections` within 500 ms all the same. What is
 still queued when a hang-up starts may wait 5 seconds at most for the
 client to take it; past that the connection is reset. On TLS, once such

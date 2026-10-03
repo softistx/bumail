@@ -888,9 +888,10 @@ that sent more than it could take, any hang-up, `QUIT`'s included, reads
 again first, dropping whatever comes, and half-closes once the client's
 input stops for 20 ms: a half-close does not complete over input left
 unread, and on Linux a close over unread input is a reset that loses the
-last reply. A client that stopped sending then still reads the last reply
-and the end. It waits 500 ms at most: a client still sending at 500 ms is
-reset, so its slot is free by then too. So a client that
+last reply. A client whose input went quiet for 20 ms within 500 ms of
+the hang-up then still reads the last reply and the end. It waits 500 ms
+at most: input not quiet for 20 ms by then, a client still sending or one
+that stopped in the last 20 ms, is reset, so its slot is free by then too. So a client that
 pipelines commands and stops reading cannot keep a slot of
 `maxConnections` past its `timeout`.
 
