@@ -373,7 +373,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | `Credentials` | what `authenticate` receives: `mechanism`, `username`, `password`, `authorizationId?` |
 | `reply(code, status, text)`, `Reply` | a reply, for a hook to refuse with |
 | `formatReply(reply, enhanced?)` | a reply as sent on the wire, CRLF included |
-| `parsePath(text, allowNull, sourceRoute?)`, `Path`, `SourceRoute` | `<local@domain>` (RFC 5321 §4.1.2) to `{ address, local, domain }`; a source route `@a,@b:` is dropped (`'discard'`, the default) or refused (`'refuse'`); a control character or `>` anywhere refuses the path |
+| `parsePath(text, allowNull, sourceRoute?)`, `Path`, `SourceRoute` | `<local@domain>` (RFC 5321 §4.1.2) to `{ address, local, domain }`; a source route `@a,@b:` is dropped (`'discard'`, the default) or refused (`'refuse'`); a control character, `>` or a lone surrogate anywhere, or an IPv4 literal octet above 255, refuses the path |
 | `parseCommand(line)`, `Command` | a command line to `{ verb, argument }` |
 | `parsePathCommand(argument, 'FROM' \| 'TO')`, `PathCommand` | the argument of MAIL or RCPT to `{ path, parameters }` |
 | `DataReader`, `DataChunk` | reads DATA: dot-unstuffing, the terminator, bare CR and LF counted |
