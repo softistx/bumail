@@ -85,6 +85,13 @@ each with a matching key in `exports`.
   field.
 - **A build that exits 0 is not evidence the artifact loads.**
   `bun run verify:artifacts` packs, installs and imports every package.
+  `verify:artifacts` also refuses a built import of anything the manifest
+  does not declare, in the `.js` and in the `.d.ts` (where a type-only
+  import fails a consumer's `tsc`): the install holds every sibling side by
+  side, so a sibling listed only as a devDependency would load there and
+  fail for a consumer. That check (`scripts/artifacts/imports.ts`) is bumail's
+  addition to the scripts copied from alxia and nxgt-http, worth porting
+  back.
 - **Bun 1.4.2**, the version alxia and the nxgt suite pin.
 
 ## TypeScript

@@ -28,7 +28,8 @@ function renaming(create: CreateStore): void {
 			await store.renameMailbox(account.id, inbox.id, { name: 'Received' }),
 		).toMatchObject({ role: 'inbox' });
 		await rejects(
-			store.renameMailbox(account.id, a.id, {} as never),
+			// @ts-expect-error a rename names a name, a parentId or both, so `{}` does not compile
+			store.renameMailbox(account.id, a.id, {}),
 			'INVALID',
 		);
 		await rejects(

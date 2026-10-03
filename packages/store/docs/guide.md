@@ -109,7 +109,7 @@ await store.setSubscribed(account.id, lists.id, true); // IMAP SUBSCRIBE
   characters, no control character, and **no `/`**: the hierarchy is
   `parentId`, so the IMAP layer can use `/` as its delimiter.
 - `renameMailbox(accountId, id, { name?, parentId? })` takes at least one
-  of the two (`{}` does not compile), changes what it is given and keeps the rest, like JMAP's
+  of the two, changes what it is given and keeps the rest, like JMAP's
   `Mailbox/set`: `parentId: null` moves the mailbox to the top. A change
   with neither field does not compile, and is `INVALID` from JavaScript.
   The mailbox keeps its id, role, subscription, UIDVALIDITY and messages.
