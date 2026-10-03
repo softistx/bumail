@@ -253,7 +253,9 @@ server stores itself, from `Email/set` or `Email/import`, is lowercased.
 An IMAP client may also store `$Seen` (or `$Answered`, `$Flagged`,
 `$Draft`) as an ordinary keyword beside the system flag: it shows as
 `$seen` like `\Seen`, `hasKeyword: '$seen'` matches either, and removing
-`$seen` removes both.
+`$seen` removes both. Adding `$seen`, alone or in a whole `keywords`,
+always stores `\Seen`, so an IMAP client sees the message as read: beside
+a stored `$Seen` on add, in its place on a whole set.
 
 ### Email/get
 

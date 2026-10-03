@@ -103,8 +103,10 @@ export function emailChangeOf(
  * The flags change a keywords change makes, keeping `\Deleted`, which JMAP
  * does not show. Keywords match the message's flags without case, whichever
  * way the store compares them: a flag already there is not added again, a
- * remove takes the stored spelling too (`$forwarded` removes `$Forwarded`),
- * and a whole set keeps the spelling a flag was stored with.
+ * remove takes the stored spelling too (`$forwarded` removes `$Forwarded`,
+ * and `\Seen` a `$Seen` kept as an ordinary keyword), and a whole set keeps
+ * the spelling a flag was stored with. A system flag is always added as
+ * itself: `$seen` stores `\Seen`, even beside a stored `$Seen`.
  */
 export function flagChangeOf(change: KeyChange, message: Message): FlagChange {
 	const { flags } = message;
