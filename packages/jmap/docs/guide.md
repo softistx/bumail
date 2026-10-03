@@ -162,14 +162,14 @@ runs (RFC 8620 §3.6.1).
 
 Then each call runs in order, each seeing the responses before it:
 
-1. Its `#name` arguments are resolved from an earlier response: the first
+1. A method this server does not have, or whose capability is not in
+   `using`, is `unknownMethod`.
+2. Its `#name` arguments are resolved from an earlier response: the first
    with the call id `resultOf`, which must be named `name`, read at
    `path` — RFC 6901 JSON Pointer, where `*` on an array maps the rest of
    the path over its items and flattens one level of arrays (RFC 8620
    §3.7). A reference expands to at most `maxReferenceItems` values.
    Giving both `ids` and `#ids` is `invalidArguments`.
-2. A method this server does not have, or whose capability is not in
-   `using`, is `unknownMethod`.
 3. The method checks its arguments: an unknown one is `invalidArguments`.
    `accountId` must be the authenticated account; any other is
    `accountNotFound`.

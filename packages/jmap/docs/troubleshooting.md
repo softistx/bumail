@@ -154,4 +154,6 @@ part of the text.
 - [`invalidProperties` — `keywords is an object of keywords set to true`](troubleshooting/objects.md#invalidproperties--keywords-is-an-object-of-keywords-set-to-true)
 - [`invalidProperties` — `receivedAt is a UTCDate`](troubleshooting/objects.md#invalidproperties--receivedat-is-a-utcdate)
 - [`invalidProperties` — `…`, with `properties: ["mailboxIds"]`](troubleshooting/objects.md#invalidproperties---with-properties-mailboxids)
+- [`invalidProperties` — `…`, with `properties: ["keywords"]`](troubleshooting/objects.md#invalidproperties---with-properties-keywords)
+- [`invalidProperties` — `…`, with no properties](troubleshooting/objects.md#invalidproperties---with-no-properties)
 - [`blobNotFound` — `No blob has this id`](troubleshooting/objects.md#blobnotfound--no-blob-has-this-id)

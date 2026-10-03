@@ -54,7 +54,8 @@ app.listen(8080);
 ```
 
 [`examples/serve.ts`](https://github.com/softistx/bumail/blob/develop/packages/jmap/examples/serve.ts) is
-this example, runnable: `bun packages/jmap/examples/serve.ts`, then
+this example, runnable from a clone: `bun install && bun run build`, then
+`bun packages/jmap/examples/serve.ts`, then
 `curl -H 'Authorization: Bearer alice-secret-token' http://localhost:8080/.well-known/jmap`.
 
 ## Authentication
@@ -100,6 +101,8 @@ and `#creationId`s work across calls of one request.
 ## Uploading and downloading
 
 ```ts
+// accountId and inboxId come from the session and Mailbox/get; rawMessage is RFC 5322 bytes
+const authorization = 'Bearer alice-secret-token';
 const upload = await fetch(`https://mail.example.com/jmap/upload/${accountId}`, {
 	method: 'POST',
 	headers: { authorization, 'content-type': 'message/rfc822' },
@@ -131,7 +134,9 @@ A download serves an email's bytes, one of its parts (each part's
 | `maxBodyValueBytes` | 1 MiB | one body value, whatever the client asks |
 | `maxBodyValuesTotal` | 16 MiB | body values in one request |
 
-Set them under `limits`; the first seven are announced in the session's
+Set them under `limits`. `maxSizeRequest`, `maxCallsInRequest`,
+`maxConcurrentRequests`, `maxObjectsInGet`, `maxObjectsInSet`,
+`maxSizeUpload` and `maxConcurrentUpload` are announced in the session's
 `urn:ietf:params:jmap:core` capability. A limit broken by the request is a
 `urn:ietf:params:jmap:error:limit` problem naming it (413 for a size, 429
 for a concurrency, 400 for the rest); one broken by a call is a method

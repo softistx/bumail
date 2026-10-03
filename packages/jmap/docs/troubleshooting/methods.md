@@ -13,7 +13,7 @@ The method is not one this server answers, or its capability is not in
 `using`: `Mailbox/…`, `Email/…` and `Thread/…` need
 `urn:ietf:params:jmap:mail`, `Core/echo` needs
 `urn:ietf:params:jmap:core`. The methods are listed in the
-[guide](../guide.md#a-request); `Email/queryChanges`, `Thread/changes`,
+[README](../README.md#what-it-answers); `Email/queryChanges`, `Thread/changes`,
 `Identity/…`, `EmailSubmission/…`, `SearchSnippet/get` and
 `VacationResponse/…` are later slices.
 
@@ -35,7 +35,8 @@ not support yet (`Mailbox/query`'s are listed in the guide).
 
 ## `invalidArguments` — `… must be an array of ids`
 
-`ids` (or `destroy`) is not an array, or `null` where `null` is allowed.
+`ids` is neither an array nor `null` (`null` asks for every object, where
+the method allows it). Send `["id1", "id2"]`.
 
 ## `invalidArguments` — `… holds "…", which is not an id`
 
@@ -97,11 +98,17 @@ Leave `maxChanges` out for no limit.
 
 ## `invalidArguments` — `sort must be an array of at most 16 comparators`
 
+`sort` is not an array, or holds more than 16 comparators: no query
+needs more. Send `[{ "property": "receivedAt", "isAscending": false }]`.
+
 ## `invalidArguments` — `A comparator is an object with a property`
 
 Each comparator is `{ "property": "receivedAt", "isAscending": false }`.
 
 ## `invalidArguments` — `isAscending must be a boolean`
+
+A comparator's `isAscending` is `"true"` or `1`: send `true` or `false`,
+or leave it out for ascending.
 
 ## `invalidArguments` — `A filter is an object`
 
@@ -143,7 +150,13 @@ that is not an array.
 
 ## `invalidResultReference` — `The path is longer than 1024 characters`
 
+A back-reference's `path` is past 1024 characters. Real paths are short:
+`/ids`, `/list/*/threadId`.
+
 ## `invalidResultReference` — `The path has more than 32 segments`
+
+A back-reference's `path` has more than 32 `/`-separated segments; no
+JMAP response nests that deep.
 
 ## `invalidResultReference` — `The reference expands to more than … values`
 
@@ -218,9 +231,18 @@ keyword that is not one.
 
 ## `unsupportedFilter` — `operator is AND, OR or NOT`
 
+A FilterOperator's `operator` is another string, or lower case. Send
+`"AND"`, `"OR"` or `"NOT"`.
+
 ## `unsupportedFilter` — `Operators nest deeper than 16`
 
+FilterOperators inside FilterOperators past 16 levels. Flatten the
+filter: `AND` inside `AND` is one `AND`.
+
 ## `unsupportedFilter` — `The filter holds more than 256 conditions`
+
+The filter, every operator and condition counted, has more than 256
+nodes. Split the query, or use `inMailbox` and fewer conditions.
 
 ## `tooLarge` — `The query would read more than … emails: the store has no index yet`
 
