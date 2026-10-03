@@ -305,9 +305,9 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   its last coming in, a message could be passed by one page and called
   `updated` by the next. A mailbox the account does not have, or no
   longer has, is `NOT_FOUND`: after deleting a mailbox, a client drops
-  what it held of it. A change in
-  another mailbox counts too: linking a message elsewhere makes it
-  `updated` here, since its mailboxes are part of it.
+  what it held of it. A change in another mailbox counts too: linking a
+  message elsewhere makes it `updated` here, since its mailboxes are part
+  of it.
 - Pages are intermediate states. Across pages, a message that left a
   mailbox and came back may be `created` for a client that already holds
   it, and one may be `destroyed` twice: treat `created` as add-or-replace,
