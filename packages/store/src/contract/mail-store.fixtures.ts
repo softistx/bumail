@@ -1,6 +1,8 @@
 import { describe } from 'bun:test';
 import { describeAccounts } from './fixtures/accounts.fixtures';
 import { describeChanges } from './fixtures/changes.fixtures';
+import { describeChangesFilter } from './fixtures/changes-filter.fixtures';
+import { describeChangesPaging } from './fixtures/changes-paging.fixtures';
 import { describeFlags } from './fixtures/flags.fixtures';
 import { describeGuarantees } from './fixtures/guarantees.fixtures';
 import { describeMailboxes } from './fixtures/mailboxes.fixtures';
@@ -23,6 +25,8 @@ export function describeMailStore(name: string, create: CreateStore): void {
 		describeFlags(create);
 		describeMoves(create);
 		describeChanges(create);
+		describeChangesFilter(create);
+		describeChangesPaging(create);
 		describeGuarantees(create);
 	});
 }

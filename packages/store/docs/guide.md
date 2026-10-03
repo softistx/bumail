@@ -271,6 +271,7 @@ for (;;) {
 	since = changes.modseq;
 	if (!changes.hasMore) break;
 }
+const inInbox = await store.messageChanges(account.id, since, { mailboxId: inbox.id });
 const mailboxes = await store.mailboxChanges(account.id, 0);
 ```
 
@@ -283,13 +284,35 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   lists every UID expunged after `since`, even one that came into its
   mailbox after `since`, as RFC 7162 §3.2.6 asks: a client may know it
   from a session in between, and ignores a UID it does not hold.
-- `limit` caps the ids returned (JMAP's `maxChanges`); `hasMore` says to
-  ask again from the returned `modseq`. A page cuts by when each thing was
+- `limit` caps the entries returned, `created`, `updated`, `destroyed`
+  and `expunged` together (JMAP's `maxChanges`); `hasMore` says to ask
+  again from the returned `modseq`. A page cuts by when each thing was
   created, for `created`, and by its last change otherwise, so a message
   created then changed again is `created` on the first page that reaches
   it and `updated` on a later one — RFC 8620 §5.2's intermediate states.
   A page never splits the changes of one modseq, so it holds more than
-  `limit` only when one modseq alone has more.
+  `limit` only when one modseq alone has more, or, since 0, to reach the
+  oldest `since` the store answers (below).
+- `mailboxId` narrows the answer to one mailbox, for a client that holds
+  only that one — an IMAP session on it, or a JMAP view of a folder. A
+  message that came into it since `since` is `created`, even when the
+  account had it before; one that was in it at `since` and left is
+  `destroyed`, even when it is still in another mailbox; one that left
+  and came back is `updated`; and `expunged` lists only its UIDs, every
+  one expunged after `since` as above. Paging works the same, except
+  that a `created` message sorts by its first coming in after `since`
+  and a `destroyed` one by its first leaving after `since`. Sorted by
+  its last coming in, a message could be passed by one page and called
+  `updated` by the next. A mailbox the account does not have, or no
+  longer has, is `NOT_FOUND`: after deleting a mailbox, a client drops
+  what it held of it. A change in
+  another mailbox counts too: linking a message elsewhere makes it
+  `updated` here, since its mailboxes are part of it.
+- Pages are intermediate states. Across pages, a message that left a
+  mailbox and came back may be `created` for a client that already holds
+  it, and one may be `destroyed` twice: treat `created` as add-or-replace,
+  and ignore a `destroyed` id you do not hold. Following every page always
+  ends at the current state.
 - `mailboxChanges` lists mailboxes created, deleted, renamed or moved,
   and those whose messages changed, since their counts did.
 - `since` is 0 or a modseq the account gave. One the store no longer
@@ -316,7 +339,14 @@ A store of your own implements `MailStore` and:
   stream is hashed chunk by chunk — `readBlob(content)` does that, and
   returns `{ blobId, size, blob }`;
 - keeps flags with `normalizeFlag`;
-- follows the UID and modseq rules above.
+- follows the UID and modseq rules above;
+- keeps, with each removal from a mailbox, the modseq at which the message
+  had come into it — `messageChanges` with `mailboxId` needs it to tell a
+  message that was there at `since` from one that came and went — and
+  sorts its changes for paging as `messageChanges`'s JSDoc lays out: a
+  `created` message by its creation, or in one mailbox by its first coming
+  in after `since`, so no page lists an update for a message the client
+  was never given.
 
 ```ts
 import { readBlob } from '@bumail/store';

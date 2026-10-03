@@ -4,7 +4,7 @@ import type {
 	MessagesResult,
 } from '../contract/types';
 import { join } from './messages';
-import type { MemoryState, MessageState } from './state';
+import type { MemoryState, MessageState, Place } from './state';
 
 /** Takes a message out of one mailbox; destroys it when it is in none left. */
 export function expunge(
@@ -12,11 +12,17 @@ export function expunge(
 	message: MessageState,
 	mailboxId: string,
 ): Expunged {
-	const uid = (message.mailboxes.get(mailboxId) as { uid: number }).uid;
+	const { uid, modseq: joinedModseq } = message.mailboxes.get(
+		mailboxId,
+	) as Place;
 	message.mailboxes.delete(mailboxId);
 	const modseq = state.touch(message, mailboxId);
 	const expunged = { messageId: message.id, mailboxId, uid, modseq };
-	state.bury(message.accountId, { kind: 'expunged', ...expunged });
+	state.bury(message.accountId, {
+		kind: 'expunged',
+		...expunged,
+		joinedModseq,
+	});
 	if (message.mailboxes.size === 0) {
 		state.messages.delete(message.id);
 		state.release(message.accountId, message.blobId);
@@ -50,7 +56,7 @@ export function moveMessages(
 	const joining = found.filter((message) => !message.mailboxes.has(to));
 	state.checkUids(target, joining.length);
 	for (const message of found) {
-		const uid = (message.mailboxes.get(from) as { uid: number }).uid;
+		const { uid, modseq: joinedModseq } = message.mailboxes.get(from) as Place;
 		message.mailboxes.delete(from);
 		const modseq = state.touch(message, from);
 		if (!message.mailboxes.has(to)) join(target, message, modseq);
@@ -60,6 +66,7 @@ export function moveMessages(
 			mailboxId: from,
 			uid,
 			modseq,
+			joinedModseq,
 		});
 	}
 	return view();

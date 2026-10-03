@@ -69,11 +69,15 @@ const changes = await store.messageChanges(account.id, since, { limit: 500 });
 changes.created; changes.updated; changes.destroyed; // message ids
 changes.expunged; // { messageId, mailboxId, uid, modseq } for IMAP's VANISHED
 since = changes.modseq; // next time; ask again at once while changes.hasMore
+
+// One mailbox only, for an IMAP session on it: moved in is created, moved out destroyed
+await store.messageChanges(account.id, since, { mailboxId: inbox.id });
 ```
 
-`mailboxChanges` does the same for mailboxes. This is what IMAP's
-CONDSTORE and QRESYNC (RFC 7162) and JMAP's `/changes` need. `since` 0 is
-always answered, with the account's whole state, so it is also where to
+`limit` counts the entries of all four lists; `mailboxChanges` pages the
+same way over its three. This is what IMAP's CONDSTORE and QRESYNC (RFC 7162) and JMAP's `/changes` need. `since` 0 is
+always answered, with the account's whole state (or, with `mailboxId`,
+that mailbox's), so it is also where to
 start over after `CANNOT_CALCULATE_CHANGES`.
 
 ## Writing a store
@@ -99,7 +103,7 @@ follows.
 | `Account`, `Mailbox`, `MailboxRole`, `Message`, `Membership`, `MailboxEntry`, `Expunged` | what a store returns |
 | `MessagesResult`, `FlagResult`, `ExpungeResult`, `MessagePage` | what the calls on several messages return: the messages or expunges, and `notFound`; a page of `listAccountMessages` |
 | `MessageChanges`, `MailboxChanges` | what the changes return |
-| `NewMailbox`, `MailboxRename`, `NewMessage`, `Content`, `FlagChange`, `FlagOptions`, `ListOptions`, `AccountListOptions`, `ChangesOptions` | what a store takes |
+| `NewMailbox`, `MailboxRename`, `NewMessage`, `Content`, `FlagChange`, `FlagOptions`, `ListOptions`, `AccountListOptions`, `ChangesOptions`, `MessageChangesOptions` | what a store takes |
 | `StoreError`, `StoreErrorCode` | `NOT_FOUND`, `ALREADY_EXISTS`, `INVALID`, `CANNOT_CALCULATE_CHANGES` |
 | `blobIdOf(bytes)` | the SHA-256 of a message's bytes, in hex; takes a `Uint8Array` only |
 | `readBlob(content)`, `ReadBlob` | content read to its end: `{ blobId, size, blob }`, a stream hashed chunk by chunk |

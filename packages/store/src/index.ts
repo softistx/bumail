@@ -21,6 +21,7 @@ export type {
 	Membership,
 	Message,
 	MessageChanges,
+	MessageChangesOptions,
 	MessagePage,
 	MessagesResult,
 	NewMailbox,

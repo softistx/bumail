@@ -103,9 +103,9 @@ export interface MessageChanges {
 	readonly created: readonly string[];
 	/** Flags or mailboxes changed. */
 	readonly updated: readonly string[];
-	/** Gone from every mailbox. */
+	/** Gone from every mailbox; with `mailboxId`, gone from that one. */
 	readonly destroyed: readonly string[];
-	/** Every message that left a mailbox in the same range, for IMAP. */
+	/** Every message that left a mailbox in the same range, for IMAP; with `mailboxId`, only that one's. */
 	readonly expunged: readonly Expunged[];
 }
 
@@ -208,4 +208,19 @@ export interface MessagePage {
 export interface ChangesOptions {
 	/** At most this many ids in created, updated and destroyed together (JMAP `maxChanges`). */
 	readonly limit?: number;
+}
+
+export interface MessageChangesOptions extends ChangesOptions {
+	/**
+	 * At most this many entries in created, updated, destroyed and
+	 * expunged together (JMAP `maxChanges`).
+	 */
+	readonly limit?: number;
+	/**
+	 * Only this mailbox's changes, for a client that holds one mailbox (an
+	 * IMAP session on it): a message that came into it since is `created`,
+	 * one that left it is `destroyed`, one that stayed and changed is
+	 * `updated`, and `expunged` lists only its UIDs.
+	 */
+	readonly mailboxId?: string;
 }
