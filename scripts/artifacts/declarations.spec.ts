@@ -71,6 +71,14 @@ describe('declarationSpecifiers', () => {
 		).toEqual(['leading', 'attribute-second']);
 	});
 
+	test('a leading #! line hides no reference', () => {
+		expect(
+			declarationSpecifiers(
+				'#!/usr/bin/env node\n/// <reference types="shebang" />\nexport {};',
+			),
+		).toEqual(['shebang']);
+	});
+
 	test('reads a module augmentation, not the ambient module of a script', () => {
 		expect(
 			declarationSpecifiers(

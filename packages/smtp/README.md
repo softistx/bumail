@@ -212,7 +212,10 @@ console.log(`listening on ${port}, ${server.connections} open`);
   `message.signal` says so: it aborts whenever the server refuses the
   message on `onData`'s behalf — for example late, a throw, an answer that
   is not a refusal, the stream's own errors, or the connection closed
-  before the reply; the guide's table lists every case. Check
+  before the reply; the guide's table lists every case. A refusal `onData`
+  returns leaves it alone, unless the client never hears it: a later
+  stream failure or a closed connection still aborts it, with that error,
+  and the server's reply replaces `onData`'s. Check
   `if (message.signal.aborted) return;`
   just before keeping a message for good —
   [the guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md#when-the-refusal-comes-after-the-read)
@@ -239,7 +242,7 @@ console.log(`listening on ${port}, ${server.connections} open`);
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |
 | `HookResult` | what a hook returns: `undefined` to accept, a `Reply` to refuse |
 | `Session` | `id`, `remoteAddress`, `secure`, `helo`, `esmtp`, `user`, and `data` for your own state |
-| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`), `content`, a `ReadableStream<Uint8Array>`, and `signal`, an `AbortSignal` aborted when the message is refused for a reason `onData` did not answer itself |
+| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`), `content`, a `ReadableStream<Uint8Array>`, and `signal`, an `AbortSignal` aborted when the server refuses the message on `onData`'s behalf — a refusal `onData` returns leaves it alone, unless a later stream failure or a closed connection answers instead |
 | `TlsOptions` | `key` and `cert`, as `Bun.listen` takes them |
 | `Credentials` | what `authenticate` receives: `mechanism`, `username`, `password`, `authorizationId?` |
 | `reply(code, status, text)`, `Reply` | a reply, for a hook to refuse with |

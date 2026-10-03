@@ -27,20 +27,11 @@ const HIGH_WATER_MARK = 64 * 1024;
  * `onData` to read, and so stops reading the client.
  *
  * The stream ends in an `SmtpError` when the message must not be
- * delivered — too big, a bare CR or LF (SMTP smuggling), the connection gone —
- * and the reply to DATA is then the refusal, whatever `onData` answered.
- * The 250 goes out only when `onData` read the stream to its clean end and
- * resolved without a refusal. An `onData` that accepts before the end, or
- * after cancelling the stream, gets `451 4.3.0` and a `MESSAGE_NOT_READ`
- * report; one that refuses gets its own refusal, read or not. Either way a
- * stream left unread errors with `MESSAGE_NOT_READ`, so a reader still
- * running never reaches a clean end.
- *
- * Whenever the server refuses the message on `onData`'s behalf — the stream
- * failed, it timed out, threw, answered what is not a refusal, accepted
- * without reading to the end, or the connection closed before the reply —
- * the message's `signal` aborts with the reason, even once the stream had
- * ended cleanly. A refusal `onData` returns itself leaves it alone.
+ * delivered, and the reply to DATA is then that refusal, whatever `onData`
+ * answered. The 250 goes out only when `onData` read the stream to its
+ * clean end and accepted; a stream left unread errors with
+ * `MESSAGE_NOT_READ`. When the message's `signal` aborts is set out on
+ * `ReceivedMessage.signal`.
  */
 export class Intake {
 	readonly id = crypto.getRandomValues(new Uint8Array(10)).toHex();
@@ -115,7 +106,8 @@ export class Intake {
 			connection.report(error);
 		};
 		try {
-			// onData starts once Input has set the transaction waiting on it.
+			// Keeps onData starting after Input has set up the transaction, as
+			// connection.hook did; nothing observable depends on it today.
 			await Promise.resolve();
 			const answer = await connection.settings.options.onData(
 				message,

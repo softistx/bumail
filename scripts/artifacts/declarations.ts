@@ -30,8 +30,8 @@ const FORMS = [
 const AUGMENTATION = new RegExp(`\\bdeclare\\s+module\\s*${LITERAL}`, 'g');
 
 /**
- * Whether top-level code makes a module, as tsc decides: an import, an
- * export, or a type's `import('x')` outside any block.
+ * Whether top-level code makes a module, as `ts.preProcessFile` decides:
+ * an import, an export, or a type's `import('x')` outside any block.
  */
 const MODULE = /(?:^|[;}\s=<(|&,])(?:import|export)\b/;
 
@@ -66,7 +66,13 @@ class Scanner {
 	/** Code came: from here on a triple-slash line is a comment, as for tsc. */
 	#codeSeen = false;
 
-	constructor(readonly text: string) {}
+	constructor(readonly text: string) {
+		// A leading `#!` line is no code: the references after it still lead.
+		if (text.startsWith('#!')) {
+			const end = text.indexOf('\n');
+			this.#i = end < 0 ? text.length : end;
+		}
+	}
 
 	/** The code to the end of the text, or to the `}` that closes a template's `${`. */
 	code(inSubstitution = false): string {

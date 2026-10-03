@@ -57,7 +57,9 @@ export interface ReceivedMessage {
 	 * answer within `hookTimeout`, threw, or answered what is not a
 	 * refusal, or the connection closed before the reply. Its `reason` is
 	 * the `SmtpError`, or what `onData` threw. A refusal `onData` returns
-	 * itself leaves it alone, read or not. The stream may already have
+	 * leaves it alone, unless the client never hears it: a later stream
+	 * failure or a closed connection still aborts it, with that error, and
+	 * the server's reply replaces `onData`'s. The stream may already have
 	 * ended cleanly, so check `signal.aborted` (or listen for `abort`)
 	 * before keeping a message for good: the client will send it again.
 	 */

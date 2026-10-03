@@ -377,8 +377,11 @@ export interface ReceivedMessage {
 	 */
 	readonly content: ReadableStream<Uint8Array>;
 	/**
-	 * Aborts when the message is refused for a reason `onData` did not
-	 * answer itself; its `reason` says why.
+	 * Aborts when the server refuses the message on `onData`'s behalf; its
+	 * `reason` says why. A refusal `onData` returns leaves it alone, unless
+	 * the client never hears it: a later stream failure or a closed
+	 * connection still aborts it, with that error, and the server's reply
+	 * replaces `onData`'s.
 	 */
 	readonly signal: AbortSignal;
 }
@@ -458,12 +461,13 @@ then refused whatever `onData` answers:
 | --- | --- | --- |
 | `MESSAGE_TOO_BIG` | the message passed `maxMessageSize` | `552 5.3.4 Message too big for system` |
 | `BARE_LINE_BREAK` | a CR or LF that is not part of a CRLF: SMTP smuggling | `550 5.6.11 Bare CR or LF is not allowed in a message` |
-| `CONNECTION_LOST` | the client hung up before the end | nothing: it is gone |
+| `CONNECTION_LOST` | the connection closed before the end — the client hung up, or the server closed it on idle `timeout` or a socket error | nothing: it is gone |
 | `MESSAGE_NOT_READ` | `onData` answered before the end: a read it left running errors the moment it answers | `451 4.3.0 Local error in processing` |
 | `HOOK_TIMEOUT` | `onData` read nothing for `hookTimeout` seconds, or did not answer within `hookTimeout` once the message ended — a late read must not keep a message the client will send again | `451 4.3.0 Local error in processing` |
 
-The refusal goes out as soon as the stream errors; the rest of the message
-is read and dropped, and the session goes on. `onData` itself must settle
+The stream errors at once; the rest of the message is read and dropped,
+and the refusal goes out when the client ends DATA with `<CRLF>.<CRLF>`,
+since SMTP has no reply before then. The session goes on. `onData` itself must settle
 within `hookTimeout` once the message ended, or the client gets `451 4.3.0`.
 
 An `onData` that resolves without a refusal before it read the stream to
@@ -508,10 +512,12 @@ behalf.
 | `SmtpError` `CONNECTION_LOST` | the connection closed — the client hung up, or the server closed it on idle or a socket error — before the end of the message, or after it but before the reply |
 | `SmtpError` `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK` | the stream's own errors |
 
-A refusal `onData` returns itself leaves the signal alone, whether it read
-the message or not (a read it left running still errors with
-`MESSAGE_NOT_READ`), and so does a client that leaves once the reply was
-sent. Check it, or listen for
+A refusal `onData` returns leaves the signal alone, whether it read the
+message or not (a read it left running still errors with
+`MESSAGE_NOT_READ`), unless the client never hears it: a later stream
+failure or a closed connection still aborts it, with that error, and the
+server's reply replaces `onData`'s. A client that leaves once the reply
+was sent does not abort it. Check it, or listen for
 `abort`, before keeping a message for good:
 
 ```ts

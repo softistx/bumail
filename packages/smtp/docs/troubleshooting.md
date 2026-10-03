@@ -1038,9 +1038,9 @@ the end nor answered within `hookTimeout` seconds. The client got
 that ended cleanly after that would deliver it twice.
 
 **Fix**: read the stream inside `onData`, and before keeping the message
-check `message.signal`: it aborts whenever the message is refused for a
-reason `onData` did not answer itself, including when the read had already
-ended cleanly and only the answer was late. Or raise `hookTimeout` above what the slow work takes:
+check `message.signal`: it aborts whenever the server refuses the message
+on `onData`'s behalf, including when the read had already ended cleanly
+and only the answer was late. Or raise `hookTimeout` above what the slow work takes:
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';
@@ -1177,14 +1177,17 @@ read never reaches a clean end. The client got `451 4.3.0 Local error in
 processing`, never `250`, keeps the message, and `message.signal` aborts
 with this error. An `onData` that refuses before reading gets its own
 refusal sent, its signal left alone and nothing reported; only a read it
-left running ends in this error.
+left running ends in this error. That holds unless the client never hears
+the refusal: a later stream failure or a closed connection still aborts
+the signal, with that error, and the server's reply replaces `onData`'s.
 
 **Why**: a `250` makes the server responsible for the message. An `onData`
 that stopped early has stored part of it at most, so the server does not
 claim it took it.
 
 **Fix**: read the stream to its end before returning — or refuse with a
-`Reply`, which needs no reading and leaves `message.signal` alone:
+`Reply`, which needs no reading and leaves `message.signal` alone unless
+a later stream failure or a closed connection answers instead:
 
 ```ts
 import { createSmtpServer, reply } from '@bumail/smtp';
