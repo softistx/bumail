@@ -2,8 +2,8 @@ import { type RecipientReply, SmtpError } from '../errors';
 import { DataWriter } from '../protocol/data-writer';
 import type { Reply } from '../protocol/reply';
 import { bareLineBreak, type Content } from './content';
+import { refused, shown } from './refusal';
 import type { Ready } from './session';
-import { refused, shown } from './session';
 import type { ClientSettings } from './settings';
 import type { ClientSocket } from './socket';
 
@@ -109,8 +109,16 @@ async function data(
 	if (start.code !== 354) throw refused(host, 'DATA', start);
 	const writer = new DataWriter(settings.normalizeLineEnds);
 	const eightBitOk = ready.extensions.has('8BITMIME');
+	const chunks = content.chunks();
 	try {
-		for await (const chunk of content.chunks()) {
+		for (;;) {
+			// The caller's stream is bounded as the server is: a stalled one times out.
+			const chunk = await socket.within(
+				chunks.next(),
+				timeouts.dataBlock,
+				'the next part of the message',
+			);
+			if (!chunk) break;
 			const bytes = writer.write(chunk);
 			if (writer.bareLineBreaks > 0) throw bareLineBreak();
 			if (writer.eightBit && !eightBitOk) {
@@ -125,7 +133,8 @@ async function data(
 		}
 	} catch (error) {
 		// No final dot: the server drops what it has of the message.
-		socket.abort();
+		chunks.cancel();
+		socket.close(true);
 		throw error;
 	}
 	socket.write(writer.end());

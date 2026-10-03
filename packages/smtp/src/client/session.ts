@@ -1,8 +1,7 @@
 import { SmtpError } from '../errors';
 import { parseEhlo } from '../protocol/ehlo';
-import type { Reply } from '../protocol/reply';
-import { replyText } from '../protocol/reply-reader';
 import { encodeLoginStep, encodePlain } from '../protocol/sasl';
+import { refused, shown } from './refusal';
 import type { ClientSettings } from './settings';
 import type { ClientSocket } from './socket';
 import type { TlsTarget } from './target';
@@ -11,20 +10,6 @@ import type { TlsTarget } from './target';
 export interface Ready {
 	readonly extensions: ReadonlyMap<string, string>;
 	readonly authenticated: boolean;
-}
-
-/** A reply as an error message shows it: code, status, text, cut at 200 characters. */
-export function shown(reply: Reply): string {
-	const text = replyText(reply);
-	const line = `${reply.code}${reply.status ? ` ${reply.status}` : ''} ${text}`;
-	return line.length > 200 ? `${line.slice(0, 200)}…` : line;
-}
-
-/** `REFUSED`, temporary for a 4xx: the server said no to `what`. */
-export function refused(host: string, what: string, reply: Reply): SmtpError {
-	return new SmtpError('REFUSED', `${host} refused ${what}: ${shown(reply)}`, {
-		reply,
-	});
 }
 
 /** EHLO, or HELO when the server refuses EHLO with a 5xx (RFC 5321 §4.1.4). */

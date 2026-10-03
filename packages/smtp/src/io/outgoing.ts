@@ -25,7 +25,9 @@ export class Outgoing {
 			return;
 		}
 		const written = this.#write(bytes);
-		if (written < bytes.length) this.#queue.push(bytes.subarray(written));
+		if (written < bytes.length) {
+			this.#queue.push(bytes.subarray(Math.max(written, 0)));
+		}
 	}
 
 	/** The socket's `drain`: it can take more. True once everything has left. */

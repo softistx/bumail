@@ -16,10 +16,13 @@ function dnsCode(error: unknown): string | undefined {
 		: undefined;
 }
 
-/** As `@bumail/dns`'s `isTemporary`: only "no such record" and a refused name are permanent. */
+/**
+ * `@bumail/dns`'s `isTemporary`, copied so the client imports nothing of it
+ * at runtime: anything but a `DnsError`, a `TEMPORARY` and a `TIMEOUT` are.
+ */
 function temporary(error: unknown): boolean {
 	const code = dnsCode(error);
-	return code !== 'NOT_FOUND' && code !== 'INVALID_NAME';
+	return code === undefined || code === 'TEMPORARY' || code === 'TIMEOUT';
 }
 
 const messageOf = (error: unknown) =>
@@ -44,13 +47,14 @@ export async function resolveMx(
 	domain: string,
 	resolver: Pick<MxResolver, 'mx'>,
 ): Promise<MailHost[]> {
+	const implicit = [
+		{ host: domain.toLowerCase(), priority: 0, implicit: true },
+	];
 	let records: Awaited<ReturnType<MxResolver['mx']>>;
 	try {
 		records = await resolver.mx(domain);
 	} catch (error) {
-		if (dnsCode(error) === 'NOT_FOUND') {
-			return [{ host: domain.toLowerCase(), priority: 0, implicit: true }];
-		}
+		if (dnsCode(error) === 'NOT_FOUND') return implicit;
 		throw new SmtpError(
 			'DNS_FAILED',
 			`Could not look up the MX records of ${domain}: ${messageOf(error)}`,
@@ -64,6 +68,8 @@ export async function resolveMx(
 			priority: record.priority,
 			implicit: false,
 		}));
+	// A resolver of your own may answer "none" with no record at all.
+	if (records.length === 0) return implicit;
 	if (hosts.length === 0) {
 		throw new SmtpError(
 			'NULL_MX',
@@ -95,9 +101,10 @@ export async function addressesOf(
 
 /** `DNS_FAILED` for a domain none of whose hosts had an address. */
 export function noAddress(domain: string, error: unknown): SmtpError {
+	const why = error === undefined ? 'no A or AAAA record' : messageOf(error);
 	return new SmtpError(
 		'DNS_FAILED',
-		`No mail host of ${domain} has an address: ${messageOf(error)}`,
-		{ temporary: temporary(error) },
+		`No mail host of ${domain} has an address: ${why}`,
+		{ temporary: error !== undefined && temporary(error) },
 	);
 }

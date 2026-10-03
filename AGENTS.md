@@ -173,6 +173,13 @@ Every PR goes into `develop`. Before merging:
   them by full GitHub URL on `develop`, since npm does not resolve relative
   links.
 
+## Deliberate duplications
+
+- `packages/smtp/src/client/mx.ts` copies `@bumail/dns`'s `isTemporary`
+  (and reads a `DnsError` by its `name` and `code`): the client imports
+  nothing of `@bumail/dns` at runtime, so the optional peer stays optional
+  for a smarthost-only app. Change both together.
+
 ## Prior work
 
 `softistx/nxgt-mail` writes and sends transactional e-mail (Maizzle

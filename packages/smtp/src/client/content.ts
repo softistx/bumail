@@ -5,14 +5,20 @@ import type { MessageSource } from './options';
 /** The slice of a message in memory sent at once. */
 const SLICE = 64 * 1024;
 
+/** The message's bytes, one slice at a time; `undefined` once they end. */
+export interface Chunks {
+	next(): Promise<Uint8Array | undefined>;
+	/** Stops reading: a delivery that failed half-way. */
+	cancel(): void;
+}
+
 /** A message ready to send: what is known of it before the first byte, and its bytes. */
 export interface Content {
 	/** Bytes, when known before sending: SIZE declares it. */
 	readonly size?: number;
 	/** A byte above 127, when known before sending: it needs 8BITMIME. */
 	readonly eightBit: boolean;
-	/** The message's bytes, as they come. */
-	chunks(): AsyncIterable<Uint8Array>;
+	chunks(): Chunks;
 }
 
 /** The error for a bare CR or LF in the message: a server must refuse it, and this client does first. */
@@ -22,32 +28,45 @@ export const bareLineBreak = () =>
 		'sendMail(): the message holds a bare CR or LF, which a server must refuse (SMTP smuggling); end every line with CRLF, or pass normalizeLineEnds: true',
 	);
 
-async function* slices(bytes: Uint8Array): AsyncIterable<Uint8Array> {
-	for (let at = 0; at < bytes.length; at += SLICE) {
-		yield bytes.subarray(at, at + SLICE);
-	}
+/** Bytes in `SLICE`s, so no chunk sent at once is larger. */
+function sliced(next: () => Promise<Uint8Array | undefined>) {
+	let held: Uint8Array | undefined;
+	return async (): Promise<Uint8Array | undefined> => {
+		if (!held || held.length === 0) held = await next();
+		if (!held) return undefined;
+		const slice = held.subarray(0, SLICE);
+		held = held.subarray(SLICE);
+		return slice;
+	};
 }
 
-async function* streamed(
-	stream: ReadableStream<Uint8Array>,
-): AsyncIterable<Uint8Array> {
+function fromBytes(bytes: Uint8Array): Chunks {
+	let given = false;
+	const next = sliced(async () => {
+		if (given) return undefined;
+		given = true;
+		return bytes;
+	});
+	return { next, cancel() {} };
+}
+
+function fromStream(stream: ReadableStream<Uint8Array>): Chunks {
 	const reader = stream.getReader();
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) return;
-			if (!(value instanceof Uint8Array)) {
-				throw new SmtpError(
-					'INVALID_OPTION',
-					'sendMail(): a message stream must give Uint8Array chunks',
-				);
-			}
-			yield value;
+	const next = sliced(async () => {
+		const { done, value } = await reader.read();
+		if (done) return undefined;
+		if (!(value instanceof Uint8Array)) {
+			throw new SmtpError(
+				'INVALID_OPTION',
+				'sendMail(): a message stream must give Uint8Array chunks',
+			);
 		}
-	} finally {
-		// A delivery that failed half-way stops the stream it read.
-		reader.cancel().catch(() => {});
-	}
+		return value;
+	});
+	return {
+		next,
+		cancel: () => void reader.cancel().catch(() => {}),
+	};
 }
 
 /**
@@ -73,7 +92,7 @@ export function contentOf(
 					);
 				}
 				read = true;
-				return streamed(message);
+				return fromStream(message);
 			},
 		};
 	}
@@ -86,15 +105,17 @@ export function contentOf(
 			'sendMail(): the message must be a Uint8Array, a string or a ReadableStream',
 		);
 	}
+	// One dry run: what the server will be sent, its size as normalised.
 	const writer = new DataWriter(normalize);
+	let sent = 0;
 	for (let at = 0; at < bytes.length; at += SLICE) {
-		writer.write(bytes.subarray(at, at + SLICE));
+		sent += writer.write(bytes.subarray(at, at + SLICE)).length;
 	}
 	writer.end();
 	if (writer.bareLineBreaks > 0) throw bareLineBreak();
 	return {
-		size: bytes.length,
+		size: sent,
 		eightBit: writer.eightBit,
-		chunks: () => slices(bytes),
+		chunks: () => fromBytes(bytes),
 	};
 }

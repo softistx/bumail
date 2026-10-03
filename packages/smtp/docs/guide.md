@@ -962,6 +962,9 @@ at that domain: group them by domain first, one `sendMail` each.
 - With PIPELINING (RFC 2920), MAIL FROM and every RCPT TO go in one write,
   and the replies are read in order. Without it, each waits for its reply.
   DATA always waits: if every recipient was refused, no content is sent.
+- A server that refuses the message during DATA (a `552` before the dot)
+  and hangs up is reported by its reply, `REFUSED`, not as a lost
+  connection.
 - After a refusal, the client says `QUIT` and hangs up. A message cut short —
   a stream that errors, a bare line break, a timeout — is never ended with
   the dot: the client hangs up, and the server drops what it had.
@@ -1016,6 +1019,10 @@ a local test server, such as Mailpit with `--smtp-auth-allow-insecure`:
 the password crosses the network in base64, which anyone on the path reads.
 Never set it for a server elsewhere. With it, `tls` defaults to
 `'opportunistic'`; `tls: 'none'` with `auth` is refused without it.
+
+`tls: 'opportunistic'` with `auth`, asked for explicitly, is allowed: the
+credentials then go over TLS whose certificate is not checked, which an
+active attacker can intercept. Leave `tls` out to have it checked.
 
 ### The message
 
@@ -1109,7 +1116,8 @@ client connects to each address in turn, with TLS checked against the MX
 host's name. It moves on after a failure that is temporary and came before
 MAIL FROM — no connection, a dropped connection, a `421` greeting, a 4xx to
 EHLO, no STARTTLS when it is required, a TLS failure — and stops at a 5xx
-or once MAIL FROM was sent. It tries 10 addresses at most. When every host
+or once MAIL FROM was sent. It tries 10 addresses at most, and looks up
+no host past them. When every host
 failed, it rejects with the last failure; when none had an address, with
 `DNS_FAILED`.
 
@@ -1132,12 +1140,17 @@ console.log(await resolveMx('example.org', resolver));
 
 `@bumail/dns` is an optional peer of this package: install it for MX
 delivery, or pass any object with its `mx`, `a` and `aaaa`. A failure is
-read by its `DnsError` shape (`name` and `code`), so another resolver's
-errors are temporary unless they say `NOT_FOUND` or `INVALID_NAME`.
+read by its `DnsError` shape (`name` and `code`), as `@bumail/dns`'s
+`isTemporary` reads it: `TEMPORARY`, `TIMEOUT`, and anything that is not
+a `DnsError` are temporary. A resolver that answers with an empty array
+rather than `NOT_FOUND` is read the same way: no MX is the implicit MX, no
+address is a permanent `DNS_FAILED`.
 
 ### Timeouts and limits
 
-Every wait has a timeout, RFC 5321 §4.5.3.2's by default, in seconds:
+Every wait has a timeout, RFC 5321 §4.5.3.2's by default, in seconds. It
+is the whole wait — from the command to the last line of its reply — so a
+server that trickles a line at a time does not stretch it:
 
 | `timeouts.` | waits for | default |
 | --- | --- | --- |
@@ -1147,7 +1160,7 @@ Every wait has a timeout, RFC 5321 §4.5.3.2's by default, in seconds:
 | `mail` | the reply to MAIL FROM | 300 |
 | `rcpt` | the reply to each RCPT TO | 300 |
 | `dataStart` | the 354 | 120 |
-| `dataBlock` | the server to take each block of the message | 180 |
+| `dataBlock` | the server to take each block of the message, and your stream to give the next one | 180 |
 | `dataEnd` | the reply to the final dot | 600 |
 
 `deadline` (1800 seconds by default) bounds the whole delivery, every host

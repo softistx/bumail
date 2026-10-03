@@ -8,7 +8,7 @@ import type {
 	SendMailResult,
 } from './options';
 import { open } from './session';
-import { type ClientSettings, portOf, settingsOf } from './settings';
+import { type ClientSettings, invalid, portOf, settingsOf } from './settings';
 import { ClientSocket } from './socket';
 import { Clock, type Endpoint, type TlsTarget } from './target';
 import { transact } from './transaction';
@@ -21,9 +21,6 @@ const QUIT_WAIT = 5;
 
 /** Errors from before MAIL FROM: another MX host may do better. */
 const early = new WeakSet<object>();
-
-const invalid = (message: string) =>
-	new SmtpError('INVALID_OPTION', `sendMail(): ${message}`);
 
 /** One session with one server, from the connection to QUIT. */
 async function attempt(
@@ -94,14 +91,15 @@ async function viaMx(
 	let last: unknown;
 	let dnsError: unknown;
 	let tried = 0;
-	for (const mx of await resolveMx(domain, resolver)) {
+	hosts: for (const mx of await resolveMx(domain, resolver)) {
+		if (tried >= MAX_ADDRESSES) break;
 		const addresses = await addressesOf(mx.host, resolver);
 		if (!Array.isArray(addresses)) {
 			dnsError = addresses.error;
 			continue;
 		}
 		for (const address of addresses) {
-			if (tried++ >= MAX_ADDRESSES) break;
+			if (tried++ >= MAX_ADDRESSES) break hosts;
 			try {
 				return await attempt(
 					{ host: mx.host, address, port },

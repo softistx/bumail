@@ -1655,7 +1655,9 @@ port 25 — use a smarthost on 587 then.
 
 **When**: a step took longer than its timeout: `the connection`, `the
 greeting`, `the reply to MAIL FROM`, `the server to take the message`…
-Temporary.
+Temporary. `the next part of the message` is your own stream: it gave
+nothing for `timeouts.dataBlock` seconds, and the client hung up before the
+dot.
 
 **Why**: every wait is bounded, so a slow or silent server cannot hold the
 delivery.
@@ -1879,8 +1881,9 @@ once, with no fallback to its address.
 ### `SmtpError: No mail host of … has an address: …`
 
 **When**: neither the MX hosts nor (with no MX) the domain itself have an A
-or AAAA record. Permanent when the DNS said so, temporary when a lookup
-failed.
+or AAAA record. Permanent when the DNS said so — or the resolver answered
+with no record, and the message ends `no A or AAAA record` — temporary
+when a lookup failed.
 
 **Why**: RFC 5321 §5.1: a domain with no MX is reached at its own address,
 and this one has none.

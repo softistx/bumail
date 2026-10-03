@@ -38,16 +38,17 @@ export class Clock {
 	}
 
 	/**
-	 * `promise`, or what `expire` gives, thrown past `seconds` or the
-	 * deadline, whichever comes first; `deadline` says which it was.
+	 * `promise`, or what `expire` gives, thrown once `ms` passed or the
+	 * deadline did, whichever comes first; `deadline` says which it was.
 	 */
 	async race<T>(
 		promise: Promise<T>,
-		seconds: number,
+		ms: number,
 		expire: (deadline: boolean) => Error,
 	): Promise<T> {
-		const ms = Math.min(seconds * 1000, this.#end - performance.now());
-		const deadline = ms < seconds * 1000;
+		const left = this.#end - performance.now();
+		const deadline = left < ms;
+		ms = Math.min(ms, left);
 		if (ms <= 0) throw expire(deadline);
 		let timer: Timer | undefined;
 		const expired = new Promise<never>((_, reject) => {

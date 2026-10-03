@@ -41,7 +41,8 @@ export interface ClientSettings {
 	readonly deadline: number;
 }
 
-const invalid = (message: string) =>
+/** `INVALID_OPTION`, for an option `sendMail` cannot take. */
+export const invalid = (message: string) =>
 	new SmtpError('INVALID_OPTION', `sendMail(): ${message}`);
 
 const HELO = /^(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*|\[[0-9A-Fa-f:.Iv]+\])$/;
