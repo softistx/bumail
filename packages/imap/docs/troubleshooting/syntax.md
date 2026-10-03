@@ -58,6 +58,23 @@ follow at once, it closes the connection instead:
 
 No command this server implements needs more.
 
+## `BAD [TOOBIG] Literal over 1024 bytes before login`
+
+Before login, a literal is at most 1 KiB, whatever `maxLiteralSize` says:
+only LOGIN takes strings then, and a user name or a password is shorter.
+It is the bound LITERAL- (RFC 7888) sets, so a connection nobody has
+authenticated holds a few KiB of the server, not megabytes. For `{n+}` the
+connection closes instead:
+`* BYE [TOOBIG] Literal over 1024 bytes before login, closing`. A client
+sending a longer password as a literal should log in with AUTHENTICATE
+PLAIN, whose response is a line of base64.
+
+## `BAD More than 2 literals before login`
+
+A command sent before login announced a third literal: LOGIN needs two at
+most, the user name and the password. For `{n+}` the connection closes
+instead: `* BYE More than 2 literals before login, closing`.
+
 ## `BAD Lists nest too deep` and `BAD Search keys nest too deep`
 
 Parentheses, or `NOT` and `OR`, nested more than 32 deep.

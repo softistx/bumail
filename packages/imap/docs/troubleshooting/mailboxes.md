@@ -12,7 +12,10 @@ An IMAP4rev1 session writes a mailbox name that is not ASCII in modified
 UTF-7 (RFC 3501 §5.1.3), and this name did not decode: an `&` that does
 not start a valid `&…-` run, such as `R&D` (which is written `R&-D`).
 The client meant the name in UTF-8: it should send `ENABLE IMAP4rev2`
-first, after which names travel in UTF-8, or encode it. `encodeUtf7` gives
+first, after which names travel in UTF-8, or encode it. The `…` is the
+name as the client sent it, cut after 100 characters (`...`), with any
+control character — a CR or LF in a literal — left out: client text never
+goes back raw, so it cannot end the line and forge a response. `encodeUtf7` gives
 the form a rev1 client should send:
 
 ```ts
@@ -25,7 +28,24 @@ encodeUtf7('R&D'); // 'R&-D'
 CREATE or RENAME to a name with two delimiters in a row, or one at the
 start: `Work//2026`, `/Work`. One trailing delimiter is dropped
 (`Work/` creates `Work`, RFC 9051 §6.3.4); an empty level in the middle
-is not a name the store can keep.
+is not a name the store can keep. As everywhere a response repeats the
+client's text, the name is cut after 100 characters, control characters
+left out.
+
+## `NO [LIMIT] A mailbox name has at most 32 levels`
+
+CREATE or RENAME to a name 33 levels deep or more: `a/b/c/…`. Every look
+at the account's mailboxes — LIST, SELECT, STATUS, each command naming
+one — builds each mailbox's full name from its parents, so a deep tree
+costs every later command. Mail clients nest a handful of levels; one
+that hits this is generating names. Flatten the hierarchy.
+
+## `NO [LIMIT] A mailbox name is at most 1024 characters`
+
+CREATE or RENAME to a name over 1024 characters, every level and
+delimiter counted. LIST's patterns have the same bound
+([`BAD The pattern is too long`](#bad-the-pattern-is-too-long)). Use a
+shorter name.
 
 ## `BAD CREATE parameters are not supported`
 
@@ -87,6 +107,13 @@ a list without the word `RETURN` before it.
 The reference and the pattern of LIST or LSUB, once joined, are over 1024
 characters. No mailbox name is that long; the client built the pattern
 wrong.
+
+## `BAD More than 16 patterns in one LIST`
+
+LIST-EXTENDED (RFC 5258 §3) lets a LIST carry a list of patterns, `LIST ""
+(INBOX Work/* %)`; this server takes 16 at most, since each one is matched
+against every mailbox. Send several LISTs, or one pattern that covers
+them: `*` lists everything.
 
 ## `NO [NONEXISTENT] No such mailbox`
 

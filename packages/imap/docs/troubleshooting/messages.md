@@ -146,13 +146,16 @@ date as `d-Mon-yyyy` (RFC 9051 §9 `date`), with no time: `SINCE
 a1 SEARCH SINCE 1-Oct-2026 BEFORE 3-Oct-2026
 ```
 
+## `BAD More than 32 TEXT or BODY keys in one SEARCH`
+
+TEXT and BODY read each message through, once per key: a SEARCH holds 32
+of them at most, counted inside OR, NOT and parentheses too. Search for
+fewer strings at a time, or narrow the search first with a date or a
+sequence set and search again.
+
 ## `NO [BADCHARSET (UTF-8 US-ASCII)] Unsupported charset`
 
 SEARCH CHARSET other than UTF-8 or US-ASCII.
-
-## `NO [CANNOT] The messages are already in this mailbox`
-
-MOVE to the selected mailbox. COPY does that.
 
 ## `NO [SERVERBUG] Internal error`
 

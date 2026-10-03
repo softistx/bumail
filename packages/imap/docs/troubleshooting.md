@@ -6,6 +6,13 @@ prints it. `…` stands for the part that varies. A tagged response starts
 with the client's tag (`a1 NO …`); it is left out here. Search this page
 for the text, then follow the link: the entries are split by topic.
 
+Where a response repeats the client's own text — a mailbox name, a date,
+an unknown command or item — that text is cut after 100 characters
+(`...` marks the cut) and its control characters are left out, so a CR or
+LF sent in a literal can never end the line and forge a response. A
+store's message is cut after 200 characters the same way. Search for the
+fixed part of the text.
+
 | Page | What it covers |
 | --- | --- |
 | [Configuration and onError](troubleshooting/configuration.md) | what `createImapServer` and `listen` throw, and the errors `onError` receives |
@@ -54,6 +61,8 @@ for the text, then follow the link: the entries are split by topic.
 - [`BAD Command line too long`](troubleshooting/syntax.md#bad-command-line-too-long)
 - [`BAD [TOOBIG] Literal over … bytes`](troubleshooting/syntax.md#bad-toobig-literal-over--bytes)
 - [`BAD More than 32 literals in one command`](troubleshooting/syntax.md#bad-more-than-32-literals-in-one-command)
+- [`BAD [TOOBIG] Literal over 1024 bytes before login`](troubleshooting/syntax.md#bad-toobig-literal-over-1024-bytes-before-login)
+- [`BAD More than 2 literals before login`](troubleshooting/syntax.md#bad-more-than-2-literals-before-login)
 - [`BAD Lists nest too deep` and `BAD Search keys nest too deep`](troubleshooting/syntax.md#bad-lists-nest-too-deep-and-bad-search-keys-nest-too-deep)
 - [`BAD Expected …`](troubleshooting/syntax.md#bad-expected-)
 - [`BAD Unexpected text at the end of the command`](troubleshooting/syntax.md#bad-unexpected-text-at-the-end-of-the-command)
@@ -67,6 +76,8 @@ for the text, then follow the link: the entries are split by topic.
 
 - [`BAD "…" is not a valid modified UTF-7 mailbox name`](troubleshooting/mailboxes.md#bad--is-not-a-valid-modified-utf-7-mailbox-name)
 - [`BAD "…" has an empty level`](troubleshooting/mailboxes.md#bad--has-an-empty-level)
+- [`NO [LIMIT] A mailbox name has at most 32 levels`](troubleshooting/mailboxes.md#no-limit-a-mailbox-name-has-at-most-32-levels)
+- [`NO [LIMIT] A mailbox name is at most 1024 characters`](troubleshooting/mailboxes.md#no-limit-a-mailbox-name-is-at-most-1024-characters)
 - [`BAD CREATE parameters are not supported`](troubleshooting/mailboxes.md#bad-create-parameters-are-not-supported)
 - [`BAD SELECT parameters are not supported`, `BAD EXAMINE parameters are not supported`](troubleshooting/mailboxes.md#bad-select-parameters-are-not-supported-bad-examine-parameters-are-not-supported)
 - [`BAD Unknown STATUS item …`](troubleshooting/mailboxes.md#bad-unknown-status-item-)
@@ -76,6 +87,7 @@ for the text, then follow the link: the entries are split by topic.
 - [`BAD RECURSIVEMATCH needs another selection option (RFC 5258 §3)`](troubleshooting/mailboxes.md#bad-recursivematch-needs-another-selection-option-rfc-5258-3)
 - [`BAD Expected RETURN`](troubleshooting/mailboxes.md#bad-expected-return)
 - [`BAD The pattern is too long`](troubleshooting/mailboxes.md#bad-the-pattern-is-too-long)
+- [`BAD More than 16 patterns in one LIST`](troubleshooting/mailboxes.md#bad-more-than-16-patterns-in-one-list)
 - [`NO [NONEXISTENT] No such mailbox`](troubleshooting/mailboxes.md#no-nonexistent-no-such-mailbox)
 - [`NO [TRYCREATE] No such mailbox`](troubleshooting/mailboxes.md#no-trycreate-no-such-mailbox)
 - [`NO [ALREADYEXISTS] The mailbox already exists`](troubleshooting/mailboxes.md#no-alreadyexists-the-mailbox-already-exists)
@@ -107,8 +119,8 @@ for the text, then follow the link: the entries are split by topic.
 - [`BAD Unknown search key …, or its argument is missing`](troubleshooting/messages.md#bad-unknown-search-key--or-its-argument-is-missing)
 - [`BAD Unsupported SEARCH return option …`](troubleshooting/messages.md#bad-unsupported-search-return-option-)
 - [`BAD Expected a date such as 1-Feb-1994`](troubleshooting/messages.md#bad-expected-a-date-such-as-1-feb-1994)
+- [`BAD More than 32 TEXT or BODY keys in one SEARCH`](troubleshooting/messages.md#bad-more-than-32-text-or-body-keys-in-one-search)
 - [`NO [BADCHARSET (UTF-8 US-ASCII)] Unsupported charset`](troubleshooting/messages.md#no-badcharset-utf-8-us-ascii-unsupported-charset)
-- [`NO [CANNOT] The messages are already in this mailbox`](troubleshooting/messages.md#no-cannot-the-messages-are-already-in-this-mailbox)
 - [`NO [SERVERBUG] Internal error`](troubleshooting/messages.md#no-serverbug-internal-error)
 
 **Traps**

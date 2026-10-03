@@ -118,7 +118,7 @@ until the client sends `ENABLE IMAP4rev2`, which changes what it gets:
 | --- | --- | --- |
 | mailbox names that are not ASCII | modified UTF-7 (`&ZeVnLIqe-`) | UTF-8 |
 | SEARCH without RETURN | `* SEARCH 1 2` | `* ESEARCH (TAG "a") ALL 1:2` |
-| SELECT | `* 0 RECENT` | `* LIST () "/" INBOX`, and `* OK [CLOSED]` when another mailbox was selected |
+| SELECT | `* 0 RECENT`, and `* OK [UNSEEN n]` naming the first unseen message when there is one (RFC 3501 §6.3.1) | `* LIST () "/" INBOX`, and `* OK [CLOSED]` when another mailbox was selected |
 | LSUB and CHECK | answered | answered, though rev2 dropped them |
 
 `ENABLE` names other than `IMAP4rev2` are left off: `ENABLE CONDSTORE`
@@ -161,7 +161,10 @@ What each one takes:
   store as it arrives: `{n}` gets `+ Ready for literal data`, `{n+}` is
   read at once (RFC 7888).
 - **MOVE** (RFC 6851) — the messages leave the selected mailbox with an
-  `EXPUNGE` each, keeping their ids in the store.
+  `EXPUNGE` each, keeping their ids in the store. A MOVE into the selected
+  mailbox itself answers OK and changes nothing: the messages are already
+  where they were asked to be, with the same UIDs, and nothing is
+  expunged.
 - **CLOSE** expunges the `\Deleted` messages without saying so;
   **UNSELECT** (RFC 3691) does not expunge.
 
@@ -252,16 +255,39 @@ createImapServer({
 });
 ```
 
-A command line is at most 64 KiB; past that it is `BAD Command line too
-long`, and the rest of the line is skipped. A command holds at most 32
-literals; lists and search keys nest at most 32 deep. A literal too large
-is refused before its bytes: `{n}` gets a `BAD` (or `NO` for APPEND) and no
-continuation; `{n+}`, whose bytes follow at once, gets a `BYE`.
+Some limits are fixed, so that no single command — and nothing a client
+that has not logged in sends — costs the server more than a bounded
+amount:
+
+| limit | value | past it |
+| --- | --- | --- |
+| a command line | 64 KiB | `BAD Command line too long`; the rest of the line is skipped |
+| literals in one command | 32 | `BAD More than 32 literals in one command` |
+| before login: literals in one command | 2 | `BAD More than 2 literals before login` |
+| before login: one literal | 1 KiB, as LITERAL- (RFC 7888) | `BAD [TOOBIG] Literal over 1024 bytes before login` |
+| lists and search keys nested | 32 deep | `BAD Lists nest too deep`, `BAD Search keys nest too deep` |
+| a mailbox name, CREATE and RENAME | 32 levels, 1024 characters | `NO [LIMIT] A mailbox name has at most 32 levels`, `NO [LIMIT] A mailbox name is at most 1024 characters` |
+| a LIST pattern, reference included | 1024 characters | `BAD The pattern is too long` |
+| patterns in one LIST | 16 | `BAD More than 16 patterns in one LIST` |
+| TEXT and BODY keys in one SEARCH | 32 | `BAD More than 32 TEXT or BODY keys in one SEARCH` |
+| client text repeated in a response | 100 characters, no control character | cut, `...` marking the cut |
+
+A literal too large is refused before its bytes: `{n}` gets a `BAD` (or
+`NO` for APPEND) and no continuation; `{n+}`, whose bytes follow at once,
+gets a `BYE`. LIST patterns are matched in one greedy scan, consecutive
+wildcards merged, so a pattern of 1024 wildcards costs no more than a
+plain name.
 
 A client that stops reading is not written to without end: the server
 waits for the socket to drain past 64 KiB of output, and stops reading
-commands meanwhile. A client that connects and never logs in is cut at
-`loginTimeout`, however slowly it trickles bytes.
+commands meanwhile; a message is read and written 64 KiB at a time, so
+what waits for such a client is a slice, never the whole message. Nor
+does it hold the server for good: `loginTimeout` and `timeout` hang up on
+it at once, dropping what it did not read, and any other hang-up (LOGOUT,
+a `BYE`) waits at most 5 seconds for the client to read what is left. A
+client that connects and never logs in is cut at `loginTimeout`, however
+slowly it trickles bytes, and whether it reads or not; its place under
+`maxConnections` is free again.
 
 ## Errors and onError
 

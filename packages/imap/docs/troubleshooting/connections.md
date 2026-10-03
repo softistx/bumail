@@ -33,7 +33,10 @@ tries again; a wrong saved password does this at every start.
 
 The client did not log in within `loginTimeout` seconds (60) of
 connecting. It is a deadline, not an idle timer: bytes sent meanwhile do
-not extend it.
+not extend it. A client that also stopped reading — what the server sends
+waits for it — may never see this BYE: the server hangs up all the same,
+dropping what the client did not read, and its place under
+`maxConnections` is free at once.
 
 ## `NO [CANNOT] … is not supported: use PLAIN`
 
@@ -65,7 +68,12 @@ opens a connection per folder without closing them.
 ## `* BYE Idle for too long, closing`
 
 Nothing came from the client for `timeout` seconds (1800). Clients send
-NOOP or restart IDLE before that.
+NOOP or restart IDLE before that. As with `Too slow to log in`, a client
+that does not read is hung up on without waiting for it, so it may see the
+connection close without this BYE.
+
+Any other hang-up — LOGOUT, a BYE for a protocol error — waits at most
+5 seconds for the client to read what is left, then closes the socket.
 
 ## `* BYE The selected mailbox was deleted, closing`
 
