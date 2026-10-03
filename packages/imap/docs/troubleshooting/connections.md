@@ -75,9 +75,10 @@ queued, it reads this BYE and a clean end later; with output queued, the
 connection is reset without it.
 
 Any other hang-up — LOGOUT, a BYE for a protocol error — sends its last
-words and half-closes the socket at once; output still queued then waits
-at most 5 seconds for the client to read it, then the connection is
-reset.
+words. With nothing else queued it half-closes the socket at once. With
+output still queued it waits at most 5 seconds for the client to read it,
+then the connection is reset; on TLS, once that output has left, the
+server closes when the client answers, within the same 5 seconds.
 
 ## `* BYE The selected mailbox was deleted, closing`
 

@@ -294,8 +294,8 @@ client that paused still reads that `BYE`, then a clean end, whenever it
 reads again. What is still queued when a hang-up starts may wait 5
 seconds at most for the client to take it; past that the connection is
 reset. On TLS, once such output has left, the server closes when the
-client answers, within the same 5 seconds. A client that connects and never logs in is cut at
-`loginTimeout`, however slowly it trickles bytes, and whether it reads or
+client answers, within the same 5 seconds. A client that connects and
+never logs in is cut at `loginTimeout`, however slowly it trickles bytes, and whether it reads or
 not; its place under `maxConnections` is free again.
 
 `server.stop(true)` hangs up on every open connection, those moved to TLS

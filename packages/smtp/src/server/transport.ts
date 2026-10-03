@@ -116,6 +116,7 @@ export class SocketTransport implements Transport {
 	 * answers, and the grace bounds it if it stops.
 	 */
 	#hangUp(drained: boolean): void {
+		this.#ending = false;
 		if (drained && this.secure) this.#socket.shutdown();
 		else this.#socket.shutdown(true);
 	}
