@@ -55,10 +55,18 @@ stops. To keep the mail between runs, give it a directory:
 
 ## Connect Thunderbird or Apple Mail
 
-The certificate is self-signed: the client warns about it, once for IMAP
-and once for SMTP. Accept it (Thunderbird: *Confirm Security Exception*;
-Apple Mail: *Show Certificate*, then trust it for `localhost`). That is
-right for this demo only.
+The certificate is self-signed for `localhost`: trust it once per port.
+That is right for this demo only.
+
+- **Thunderbird**, before adding the account: *Settings → Privacy &
+  Security → Manage Certificates… → Servers → Add Exception…*, location
+  `localhost:1993` (or `localhost:1143` for STARTTLS), *Get Certificate*,
+  *Permanently store this exception*, *Confirm Security Exception*.
+  Without it, the account wizard stops at "The certificate is not trusted
+  because it is self-signed". SMTP on `2587` is STARTTLS, which that
+  dialog cannot fetch: Thunderbird asks to accept it at the first send.
+- **Apple Mail**: *Show Certificate*, then trust it for `localhost`, once
+  for IMAP and once for SMTP.
 
 | | |
 | --- | --- |
@@ -69,15 +77,19 @@ right for this demo only.
 | | (or port `1143`, **STARTTLS**) |
 | outgoing | SMTP, server `localhost`, port `2587`, **STARTTLS**, normal password, same username |
 
-**Thunderbird**: *Account Settings → Account Actions → Add Mail Account*,
-the name, address and password, then *Configure manually* and the values
-above. Thunderbird's autodetection will not find `example.test`.
+**Thunderbird**: the app menu → *New Account → Email* (older versions:
+*Account Settings → Account Actions → Add Mail Account*). Give the name
+and address, then *Configure manually* and the values above:
+autodetection will not find `example.test`. Recent versions have no
+password field in the wizard; the password is asked at the first fetch
+(*Get Messages*). Tick *Use Password Manager* to keep it.
 
 **Apple Mail**: *Mail → Add Account → Other Mail Account*, then the
 address and password; when it cannot verify the account name, enter
-`localhost` for both servers, account type IMAP, and in the account's
-*Server Settings* turn off *Automatically manage connection settings* to
-set ports `1993` (TLS) and `2587`.
+`localhost` for both servers, account type IMAP. In the account's
+*Server Settings*, turn off *Automatically manage connection settings*:
+incoming port `1993` with *Use TLS/SSL* on, outgoing port `2587` with
+*Use TLS/SSL* on as well — the server offers AUTH only after STARTTLS.
 
 Then:
 
