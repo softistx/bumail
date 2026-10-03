@@ -7,7 +7,7 @@ import { MAX_ADDRESSES, sendMail } from './send';
 afterEach(stopServers);
 
 const MESSAGE = 'Subject: hi\r\n\r\nhello\r\n';
-const envelope = { from: 'a@bar.com', to: 'b@foo.com' };
+const envelope = { from: 'a@bar.com', to: 'b@foo.com', helo: 'mail.bar.com' };
 
 /** A stream that gives one part, then nothing, ever. */
 const stalled = () =>
@@ -94,6 +94,56 @@ describe('MX delivery stays within its bounds', () => {
 		expect(error.code).toBe('CONNECTION_LOST');
 		const lookups = resolver.queries.filter((q) => q.type === 'a');
 		expect(lookups).toHaveLength(MAX_ADDRESSES);
+	});
+
+	test(`no more than ${MAX_ADDRESSES} hosts looked up, an address or not`, async () => {
+		const looked = new Set<string>();
+		let lookups = 0;
+		const none = async (name: string) => {
+			lookups++;
+			looked.add(name);
+			return [];
+		};
+		const resolver = {
+			mx: async () =>
+				Array.from({ length: 500 }, (_, i) => ({
+					exchange: `mx${i}.foo.com`,
+					priority: i,
+				})),
+			a: none,
+			aaaa: none,
+		};
+		const error = await failure(
+			sendMail(MESSAGE, { domain: 'foo.com', resolver, ...envelope }),
+		);
+		expect(error.code).toBe('DNS_FAILED');
+		expect(looked.size).toBe(MAX_ADDRESSES);
+		expect(lookups).toBe(2 * MAX_ADDRESSES);
+	});
+
+	test('every DNS lookup counts against the deadline', async () => {
+		const never = () => new Promise<never>(() => {});
+		const options = { domain: 'foo.com', ...envelope, deadline: 0.2 };
+		const mx = await failure(
+			sendMail(MESSAGE, {
+				...options,
+				resolver: { mx: never, a: never, aaaa: never },
+			}),
+		);
+		expect(mx).toMatchObject({ code: 'TIMEOUT', temporary: true });
+		expect(mx.message).toBe(
+			'The deadline of 0.2 s passed waiting for the MX lookup (foo.com)',
+		);
+		const exchange = async () => [{ exchange: 'mx.foo.com', priority: 10 }];
+		const address = await failure(
+			sendMail(MESSAGE, {
+				...options,
+				resolver: { mx: exchange, a: never, aaaa: never },
+			}),
+		);
+		expect(address.message).toBe(
+			'The deadline of 0.2 s passed waiting for the address lookup (mx.foo.com)',
+		);
 	});
 
 	test('a resolver of your own that answers with no record at all', async () => {

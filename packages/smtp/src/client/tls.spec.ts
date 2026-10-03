@@ -109,6 +109,31 @@ describe('sendMail with TLS and AUTH, to this package’s own server', () => {
 		expect(received).toHaveLength(1);
 	});
 
+	test("a certificate for another name is refused, whatever the CA (STARTTLS, tls: 'required')", async () => {
+		const { port, received } = await startServer();
+		const resolver = fixtureResolver({
+			'foo.com': { mx: [{ exchange: 'mx.foo.com', priority: 10 }] },
+			'mx.foo.com': { a: ['127.0.0.1'] },
+		});
+		const error = await failure(
+			sendMail(MESSAGE, {
+				domain: 'foo.com',
+				resolver,
+				port,
+				tls: 'required',
+				ca: TLS.cert,
+				from: 'a@bar.com',
+				to: 'b@foo.com',
+				helo: 'mail.bar.com',
+			}),
+		);
+		expect(error).toMatchObject({ code: 'TLS_FAILED', temporary: true });
+		expect(error.message).toBe(
+			'TLS with mx.foo.com failed: ERR_TLS_CERT_ALTNAME_INVALID',
+		);
+		expect(received).toHaveLength(0);
+	});
+
 	test('a certificate for another name is refused, whatever the CA (secure: true)', async () => {
 		const { port } = await startServer({ implicitTls: true });
 		const resolver = fixtureResolver({
@@ -124,6 +149,7 @@ describe('sendMail with TLS and AUTH, to this package’s own server', () => {
 				ca: TLS.cert,
 				from: 'a@bar.com',
 				to: 'b@foo.com',
+				helo: 'mail.bar.com',
 			}),
 		);
 		expect(error).toMatchObject({ code: 'TLS_FAILED', temporary: true });

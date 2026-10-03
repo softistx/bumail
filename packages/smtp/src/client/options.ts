@@ -1,4 +1,3 @@
-import type { Resolver } from '@bumail/dns';
 import type { RecipientReply } from '../errors';
 import type { Reply } from '../protocol/reply';
 
@@ -12,8 +11,24 @@ export type MessageSource = Uint8Array | string | ReadableStream<Uint8Array>;
  */
 export type TlsMode = 'opportunistic' | 'required' | 'none';
 
-/** What MX delivery asks of the DNS: `@bumail/dns`'s `Resolver` answers it. */
-export type MxResolver = Pick<Resolver, 'mx' | 'a' | 'aaaa'>;
+/**
+ * What MX delivery asks of the DNS, by shape: the `Resolver` of bumail's
+ * DNS package answers it, and so does any object with these three
+ * methods. Declared here rather than imported, so these declarations
+ * compile without that package installed.
+ */
+export interface MxResolver {
+	/** The MX records of a domain; `exchange` `''` for a null MX (RFC 7505). */
+	mx(
+		name: string,
+	): Promise<
+		readonly { readonly exchange: string; readonly priority: number }[]
+	>;
+	/** The IPv4 addresses of a name. */
+	a(name: string): Promise<readonly { readonly address: string }[]>;
+	/** The IPv6 addresses of a name. */
+	aaaa(name: string): Promise<readonly { readonly address: string }[]>;
+}
 
 /** A host to hand the message to: a smarthost, a submission server, a local Mailpit. */
 export interface HostDestination {
@@ -67,9 +82,15 @@ export interface SendMailEnvelope {
 	readonly from: string;
 	/** One recipient or more, `local@domain` each. */
 	readonly to: string | readonly string[];
-	/** The name this client gives in EHLO. Default the machine's host name. */
+	/**
+	 * The name this client gives in EHLO: your server's public name.
+	 * Required by MX; to a host, default the machine's host name.
+	 */
 	readonly helo?: string;
-	/** Default `required` with `auth` or `secure`, else `opportunistic`. */
+	/**
+	 * Default `required` with `auth` or `secure`, else `opportunistic`;
+	 * `auth` with `opportunistic` or `none` needs `allowPlaintextAuth`.
+	 */
 	readonly tls?: TlsMode;
 	/** TLS from the first byte (port 465, RFC 8314). */
 	readonly secure?: boolean;
@@ -77,8 +98,9 @@ export interface SendMailEnvelope {
 	readonly ca?: string | readonly string[];
 	readonly auth?: SendMailAuth;
 	/**
-	 * Lets AUTH go over a clear connection. For a local test server only:
-	 * the password crosses the network in base64.
+	 * Lets AUTH go without a checked certificate: in clear, or over
+	 * opportunistic TLS. For a local test server only: the password crosses
+	 * the network in base64.
 	 */
 	readonly allowPlaintextAuth?: boolean;
 	/** The message's size in bytes, for SIZE, when it is a stream. */
@@ -88,7 +110,7 @@ export interface SendMailEnvelope {
 	/** Turns each bare CR or LF in the message into CRLF, rather than refuse it. */
 	readonly normalizeLineEnds?: boolean;
 	readonly timeouts?: SendMailTimeouts;
-	/** Seconds the whole delivery may take, DNS aside. Default 1800. */
+	/** Seconds the whole delivery may take, DNS lookups included. Default 1800. */
 	readonly deadline?: number;
 }
 

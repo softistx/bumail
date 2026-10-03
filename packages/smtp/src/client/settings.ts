@@ -84,11 +84,20 @@ function address(value: unknown, allowNull: boolean): string {
 	return text;
 }
 
-function heloOf(value: string | undefined): string {
+/**
+ * `helo`, checked. By MX it is required: the machine's name (such as
+ * `laptop.local`) is rarely a name that resolves back to the sender, which
+ * receiving hosts penalise, and it would tell them the machine's name.
+ */
+function heloOf(value: string | undefined, byMx: boolean): string {
 	if (value !== undefined) {
 		if (!HELO.test(value)) throw invalid(`helo "${value}" is not a host name`);
 		return value;
 	}
+	if (byMx)
+		throw invalid(
+			"helo is required for delivery by MX: pass your server's public name, such as helo: 'mail.example.com'",
+		);
 	const name = machineName();
 	return HELO.test(name) ? name : 'localhost';
 }
@@ -124,6 +133,10 @@ function tlsOf(options: SendMailOptions, plaintextAuth: boolean): TlsMode {
 		throw invalid(
 			"auth with tls: 'none' would send the password in clear; pass allowPlaintextAuth: true for a local test server",
 		);
+	if (tls === 'opportunistic' && options.auth && !plaintextAuth)
+		throw invalid(
+			"auth with tls: 'opportunistic' would send the password to a server whose certificate is not checked; leave tls out to check it, or pass allowPlaintextAuth: true for a local test server",
+		);
 	return tls;
 }
 
@@ -145,7 +158,7 @@ export function settingsOf(options: SendMailOptions): ClientSettings {
 	return {
 		from,
 		to,
-		helo: heloOf(options.helo),
+		helo: heloOf(options.helo, byMx(options)),
 		tls: tlsOf(options, allowPlaintextAuth),
 		secure: options.secure === true,
 		...(ca ? { ca } : {}),
@@ -160,6 +173,10 @@ export function settingsOf(options: SendMailOptions): ClientSettings {
 		deadline: seconds('deadline', options.deadline, 1800),
 	};
 }
+
+/** Whether the options name a domain to deliver to by MX, not a host. */
+export const byMx = (options: SendMailOptions): boolean =>
+	!('host' in options && options.host !== undefined);
 
 /** A port: an integer from 1 to 65535. */
 export function portOf(port: number | undefined, fallback: number): number {

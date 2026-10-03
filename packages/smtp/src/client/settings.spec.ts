@@ -71,6 +71,24 @@ describe('sendMail options', () => {
 		);
 	});
 
+	test('helo: required by MX, the machine’s name by default to a host', () => {
+		const mx = { ...base, host: undefined, domain: 'foo.com' };
+		expect(refused(mx)).toBe(
+			"sendMail(): helo is required for delivery by MX: pass your server's public name, such as helo: 'mail.example.com'",
+		);
+		const given = { ...mx, helo: 'mail.bar.com' } as unknown as SendMailOptions;
+		expect(settingsOf(given).helo).toBe('mail.bar.com');
+		expect(settingsOf(base).helo).not.toBe('');
+	});
+
+	test('auth goes over TLS that is not checked only with allowPlaintextAuth', () => {
+		const auth = { username: 'alice', password: 'secret' };
+		const plain = { auth, allowPlaintextAuth: true };
+		for (const tls of ['opportunistic', 'none'] as const) {
+			expect(settingsOf({ ...base, ...plain, tls }).tls).toBe(tls);
+		}
+	});
+
 	test('contradictions and wrong values', () => {
 		expect(refused({ tls: 'none', secure: true })).toBe(
 			"sendMail(): secure is TLS from the first byte: it cannot go with tls: 'none'",
@@ -79,6 +97,11 @@ describe('sendMail options', () => {
 			refused({ tls: 'none', auth: { username: 'a', password: 'b' } }),
 		).toBe(
 			"sendMail(): auth with tls: 'none' would send the password in clear; pass allowPlaintextAuth: true for a local test server",
+		);
+		expect(
+			refused({ tls: 'opportunistic', auth: { username: 'a', password: 'b' } }),
+		).toBe(
+			"sendMail(): auth with tls: 'opportunistic' would send the password to a server whose certificate is not checked; leave tls out to check it, or pass allowPlaintextAuth: true for a local test server",
 		);
 		expect(refused({ helo: 'not a name' })).toBe(
 			'sendMail(): helo "not a name" is not a host name',
@@ -101,6 +124,7 @@ describe('sendMail options', () => {
 			...base,
 			host: undefined,
 			domain: 'foo.com',
+			helo: 'mail.bar.com',
 		} as unknown as SendMailOptions);
 		await expect(resolver).rejects.toThrow(
 			'sendMail(): resolver must be a Resolver, such as @bumail/dns gives',

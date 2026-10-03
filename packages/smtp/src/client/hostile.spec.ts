@@ -179,38 +179,6 @@ describe('the session, against what the server offers', () => {
 		}
 	});
 
-	test('AUTH in clear: refused, unless allowPlaintextAuth', async () => {
-		const script: FakeScript = {
-			ehlo: ['AUTH PLAIN LOGIN'],
-			command: (line) => (line.startsWith('AUTH') ? '235 ok\r\n' : undefined),
-		};
-		const auth = { username: 'alice', password: 'secret' };
-		const required = await against(script, { auth });
-		expect(required.error.code).toBe('TLS_UNAVAILABLE');
-		const opportunistic = await against(script, { auth, tls: 'opportunistic' });
-		expect(opportunistic.error).toMatchObject({
-			code: 'AUTH_UNAVAILABLE',
-			temporary: false,
-		});
-		expect(opportunistic.error.message).toBe(
-			'Refusing to send credentials to 127.0.0.1 in clear: it did not start TLS (allowPlaintextAuth is for a local test server only)',
-		);
-		expect(opportunistic.lines.some((line) => line.startsWith('AUTH'))).toBe(
-			false,
-		);
-		const { port, lines } = await fakeServer(script);
-		const result = await sendMail(MESSAGE, {
-			host: '127.0.0.1',
-			port,
-			from: 'a@bar.com',
-			to: 'b@foo.com',
-			auth,
-			allowPlaintextAuth: true,
-		});
-		expect(result).toMatchObject({ authenticated: true, tls: false });
-		expect(lines).toContain('AUTH PLAIN AGFsaWNlAHNlY3JldA==');
-	});
-
 	test('an extension the message needs and the server lacks', async () => {
 		const utf8 = await against({}, { to: 'zoë@foo.com' });
 		expect(utf8.error).toMatchObject({
@@ -235,6 +203,13 @@ describe('the session, against what the server offers', () => {
 
 	test('a bare LF in a stream: refused, and no final dot', async () => {
 		const stream = new Blob(['Subject: x\r\n\r\nsmuggled\n.\r\n']).stream();
+		const { error, lines } = await against({}, {}, stream);
+		expect(error.code).toBe('BARE_LINE_BREAK');
+		expect(lines.some((line) => line.startsWith('<message'))).toBe(false);
+	});
+
+	test('a stream that ends in a bare CR: refused, and no final dot', async () => {
+		const stream = new Blob(['Subject: x\r\n\r\nends in a CR\r']).stream();
 		const { error, lines } = await against({}, {}, stream);
 		expect(error.code).toBe('BARE_LINE_BREAK');
 		expect(lines.some((line) => line.startsWith('<message'))).toBe(false);

@@ -17,8 +17,9 @@ function dnsCode(error: unknown): string | undefined {
 }
 
 /**
- * `@bumail/dns`'s `isTemporary`, copied so the client imports nothing of it
- * at runtime: anything but a `DnsError`, a `TEMPORARY` and a `TIMEOUT` are.
+ * `@bumail/dns`'s `isTemporary` (`packages/dns/src/errors.ts`), copied so
+ * the client imports nothing of it: anything but a `DnsError`, a
+ * `TEMPORARY` and a `TIMEOUT` are. Change both together.
  */
 function temporary(error: unknown): boolean {
 	const code = dnsCode(error);
@@ -28,10 +29,16 @@ function temporary(error: unknown): boolean {
 const messageOf = (error: unknown) =>
 	error instanceof Error ? error.message : String(error);
 
-/** By preference, equal ones in a random order, as RFC 5321 §5.1 asks, to spread the load. */
-function byPreference(hosts: readonly MailHost[]): MailHost[] {
+/**
+ * By preference, equal ones in a random order, as RFC 5321 §5.1 asks, to
+ * spread the load. `random` is `Math.random` but in a spec.
+ */
+export function byPreference(
+	hosts: readonly MailHost[],
+	random: () => number = Math.random,
+): MailHost[] {
 	return hosts
-		.map((host) => ({ host, key: Math.random() }))
+		.map((host) => ({ host, key: random() }))
 		.sort((x, y) => x.host.priority - y.host.priority || x.key - y.key)
 		.map(({ host }) => host);
 }

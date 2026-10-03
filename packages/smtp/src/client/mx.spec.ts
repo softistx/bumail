@@ -6,13 +6,14 @@ import {
 	startServer,
 	stopServers,
 } from './client.fixtures';
-import { resolveMx } from './mx';
+import { byPreference, resolveMx } from './mx';
 import { sendMail } from './send';
 
 afterEach(stopServers);
 
 const MESSAGE = 'Subject: hi\r\n\r\nhello\r\n';
 const LOCAL = '127.0.0.1';
+const HELO = 'mail.bar.com';
 
 describe('resolveMx (RFC 5321 §5.1)', () => {
 	test('MX records by preference, the lowest first', async () => {
@@ -28,6 +29,23 @@ describe('resolveMx (RFC 5321 §5.1)', () => {
 			{ host: 'mx.example.com', priority: 10, implicit: false },
 			{ host: 'backup.example.com', priority: 20, implicit: false },
 		]);
+	});
+
+	test('equal preferences in a random order, the lower always first', () => {
+		const host = (name: string, priority: number) => ({
+			host: name,
+			priority,
+			implicit: false,
+		});
+		const hosts = [host('a', 10), host('b', 10), host('c', 5), host('d', 10)];
+		const order = (keys: number[]) => {
+			let i = 0;
+			return byPreference(hosts, () => keys[i++] as number).map((h) => h.host);
+		};
+		// One key per host, in the order given: the lowest key goes first.
+		expect(order([0.9, 0.1, 0.5, 0.4])).toEqual(['c', 'b', 'd', 'a']);
+		expect(order([0.1, 0.9, 0.5, 0.4])).toEqual(['c', 'a', 'd', 'b']);
+		expect(order([0.2, 0.3, 0.9, 0.1])).toEqual(['c', 'd', 'a', 'b']);
 	});
 
 	test('no MX record: the domain itself, the implicit MX', async () => {
@@ -77,6 +95,7 @@ describe('sendMail by MX', () => {
 			port,
 			from: 'a@bar.com',
 			to: 'b@foo.com',
+			helo: HELO,
 		});
 		expect(result).toMatchObject({
 			host: 'mx1.foo.com',
@@ -95,6 +114,7 @@ describe('sendMail by MX', () => {
 			port,
 			from: 'a@bar.com',
 			to: 'b@foo.com',
+			helo: HELO,
 		});
 		expect(result.host).toBe('foo.com');
 		expect(received).toHaveLength(1);
@@ -127,6 +147,7 @@ describe('sendMail by MX', () => {
 				port: fake.port,
 				from: 'a@bar.com',
 				to: 'b@foo.com',
+				helo: HELO,
 			});
 			expect(result.host).toBe('mx2.foo.com');
 		}
@@ -158,6 +179,7 @@ describe('sendMail by MX', () => {
 				port: fake.port,
 				from: 'a@bar.com',
 				to: 'b@foo.com',
+				helo: HELO,
 			}),
 		);
 		expect(error).toMatchObject({ code: 'REFUSED', temporary: false });
@@ -180,6 +202,7 @@ describe('sendMail by MX', () => {
 				port: fake.port,
 				from: 'a@bar.com',
 				to: 'b@foo.com',
+				helo: HELO,
 			}),
 		);
 		expect(error).toMatchObject({ code: 'REFUSED', temporary: true });
@@ -189,7 +212,12 @@ describe('sendMail by MX', () => {
 		const nullMx = fixtureResolver({
 			'foo.com': { mx: [{ exchange: '.', priority: 0 }] },
 		});
-		const options = { from: 'a@bar.com', to: 'b@foo.com', domain: 'foo.com' };
+		const options = {
+			from: 'a@bar.com',
+			to: 'b@foo.com',
+			domain: 'foo.com',
+			helo: HELO,
+		};
 		expect(
 			await failure(sendMail(MESSAGE, { ...options, resolver: nullMx })),
 		).toMatchObject({

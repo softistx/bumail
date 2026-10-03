@@ -110,6 +110,7 @@ async function data(
 	const writer = new DataWriter(settings.normalizeLineEnds);
 	const eightBitOk = ready.extensions.has('8BITMIME');
 	const chunks = content.chunks();
+	let tail: Uint8Array;
 	try {
 		for (;;) {
 			// The caller's stream is bounded as the server is: a stalled one times out.
@@ -131,13 +132,16 @@ async function data(
 			socket.write(bytes);
 			await socket.drained(timeouts.dataBlock);
 		}
+		// A CR held at the very end is bare only now: still no dot for it.
+		tail = writer.end();
+		if (writer.bareLineBreaks > 0) throw bareLineBreak();
 	} catch (error) {
 		// No final dot: the server drops what it has of the message.
 		chunks.cancel();
 		socket.close(true);
 		throw error;
 	}
-	socket.write(writer.end());
+	socket.write(tail);
 	const end = await socket.reply(
 		'the reply to the final dot',
 		timeouts.dataEnd,
