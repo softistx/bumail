@@ -43,4 +43,5 @@ Nothing in progress.
   message of an account, a page at a time; flags with RFC 7162's
   conditional store; copies, links and moves that skip and name the ids
   already gone; and the message and mailbox changes since a modseq, paged,
-  for the account or one mailbox, for IMAP's CONDSTORE and QRESYNC and JMAP's `/changes` to sync from.
+  for the account or one mailbox, for IMAP's CONDSTORE and QRESYNC and
+  JMAP's `/changes` to sync from.

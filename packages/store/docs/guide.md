@@ -357,6 +357,9 @@ await Bun.write(`blobs/${account.id}/${blobId}`, blob);
 
 The contract's specs, `describeMailStore`, live next to the stores in this
 package and run against each of them; a store added here runs them too.
+A store that forgets old removals also passes a factory for one that
+remembers at most a given number, so the specs for the floor
+(`CANNOT_CALCULATE_CHANGES`, and pages since 0) run against it as well.
 They are internal for now: a store written outside the package cannot run
 them yet. And it follows the 0.x minor versions, in which the interface
 may grow.
