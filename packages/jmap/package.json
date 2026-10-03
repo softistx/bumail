@@ -44,7 +44,8 @@
 		"@alxia/core": "^0.1.0",
 		"@bumail/mime": "workspace:^",
 		"@bumail/store": "workspace:^",
-		"@types/bun": "^1.4.2"
+		"@types/bun": "^1.4.2",
+		"jmap-jam": "^0.13.8"
 	},
 	"peerDependencies": {
 		"@alxia/core": "^0.1.0",

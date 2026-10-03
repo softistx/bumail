@@ -12,7 +12,7 @@ export const MAIL = 'urn:ietf:params:jmap:mail';
 export const ORIGIN = 'https://mail.example.com';
 
 export type StoreKind = 'memory' | 'sqlite';
-export const STORES: readonly StoreKind[] = ['memory', 'sqlite'];
+export const STORES: StoreKind[] = ['memory', 'sqlite'];
 
 /** A store of either kind, and how to throw it away. */
 export async function openStore(
@@ -141,7 +141,7 @@ export async function harness(
 			...(init.token === undefined ? {} : { token: init.token }),
 		});
 		return (await response.json()) as {
-			methodResponses: [string, Record<string, any>, string][];
+			methodResponses: [string, any, string][];
 			sessionState: string;
 			createdIds?: Record<string, string>;
 		};
@@ -152,7 +152,7 @@ export async function harness(
 			[name, { accountId: alice.id, ...args }, 'c'],
 		]);
 		const [response] = methodResponses;
-		return { name: response?.[0], args: response?.[1] as Record<string, any> };
+		return { name: response?.[0], args: response?.[1] as any };
 	};
 	const add = (
 		content: string,
