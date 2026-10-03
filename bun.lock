@@ -59,6 +59,8 @@
       "name": "@bumail/smtp",
       "version": "0.1.0",
       "devDependencies": {
+        "@bumail/auth": "workspace:^",
+        "@bumail/dns": "workspace:^",
         "@bumail/store": "workspace:^",
         "@types/bun": "^1.4.2",
       },

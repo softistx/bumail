@@ -1,8 +1,8 @@
 # Guide
 
 How to run `@bumail/smtp` and what it does on the wire: the session and its
-replies, the hooks, what a delivered message looks like, TLS, and the RFCs
-behind each behaviour.
+replies, the hooks, what a delivered message looks like, TLS, sending mail
+with the client, and the RFCs behind each behaviour.
 
 - [The smallest server](#the-smallest-server)
 - [Options](#options)
@@ -14,6 +14,7 @@ behind each behaviour.
 - [Authentication](#authentication)
 - [TLS](#tls)
 - [Limits](#limits)
+- [Sending mail: the client](#sending-mail-the-client)
 - [Protocol helpers](#protocol-helpers)
 - [The RFCs implemented](#the-rfcs-implemented)
 - [What is not implemented](#what-is-not-implemented)
@@ -891,6 +892,339 @@ process.on('SIGTERM', () => {
 });
 ```
 
+## Sending mail: the client
+
+`@bumail/smtp/client` is the other side of the conversation: `sendMail`
+delivers one message to one destination and tells you what became of each
+recipient. It shares the server's grammar — paths, replies, dot-stuffing,
+SASL — and imports nothing of `@bumail/dns`, not even its types: a
+resolver is needed only for MX delivery, and you pass it in (install
+`@bumail/dns` for one).
+
+- [Destinations](#destinations)
+- [The session it runs](#the-session-it-runs)
+- [TLS](#tls-1)
+- [AUTH](#auth)
+- [The message](#the-message)
+- [What it resolves to, and what it rejects with](#what-it-resolves-to-and-what-it-rejects-with)
+- [Delivery by MX](#delivery-by-mx)
+- [Timeouts and limits](#timeouts-and-limits)
+- [Trying it with Mailpit](#trying-it-with-mailpit)
+
+### Destinations
+
+```ts
+import { nodeResolver } from '@bumail/dns';
+import { sendMail } from '@bumail/smtp/client';
+
+const message = 'From: a@example.com\r\nTo: b@example.org\r\nSubject: hi\r\n\r\nhello\r\n';
+
+// A host: a smarthost, a submission server, a local Mailpit. Port 25 by
+// default, 465 with secure: true.
+await sendMail(message, { host: 'relay.example.net', port: 25, from: 'a@example.com', to: 'b@example.org' });
+
+// A domain: its MX hosts, by preference, through the resolver. Port 25,
+// and helo is required: your server's public name.
+await sendMail(message, { domain: 'example.org', resolver: nodeResolver(), helo: 'mail.example.com', from: 'a@example.com', to: 'b@example.org' });
+```
+
+`from` is the envelope's reverse-path — `''` for the null sender of a
+bounce — and `to` one recipient or more. Both are checked as RFC 5321 paths
+before anything is sent: an address holding a CR, an LF or a `>` is refused
+with `INVALID_OPTION`, so it cannot inject a command.
+
+One call is one destination. With `{ domain }`, every recipient should be
+at that domain: group them by domain first, one `sendMail` each.
+
+### The session it runs
+
+| step | what the client sends | what it needs |
+| --- | --- | --- |
+| greeting | — | `220`; anything else is `REFUSED` |
+| hello | `EHLO <helo>` | `250`; a 5xx gets `HELO <helo>` instead (RFC 5321 §4.1.4), a 4xx is `REFUSED` |
+| TLS | `STARTTLS`, the handshake, `EHLO` again (RFC 3207 §4.2) | see [TLS](#tls-1) |
+| AUTH | `AUTH PLAIN <initial>`, or `AUTH LOGIN` and two 334 steps | `235` |
+| envelope | `MAIL FROM:<from> SIZE=n BODY=8BITMIME SMTPUTF8`, `RCPT TO:<to>` each | `250` to MAIL; `250` or `251` to a RCPT, any other reply rejects that recipient |
+| content | `DATA`, the message dot-stuffed, `.` | `354`, then `250` |
+| end | `QUIT` | the `221` is waited for 5 seconds at most |
+
+- `helo` is the name this client gives: your server's public name, the
+  one its address resolves back to. By MX it is required — an MX may
+  refuse or penalise a name that does not resolve back to your address,
+  and the machine's own name (`laptop.local`) is rarely one and would leak
+  it — so `{ domain }` without `helo` is `INVALID_OPTION`. To a host
+  (`{ host }`: a smarthost, Mailpit) it defaults to the machine's host
+  name.
+- `SIZE=` is sent when the server offers SIZE and the size is known: a
+  string or bytes, or `size` for a stream. A message larger than the
+  server's SIZE is refused before MAIL FROM, with `MESSAGE_TOO_BIG`.
+- `BODY=8BITMIME` is sent whenever the server offers 8BITMIME (RFC 6152).
+  Without it, a message with a byte above 127 fails with
+  `EXTENSION_MISSING`: before MAIL FROM for a string or bytes, and by
+  hanging up before the final dot for a stream.
+- `SMTPUTF8` is sent when an address is not ASCII, or `smtputf8: true` asks
+  for it (for UTF-8 header fields). A server without it fails the delivery
+  with `EXTENSION_MISSING` (RFC 6531 §3.2).
+- With PIPELINING (RFC 2920), MAIL FROM and every RCPT TO go in one write,
+  and the replies are read in order. Without it, each waits for its reply.
+  DATA always waits: if every recipient was refused, no content is sent.
+- A server that refuses the message during DATA (a `552` before the dot)
+  and hangs up is reported by its reply, `REFUSED`, not as a lost
+  connection.
+- After a refusal, the client says `QUIT` and hangs up. A message cut short —
+  a stream that errors, a bare line break, a timeout — is never ended with
+  the dot: the client hangs up, and the server drops what it had.
+
+### TLS
+
+| `tls` | STARTTLS | the certificate | default when |
+| --- | --- | --- | --- |
+| `'opportunistic'` | when offered; in clear otherwise, or when the server answers STARTTLS with anything but `220` | not checked (RFC 7435) | neither `auth` nor `secure` is given |
+| `'required'` | needed: `TLS_UNAVAILABLE` without it | checked against `host`, or the MX host's name: `TLS_FAILED` | `auth` or `secure` is given |
+| `'none'` | never | — | never |
+
+`secure: true` is TLS from the first byte (RFC 8314, port 465): no
+STARTTLS, and `tls` cannot be `'none'`. `ca` adds certificates to trust,
+PEM, besides the system's: a private CA, or a test's self-signed one.
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+const result = await sendMail('Subject: hi\r\n\r\nhello\r\n', {
+	host: 'mail.internal.example',
+	port: 587,
+	tls: 'required',
+	ca: await Bun.file('/etc/ssl/internal-ca.pem').text(),
+	from: 'app@example.com',
+	to: 'ops@example.com',
+});
+console.log(result.tls); // { verified: true }
+```
+
+`result.tls` is `false` in clear, else `{ verified }`: `true` when the
+certificate checked out against the host name. With `'opportunistic'` it
+says so too, but a certificate that does not check out is used all the
+same — that is what opportunistic means. An opportunistic handshake that
+fails is not retried in clear: it is `TLS_FAILED`, temporary, and by MX the
+next host is tried.
+
+Anything the server sends after its `220` to STARTTLS and before the
+handshake is refused with `BAD_REPLY`: it would be read as if it came over
+TLS (CVE-2011-0411).
+
+### AUTH
+
+`auth: { username, password }` uses PLAIN when the server offers it, else
+LOGIN; `mechanism` picks one. The credentials go out only over TLS whose
+certificate checked out, unless `allowPlaintextAuth` says otherwise. `auth` makes `tls: 'required'` the default, so a server
+that does not offer STARTTLS fails earlier, with `TLS_UNAVAILABLE`.
+
+`allowPlaintextAuth: true` lets AUTH go over a clear connection. It is for
+a local test server, such as Mailpit with `--smtp-auth-allow-insecure`:
+the password crosses the network in base64, which anyone on the path reads.
+Never set it for a server elsewhere. With it, `tls` defaults to
+`'opportunistic'`.
+
+Without it, `auth` goes only with `tls: 'required'`: `tls: 'none'` would
+send the password in clear, and `tls: 'opportunistic'` to a server whose
+certificate is not checked, which an active attacker can intercept. Both
+are refused with `INVALID_OPTION` before connecting. Leave `tls` out to
+have the certificate checked, and pass `ca` for a private CA.
+
+### The message
+
+A `string` (sent as UTF-8), a `Uint8Array`, or a `ReadableStream` of
+`Uint8Array` chunks: the whole RFC 5322 message, header fields first, lines
+ending in CRLF. A stream is read as the server takes it, one chunk at a
+time, so a large message never sits in memory whole.
+
+- **Dot-stuffing** (RFC 5321 §4.5.2): a line starting with `.` gets one
+  more; the server takes it off. A message whose last line has no CRLF gets
+  one, since the terminator needs it.
+- **Bare CR or LF**: refused with `BARE_LINE_BREAK`, as the server refuses
+  it (SMTP smuggling). A string or bytes are checked before connecting; a
+  stream as it is sent, and the client hangs up before the dot.
+  `normalizeLineEnds: true` turns each bare CR or LF into CRLF instead.
+- **Signing**: put the `DKIM-Signature` field `@bumail/auth`'s `signDkim`
+  gives on top of the message before sending it. `sendMail` sends the
+  bytes as they are, so a signature over them still verifies.
+
+### What it resolves to, and what it rejects with
+
+`sendMail` resolves once the server took the message for one recipient at
+least:
+
+```ts
+import type { Reply } from '@bumail/smtp/client';
+
+interface SendMailResult {
+	accepted: { recipient: string; reply: Reply }[]; // 250 or 251 to RCPT TO
+	rejected: { recipient: string; reply: Reply }[]; // any other reply
+	reply: Reply; // to the final dot: { code: 250, status: '2.0.0', text: 'OK queued as …' }
+	host: string; // the host, or the MX host, that took it
+	port: number;
+	tls: false | { verified: boolean };
+	authenticated: boolean;
+}
+```
+
+A rejected recipient with a 4xx is worth trying again later; with a 5xx it
+is not. Every other outcome rejects with an `SmtpError`: its `code`, its
+`message` (each is in [troubleshooting](troubleshooting.md#sending-mail-options)),
+`temporary`, and, when a reply caused it, `reply` with its enhanced status
+code (RFC 3463).
+
+| `code` | when | `temporary` |
+| --- | --- | --- |
+| `INVALID_OPTION` | an option, an address or the message cannot be used | no |
+| `BARE_LINE_BREAK` | the message holds a bare CR or LF | no |
+| `MESSAGE_TOO_BIG` | larger than the server's SIZE | no |
+| `EXTENSION_MISSING` | the message needs SMTPUTF8 or 8BITMIME, and the server lacks it | no |
+| `AUTH_UNAVAILABLE` | credentials and no TLS, or no mechanism in common | no |
+| `NULL_MX` | the domain's MX is the null MX (RFC 7505) | no |
+| `DNS_FAILED` | the MX or address lookup failed | yes, unless the DNS said there is no such name |
+| `REFUSED` | a 4xx or 5xx to the greeting, EHLO, AUTH, MAIL FROM, DATA or the dot | a 4xx yes, a 5xx no |
+| `RECIPIENTS_REFUSED` | every recipient refused; `rejected` lists them | when one of the refusals is a 4xx |
+| `CONNECTION_FAILED` | no TCP connection | yes |
+| `CONNECTION_LOST` | the server hung up half-way | yes |
+| `TIMEOUT` | a step's timeout, or the deadline | yes |
+| `BAD_REPLY` | what the server sent is not an SMTP reply, or is too long | yes |
+| `TLS_UNAVAILABLE` | `tls: 'required'` and no STARTTLS | yes |
+| `TLS_FAILED` | the handshake failed, or the certificate did not check out | yes |
+
+A queue retries what is `temporary` and bounces what is not. This client is
+not one: it tries once and reports.
+
+```ts
+import { SmtpError, sendMail } from '@bumail/smtp/client';
+
+try {
+	await sendMail('Subject: hi\r\n\r\nhello\r\n', { host: 'relay.example.net', from: 'a@example.com', to: 'b@example.org' });
+} catch (error) {
+	if (!(error instanceof SmtpError)) throw error; // your own stream's error comes through as it is
+	if (error.temporary) console.log('defer', error.code, error.reply?.status);
+	else console.log('bounce', error.message);
+}
+```
+
+### Delivery by MX
+
+With `{ domain, resolver }`, `resolveMx` gives the hosts in the order to
+try them (RFC 5321 §5.1):
+
+- the MX records, the lowest preference first; equal ones in a random
+  order, to spread the load;
+- no MX record (the DNS said `NOT_FOUND`): the domain itself, the implicit
+  MX;
+- a null MX (`0 .`, RFC 7505): `NULL_MX` at once, no fallback to the
+  domain's address;
+- an MX lookup that failed: `DNS_FAILED`, temporary.
+
+Each host's addresses come from the resolver too (A, then AAAA), and the
+client connects to each address in turn, with TLS checked against the MX
+host's name. It moves on after a failure that is temporary and came before
+MAIL FROM — no connection, a dropped connection, a `421` greeting, a 4xx to
+EHLO, no STARTTLS when it is required, a TLS failure — and stops at a 5xx
+or once MAIL FROM was sent. It tries 10 addresses at most, and looks up
+10 hosts at most — a host with no address counts too — so a domain with
+hundreds of MX records costs no more than 10 hosts' lookups. Every lookup,
+the MX one included, runs under `deadline`. When every host
+failed, it rejects with the last failure; when none had an address, with
+`DNS_FAILED`.
+
+```ts
+import { fixtureResolver } from '@bumail/dns';
+import { resolveMx } from '@bumail/smtp/client';
+
+const resolver = fixtureResolver({
+	'example.org': {
+		mx: [
+			{ exchange: 'mx2.example.org', priority: 20 },
+			{ exchange: 'mx1.example.org', priority: 10 },
+		],
+	},
+});
+console.log(await resolveMx('example.org', resolver));
+// [{ host: 'mx1.example.org', priority: 10, implicit: false },
+//  { host: 'mx2.example.org', priority: 20, implicit: false }]
+```
+
+Install `@bumail/dns` for MX delivery and pass one of its resolvers, or
+pass any object with `mx`, `a` and `aaaa` (`MxResolver`, declared by shape
+in this package, so its types never need `@bumail/dns`). A failure is
+read by its `DnsError` shape (`name` and `code`), as `@bumail/dns`'s
+`isTemporary` reads it: `TEMPORARY`, `TIMEOUT`, and anything that is not
+a `DnsError` are temporary. A resolver that answers with an empty array
+rather than `NOT_FOUND` is read the same way: no MX is the implicit MX, no
+address is a permanent `DNS_FAILED`.
+
+### Timeouts and limits
+
+Every wait has a timeout, RFC 5321 §4.5.3.2's by default, in seconds. It
+is the whole wait — from the command to the last line of its reply — so a
+server that trickles a line at a time does not stretch it:
+
+| `timeouts.` | waits for | default |
+| --- | --- | --- |
+| `connect` | the TCP connection, and each TLS handshake | 30 |
+| `greeting` | the 220 | 300 |
+| `command` | the replies to EHLO, HELO, STARTTLS, AUTH | 300 |
+| `mail` | the reply to MAIL FROM | 300 |
+| `rcpt` | the reply to each RCPT TO | 300 |
+| `dataStart` | the 354 | 120 |
+| `dataBlock` | the server to take each block of the message, and your stream to give the next one | 180 |
+| `dataEnd` | the reply to the final dot | 600 |
+
+`deadline` (1800 seconds by default) bounds the whole delivery, every host
+and every DNS lookup together; each lookup is also bounded by the
+resolver's own timeout. Each value
+is a number of seconds above 0, fractions allowed, at most 2 147 483 (what
+`setTimeout` can wait). A slow server ends in `TIMEOUT`, which is
+temporary.
+
+What a server sends is bounded too, whatever it sends: 2048 bytes a reply
+line, 100 lines a reply, 1 MiB of replies a session. Past any of them, or
+on a line that is not a reply, the client hangs up with `BAD_REPLY`. Each
+line is read in one pass, so no reply can make the client spin.
+
+### Trying it with Mailpit
+
+[Mailpit](https://mailpit.axllent.org) is a mail server for tests: it keeps
+whatever it receives and shows it on a web page. Start it:
+
+```sh
+docker run --rm -p 8025:8025 -p 1025:1025 axllent/mailpit
+```
+
+Then send to port 1025 — it offers no STARTTLS and needs no AUTH — and open
+http://localhost:8025:
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+await sendMail('From: a@example.com\r\nTo: b@example.org\r\nSubject: hi\r\n\r\nhello\r\n', {
+	host: 'localhost',
+	port: 1025,
+	from: 'a@example.com',
+	to: 'b@example.org',
+});
+```
+
+In the bumail repository, `packages/smtp/examples/try-mailpit.ts` does the
+same with a message signed by `@bumail/auth`'s `signDkim`, under a
+throwaway Ed25519 key it makes for the run, and prints the DNS record that
+would publish that key:
+
+```sh
+bun run build
+bun packages/smtp/examples/try-mailpit.ts --host localhost --port 1025 --from me@example.com --to you@example.org
+# or: MAILPIT_HOST=… MAILPIT_PORT=… MAIL_FROM=… MAIL_TO=… bun packages/smtp/examples/try-mailpit.ts
+```
+
+To try AUTH, start Mailpit with `--smtp-auth-accept-any
+--smtp-auth-allow-insecure` and pass `auth` with `allowPlaintextAuth:
+true`: Mailpit has no TLS by default, and that flag is for exactly this.
+
 ## Protocol helpers
 
 The pieces the server is built from are exported, for a test, a client, or
@@ -958,6 +1292,9 @@ console.log(chunk.done, reader.bareLineBreaks);
 | submission mode | RFC 6409 |
 | `with ESMTPSA` in the Received field | RFC 3848 |
 | the Received field's date | RFC 5322 §3.3 |
+| the client's MX lookup and its order | RFC 5321 §5.1 |
+| the client's null MX | RFC 7505 |
+| the client's opportunistic TLS | RFC 7435 |
 
 AUTH LOGIN has no RFC; it is the de facto mechanism most clients offer.
 The specs next to each module are built on these RFCs' own examples —
@@ -971,7 +1308,15 @@ each one comes from.
   conforming client does not send them.
 - **CHUNKING** (RFC 3030). `BDAT` is answered `500 5.5.2 Command
   unrecognized`; a client sends DATA instead.
-- **The client.** This package receives mail; it does not send it to other
-  servers. Outbound delivery is on the [roadmap](roadmap.md).
+- **A queue.** The client tries a destination once and reports;
+  retrying a temporary failure is the caller's job until `@bumail/queue`.
+- **Connection reuse.** The client opens one connection per message, and
+  sends no `RSET`. Several messages to one destination over one session is
+  on the [roadmap](roadmap.md).
+- **DSN in the client.** It sends no `RET`, `ENVID`, `NOTIFY` or `ORCPT`.
+- **CHUNKING in the client.** It sends DATA, never `BDAT`.
+- **DANE and MTA-STS.** By MX, TLS is opportunistic; a policy that makes
+  it required for a domain is for later.
+- **Other SASL mechanisms in the client** — it speaks PLAIN and LOGIN.
 - **Other SASL mechanisms** — CRAM-MD5, SCRAM, XOAUTH2 get `504 5.5.4`.
 - **EXPN**, which gives away a list's members: `500 5.5.2`.

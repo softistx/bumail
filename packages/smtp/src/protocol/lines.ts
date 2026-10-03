@@ -1,12 +1,15 @@
-/** The longest command line taken, CRLF included; RFC 5321 §4.5.3.1.4 asks for 512 at least. */
+/**
+ * The longest line taken, CRLF included: a command (RFC 5321 §4.5.3.1.4
+ * asks for 512 at least) or a reply line (§4.5.3.1.5, 512 too).
+ */
 export const MAX_LINE = 2048;
 
-/** One line from the client, or a line that was too long and was skipped. */
+/** One line from the peer, or a line that was too long and was skipped. */
 export type LineEvent = { line: string } | { tooLong: true };
 
 /**
- * Cuts the client's bytes into command lines, ending at LF with or without
- * CR. It holds one partial line at most: past `MAX_LINE`, the line is
+ * Cuts a peer's bytes into lines — a client's commands, a server's
+ * replies — ending at LF with or without CR. It holds one partial line at most: past `MAX_LINE`, the line is
  * skipped to its end and reported once.
  */
 export class LineSplitter {
@@ -44,6 +47,11 @@ export class LineSplitter {
 			if (end > MAX_LINE) return { tooLong: true };
 			return { line: new TextDecoder().decode(data.subarray(0, end)) };
 		}
+	}
+
+	/** Bytes are held or left: a line begun, or lines not yet read. */
+	get holding(): boolean {
+		return this.#held.length > 0 || this.#rest.length > 0;
 	}
 
 	/** What is left of the current chunk: message content pipelined after DATA. */
