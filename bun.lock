@@ -14,7 +14,7 @@
     },
     "packages/dns": {
       "name": "@bumail/dns",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },
@@ -27,7 +27,7 @@
     },
     "packages/mime": {
       "name": "@bumail/mime",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },
@@ -40,7 +40,7 @@
     },
     "packages/smtp": {
       "name": "@bumail/smtp",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@bumail/store": "workspace:^",
         "@types/bun": "^1.4.2",
@@ -54,7 +54,7 @@
     },
     "packages/store": {
       "name": "@bumail/store",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },

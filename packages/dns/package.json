@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/dns",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "The DNS answers a mail server needs (MX, TXT, A, AAAA, PTR) behind one small resolver interface: node:dns in production, a fixture in specs, a cache that honours TTLs",
 	"license": "MIT",
 	"type": "module",
