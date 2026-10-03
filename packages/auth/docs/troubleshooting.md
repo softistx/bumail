@@ -3,11 +3,13 @@
 Three kinds of entry. **Errors** are what a call throws: an `AuthError`,
 headed by its message and listed under its `code`; one that wraps
 another error keeps it as `cause`. **Result reasons** are
-what `verifyDkim` and `checkSpf` give back in `reason`. Neither throws for
-a message or a record, so everything wrong with one comes back this way.
-Entries are listed under their `result`, DKIM's and then
-[SPF's](#spf-result-reasons). **[SPF traps](#spf-traps)** are results
-that come back without a reason of their own. The parts shown as … vary.
+what `verifyDkim`, `checkSpf` and `checkDmarc` give back in `reason`.
+None of them throws for a message or a record, so everything wrong with
+one comes back this way. Entries are listed under their `result`,
+DKIM's, then [SPF's](#spf-result-reasons), then
+[DMARC's](#dmarc-result-reasons). **[SPF traps](#spf-traps)** are
+results that come back without a reason of their own. The parts shown
+as … vary.
 
 ## Errors
 
@@ -154,6 +156,86 @@ should never time out still wants a bound the DNS can meet.
 
 **When**: `identity` is anything else. **Fix**: leave it out to check
 MAIL FROM, or pass `'helo'` to check the HELO name on its own.
+
+#### `AuthError: checkDmarc(): resolver must be a Resolver`
+
+**When**: `checkDmarc` was called without a `resolver`, or with
+something that has no `txt` method. **Fix**: pass the one `verifyDkim`
+and `checkSpf` use: `{ resolver: cachedResolver(nodeResolver()) }`.
+
+#### `AuthError: checkDmarc(): message must be a Uint8Array, a string or a ReadableStream`
+
+**When**: `message` is missing, or is a parsed object. **Fix**: pass the
+message as you passed it to `verifyDkim`, as bytes or a string. Only its
+header is read.
+
+#### `AuthError: checkDmarc(): dkim must be the array verifyDkim returned`
+
+**When**: `dkim` is missing, or is one result rather than the array.
+**Fix**: pass `await verifyDkim(message, { resolver })` whole; pass `[]`
+when DKIM was not checked.
+
+#### `AuthError: checkDmarc(): spf.result must be what checkSpf returned`
+
+**When**: `spf` was given as the `SpfResult` itself, or without its
+`result`. **Fix**: wrap it with the identity it was checked for:
+`spf: { result: await checkSpf(session, { resolver }), identity: 'mailfrom' }`.
+Leave `spf` out when SPF was not checked.
+
+#### `AuthError: checkDmarc(): spf.identity must be 'mailfrom' or 'helo', not …`
+
+**When**: `identity` is missing or misspelled. **Fix**: `'mailfrom'` for
+`checkSpf`'s default (bounces included), `'helo'` when you passed it
+`identity: 'helo'`.
+
+#### `AuthError: checkDmarc(): organizationalDomain must be a function`, `AuthError: checkDmarc(): random must be a function`
+
+**When**: either option was given a value rather than a function.
+**Fix**: `organizationalDomain: (domain) => …` returning the
+organizational domain or `undefined`; `random: () => 0.5` returning a
+number in [0, 1). Leave them out for the embedded Public Suffix List and
+`Math.random`.
+
+#### `AuthError: checkDmarc(): timeout must be a positive integer of milliseconds, not …`
+
+**When**: `timeout` is zero, negative, fractional or not a number.
+**Fix**: a whole number of milliseconds, such as `10_000`, or leave it
+out for 20 000.
+
+#### `AuthError: checkDmarc(): timeout must be at most 2147483647 ms, not …`
+
+**When**: `timeout` is past what `setTimeout` can wait (about 24.8 days);
+a longer delay would fire at once. **Fix**: a smaller value.
+
+#### `AuthError: checkDmarc(): maxHeaderBytes must be an integer of at least 1, not …`
+
+**When**: `maxHeaderBytes` is not a whole number of at least 1. **Fix**:
+pass the one you give `verifyDkim`, or leave it out for 256 KiB.
+
+#### `AuthError: formatAuthenticationResults(): authservId must be 1 to 255 characters with no control character, such as the host name`
+
+**When**: the `authservId` is empty, not a string, longer than 255
+characters, or holds a control character such as a line break. **Fix**:
+your receiving host's name, such as `mx.example.org`.
+
+#### `AuthError: formatAuthenticationResults(): results must be an object of dkim, spf and dmarc`
+
+**When**: the second argument is missing or not an object. **Fix**:
+`formatAuthenticationResults(id, { dkim, spf, dmarc })`, or `{}` for
+`none`.
+
+#### `AuthError: formatAuthenticationResults(): dkim must be the array verifyDkim returned`
+
+**When**: `dkim` is one result rather than the array. **Fix**: pass
+`verifyDkim`'s result whole.
+
+#### `AuthError: formatAuthenticationResults(): … result … is not one of …`
+
+**When**: a `dkim`, `spf` or `dmarc` entry has a `result` that is not a
+word of that method, such as a hand-built object, or `spf` given as the
+`SpfResult` rather than `{ result, identity }`. **Fix**: pass what
+`verifyDkim`, `checkSpf` (wrapped as for `checkDmarc`) and `checkDmarc`
+returned. The words are checked so no value can add a result.
 
 ### INVALID_MESSAGE
 
@@ -526,12 +608,164 @@ The DNS gave no answer for the query named (`TEMPORARY` or `TIMEOUT`), or
 the resolver threw something that is not a `DnsError`, whose text is
 given instead. Answer the MAIL FROM with a 451 so the sender retries
 later.
+A reason that reads `DNS lookup failed: DnsError: …` means two copies of
+`@bumail/dns` are installed: dedupe the peer.
 
 #### `the check took longer than its timeout (… ms)`
 
 The whole check, every lookup included, passed `timeout`. A slow or
 unreachable DNS server is the usual cause. Raise `timeout` only if
 yours is slow; the RFC asks for at least 20 seconds, the default.
+
+## DMARC result reasons
+
+What `checkDmarc` gives back. Every reason about the message itself
+(From, the header, the stream) comes with an empty `domain`; those of
+them under `permerror` come with `disposition: 'reject'`. Every other
+reason but a `fail` comes with `disposition: 'none'`.
+
+### pass
+
+#### `aligned DKIM pass for d=…`
+
+A DKIM signature passed, and its `d=` is aligned with the From domain
+(§3.1.1). It is also in `alignedDkim`.
+
+#### `aligned SPF pass for …`
+
+SPF passed for the MAIL FROM domain named, and no DKIM signature
+aligned; the domain is aligned with From (§3.1.2). It is also in
+`alignedSpf`, which is set too when DKIM aligned as well.
+
+### fail
+
+#### `no aligned DKIM or SPF pass`
+
+Neither a passing DKIM signature nor a passing SPF check is aligned with
+From. Forwarding and mailing lists cause this for honest mail: SPF fails
+from the forwarder's IP, and a list that changes the subject or body
+breaks DKIM. `disposition` says what the domain asks; whether to follow
+it is yours (§6.7).
+
+### none
+
+#### `no DMARC record at _dmarc.…`, `no DMARC record at _dmarc.… or _dmarc.…`
+
+The From domain, and its organizational domain when it differs, have no
+TXT record starting with `v=DMARC1`. The domain publishes no policy. A
+record that starts with anything else, such as `v=DMARC1x` or a
+lowercase `v=dmarc1`, is not a DMARC record (§6.6.3).
+
+### temperror
+
+#### `DNS lookup failed: … for TXT _dmarc.…`
+
+The DNS gave no answer for the record (`TEMPORARY` or `TIMEOUT`), or the
+resolver threw something that is not a `DnsError`, whose text is given
+instead. A failure at the From domain is not followed by the
+organizational domain's lookup. A reason that reads
+`DNS lookup failed: DnsError: …` means the resolver comes from another
+copy of `@bumail/dns` than the one `@bumail/auth` loads, so its
+`NOT_FOUND` is not recognised: dedupe the peer (one `@bumail/dns` in
+`node_modules`). Answer with a 451 so the sender retries.
+
+#### `the check took longer than its timeout (… ms)`
+
+The record lookups passed `timeout`. The resolver is not told to stop;
+the check stops waiting for it.
+
+#### `an aligned DKIM or SPF check had a temporary error`
+
+Nothing aligned passed, and a DKIM signature whose `d=` is aligned with
+From, or an SPF check of an aligned domain, came back `temperror`
+(§6.6.2): a later attempt may pass. A temporary error on a domain that
+is not aligned is not counted, so a forger cannot ask for this.
+
+#### `the message could not be read: …`
+
+The message stream failed before its header ended. The error's text
+follows the colon. A stream that stalls without failing gives no
+result at all: `timeout` bounds the DNS lookups, not the read, so bound
+the read where the message comes in.
+
+### permerror
+
+#### `more than one DMARC record at _dmarc.…`
+
+The domain publishes two or more TXT records starting with `v=DMARC1`
+(§6.6.3 step 5). No policy applies; its owner must keep one.
+
+#### `the DMARC record at _dmarc.… has no valid p=, and no rua=`
+
+The record has no `p=`, or one that is not `none`, `quarantine` or
+`reject`, and no `rua=` URI that parses (§6.6.3 step 6). With one, the
+record would be read as `p=none`. No policy applies.
+
+#### `the DMARC record at _dmarc.… has an invalid sp=, and no rua=`
+
+The same for `sp=`, written with a value that is not one of the three.
+
+#### `the message has no From header`
+
+RFC 5322 requires one From field; this message has none (§6.6.1).
+`disposition` is `reject`.
+
+#### `the message has more than one From header`
+
+Two or more From fields, in any case (`From`, `FROM`). A reader may be
+shown either one, so a forger adds a second to get around `p=reject`
+(§6.6.1). A line that starts after a bare CR or LF counts as a field
+too, since some readers break lines there. `disposition` is `reject`.
+
+#### `From holds more than one address`
+
+One From field with several mailboxes (`a@example.com, b@example.net`),
+which RFC 5322 allows only with a Sender field and DMARC-protected mail
+does not use (§6.6.1). `disposition` is `reject`.
+
+#### `From holds no address`
+
+The From field is empty, or holds only white space or a comment.
+`disposition` is `reject`.
+
+#### `From does not parse as one mailbox`
+
+The From field is not exactly one RFC 5322 mailbox — `a@example.com`,
+`<a@example.com>` or `Name <a@example.com>` — so a mail client and DMARC
+could read different authors from it. DMARC reads From strictly, unlike
+`@bumail/mime`'s lenient `parseAddressList`, and refuses: a bare name
+with no `@`, an address in an unquoted display name
+(`a@good.example <x@evil.example>`), two angle addresses or text after
+the `>`, an unclosed `<` or a stray `>` or `)`, an unterminated
+quoted-string or comment, two `@` in the address, an obs-route
+(`<@relay:a@example.com>`), a `;` or an empty list element, a
+backslash outside quotes, a domain with an empty label or a trailing
+dot, and a control character or a bare CR or LF. A display name in
+quotes, an encoded-word or a comment is fine, and never read as the
+author: `"a@good.example" <x@evil.example>` is evaluated for
+`evil.example`. `disposition` is `reject`. **Fix**: none on the receiving
+side; the sender writes a broken or forged From. To flag a display name
+that looks like another domain's address, do it in your own policy, on
+the parsed From.
+
+#### `From holds a group, not a mailbox`
+
+From is a group (RFC 6854), empty or not: `undisclosed-recipients:;`,
+`example.com:;` or `Team: a@example.com;`. A reader is shown the group's
+name, which no domain's policy protects, so DMARC cannot evaluate it.
+`disposition` is `reject`.
+
+#### `the From domain "…" is not a domain name`
+
+The address's domain is not a name to look up: an address literal such
+as `[192.0.2.1]`, an empty label, a label past 63 characters, or more
+than 253 characters in all. `disposition` is `reject`.
+
+#### `the header is larger than maxHeaderBytes (…)`
+
+The header did not end within `maxHeaderBytes`, so its From fields could
+not all be read. `disposition` is `reject`; raise `maxHeaderBytes` if
+your mail has larger headers.
 
 ## SPF traps
 

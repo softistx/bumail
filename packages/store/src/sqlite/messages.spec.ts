@@ -34,10 +34,14 @@ describe('SqliteMailStore: messages on disk', () => {
 		const again = open(at);
 		expect(await again.listAccountMessages(account.id)).toEqual(before);
 		expect(await again.listMailboxes(account.id)).toEqual(boxes);
-		expect((await again.getMessage(account.id, a.id))?.flags).toEqual([
-			'$label',
-			'\\Seen',
-		]);
+		// A keyword keeps its case on disk, and still compares without it.
+		const kept = await again.getMessage(account.id, a.id);
+		expect(kept?.flags).toEqual(['$Label', '\\Seen']);
+		const { messages: [same] = [] } = await again.setFlags(account.id, [a.id], {
+			add: ['$LABEL'],
+		});
+		expect(same?.flags).toEqual(['$Label', '\\Seen']);
+		expect(same?.modseq).toBe(kept?.modseq);
 		expect(await (await again.readContent(account.id, b.blobId))?.text()).toBe(
 			'b',
 		);

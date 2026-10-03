@@ -1,4 +1,4 @@
-import { MemoryMailStore } from '@bumail/store';
+import { type MailStore, MemoryMailStore } from '@bumail/store';
 import { Connection } from './connection';
 import type { ImapServerOptions } from './options';
 import { settingsOf } from './settings';
@@ -43,8 +43,7 @@ export const MULTIPART = [
 ].join('\r\n');
 
 /** A memory store with alice's account: INBOX with two messages, and the special-use mailboxes. */
-export async function seededStore() {
-	const store = new MemoryMailStore();
+export async function seededStore(store: MailStore = new MemoryMailStore()) {
 	const account = await store.createAccount('alice@example.com');
 	const accountId = account.id;
 	const inbox = await store.createMailbox(accountId, {
@@ -75,7 +74,7 @@ export async function seededStore() {
 }
 
 export function imapOptions(
-	store: MemoryMailStore,
+	store: MailStore,
 	accountId: string,
 	overrides: Partial<ImapServerOptions> = {},
 ): ImapServerOptions {

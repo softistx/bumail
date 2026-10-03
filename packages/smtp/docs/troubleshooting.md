@@ -89,6 +89,7 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 **Sending mail: options**
 
 - [`SmtpError: sendMail(): "…" is not an address (local@domain)`](#smtperror-sendmail--is-not-an-address-localdomain)
+- [`SmtpError: sendMail(): "…" holds a source route (@host:), which RFC 5321 says a client should not send: pass "…" alone`](#smtperror-sendmail--holds-a-source-route-host-which-rfc-5321-says-a-client-should-not-send-pass--alone)
 - [`SmtpError: sendMail(): to must name one recipient or more`](#smtperror-sendmail-to-must-name-one-recipient-or-more)
 - [`SmtpError: sendMail(): helo "…" is not a host name`](#smtperror-sendmail-helo--is-not-a-host-name)
 - [`SmtpError: sendMail(): helo is required for delivery by MX: pass your server's public name, such as helo: 'mail.example.com'`](#smtperror-sendmail-helo-is-required-for-delivery-by-mx-pass-your-servers-public-name-such-as-helo-mailexamplecom)
@@ -737,7 +738,10 @@ base64 response to the challenge — see
 ### `501 Syntax: EHLO hostname`
 
 **When**: `EHLO` with no argument, or with one that is neither a domain nor
-an address literal — an underscore, a space, a bare IP without brackets.
+an address literal — an underscore, a space, a bare IP without brackets,
+an IPv4 literal with an octet above 255 (`[999.1.1.1]`), an IPv6 one
+without its `IPv6:` tag (`[2001:db8::1]`). The tag may be in any case:
+`[ipv6:2001:db8::1]` is accepted.
 `HELO` gets `501 Syntax: HELO hostname`. Before an EHLO was accepted the
 reply has no enhanced code; after one, it is
 `501 5.5.4 Syntax: EHLO hostname`. It counts toward `maxErrors`.
@@ -799,7 +803,10 @@ send `RSET` to start a transaction over.
 
 **When**: a command whose argument is wrong: `MAIL FROM:<address>` without
 the angle brackets or the colon, a path with a space, a control or an
-invisible character (C1, zero-width, bidi, U+2028), `DATA` or `STARTTLS`
+invisible character (NUL, ESC, DEL, C1, zero-width, bidi, U+2028), a source
+route that is not `@domain(,@domain)*:` (`<@a,b:x@foo.com>`,
+`<@a..b:x@foo.com>`; a valid one is accepted and dropped), an IPv4
+address literal with an octet above 255 (`<a@[999.1.1.1]>`), `DATA` or `STARTTLS`
 with an argument, `AUTH` with more than a mechanism and a response,
 `SIZE=` that is not a number. The text after `Syntax:` gives the expected
 form. Each counts toward `maxErrors`.
@@ -1415,8 +1422,15 @@ needs it at `0`.
 ### `SmtpError: sendMail(): "…" is not an address (local@domain)`
 
 **When**: `from` or a recipient in `to` is not an RFC 5321 path: no `@`, a
-display name (`Bob <b@example.org>`), angle brackets, a space, or a CR or
-LF. For `from` the message ends `(local@domain, or '' for a bounce)`.
+display name (`Bob <b@example.org>`), angle brackets, a space outside
+quotes (`a b@c.com`; the quoted `"a b"@c.com` is an address), or a CR, an
+LF, a NUL, any other control character, a `>`, a C1 control, a Unicode
+format character (zero-width, bidi, BOM), U+2028/2029 or a lone surrogate
+(`a\uD800@c.com`) in any part — the local part, quoted or not, the
+domain, or a source route (`@x\r\nRSET\r\nNOOP:a@c.com`) — or an IPv4
+address literal with an octet above 255 (`a@[999.1.1.1]`). A source route whose hops are not each
+`@domain` lands here too. For `from` the message ends `(local@domain, or ''
+for a bounce)`. Nothing is sent: the check runs before the client connects.
 
 **Why**: the address goes into `MAIL FROM:<…>` or `RCPT TO:<…>` as it is;
 anything else could break the command or inject another.
@@ -1427,6 +1441,25 @@ anything else could break the command or inject another.
 import { sendMail } from '@bumail/smtp/client';
 
 await sendMail('Subject: hi\r\n\r\nhello\r\n', { host: 'relay.example.net', from: '', to: ['b@example.org'] });
+```
+
+### `SmtpError: sendMail(): "…" holds a source route (@host:), which RFC 5321 says a client should not send: pass "…" alone`
+
+**When**: `from` or a recipient in `to` starts with a source route, such as
+`@a.example,@b.example:x@c.example` (RFC 5321 Appendix C). The second `"…"`
+is the address without it.
+
+**Why**: RFC 5321 §4.1.1.3 says a client should not send a source route,
+and the client writes the address as it is given. A server accepts and
+drops one, so it never routed anything; refusing it keeps the envelope to
+the plain `local@domain` the client checked.
+
+**Fix**: pass the address the message names, after the colon:
+
+```ts
+import { sendMail } from '@bumail/smtp/client';
+
+await sendMail('Subject: hi\r\n\r\nhello\r\n', { host: 'relay.example.net', from: 'a@example.com', to: 'x@c.example' });
 ```
 
 ### `SmtpError: sendMail(): to must name one recipient or more`
@@ -1440,7 +1473,10 @@ await sendMail('Subject: hi\r\n\r\nhello\r\n', { host: 'relay.example.net', from
 ### `SmtpError: sendMail(): helo "…" is not a host name`
 
 **When**: `helo` is not a host name nor an address literal such as
-`[192.0.2.1]`.
+`[192.0.2.1]` or `[IPv6:2001:db8::1]`: an underscore, a space, a bare IP
+without brackets, an IPv4 literal with an octet above 255
+(`[999.1.1.1]`), an IPv6 one without its `IPv6:` tag. The tag may be in
+any case: `[ipv6:2001:db8::1]` is taken.
 
 **Why**: it is the argument of EHLO and HELO (RFC 5321 §4.1.1.1).
 

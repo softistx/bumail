@@ -1,4 +1,5 @@
 import { DnsError, type Resolver } from '@bumail/dns';
+import { beforeDeadline } from '../deadline';
 import type { Ip } from './ip';
 import type { SpfResultWord } from './result';
 
@@ -80,18 +81,8 @@ function late(run: Run): Halt {
 }
 
 /** `promise`, unless the deadline comes first. */
-async function inTime<T>(run: Run, promise: Promise<T>): Promise<T> {
-	const left = run.deadline - performance.now();
-	if (left <= 0) throw late(run);
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	const timeout = new Promise<never>((_, reject) => {
-		timer = setTimeout(() => reject(late(run)), left);
-	});
-	try {
-		return await Promise.race([promise, timeout]);
-	} finally {
-		clearTimeout(timer);
-	}
+function inTime<T>(run: Run, promise: Promise<T>): Promise<T> {
+	return beforeDeadline(promise, run.deadline, () => late(run));
 }
 
 export type Query = 'txt' | 'a' | 'aaaa' | 'mx' | 'ptr';

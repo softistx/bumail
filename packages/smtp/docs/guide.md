@@ -295,14 +295,19 @@ export interface Path {
 ```
 
 A source route (`<@a.example:b@c.example>`, RFC 5321 Appendix C) is dropped:
-the path is `b@c.example`.
+the path is `b@c.example`. It is taken only as `@domain(,@domain)*:`, each
+hop a valid domain or address literal; any other route — an empty hop, a
+hop without its `@`, a hop that is not a domain — is a `501 5.5.4 Syntax`.
 
 `local` is kept as written, quotes included. `<"v@x.example"@example.com>`
 and `<v%x.example@example.com>` are local parts of `example.com`, and
 passed the relay check as such: code that delivers must take the domain
 after the last `@` — `path.domain` — and never split `address` on its
-first `@`. C1 controls, Unicode format characters (zero-width, bidi, BOM)
-and U+2028/2029 are refused in a path, even under SMTPUTF8.
+first `@`. C0 controls (CR, LF, NUL, tab…), DEL and `>`, C1 controls,
+Unicode format characters (zero-width, bidi, BOM), U+2028/2029 and lone
+surrogates are refused anywhere in a path — the route, the local part
+quoted or not, the domain — even under SMTPUTF8. An IPv4 address literal
+takes octets up to 255: `[999.1.1.1]` is not one.
 
 ## Session.data
 
@@ -878,8 +883,17 @@ server decides — the idle `timeout`, `maxErrors`, three failed AUTH
 attempts, a refusal from `onConnect`, a local error — it writes its reply
 and closes at once: the connection is counted out of `connections` then and
 there, and replies the client never read are dropped, the connection reset
-if any were still waiting. So a client that pipelines commands and stops
-reading cannot keep a slot of `maxConnections` past its `timeout`.
+if any were still waiting. When the server had stopped reading a client
+that sent more than it could take, any hang-up, `QUIT`'s included, reads
+again first, dropping whatever comes, and half-closes once the client's
+input stops for 20 ms: a half-close does not complete over input left
+unread, and on Linux a close over unread input is a reset that loses the
+last reply. A client whose input went quiet for 20 ms within 500 ms of
+the hang-up then still reads the last reply and the end. It waits 500 ms
+at most: input not quiet for 20 ms by then, a client still sending or one
+that stopped in the last 20 ms, is reset, so its slot is free by then too. So a client that
+pipelines commands and stops reading cannot keep a slot of
+`maxConnections` past its `timeout`.
 
 Every hang-up is bounded, on a clear socket, on implicit TLS and after
 STARTTLS alike. When the server decides, it never waits for the client to
@@ -955,8 +969,12 @@ await sendMail(message, { domain: 'example.org', resolver: nodeResolver(), helo:
 
 `from` is the envelope's reverse-path — `''` for the null sender of a
 bounce — and `to` one recipient or more. Both are checked as RFC 5321 paths
-before anything is sent: an address holding a CR, an LF or a `>` is refused
-with `INVALID_OPTION`, so it cannot inject a command.
+before anything is sent, before the client even connects: an address
+holding a CR, an LF, a NUL, any other control character or a `>`, in any
+part, is refused with `INVALID_OPTION`, so it cannot inject a command. A
+source route (`@a.example,@b.example:x@c.example`) is refused too, valid
+or not: RFC 5321 §4.1.1.3 says a client should not send one, and the
+address is written as it is given.
 
 One call is one destination. With `{ domain }`, every recipient should be
 at that domain: group them by domain first, one `sendMail` each.
@@ -1291,7 +1309,11 @@ console.log(chunk.done, reader.bareLineBreaks);
 
 - `parsePathCommand` and `parsePath` return `undefined` when the syntax is
   wrong. `parsePath` takes UTF-8 addresses; whether a session may use one
-  is SMTPUTF8's question.
+  is SMTPUTF8's question. A control character or a `>` anywhere is wrong.
+  Its third argument says what to do with a source route: `'discard'`, the
+  default and what a server does, drops a valid `@domain(,@domain)*:`;
+  `'refuse'`, what a client does, returns `undefined` for any route:
+  `parsePath('<@a,@b:x@c.com>', false, 'refuse')` is `undefined`.
 - `formatReply` replaces a CR or LF in the text with a space, so a reply
   text cannot start a second reply.
 - `DataReader.write(chunk)` returns the unstuffed bytes, whether the

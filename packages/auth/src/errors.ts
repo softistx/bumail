@@ -1,15 +1,15 @@
 /**
  * Why a call could not be made. Verifying never throws for a message, nor
- * checking SPF for a record: what is wrong with one comes back as a
- * result. These are thrown for what the caller controls — an option, the
- * client IP, the message it asks to sign, a key.
+ * checking SPF or DMARC for a record: what is wrong with one comes back
+ * as a result. These are thrown for what the caller controls — an option,
+ * the client IP, the message it asks to sign, a key.
  */
 export type AuthErrorCode =
 	| 'INVALID_OPTION'
 	| 'INVALID_MESSAGE'
 	| 'INVALID_KEY';
 
-/** Thrown by `signDkim`, `importDkimPrivateKey`, and by `verifyDkim` and `checkSpf` for an option they cannot take. */
+/** Thrown by `signDkim`, `importDkimPrivateKey` and `formatAuthenticationResults`, and by `verifyDkim`, `checkSpf` and `checkDmarc` for an option they cannot take. */
 export class AuthError extends Error {
 	override readonly name = 'AuthError';
 	readonly code: AuthErrorCode;

@@ -6,7 +6,7 @@ export {
 	parsePathCommand,
 } from './protocol/command';
 export { type DataChunk, DataReader } from './protocol/data';
-export { type Path, parsePath } from './protocol/path';
+export { type Path, parsePath, type SourceRoute } from './protocol/path';
 export { formatReply, type Reply, reply } from './protocol/reply';
 export {
 	type Credentials,

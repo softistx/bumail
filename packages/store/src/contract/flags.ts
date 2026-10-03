@@ -26,8 +26,11 @@ export function hasControl(text: string): boolean {
 }
 
 /**
- * A flag as stored: a system flag in its canonical case, a keyword in
- * lowercase — IMAP and JMAP both compare keywords without case.
+ * A flag as stored: a system flag in its canonical case, a keyword as it
+ * was written. IMAP and JMAP compare keywords without case (RFC 9051 §2.3.2),
+ * so a store compares them by `flagKey`; it keeps a keyword's spelling
+ * because a client looks for the one it set — `$Forwarded`, `$MDNSent`,
+ * `NonJunk`.
  */
 export function normalizeFlag(flag: string): string {
 	if (typeof flag === 'string' && flag.startsWith('\\')) {
@@ -36,17 +39,36 @@ export function normalizeFlag(flag: string): string {
 		);
 		if (system) return system;
 	} else if (typeof flag === 'string' && KEYWORD.test(flag)) {
-		return flag.toLowerCase();
+		return flag;
 	}
 	throw new StoreError('INVALID', `"${flag}" is not a flag a store keeps`);
 }
 
-/** Flags, normalised, without duplicates, sorted. */
+/** What two flags that differ only by case share: the same flag. */
+export function flagKey(flag: string): string {
+	return flag.toLowerCase();
+}
+
+/** Flags in a stable order: by `flagKey`, each key once. */
+function sortFlags(flags: Iterable<string>): string[] {
+	return [...flags].sort((a, b) => {
+		const x = flagKey(a);
+		const y = flagKey(b);
+		return x < y ? -1 : x > y ? 1 : 0;
+	});
+}
+
+/** Flags, normalised, without duplicates — the first spelling of a keyword kept — sorted. */
 export function normalizeFlags(flags: readonly string[]): string[] {
 	if (!Array.isArray(flags)) {
 		throw new StoreError('INVALID', 'Flags are an array of strings');
 	}
-	return [...new Set(flags.map(normalizeFlag))].sort();
+	const byKey = new Map<string, string>();
+	for (const flag of flags.map(normalizeFlag)) {
+		const key = flagKey(flag);
+		if (!byKey.has(key)) byKey.set(key, flag);
+	}
+	return sortFlags(byKey.values());
 }
 
 /** A change with its flags normalised, so applying it cannot throw. */
@@ -61,15 +83,25 @@ export function normalizeChange(change: FlagChange): FlagChange {
 	};
 }
 
-/** The flags after a normalised change: `set` first, then `add`, then `remove`. */
+/**
+ * The flags after a normalised change: `set` first, then `add`, then
+ * `remove`, each compared without case. A keyword the message has keeps the
+ * spelling it was stored with, so `$junk` added to `$Junk` changes nothing.
+ */
 export function applyFlagChange(
 	current: readonly string[],
 	change: FlagChange,
 ): string[] {
-	const flags = new Set(change.set ?? current);
-	for (const flag of change.add ?? []) flags.add(flag);
-	for (const flag of change.remove ?? []) flags.delete(flag);
-	return [...flags].sort();
+	const stored = new Map(current.map((flag) => [flagKey(flag), flag]));
+	const flags = new Map<string, string>();
+	const keep = (flag: string) => {
+		const key = flagKey(flag);
+		if (!flags.has(key)) flags.set(key, stored.get(key) ?? flag);
+	};
+	for (const flag of change.set ?? current) keep(flag);
+	for (const flag of change.add ?? []) keep(flag);
+	for (const flag of change.remove ?? []) flags.delete(flagKey(flag));
+	return sortFlags(flags.values());
 }
 
 export function sameFlags(a: readonly string[], b: readonly string[]): boolean {

@@ -39,11 +39,17 @@ import { type Tarball, tarballProblems } from './tarball';
  *     `name` and `exports`; it never needs to depend on itself.
  *   - a **license other than MIT, or no `LICENSE` in the tarball**. npm only
  *     ships the `LICENSE` in the package's own directory, never the root's.
+ *     `MIT AND <id>`, for a package that embeds a file under another
+ *     license, is taken when the tarball also holds `LICENSE-<id>`.
  *   - a **`files` entry the tarball does not hold**. npm skips an entry that
  *     matches nothing, so a `docs` folder renamed or a mistyped entry would
  *     publish without a word.
  *   - **test code**: a `*.spec.*`, a `*.test.*`, a snapshot, or a
  *     `<subject>.fixtures.*` file.
+ *   - a **source map that embeds data**: a module listed under
+ *     `bumail.unmappedSources` with its content still in a `.map`, or a
+ *     source past `LARGEST_MAPPED_SOURCE` that is not listed, so the data
+ *     would ship twice (`sourcemaps.ts`).
  *   - a **scoped package without `publishConfig.access: "public"`**.
  *     `scripts/publish.ts` runs `bun publish`, which never reads the
  *     changeset config's `access`, and npm publishes a scoped package as

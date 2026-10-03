@@ -1,5 +1,5 @@
 import { decodeBase64 } from '../encoding/base64';
-import { concat } from '../encoding/bytes';
+import { join } from '../encoding/bytes';
 import { charsetLabel, decodeCharset } from '../encoding/charset';
 
 /** An encoded-word (RFC 2047 §2), with RFC 2231 §5's optional `*language`. */
@@ -33,11 +33,13 @@ function decodeQ(text: string): Uint8Array {
  */
 export function decodeEncodedWords(value: string): string {
 	if (!value.includes('=?')) return value;
-	let out = '';
+	// The pieces are collected and joined once: concatenating a run of
+	// adjacent words one at a time costs the square of its length.
+	const out: string[] = [];
 	let last = 0;
-	let pending: { charset: string; bytes: Uint8Array } | undefined;
+	let pending: { charset: string; chunks: Uint8Array[] } | undefined;
 	const flush = () => {
-		if (pending) out += decodeCharset(pending.bytes, pending.charset);
+		if (pending) out.push(decodeCharset(join(pending.chunks), pending.charset));
 		pending = undefined;
 	};
 	for (const match of value.matchAll(ENCODED_WORD)) {
@@ -49,18 +51,19 @@ export function decodeEncodedWords(value: string): string {
 		const adjacent = pending !== undefined && /^[ \t\r\n]*$/.test(between);
 		if (!adjacent) {
 			flush();
-			out += between;
+			out.push(between);
 		}
 		if (pending && pending.charset.toLowerCase() === charset.toLowerCase()) {
-			pending.bytes = concat(pending.bytes, bytes);
+			pending.chunks.push(bytes);
 		} else {
 			flush();
-			pending = { charset, bytes };
+			pending = { charset, chunks: [bytes] };
 		}
 		last = match.index + word.length;
 	}
 	flush();
-	return out + value.slice(last);
+	out.push(value.slice(last));
+	return out.join('');
 }
 
 const B_PREFIX = '=?UTF-8?B?';

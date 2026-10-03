@@ -133,6 +133,8 @@ export class Connection {
 	 * transport terminates the socket within its grace if it has not closed
 	 * by then. A `forced` close — a timeout — with bytes still queued drops
 	 * them and terminates now; with none, it says BYE and ends as above.
+	 * Should the server have paused reading the client, the transport reads
+	 * again before it half-closes, so that end completes at once too.
 	 */
 	close(bye?: string, { forced = false } = {}): Promise<void> {
 		if (this.#closed) return Promise.resolve();
