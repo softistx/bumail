@@ -178,7 +178,7 @@ A sequence number past the last message is `BAD No such message`
 | mailbox `Work/2026` | a mailbox named `2026` whose parent is `Work`; the delimiter is `/` |
 | `\Sent`, `\Archive`, `\Trash`… | the mailbox `role` |
 | UIDVALIDITY, UIDNEXT, UIDs | the mailbox's `uidValidity`, `uidNext`, and each entry's `uid` |
-| flags and keywords | the message's `flags`, as the store spells them |
+| flags and keywords | the message's `flags`: a keyword in the case it was first set, `$Forwarded` as a client set it; STORE, `KEYWORD` and `UNKEYWORD` compare keywords without case, and FLAGS and PERMANENTFLAGS list each once |
 | INTERNALDATE | `receivedAt` |
 | the message | the stored blob, read as it streams |
 | SUBSCRIBE | `isSubscribed` |
@@ -286,7 +286,9 @@ commands meanwhile; a message is read and written 64 KiB at a time, so
 what waits for such a client is a slice, never the whole message. Nor
 does it hold the server for good: when `loginTimeout` or `timeout` comes
 and output is still queued for it, the server drops that output and cuts
-the connection at once. Every other hang-up — a timeout with nothing
+the connection at once. So it does when the server had stopped reading
+the client, which sent more than it could take: a half-close does not
+complete over input left unread. Every other hang-up — a timeout with nothing
 queued, LOGOUT, a `BYE` — sends its last words, then half-closes the
 socket: the server never waits for the client to answer, on TLS as on a
 clear socket, so the connection leaves `connections` at once, and a

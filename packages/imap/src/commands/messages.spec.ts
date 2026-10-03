@@ -81,13 +81,13 @@ describe('FETCH (RFC 9051 §6.4.5)', () => {
 });
 
 describe('STORE (RFC 9051 §6.4.6)', () => {
-	test('FLAGS replace, -FLAGS remove, a keyword is kept (as the store spells it); UID STORE says the UID', async () => {
+	test('FLAGS replace, -FLAGS remove, a keyword is kept as it was set; UID STORE says the UID', async () => {
 		const { s } = await selected();
 		expect(await s.send('a STORE 2 FLAGS ($Important \\Seen)\r\n')).toBe(
-			'* 2 FETCH (FLAGS ($important \\Seen))\r\na OK STORE completed\r\n',
+			'* 2 FETCH (FLAGS ($Important \\Seen))\r\na OK STORE completed\r\n',
 		);
 		expect(await s.send('b UID STORE 2 -FLAGS \\Seen\r\n')).toBe(
-			'* 2 FETCH (FLAGS ($important) UID 2)\r\nb OK UID STORE completed\r\n',
+			'* 2 FETCH (FLAGS ($Important) UID 2)\r\nb OK UID STORE completed\r\n',
 		);
 		expect(await s.send('c STORE 1 +FLAGS (\\Recent)\r\n')).toBe(
 			'c NO [CANNOT] "\\Recent" is not a flag a store keeps\r\n',
