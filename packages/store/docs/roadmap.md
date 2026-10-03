@@ -35,7 +35,7 @@ only number on it.
 
 ## Shipped
 
-### 0.1.0 — merged, not yet published
+### 0.1.0
 
 - **The contract and its memory store** — accounts; mailboxes with the
   IANA roles, a hierarchy and a subscription; messages that keep one id
