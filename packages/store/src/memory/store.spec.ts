@@ -1,12 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { describeTombstones } from '../contract/fixtures/tombstones.fixtures';
 import { describeMailStore } from '../contract/mail-store.fixtures';
 import { MemoryMailStore } from './store';
 
-describeMailStore('MemoryMailStore', () => new MemoryMailStore());
-
-describeTombstones(
+describeMailStore(
 	'MemoryMailStore',
+	() => new MemoryMailStore(),
 	(maxTombstones) => new MemoryMailStore({ maxTombstones }),
 );
 

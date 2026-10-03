@@ -305,9 +305,9 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   its last coming in, a message could be passed by one page and called
   `updated` by the next. A mailbox the account does not have, or no
   longer has, is `NOT_FOUND`: after deleting a mailbox, a client drops
-  what it held of it. A change in
-  another mailbox counts too: linking a message elsewhere makes it
-  `updated` here, since its mailboxes are part of it.
+  what it held of it. A change in another mailbox counts too: linking a
+  message elsewhere makes it `updated` here, since its mailboxes are part
+  of it.
 - Pages are intermediate states. Across pages, a message that left a
   mailbox and came back may be `created` for a client that already holds
   it, and one may be `destroyed` twice: treat `created` as add-or-replace,
@@ -357,6 +357,10 @@ await Bun.write(`blobs/${account.id}/${blobId}`, blob);
 
 The contract's specs, `describeMailStore`, live next to the stores in this
 package and run against each of them; a store added here runs them too.
+A store that forgets old removals also passes a factory for one that
+remembers at most a given number, so the specs for the floor
+(`CANNOT_CALCULATE_CHANGES`, and what since 0 still answers) run against
+it as well.
 They are internal for now: a store written outside the package cannot run
 them yet. And it follows the 0.x minor versions, in which the interface
 may grow.

@@ -11,13 +11,23 @@ import { describeMessages } from './fixtures/messages.fixtures';
 import { describeMoves } from './fixtures/moves.fixtures';
 import { describeRenames } from './fixtures/renames.fixtures';
 import type { CreateStore } from './fixtures/setup.fixtures';
+import {
+	type CreateForgetful,
+	describeTombstones,
+} from './fixtures/tombstones.fixtures';
 
 /**
  * The specs every `MailStore` must pass. Each store's own spec calls this
  * with a factory, so the memory store and every other answer to the
- * contract are held to the same behaviour.
+ * contract are held to the same behaviour. A store that forgets old
+ * removals also passes `forgetful`, a factory for one that remembers at
+ * most that many, so the floor's specs run for it too.
  */
-export function describeMailStore(name: string, create: CreateStore): void {
+export function describeMailStore(
+	name: string,
+	create: CreateStore,
+	forgetful?: CreateForgetful,
+): void {
 	describe(`${name}: the MailStore contract`, () => {
 		describeAccounts(create);
 		describeMailboxes(create);
@@ -30,5 +40,6 @@ export function describeMailStore(name: string, create: CreateStore): void {
 		describeChangesFilter(create);
 		describeChangesPaging(create);
 		describeGuarantees(create);
+		if (forgetful) describeTombstones(forgetful);
 	});
 }
