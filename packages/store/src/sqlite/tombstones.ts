@@ -27,6 +27,7 @@ export function bury(
 	tombstone: Tombstone,
 ): void {
 	const expunged = tombstone.kind === 'expunged' ? tombstone : undefined;
+	const id = tombstone.kind === 'expunged' ? tombstone.messageId : tombstone.id;
 	state.db
 		.query(
 			`INSERT INTO tombstones (account_id, kind, modseq, id, created_modseq, mailbox_id, uid, joined_modseq)
@@ -36,7 +37,7 @@ export function bury(
 			accountId,
 			tombstone.kind,
 			tombstone.modseq,
-			expunged ? expunged.messageId : (tombstone as { id: string }).id,
+			id,
 			tombstone.createdModseq,
 			expunged?.mailboxId ?? null,
 			expunged?.uid ?? null,

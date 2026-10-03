@@ -20,6 +20,7 @@ export interface Staged {
 	readonly staging: string;
 }
 const BLOB_ID = /^[0-9a-f]{64}$/;
+const SHARD = /^[0-9a-f]{2}$/;
 
 async function exists(path: string): Promise<boolean> {
 	try {
@@ -55,6 +56,23 @@ export class BlobFiles {
 		syncDirectorySync(dirname(directory));
 	}
 
+	/**
+	 * Removes every blob `held` says no account holds: what a crash between
+	 * a blob and its commit left, or a removal that failed. Only for
+	 * opening, under the database's lock, when no add can be pending.
+	 */
+	sweep(held: (blobId: string) => boolean): void {
+		for (const shard of readdirSync(this.directory, { withFileTypes: true })) {
+			if (!shard.isDirectory() || !SHARD.test(shard.name)) continue;
+			const at = join(this.directory, shard.name);
+			for (const name of readdirSync(at)) {
+				if (BLOB_ID.test(name) && name.startsWith(shard.name) && !held(name)) {
+					rmSync(join(at, name), { force: true });
+				}
+			}
+		}
+	}
+
 	/** Where a blob lives, or `undefined` for a string that is no blob id. */
 	pathOf(blobId: string): string | undefined {
 		if (typeof blobId !== 'string' || !BLOB_ID.test(blobId)) return undefined;
@@ -83,6 +101,8 @@ export class BlobFiles {
 			const read = await readChunks(content, (chunk) =>
 				writeAll(handle, chunk),
 			);
+			// On macOS a plain fsync, yet the blob reaches stable storage before
+			// its row: the commit's F_FULLFSYNC flushes the drive's cache too.
 			await handle.sync();
 			await handle.close();
 			return { ...read, staging };
@@ -117,11 +137,15 @@ export class BlobFiles {
 		await syncDirectory(this.directory);
 	}
 
-	/** The blob as a lazy file, or `undefined` when there is none by that id. */
+	/**
+	 * The blob, read lazily from its file, or `undefined` when there is none
+	 * by that id. Its `type` is empty, as the memory store's is: `Bun.file`
+	 * alone says `application/octet-stream`, and ignores `{ type: '' }`.
+	 */
 	async file(blobId: string): Promise<Blob | undefined> {
 		const path = this.pathOf(blobId);
 		if (path === undefined || !(await exists(path))) return undefined;
-		return Bun.file(path);
+		return new Blob([Bun.file(path)], { type: '' });
 	}
 
 	/** Removes a blob no message uses any more; one already gone is fine. */

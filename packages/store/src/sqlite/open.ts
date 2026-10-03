@@ -51,6 +51,14 @@ function keepPrivate(file: string): void {
 	}
 }
 
+/** Whether any account holds a blob, as the database says. */
+function heldBy(db: Database): (blobId: string) => boolean {
+	const query = db.query<unknown, [string]>(
+		'SELECT 1 FROM account_blobs WHERE blob_id = ? LIMIT 1',
+	);
+	return (blobId) => query.get(blobId) !== null;
+}
+
 function why(error: unknown): string {
 	const code = (error as { code?: unknown } | null)?.code;
 	if (code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED') {
@@ -61,8 +69,8 @@ function why(error: unknown): string {
 
 /**
  * Opens the store's directory: its database, at the last migration and
- * locked for this store alone, and its blobs. Whatever fails is `INVALID`,
- * naming the directory.
+ * locked for this store alone, and its blobs, rid of those no account
+ * holds. Whatever fails is `INVALID`, naming the directory.
  */
 export function openDirectory(options: SqliteMailStoreOptions): Opened {
 	const directory = (options as SqliteMailStoreOptions | undefined)?.directory;
@@ -77,7 +85,9 @@ export function openDirectory(options: SqliteMailStoreOptions): Opened {
 		keepPrivate(file);
 		configure(db);
 		migrate(db);
-		return { db, blobs: new BlobFiles(join(directory, 'blobs')) };
+		const blobs = new BlobFiles(join(directory, 'blobs'));
+		blobs.sweep(heldBy(db));
+		return { db, blobs };
 	} catch (error) {
 		db?.close();
 		if (error instanceof StoreError) throw error;

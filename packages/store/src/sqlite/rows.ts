@@ -1,4 +1,4 @@
-import { partitionIds } from '../contract/message-checks';
+import { partitionIds } from '../contract/checks';
 import type { Membership, Message } from '../contract/types';
 import type { SqliteState } from './state';
 

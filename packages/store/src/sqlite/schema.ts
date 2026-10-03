@@ -82,6 +82,7 @@ export const MIGRATIONS: readonly string[] = [
 	) STRICT;
 	CREATE INDEX messages_created ON messages (account_id, created_modseq);
 	CREATE INDEX messages_changed ON messages (account_id, modseq);
+	CREATE INDEX messages_blob ON messages (account_id, blob_id);
 
 	CREATE TABLE memberships (
 		mailbox_id TEXT NOT NULL REFERENCES mailboxes (id) ON DELETE CASCADE,

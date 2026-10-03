@@ -58,15 +58,29 @@ describe('BlobFiles', () => {
 		expect(filesUnder(at)).toEqual([join(blobId.slice(0, 2), blobId)]);
 	});
 
-	test('a blob written beside a store survives the store reopening', async () => {
+	test('opening a store removes the blobs no account holds, and keeps the rest', async () => {
 		const at = directory();
-		open(at).close();
-		const { blobId } = await new BlobFiles(join(at, 'blobs')).write(
-			bytes('mail'),
+		const before = open(at);
+		const account = await before.createAccount('mary@example.net');
+		const inbox = await before.createMailbox(account.id, { name: 'INBOX' });
+		const held = await before.addMessage(account.id, inbox.id, {
+			content: bytes('held'),
+		});
+		before.close();
+		const blobs = new BlobFiles(join(at, 'blobs'));
+		const orphan = await blobs.write(bytes('orphan'));
+		const shard = join(at, 'blobs', orphan.blobId.slice(0, 2));
+		writeFileSync(join(shard, 'not-a-blob'), 'left alone');
+		const after = open(at);
+		expect(await blobs.file(orphan.blobId)).toBeUndefined();
+		expect(filesUnder(join(at, 'blobs'))).toEqual(
+			[
+				join(held.blobId.slice(0, 2), held.blobId),
+				join(orphan.blobId.slice(0, 2), 'not-a-blob'),
+			].sort(),
 		);
-		open(at);
-		const file = await new BlobFiles(join(at, 'blobs')).file(blobId);
-		expect(await file?.text()).toBe('mail');
+		const content = await after.readContent(account.id, held.blobId);
+		expect(await content?.text()).toBe('held');
 	});
 });
 
@@ -76,6 +90,7 @@ describe('BlobFiles: reading and removing', () => {
 		const { blobId } = await blobs.write(bytes('0123456789'));
 		const file = (await blobs.file(blobId)) as Blob;
 		expect(file.size).toBe(10);
+		expect(file.type).toBe('');
 		expect(await file.slice(2, 5).text()).toBe('234');
 	});
 

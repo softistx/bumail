@@ -179,7 +179,9 @@ mailbox through a `MailboxEntry`, with its UID there; its MODSEQ is
   copies in the account, and dropped when no message of the account uses
   it any more. `readContent` takes the account and reads only that
   account's blobs: the same bytes in another account are another blob, so
-  a blob id from someone else's mail gives `undefined`.
+  a blob id from someone else's mail gives `undefined`. The Blob it returns
+  is valid until its message leaves the account (destroyed, or its last
+  mailbox removed); reading it afterwards may fail, so read it before.
 
 The store does not parse a message: it keeps bytes. Parse them with
 `@bumail/mime` when you need headers.

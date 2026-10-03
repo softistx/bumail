@@ -1,5 +1,4 @@
-import { checkUids as checkUidRoom } from '../contract/checks';
-import { partitionIds } from '../contract/message-checks';
+import { checkUids as checkUidRoom, partitionIds } from '../contract/checks';
 import type { Account, Mailbox, MailboxRole, Message } from '../contract/types';
 import { StoreError } from '../errors';
 

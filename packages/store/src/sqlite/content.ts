@@ -55,7 +55,8 @@ export class BlobKeeper {
 
 	/**
 	 * Removes each blob no account holds and no add is waiting on. A failure
-	 * leaves the file behind, which is harmless: a blob nothing names.
+	 * leaves the file behind, which is harmless: a blob nothing names, swept
+	 * when the store next opens.
 	 */
 	async collect(blobIds: Iterable<string>): Promise<void> {
 		for (const blobId of new Set(blobIds)) {

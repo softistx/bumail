@@ -42,16 +42,22 @@ function expungedSince(
 	mailboxId: string | undefined,
 	since: number,
 ): ExpungedRow[] {
+	const columns = `SELECT id AS messageId, mailbox_id AS mailboxId, uid, modseq,
+		joined_modseq AS joinedModseq FROM tombstones
+		WHERE account_id = ? AND kind = 'expunged'`;
+	// Two statements, so that one mailbox's departures use tombstones_mailbox.
+	if (mailboxId === undefined) {
+		return state.db
+			.query<ExpungedRow, [string, number]>(
+				`${columns} AND modseq > ? ORDER BY seq`,
+			)
+			.all(accountId, since);
+	}
 	return state.db
-		.query<ExpungedRow, [string, number, string | null]>(
-			`SELECT id AS messageId, mailbox_id AS mailboxId, uid, modseq,
-				joined_modseq AS joinedModseq
-			FROM tombstones
-			WHERE account_id = ?1 AND kind = 'expunged' AND modseq > ?2
-				AND (?3 IS NULL OR mailbox_id = ?3)
-			ORDER BY seq`,
+		.query<ExpungedRow, [string, string, number]>(
+			`${columns} AND mailbox_id = ? AND modseq > ? ORDER BY seq`,
 		)
-		.all(accountId, since, mailboxId ?? null);
+		.all(accountId, mailboxId, since);
 }
 
 /** The account's messages changed after `since`. */
@@ -123,7 +129,8 @@ export function mailboxChanges(
 	const live = state.db
 		.query<MailboxRow, [string, number]>(
 			`SELECT id, created_modseq AS createdModseq, modseq, highest_modseq AS highestModseq
-			FROM mailboxes WHERE account_id = ? AND max(modseq, highest_modseq) > ?`,
+			FROM mailboxes WHERE account_id = ? AND max(modseq, highest_modseq) > ?
+			ORDER BY rowid`,
 		)
 		.all(accountId, since);
 	return mailboxChangesOf(

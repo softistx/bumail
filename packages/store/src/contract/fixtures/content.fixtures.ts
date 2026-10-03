@@ -102,6 +102,23 @@ function blobs(create: CreateStore): void {
 		expect(await store.readContent(account.id, a.blobId)).toBeUndefined();
 	});
 
+	test('a blob reads whole, untyped, while its message is in the account', async () => {
+		const { store, account, inbox } = await setup(create);
+		const a = await store.createMailbox(account.id, { name: 'A' });
+		const text = 'Subject: kept\r\n\r\nStill here\r\n';
+		const message = await store.addMessage(account.id, inbox.id, {
+			content: bytes(text),
+		});
+		const blob = await store.readContent(account.id, message.blobId);
+		expect(blob?.type).toBe('');
+		expect(blob?.size).toBe(message.size);
+		expect(blob?.slice(0, 7).type).toBe('');
+		// Moved, the message is still in the account: its blob still reads.
+		await store.moveMessages(account.id, [message.id], inbox.id, a.id);
+		expect(await blob?.text()).toBe(text);
+		expect(await textOf(store, account.id, message.blobId)).toBe(text);
+	});
+
 	test('a blob is read only through its own account, even with equal bytes', async () => {
 		const { store, account, inbox } = await setup(create);
 		const other = await store.createAccount('john@example.net');
