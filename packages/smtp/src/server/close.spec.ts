@@ -41,6 +41,18 @@ async function within(ms: number, check: () => boolean): Promise<boolean> {
 const EHLOS = 'EHLO a\r\n'.repeat(200_000);
 
 /**
+ * 16 MB of EHLOs: more than the server's receive buffer and the client's
+ * send buffer hold while the server reads nothing (Linux grows a receive
+ * buffer only as it is read), so the client always has bytes left to send
+ * and its kernel keeps probing the server's zero window. 1.6 MB fitted in
+ * the buffers on Linux, and left the client nothing to probe with.
+ */
+const FLOOD = 'EHLO a\r\n'.repeat(2_000_000);
+
+/** When each client began to send: the server's window closed on it no earlier. */
+const sending = new WeakMap<Client, number>();
+
+/**
  * A client that pipelines commands and never reads a reply: the server's
  * replies fill the kernel's buffers, then its own queue. A close the server
  * decides on must still complete, or the connection keeps a slot of
@@ -50,17 +62,39 @@ async function neverReads(port: number, text: string): Promise<Client> {
 	const client = await Client.connect(port);
 	await client.reply();
 	client.pause();
+	sending.set(client, performance.now());
 	client.write(text);
 	return client;
 }
 
 /**
- * The socket is closed: once the client reads again, it sees the hang-up
- * (a reset, or the end after what the kernel still held for it).
+ * Linux's floor on the retransmission timeout, `TCP_RTO_MIN`: the first
+ * probe of a zero window waits that long, each next one twice the last.
  */
-async function hungUp(client: Client): Promise<boolean> {
+const RTO_MIN_MS = 200;
+
+/**
+ * The socket is closed: once the client reads again, it sees the hang-up
+ * (a reset, or the end after what the kernel still held for it),
+ * within a bound from `reset`, when the server closed its socket.
+ *
+ * The server resets at once, but that is not when the client's kernel
+ * learns it. The reset can carry a sequence number past what the client
+ * acknowledged, into the window it closed by not reading, and Linux drops
+ * such a reset (RFC 5961); reading again need not send a segment that
+ * would draw a second one. The client then learns at its next probe of
+ * the server's zero window, which the listener answers with a reset. The
+ * probes double from `RTO_MIN_MS`, so the next comes within the time the
+ * window has been closed, plus `RTO_MIN_MS`, after the `reset`. With the
+ * server's reset dropped on Linux, a client whose window had been closed
+ * 3.9 s at the hang-up saw it 2.9 s after: not within a flat 2 s.
+ */
+async function hungUp(client: Client, reset: number): Promise<boolean> {
 	client.resume();
-	return within(2000, () => client.closed);
+	const closedFor = reset - (sending.get(client) ?? reset);
+	// A second for CI on top of the bound, as countedOut allows.
+	const deadline = reset + closedFor + RTO_MIN_MS + 1_000;
+	return within(deadline - performance.now(), () => client.closed);
 }
 
 /**
@@ -92,7 +126,7 @@ afterAll(() => {
  * The idle time is up for `clients` connections, and each is counted out at
  * once, not after `CLOSE_GRACE_MS`: their slots are free.
  */
-async function countedOut(clients: number): Promise<void> {
+async function countedOut(clients: number): Promise<number> {
 	// Two sweeps after the last byte read at most, and a margin for CI.
 	expect(await within(10_000, () => events.hangUps.length >= clients)).toBe(
 		true,
@@ -101,6 +135,7 @@ async function countedOut(clients: number): Promise<void> {
 	expect(decided - events.lastByte).toBeLessThan(8_000 + 1_000);
 	expect(await within(1_000, () => server?.connections === 0)).toBe(true);
 	expect(performance.now() - decided).toBeLessThan(CLOSE_GRACE_MS);
+	return decided;
 }
 
 describe('a client that never reads is still disconnected', () => {
@@ -111,32 +146,35 @@ describe('a client that never reads is still disconnected', () => {
 
 	test('idle timeout: the connection is counted out at once, and the socket closed', async () => {
 		const port = await start({ timeout: 1 });
-		const client = await neverReads(port, EHLOS);
+		const client = await neverReads(port, FLOOD);
 		expect(await within(500, () => server?.connections === 1)).toBe(true);
-		await countedOut(1);
-		expect(await hungUp(client)).toBe(true);
-	}, 20_000);
+		const decided = await countedOut(1);
+		expect(await hungUp(client, decided)).toBe(true);
+	}, 30_000);
 
 	test('such clients do not lock others out of maxConnections', async () => {
 		const port = await start({ timeout: 1, maxConnections: 2 });
 		const hostile = [
-			await neverReads(port, EHLOS),
-			await neverReads(port, EHLOS),
+			await neverReads(port, FLOOD),
+			await neverReads(port, FLOOD),
 		];
 		expect(await within(500, () => server?.connections === 2)).toBe(true);
-		await countedOut(2);
+		// The later decision: each client's own came no later.
+		const decided = await countedOut(2);
 		const next = await Client.connect(port);
 		expect(await next.reply()).toBe('220 foo.com ESMTP ready\r\n');
 		next.end();
-		for (const client of hostile) expect(await hungUp(client)).toBe(true);
-	}, 20_000);
+		for (const client of hostile) {
+			expect(await hungUp(client, decided)).toBe(true);
+		}
+	}, 30_000);
 
 	test('QUIT behind replies the client never reads does not keep the slot either', async () => {
 		const port = await start({ timeout: 1 });
-		const client = await neverReads(port, `${EHLOS}QUIT\r\n`);
-		await countedOut(1);
-		expect(await hungUp(client)).toBe(true);
-	}, 20_000);
+		const client = await neverReads(port, `${FLOOD}QUIT\r\n`);
+		const decided = await countedOut(1);
+		expect(await hungUp(client, decided)).toBe(true);
+	}, 30_000);
 });
 
 /**
@@ -198,13 +236,14 @@ async function pausedServer(
 
 describe('a hang-up while the server paused reading', () => {
 	test('completes at once for a client that keeps sending and never reads', async () => {
-		await pausedServer(async (port, closed) => {
+		await pausedServer(async (port, closed, times) => {
 			const client = await Client.connect(port);
 			await client.reply();
 			client.pause();
+			sending.set(client, performance.now());
 			client.write(EHLOS);
 			expect(await within(1_000, closed)).toBe(true);
-			expect(await hungUp(client)).toBe(true);
+			expect(await hungUp(client, times.closed)).toBe(true);
 		});
 	});
 

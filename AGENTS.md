@@ -323,7 +323,16 @@ Every PR goes into `develop`. Before merging:
     runs, and `write` gives no sign of that buffer;
   - Bun's `listener.stop(true)` no longer closes a socket STARTTLS moved
     to TLS, so each server's `stop(true)` also closes every connection it
-    holds.
+    holds;
+  - a reset reaches the client's kernel, not always the client: one sent
+    into the window a client closed by not reading can be dropped (RFC
+    5961), and the client then learns of it at its next probe of the
+    server's zero window, the probes doubling from 200 ms. With the reset
+    dropped on Linux, a client whose window had been closed 3.9 s at the
+    hang-up saw the close 2.9 s after. smtp's `close.spec.ts` waited a
+    flat 2 s for it and failed so on CI's ubuntu runners now and then,
+    the slot already free; its `hungUp` waits the time the window has
+    been closed, plus 200 ms and a second.
 
   smtp's real-socket specs: `quiet.spec.ts` (`node:net` and `node:tls`
   clients) covers a paused client on a clear socket, on implicit TLS and
