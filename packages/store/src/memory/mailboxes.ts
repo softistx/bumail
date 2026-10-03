@@ -1,3 +1,4 @@
+import { renameTarget } from '../contract/checks';
 import {
 	checkNoCycle,
 	checkRequiredRole,
@@ -101,35 +102,6 @@ export function findMailbox(
 	return undefined;
 }
 
-/** Where a rename puts the mailbox: a field left out keeps its value. */
-function renamed(
-	mailbox: MailboxState,
-	change: MailboxRename,
-): { name: string; parentId: string | undefined } {
-	if (typeof change !== 'object' || change === null) {
-		throw new StoreError('INVALID', 'A rename is an object');
-	}
-	const { name, parentId } = change;
-	if (name === undefined && parentId === undefined) {
-		throw new StoreError(
-			'INVALID',
-			'A rename gives a name, a parentId or both',
-		);
-	}
-	if (
-		parentId !== undefined &&
-		parentId !== null &&
-		typeof parentId !== 'string'
-	) {
-		throw new StoreError('INVALID', 'parentId is a mailbox id or null');
-	}
-	return {
-		name: name ?? mailbox.name,
-		parentId:
-			parentId === undefined ? mailbox.parentId : (parentId ?? undefined),
-	};
-}
-
 export function renameMailbox(
 	state: MemoryState,
 	accountId: string,
@@ -137,7 +109,7 @@ export function renameMailbox(
 	change: MailboxRename,
 ): Mailbox {
 	const mailbox = state.mailbox(accountId, id);
-	const { name, parentId } = renamed(mailbox, change);
+	const { name, parentId } = renameTarget(mailbox, change);
 	const clean = placeOf(state, mailbox.accountId, name, parentId, id);
 	mailbox.name = clean;
 	if (parentId === undefined) delete mailbox.parentId;

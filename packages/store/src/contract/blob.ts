@@ -18,19 +18,23 @@ const NOT_CONTENT =
 
 /**
  * Reads content given whole or as a stream, as every store must: hashed
- * chunk by chunk, counted, and copied into a `Blob` as it goes, so nothing
- * the caller changes afterwards reaches the store. A stream that fails, or
- * yields something other than bytes, is cancelled and rejects with
- * `INVALID`; so does one already locked by another reader.
+ * and counted chunk by chunk, each chunk handed to `onChunk` before the
+ * next is read. A stream that fails or yields something other than bytes
+ * is cancelled and rejects with `INVALID`; one already locked by another
+ * reader is left alone and rejects with `INVALID` too. What `onChunk` throws (the store's own write failing)
+ * is the store's, not the content's: the stream is cancelled and the error
+ * passes through as it is. A chunk may be reused by its stream once
+ * `onChunk` returns: copy what must be kept.
  */
-export async function readBlob(content: Content): Promise<ReadBlob> {
+export async function readChunks(
+	content: Content,
+	onChunk: (chunk: Uint8Array) => void | Promise<void>,
+): Promise<{ blobId: string; size: number }> {
 	const hasher = new Bun.CryptoHasher('sha256');
 	if (content instanceof Uint8Array) {
-		return {
-			blobId: hasher.update(content).digest('hex'),
-			size: content.length,
-			blob: new Blob([content as Uint8Array<ArrayBuffer>]),
-		};
+		hasher.update(content);
+		await onChunk(content);
+		return { blobId: hasher.digest('hex'), size: content.length };
 	}
 	if (!(content instanceof ReadableStream)) {
 		throw new StoreError('INVALID', NOT_CONTENT);
@@ -41,28 +45,55 @@ export async function readBlob(content: Content): Promise<ReadBlob> {
 			'The message content stream is locked: another reader holds it',
 		);
 	}
-	const parts: Blob[] = [];
 	let size = 0;
 	const reader = content.getReader();
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (!(value instanceof Uint8Array)) {
-				throw new StoreError('INVALID', NOT_CONTENT);
-			}
-			hasher.update(value);
-			// A Blob copies the chunk now: the stream may reuse its buffer.
-			parts.push(new Blob([value as Uint8Array<ArrayBuffer>]));
-			size += value.length;
+	for (;;) {
+		const value = await nextChunk(reader);
+		if (value === undefined) break;
+		hasher.update(value);
+		size += value.length;
+		try {
+			await onChunk(value);
+		} catch (error) {
+			await reader.cancel().catch(() => undefined);
+			throw error;
 		}
+	}
+	return { blobId: hasher.digest('hex'), size };
+}
+
+/** The next chunk of the stream, or `undefined` at its end; a read that fails is `INVALID`. */
+async function nextChunk(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<Uint8Array | undefined> {
+	let result: Awaited<ReturnType<typeof reader.read>>;
+	try {
+		result = await reader.read();
 	} catch (error) {
 		await reader.cancel().catch(() => undefined);
-		if (error instanceof StoreError) throw error;
 		throw new StoreError(
 			'INVALID',
 			`The message content could not be read: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
-	return { blobId: hasher.digest('hex'), size, blob: new Blob(parts) };
+	if (result.done) return undefined;
+	if (!((result.value as unknown) instanceof Uint8Array)) {
+		await reader.cancel().catch(() => undefined);
+		throw new StoreError('INVALID', NOT_CONTENT);
+	}
+	return result.value;
+}
+
+/**
+ * Reads content into an immutable `Blob`, as `readChunks` reads it: each
+ * chunk is copied as it comes, so nothing the caller changes afterwards
+ * reaches the store, and a stream that fails rejects with `INVALID`.
+ */
+export async function readBlob(content: Content): Promise<ReadBlob> {
+	const parts: Blob[] = [];
+	const { blobId, size } = await readChunks(content, (chunk) => {
+		// A Blob copies the chunk now: the stream may reuse its buffer.
+		parts.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));
+	});
+	return { blobId, size, blob: new Blob(parts) };
 }

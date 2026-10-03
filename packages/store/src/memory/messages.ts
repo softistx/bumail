@@ -1,4 +1,5 @@
 import { readBlob } from '../contract/blob';
+import { checkCount, checkThreadId } from '../contract/checks';
 import {
 	applyFlagChange,
 	normalizeChange,
@@ -18,28 +19,6 @@ import type {
 } from '../contract/types';
 import { StoreError } from '../errors';
 import type { MailboxState, MemoryState, MessageState } from './state';
-
-function checkCount(name: string, value: number | undefined, least = 0): void {
-	if (value !== undefined && (!Number.isSafeInteger(value) || value < least)) {
-		throw new StoreError(
-			'INVALID',
-			`${name} must be an integer of at least ${least}, not ${value}`,
-		);
-	}
-}
-
-/** A thread id given in: a non-empty string of printable characters. */
-function checkThreadId(threadId: unknown): void {
-	if (
-		threadId !== undefined &&
-		(typeof threadId !== 'string' ||
-			threadId === '' ||
-			threadId.length > 255 ||
-			/[^\x21-\x7e]/.test(threadId))
-	) {
-		throw new StoreError('INVALID', `"${threadId}" is not a thread id`);
-	}
-}
 
 /** Joins a message to a mailbox, with the mailbox's next UID. */
 export function join(

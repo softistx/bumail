@@ -1,6 +1,13 @@
-import type { ChangesOptions, Expunged } from '../contract/types';
 import { StoreError } from '../errors';
-import type { AccountState } from './state';
+import type { ChangesOptions, Expunged } from './types';
+
+/** Where an account's modseqs stand: any store's account state fits it. */
+export interface Counter {
+	/** The account's last modseq. */
+	readonly modseq: number;
+	/** The oldest `since` still answered: tombstones before it were pruned. */
+	readonly floor: number;
+}
 
 export interface Item {
 	id: string;
@@ -11,8 +18,9 @@ export interface Item {
 	expunged?: Expunged;
 }
 
+/** Refuses a `since` the account never gave or has forgotten, and a bad `limit`. */
 export function checkSince(
-	account: AccountState,
+	account: Counter,
 	since: number,
 	options: ChangesOptions,
 ): void {
@@ -67,7 +75,7 @@ export function liveItem(
  * answered.
  */
 export function page(
-	account: AccountState,
+	account: Counter,
 	items: Item[],
 	limit: number | undefined,
 ): { items: Item[]; modseq: number; hasMore: boolean } {
@@ -98,5 +106,6 @@ export function page(
 	return { items: kept, modseq: last, hasMore: true };
 }
 
+/** The ids of the items of one kind, in order. */
 export const ids = (items: Item[], kind: Item['kind']) =>
 	items.filter((item) => item.kind === kind).map((item) => item.id);

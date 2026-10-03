@@ -1,3 +1,4 @@
+import { loginKey, normalizeLogin } from '../contract/checks';
 import type { Account } from '../contract/types';
 import { StoreError } from '../errors';
 import type { MemoryState } from './state';
@@ -7,7 +8,7 @@ export function findAccount(
 	state: MemoryState,
 	name: string,
 ): Account | undefined {
-	const key = String(name).trim().toLowerCase();
+	const key = loginKey(name);
 	for (const { account } of state.accounts.values()) {
 		if (account.name.toLowerCase() === key) return { ...account };
 	}
@@ -15,8 +16,7 @@ export function findAccount(
 }
 
 export function createAccount(state: MemoryState, name: string): Account {
-	const login = typeof name === 'string' ? name.trim() : '';
-	if (login === '') throw new StoreError('INVALID', 'An account needs a name');
+	const login = normalizeLogin(name);
 	if (findAccount(state, login)) {
 		throw new StoreError(
 			'ALREADY_EXISTS',

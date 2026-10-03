@@ -1,3 +1,4 @@
+import { checkUids as checkUidRoom, uniqueIds } from '../contract/checks';
 import type { Account, Mailbox, MailboxRole, Message } from '../contract/types';
 import { StoreError } from '../errors';
 
@@ -60,8 +61,6 @@ export interface AccountState {
 	tombstones: Tombstone[];
 }
 
-/** RFC 9051 §2.3.1.1: a UID is a 32-bit number. */
-export const MAX_UID = 2 ** 32 - 1;
 const SEEN = '\\Seen';
 
 /** The memory store's data, and the lookups and bookkeeping its operations share. */
@@ -119,12 +118,10 @@ export class MemoryState {
 		keep: (message: MessageState) => boolean = () => true,
 	): { found: MessageState[]; notFound: string[] } {
 		this.account(accountId);
-		if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string')) {
-			throw new StoreError('INVALID', 'ids must be an array of strings');
-		}
+		const unique = uniqueIds(ids);
 		const found: MessageState[] = [];
 		const notFound: string[] = [];
-		for (const id of new Set(ids)) {
+		for (const id of unique) {
 			const message = this.messages.get(id);
 			if (message && message.accountId === accountId && keep(message)) {
 				found.push(message);
@@ -137,12 +134,7 @@ export class MemoryState {
 
 	/** Refuses a mailbox that has no room for `count` more UIDs. */
 	checkUids(mailbox: MailboxState, count: number): void {
-		if (mailbox.uidNext + count - 1 > MAX_UID) {
-			throw new StoreError(
-				'INVALID',
-				`Mailbox "${mailbox.name}" has run out of UIDs`,
-			);
-		}
+		checkUidRoom(mailbox, count);
 	}
 
 	/** The account's next modseq. */
