@@ -1,8 +1,5 @@
-import {
-	type AppendStream,
-	appendTarget,
-	beginAppend,
-} from '../commands/append';
+import { appendTarget, beginAppend } from '../commands/append';
+import type { AppendStream } from '../commands/inflow';
 import { concat, type LiteralMarker } from '../protocol/reader';
 import { type Piece, tagged } from '../protocol/response';
 import type { Connection } from './connection';

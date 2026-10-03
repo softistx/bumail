@@ -20,12 +20,22 @@ export const MAX_LEVELS = 32;
 /** The longest mailbox name taken, every level and delimiter counted. */
 export const MAX_NAME = 1024;
 
+/**
+ * The longest level taken: the store's own bound on a mailbox name. Checked
+ * here, before any missing parent is created, so a refused CREATE or
+ * RENAME leaves nothing behind.
+ */
+export const MAX_LEVEL = 255;
+
 /** Why a new path is too large for the server, if it is: a `NO [LIMIT]` text. */
 function overLimit(path: string): string | undefined {
 	if (path.length > MAX_NAME)
 		return `[LIMIT] A mailbox name is at most ${MAX_NAME} characters`;
-	if (path.split(DELIMITER).length > MAX_LEVELS)
+	const levels = path.split(DELIMITER);
+	if (levels.length > MAX_LEVELS)
 		return `[LIMIT] A mailbox name has at most ${MAX_LEVELS} levels`;
+	if (levels.some((level) => level.length > MAX_LEVEL))
+		return `[LIMIT] A level of a mailbox name is at most ${MAX_LEVEL} characters`;
 	return undefined;
 }
 

@@ -130,8 +130,9 @@ export class Connection {
 	/**
 	 * Says BYE, when given a reason, and hangs up. It never waits on the
 	 * client: the BYE is queued behind what the client has not read, and the
-	 * transport hangs up within its grace even if none of it leaves. A
-	 * `forced` close — a timeout — drops what is queued and hangs up now.
+	 * transport terminates the socket within its grace if it has not closed
+	 * by then. A `forced` close — a timeout — with bytes still queued drops
+	 * them and terminates now; with none, it says BYE and ends as above.
 	 */
 	close(bye?: string, { forced = false } = {}): Promise<void> {
 		if (this.#closed) return Promise.resolve();

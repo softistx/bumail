@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { ImapError } from '../errors';
-import { Client, localhostTls } from './client.fixtures';
+import { Client, localhostTls, pausedTlsClient } from './client.fixtures';
 import { createImapServer, type ImapServer } from './server';
 import { imapOptions, seededStore } from './session.fixtures';
+import { CLOSE_GRACE } from './transport';
 
 const servers: ImapServer[] = [];
 afterEach(() => {
@@ -99,6 +100,42 @@ describe('on a real socket', () => {
 		expect(await within(3000, () => server.connections === 0)).toBe(true);
 		expect(await within(1000, () => client.closed)).toBe(true);
 	}, 10_000);
+
+	// On TLS, Bun's `end()` waits for the client's own close before `close`
+	// fires: a client that stopped reading never sends it, so only the
+	// grace timer's `terminate` frees the slot. Nothing is queued here.
+	for (const starttls of [false, true]) {
+		const how = starttls ? 'after STARTTLS' : 'on implicit TLS';
+		test(`a paused client ${how} is cut at loginTimeout, and its slot freed`, async () => {
+			const { server, port } = await start({
+				implicitTls: !starttls,
+				loginTimeout: 1,
+			});
+			const client = await pausedTlsClient(port, starttls);
+			try {
+				expect(await within(500, () => server.connections === 1)).toBe(true);
+				expect(
+					await within(
+						1000 + CLOSE_GRACE + 2000,
+						() => server.connections === 0,
+					),
+				).toBe(true);
+			} finally {
+				client.destroy();
+			}
+		}, 15_000);
+	}
+
+	test('a clear client on the implicit-TLS port is dropped, and the server serves on', async () => {
+		const { server, port } = await start({ implicitTls: true });
+		const clear = await Client.connect(port);
+		clear.write('a1 CAPABILITY\r\n');
+		expect(await clear.until(() => clear.closed)).toBe(true);
+		expect(server.connections).toBe(0);
+		const client = await Client.connect(port, true);
+		expect(await client.line()).toContain('IMAP4rev2 ready');
+		client.end();
+	});
 
 	test('listen twice throws ALREADY_LISTENING', async () => {
 		const { server } = await start();

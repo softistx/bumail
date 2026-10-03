@@ -5,6 +5,10 @@ import type { ImapServerOptions } from './options';
 import { type Settings, settingsOf } from './settings';
 import { SocketTransport } from './transport';
 
+const TOO_MANY = new TextEncoder().encode(
+	'* BYE [UNAVAILABLE] Too many connections, try later\r\n',
+);
+
 interface SocketState {
 	connection?: Connection;
 	transport?: SocketTransport;
@@ -30,23 +34,35 @@ export interface ImapServer {
 	readonly connections: number;
 }
 
+/**
+ * A socket's state, or nothing: Bun may call `error` or `close` before
+ * `open` set it — a clear client on the implicit-TLS port fails its
+ * handshake first — so every handler reads it through here.
+ */
+function stateOf(socket: Socket<SocketState>): SocketState | undefined {
+	return socket.data as SocketState | undefined;
+}
+
 /** The handlers the clear socket and the TLS one share: input, drain, idle time. */
 function handlers(settings: Settings): SocketHandler<SocketState> {
 	return {
 		data(socket, chunk) {
-			if (socket.data.upgraded) return;
+			const state = stateOf(socket);
+			if (!state || state.upgraded) return;
 			socket.timeout(settings.timeout);
-			socket.data.connection?.receive(chunk);
+			state.connection?.receive(chunk);
 		},
 		drain(socket) {
-			if (!socket.data.upgraded) socket.data.transport?.drain();
+			const state = stateOf(socket);
+			if (state && !state.upgraded) state.transport?.drain();
 		},
 		error(socket) {
-			void socket.data.connection?.close();
+			void stateOf(socket)?.connection?.close();
 		},
 		timeout(socket) {
-			if (socket.data.upgraded) return;
-			void socket.data.connection?.close('Idle for too long, closing', {
+			const state = stateOf(socket);
+			if (!state || state.upgraded) return;
+			void state.connection?.close('Idle for too long, closing', {
 				forced: true,
 			});
 		},
@@ -73,7 +89,7 @@ function transportOf(
 				socket: {
 					...handlers(settings),
 					close: (s) => {
-						s.data.transport?.closed();
+						stateOf(s)?.transport?.closed();
 						void connection.close();
 					},
 				},
@@ -131,24 +147,23 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 					open(socket) {
 						socket.data = { upgraded: false };
 						socket.timeout(settings.timeout);
+						const transport = transportOf(socket, settings, secure);
 						if (open.size >= settings.maxConnections) {
-							socket.end(
-								'* BYE [UNAVAILABLE] Too many connections, try later\r\n',
-							);
+							// Through the transport: its end is bounded, on TLS too.
+							transport.write(TOO_MANY);
+							transport.end();
 							return;
 						}
-						const connection = new Connection(
-							settings,
-							transportOf(socket, settings, secure),
-						);
+						const connection = new Connection(settings, transport);
 						open.add(connection);
 						socket.data.connection = connection;
 						void connection.open();
 					},
 					close(socket) {
-						const { connection } = socket.data;
+						const state = stateOf(socket);
+						const connection = state?.connection;
 						if (connection) open.delete(connection);
-						socket.data.transport?.closed();
+						state?.transport?.closed();
 						void connection?.close();
 					},
 				},

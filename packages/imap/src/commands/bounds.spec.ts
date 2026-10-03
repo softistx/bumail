@@ -38,6 +38,19 @@ describe('what one command may cost', () => {
 		);
 	});
 
+	test('CREATE and RENAME: 255 characters a level, refused before any parent is made', async () => {
+		const s = await session();
+		const long = `p1/p2/${'n'.repeat(256)}`;
+		const refused =
+			'NO [LIMIT] A level of a mailbox name is at most 255 characters\r\n';
+		expect(await s.send(`a CREATE ${long}\r\n`)).toBe(`a ${refused}`);
+		expect(await s.send(`b RENAME Archive ${long}\r\n`)).toBe(`b ${refused}`);
+		expect(await s.send('c LIST "" p1*\r\n')).toBe('c OK LIST completed\r\n');
+		expect(await s.send(`d CREATE p1/p2/${'n'.repeat(255)}\r\n`)).toBe(
+			'd OK CREATE completed\r\n',
+		);
+	});
+
 	test('8000 levels are refused before the store is asked', async () => {
 		const s = await session();
 		const started = performance.now();

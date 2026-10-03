@@ -1,3 +1,5 @@
+import { connect, type Socket as NetSocket } from 'node:net';
+import { type TLSSocket, connect as tlsConnect } from 'node:tls';
 import type { Socket } from 'bun';
 
 /** An IMAP client over a real socket, able to STARTTLS; adapted from `@bumail/smtp`'s spec client. */
@@ -129,4 +131,44 @@ export async function localhostTls() {
 		key: await Bun.file(new URL('localhost.key', fixtures)).text(),
 		cert: await Bun.file(new URL('localhost.crt', fixtures)).text(),
 	};
+}
+
+/** A clear `node:net` socket that has asked STARTTLS and got its OK. */
+async function askedStartTls(port: number): Promise<NetSocket> {
+	const clear = connect({ host: '127.0.0.1', port });
+	let seen = '';
+	let asked = false;
+	await new Promise<void>((done) => {
+		clear.on('data', (chunk: Buffer) => {
+			seen += chunk.toString();
+			if (!asked && seen.includes('\r\n')) {
+				asked = true;
+				clear.write('a STARTTLS\r\n');
+			}
+			if (seen.includes('a OK')) done();
+		});
+	});
+	clear.removeAllListeners('data');
+	return clear;
+}
+
+/**
+ * A `node:tls` client that stops reading once TLS is up: implicit TLS, or
+ * STARTTLS on a clear socket first. It never answers the server's close,
+ * as a paused or vanished client would not.
+ */
+export async function pausedTlsClient(
+	port: number,
+	starttls = false,
+): Promise<TLSSocket> {
+	const options = { rejectUnauthorized: false, servername: 'localhost' };
+	const secure = tlsConnect(
+		starttls
+			? { ...options, socket: await askedStartTls(port) }
+			: { ...options, host: '127.0.0.1', port },
+	);
+	secure.on('error', () => {});
+	await new Promise<void>((done) => secure.once('secureConnect', done));
+	secure.pause();
+	return secure;
 }

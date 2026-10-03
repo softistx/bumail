@@ -6,25 +6,7 @@ import { echo } from '../protocol/echo';
 import { type Piece, tagged } from '../protocol/response';
 import type { Connection } from '../server/connection';
 import { AUTHENTICATED, type Command } from './context';
-import { added, Inflow } from './inflow';
-
-/** What an APPEND says before its message (RFC 9051 §6.3.12). */
-export interface AppendTarget {
-	readonly tag: string;
-	readonly mailbox: string;
-	readonly flags: readonly string[];
-	readonly date?: Date;
-}
-
-/** An APPEND whose message streams into the store as it is read. */
-export interface AppendStream {
-	/** Bytes of the message; resolves when the store can take more. */
-	write(bytes: Uint8Array): Promise<void>;
-	/** The rest of the line after the message ends the command: empty, or BAD. */
-	finish(rest: string): Promise<void>;
-	/** The connection closed: nothing is kept. */
-	abort(): void;
-}
+import { type AppendStream, type AppendTarget, added, Inflow } from './inflow';
 
 /** `mailbox [flags] [date-time]`, the cursor left on the message. */
 function head(cursor: Cursor): Omit<AppendTarget, 'tag'> {

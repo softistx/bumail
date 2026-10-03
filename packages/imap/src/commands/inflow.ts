@@ -3,8 +3,25 @@ import { sync } from '../mailbox/sync';
 import { tagged } from '../protocol/response';
 import type { Connection } from '../server/connection';
 import { answerFailure } from '../server/failure';
-import type { AppendStream, AppendTarget } from './append';
 import type { Context } from './context';
+
+/** What an APPEND says before its message (RFC 9051 §6.3.12). */
+export interface AppendTarget {
+	readonly tag: string;
+	readonly mailbox: string;
+	readonly flags: readonly string[];
+	readonly date?: Date;
+}
+
+/** An APPEND whose message streams into the store as it is read. */
+export interface AppendStream {
+	/** Bytes of the message; resolves when the store can take more. */
+	write(bytes: Uint8Array): Promise<void>;
+	/** The rest of the line after the message ends the command: empty, or BAD. */
+	finish(rest: string): Promise<void>;
+	/** The connection closed: nothing is kept. */
+	abort(): void;
+}
 
 /** The tagged OK to an APPEND, after the selected mailbox's EXISTS when it is the target. */
 export async function added(

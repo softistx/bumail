@@ -11,8 +11,9 @@ export interface Transport {
 	/** Resolves once everything written has left. */
 	drained(): Promise<void>;
 	/**
-	 * Hangs up once everything written has left, or after a short grace
-	 * when the client does not read it: a hang-up never waits on the client.
+	 * Hangs up once everything written has left, and terminates the socket
+	 * after a short grace if it has not closed by then — whether bytes were
+	 * queued or not: a hang-up never waits on the client.
 	 */
 	end(): void;
 	/** Hangs up now, dropping whatever the client has not taken. */
@@ -24,7 +25,7 @@ export interface Transport {
 	startTls(): void;
 }
 
-/** How long a hang-up waits for the client to take what is queued. */
+/** How long a hang-up waits for the client to take what is queued, and to close. */
 export const CLOSE_GRACE = 5000;
 
 /**
@@ -33,8 +34,9 @@ export const CLOSE_GRACE = 5000;
  * `drain` event; a writer that cares awaits `drained` before writing more.
  *
  * A hang-up is bounded: `end` waits `CLOSE_GRACE` at most for the queue to
- * leave, `abort` does not wait at all. A client that never reads is cut
- * all the same, and gives back its place under `maxConnections`.
+ * leave and the socket to close, `abort` does not wait at all. A client
+ * that never reads is cut all the same, on TLS too, and gives back its
+ * place under `maxConnections`.
  *
  * Adapted from `@bumail/smtp`'s own (`src/server/transport.ts`), which
  * writes text: the two are internal, and differ in what they carry.
@@ -92,7 +94,7 @@ export class SocketTransport implements Transport {
 			this.#queue.shift();
 		}
 		for (const wake of this.#waiters.splice(0)) wake();
-		if (this.#ending) this.#socket.end();
+		if (this.#ending) this.#socket.shutdown();
 	}
 
 	drained(): Promise<void> {
@@ -108,14 +110,20 @@ export class SocketTransport implements Transport {
 		for (const wake of this.#waiters.splice(0)) wake();
 	}
 
+	/**
+	 * Shuts the socket's writing side now when nothing is queued, else once
+	 * the queue leaves; either way the grace timer terminates the socket if
+	 * `close` has not come by then. Not Bun's `end`: on TLS, it waits for
+	 * the client's own close, which a client that stopped reading never
+	 * sends, and a `terminate` after it no longer closes the socket (Bun
+	 * 1.4). `shutdown` lets the client read to the end and close, and
+	 * leaves `terminate` able to cut it when it does not.
+	 */
 	end(): void {
-		if (this.#queue.length === 0) {
-			this.#socket.end();
-			return;
-		}
 		if (this.#ending) return;
 		this.#ending = true;
 		this.#grace = setTimeout(() => this.abort(), CLOSE_GRACE);
+		if (this.#queue.length === 0) this.#socket.shutdown();
 	}
 
 	abort(): void {
