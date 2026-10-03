@@ -66,7 +66,7 @@ export async function readChunks(
 async function nextChunk(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
 ): Promise<Uint8Array | undefined> {
-	let result: ReadableStreamDefaultReadResult<Uint8Array>;
+	let result: Awaited<ReturnType<typeof reader.read>>;
 	try {
 		result = await reader.read();
 	} catch (error) {
