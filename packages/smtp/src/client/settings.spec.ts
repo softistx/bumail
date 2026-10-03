@@ -54,6 +54,18 @@ describe('sendMail options', () => {
 		expect(refused({ from: 'a@b.com>\r\nRCPT TO:<x@y.com' })).toStartWith(
 			'sendMail(): "a@b.com>\\r\\nRCPT TO:<x@y.com" is not an address',
 		);
+		expect(refused({ to: '@x\r\nRSET\r\nNOOP:a@c.com' })).toBe(
+			'sendMail(): "@x\\r\\nRSET\\r\\nNOOP:a@c.com" is not an address (local@domain)',
+		);
+		expect(refused({ to: ['b@foo.com', '@a,@b:x@c.com'] })).toBe(
+			'sendMail(): "@a,@b:x@c.com" holds a source route (@host:), which RFC 5321 says a client should not send: pass "x@c.com" alone',
+		);
+		expect(refused({ from: '@[IPv6:2001:db8::1]:"q@r"@C.com' })).toBe(
+			'sendMail(): "@[IPv6:2001:db8::1]:\\"q@r\\"@C.com" holds a source route (@host:), which RFC 5321 says a client should not send: pass "\\"q@r\\"@C.com" alone',
+		);
+		expect(refused({ to: '"a>b"@c.com' })).toBe(
+			'sendMail(): "\\"a>b\\"@c.com" is not an address (local@domain)',
+		);
 		expect(refused({ to: [] })).toBe(
 			'sendMail(): to must name one recipient or more',
 		);

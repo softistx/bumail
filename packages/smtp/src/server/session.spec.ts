@@ -229,3 +229,35 @@ describe('hooks', () => {
 		]);
 	});
 });
+
+describe('a source route (RFC 5321 Appendix C)', () => {
+	test('a valid one is accepted and discarded; one with a control or an invalid domain is a syntax error', async () => {
+		const s = await fakeSession(mxOptions());
+		await s.send('EHLO bar.com\r\n');
+		expect(
+			await s.send('MAIL FROM:<@hosta.int,@jkl.org:Smith@bar.com>\r\n'),
+		).toBe('250 2.1.0 OK\r\n');
+		expect(await s.send('RCPT TO:<@[192.0.2.1]:Jones@foo.com>\r\n')).toBe(
+			'250 2.1.5 OK\r\n',
+		);
+		for (const path of [
+			'<@x\x00y:Brown@foo.com>',
+			'<@x\x1b:Brown@foo.com>',
+			'<@a..b:Brown@foo.com>',
+			'<@a,b:Brown@foo.com>',
+			'<@:Brown@foo.com>',
+			'<Br\x00own@foo.com>',
+		]) {
+			expect([path, await s.send(`RCPT TO:${path}\r\n`)]).toEqual([
+				path,
+				'501 5.5.4 Syntax: RCPT TO:<address>\r\n',
+			]);
+		}
+		await s.send('DATA\r\n');
+		await s.send('hi\r\n.\r\n');
+		expect(s.received[0]?.envelope).toMatchObject({
+			from: 'Smith@bar.com',
+			to: ['Jones@foo.com'],
+		});
+	});
+});

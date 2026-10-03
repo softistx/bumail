@@ -18,6 +18,22 @@ const LABEL =
  */
 const INVISIBLE = /[\u0080-\u009f\u2028\u2029\p{Cf}]/u;
 
+/**
+ * C0 controls (CR, LF and NUL among them), DEL and `>`, anywhere in the
+ * path, quoted or not: a CR or an LF would end the command line and start
+ * another, and a `>` would end the path where a reader of the line stops.
+ */
+function hasControl(text: string): boolean {
+	for (let i = 0; i < text.length; i++) {
+		const code = text.charCodeAt(i);
+		if (code < 0x20 || code === 0x7f || code === 0x3e) return true;
+	}
+	return false;
+}
+
+/** One hop of a source route, `@domain`, and what follows it: `,` or `:`. */
+const HOP = /^@(\[[^\]]*\]|[^,:@[\]]*)([,:])/;
+
 function isDotString(text: string): boolean {
 	return text.split('.').every((atom) => ATOM.test(atom));
 }
@@ -38,8 +54,33 @@ function isDomain(domain: string): boolean {
 }
 
 /**
- * Parses the `<path>` of RFC 5321 §4.1.2: `<local@domain>`, with a source
- * route to ignore (`<@a,@b:local@domain>`, §C), or `<>` when `allowNull`.
+ * What `parsePath` does with a source route (`<@a,@b:local@domain>`, RFC 5321
+ * Appendix C): a server accepts and discards it (`'discard'`), a client
+ * refuses it, as §4.1.1.3 says clients should not send one (`'refuse'`).
+ */
+export type SourceRoute = 'discard' | 'refuse';
+
+/**
+ * The mailbox after a source route, each of whose hops must be
+ * `@domain` with a valid domain; `undefined` for any other route.
+ */
+function afterRoute(inner: string): string | undefined {
+	let rest = inner;
+	for (;;) {
+		const hop = HOP.exec(rest);
+		if (!hop || !isDomain(hop[1] as string)) return undefined;
+		rest = rest.slice(hop[0].length);
+		if (hop[2] === ':') return rest;
+	}
+}
+
+/**
+ * Parses the `<path>` of RFC 5321 §4.1.2: `<local@domain>`, or `<>` when
+ * `allowNull`. A source route (`<@a,@b:local@domain>`, §C) is dropped when
+ * `sourceRoute` is `'discard'`, the default, provided each hop is
+ * `@domain`; with `'refuse'` the path is not one. A C0 control (CR, LF,
+ * NUL…), DEL or `>` anywhere refuses the path, as do C1 controls and
+ * Unicode format characters.
  * Non-ASCII is allowed: whether the session may use it is SMTPUTF8's
  * question (RFC 6531), not the grammar's. `undefined` when it is not a path.
  *
@@ -47,14 +88,21 @@ function isDomain(domain: string): boolean {
  * `v%x.example` are local parts of the domain after the last `@`, not
  * addresses elsewhere. Code that delivers must not split on the first `@`.
  */
-export function parsePath(text: string, allowNull: boolean): Path | undefined {
+export function parsePath(
+	text: string,
+	allowNull: boolean,
+	sourceRoute: SourceRoute = 'discard',
+): Path | undefined {
 	if (!text.startsWith('<') || !text.endsWith('>')) return undefined;
-	let inner = text.slice(1, -1);
-	if (INVISIBLE.test(inner)) return undefined;
+	let inner: string | undefined = text.slice(1, -1);
+	if (hasControl(inner) || INVISIBLE.test(inner)) return undefined;
 	if (inner === '')
 		return allowNull ? { address: '', local: '', domain: '' } : undefined;
-	const route = /^@[^:]+:/.exec(inner);
-	if (route) inner = inner.slice(route[0].length);
+	if (inner.startsWith('@')) {
+		if (sourceRoute === 'refuse') return undefined;
+		inner = afterRoute(inner);
+		if (inner === undefined) return undefined;
+	}
 	const at = inner.lastIndexOf('@');
 	if (at <= 0) return undefined;
 	const local = inner.slice(0, at);

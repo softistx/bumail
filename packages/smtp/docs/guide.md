@@ -295,14 +295,18 @@ export interface Path {
 ```
 
 A source route (`<@a.example:b@c.example>`, RFC 5321 Appendix C) is dropped:
-the path is `b@c.example`.
+the path is `b@c.example`. It is taken only as `@domain(,@domain)*:`, each
+hop a valid domain or address literal; any other route — an empty hop, a
+hop without its `@`, a hop that is not a domain — is a `501 5.5.4 Syntax`.
 
 `local` is kept as written, quotes included. `<"v@x.example"@example.com>`
 and `<v%x.example@example.com>` are local parts of `example.com`, and
 passed the relay check as such: code that delivers must take the domain
 after the last `@` — `path.domain` — and never split `address` on its
-first `@`. C1 controls, Unicode format characters (zero-width, bidi, BOM)
-and U+2028/2029 are refused in a path, even under SMTPUTF8.
+first `@`. C0 controls (CR, LF, NUL, tab…), DEL and `>`, C1 controls,
+Unicode format characters (zero-width, bidi, BOM) and U+2028/2029 are
+refused anywhere in a path — the route, the local part quoted or not, the
+domain — even under SMTPUTF8.
 
 ## Session.data
 
@@ -960,8 +964,12 @@ await sendMail(message, { domain: 'example.org', resolver: nodeResolver(), helo:
 
 `from` is the envelope's reverse-path — `''` for the null sender of a
 bounce — and `to` one recipient or more. Both are checked as RFC 5321 paths
-before anything is sent: an address holding a CR, an LF or a `>` is refused
-with `INVALID_OPTION`, so it cannot inject a command.
+before anything is sent, before the client even connects: an address
+holding a CR, an LF, a NUL, any other control character or a `>`, in any
+part, is refused with `INVALID_OPTION`, so it cannot inject a command. A
+source route (`@a.example,@b.example:x@c.example`) is refused too, valid
+or not: RFC 5321 §4.1.1.3 says a client should not send one, and the
+address is written as it is given.
 
 One call is one destination. With `{ domain }`, every recipient should be
 at that domain: group them by domain first, one `sendMail` each.
@@ -1296,7 +1304,11 @@ console.log(chunk.done, reader.bareLineBreaks);
 
 - `parsePathCommand` and `parsePath` return `undefined` when the syntax is
   wrong. `parsePath` takes UTF-8 addresses; whether a session may use one
-  is SMTPUTF8's question.
+  is SMTPUTF8's question. A control character or a `>` anywhere is wrong.
+  Its third argument says what to do with a source route: `'discard'`, the
+  default and what a server does, drops a valid `@domain(,@domain)*:`;
+  `'refuse'`, what a client does, returns `undefined` for any route:
+  `parsePath('<@a,@b:x@c.com>', false, 'refuse')` is `undefined`.
 - `formatReply` replaces a CR or LF in the text with a space, so a reply
   text cannot start a second reply.
 - `DataReader.write(chunk)` returns the unstuffed bytes, whether the
