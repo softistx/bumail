@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { type MailStore, StoreError } from '@bumail/store';
 import { type Harness, harness, SIMPLE, STORES } from '../server/app.fixtures';
 
 async function upload(h: Harness): Promise<string> {
@@ -8,6 +9,16 @@ async function upload(h: Harness): Promise<string> {
 	});
 	return ((await response.json()) as { blobId: string }).blobId;
 }
+
+/** The store, but every `linkMessages` throws `error`. */
+const failingLinks = (error: Error) => (store: MailStore) =>
+	new Proxy(store, {
+		get(target, key, receiver) {
+			if (key === 'linkMessages') return async () => Promise.reject(error);
+			const value = Reflect.get(target, key, receiver);
+			return typeof value === 'function' ? value.bind(target) : value;
+		},
+	});
 
 const stored = async (h: Harness) =>
 	(await h.store.listAccountMessages(h.alice.id, {})).total;
@@ -53,6 +64,25 @@ describe.each(STORES)(
 				emails: { a: { blobId, mailboxIds: { [h.inbox.id]: true } }, b: 1 },
 			});
 			expect(second.args.type).toBe('invalidArguments');
+			expect(await stored(h)).toBe(0);
+		});
+
+		test('an email whose second mailbox fails to link is destroyed', async () => {
+			const twice = async (h: Harness) => ({
+				blobId: await upload(h),
+				mailboxIds: { [h.inbox.id]: true, [h.archive.id]: true },
+			});
+			h = await harness(kind, {}, failingLinks(new Error('disk full')));
+			let entry = await twice(h);
+			const failed = await h.call('Email/import', { emails: { k: entry } });
+			expect(failed.args.type).toBe('serverFail');
+			expect(await stored(h)).toBe(0);
+			await h.close();
+			const gone = new StoreError('NOT_FOUND', 'No such mailbox');
+			h = await harness(kind, {}, failingLinks(gone));
+			entry = await twice(h);
+			const refused = await h.call('Email/import', { emails: { k: entry } });
+			expect(refused.args.notCreated.k.type).toBe('invalidProperties');
 			expect(await stored(h)).toBe(0);
 		});
 

@@ -144,11 +144,13 @@ function clientOf(
 /**
  * A JMAP server on a store with alice's and bob's accounts, mounted in a
  * host app and called through its `fetch`, in process. Alice's token is
- * `alice-token`, bob's `bob-token`.
+ * `alice-token`, bob's `bob-token`. `wrap` puts something between the
+ * server and the store, to make it fail.
  */
 export async function harness(
 	kind: StoreKind = 'memory',
 	overrides: Partial<JmapOptions> = {},
+	wrap: (store: MailStore) => MailStore = (store) => store,
 ) {
 	const { store, close } = await openStore(kind);
 	const seeded = await seed(store);
@@ -158,7 +160,7 @@ export async function harness(
 		['bob-token', bob.id],
 	]);
 	const server = jmap({
-		store,
+		store: wrap(store),
 		origin: ORIGIN,
 		authenticate: (credentials) =>
 			credentials.scheme === 'bearer'
