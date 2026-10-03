@@ -21,14 +21,21 @@ import { expungeDeleted } from './expunge';
 
 const SYSTEM = ['\\Answered', '\\Flagged', '\\Deleted', '\\Seen', '\\Draft'];
 
-/** The system flags, and every keyword a message of the mailbox has. */
+/**
+ * The system flags, and every keyword a message of the mailbox has, once
+ * whatever its case (RFC 9051 §2.3.2): in the case the first message that
+ * has it stored, as a client that set `$Forwarded` looks for it.
+ */
 function flagsInUse(entries: readonly MailboxEntry[]): string[] {
-	const keywords = new Set<string>();
+	const keywords = new Map<string, string>();
 	for (const { message } of entries) {
-		for (const flag of message.flags)
-			if (!flag.startsWith('\\')) keywords.add(flag);
+		for (const flag of message.flags) {
+			const key = flag.toLowerCase();
+			if (!flag.startsWith('\\') && !keywords.has(key)) keywords.set(key, flag);
+		}
 	}
-	return [...SYSTEM, ...[...keywords].sort()];
+	const sorted = [...keywords.keys()].sort();
+	return [...SYSTEM, ...sorted.map((key) => keywords.get(key) as string)];
 }
 
 /** The untagged responses SELECT and EXAMINE give (RFC 9051 §6.3.2; RFC 3501 §6.3.1 for IMAP4rev1). */

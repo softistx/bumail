@@ -215,3 +215,81 @@ describe('the session, against what the server offers', () => {
 		expect(lines.some((line) => line.startsWith('<message'))).toBe(false);
 	});
 });
+
+describe('an address cannot inject a command (RFC 5321 §4.1.1.3)', () => {
+	/** Sends with `options` to a fake server offering SMTPUTF8; the error, the lines it got and whether anyone connected. */
+	async function injected(options: Partial<SendMailEnvelope>) {
+		let connected = 0;
+		const { port, lines } = await fakeServer({
+			ehlo: ['PIPELINING', '8BITMIME', 'SMTPUTF8'],
+			connected: () => {
+				connected++;
+				return undefined;
+			},
+		});
+		const error = await sendMail(MESSAGE, {
+			host: '127.0.0.1',
+			port,
+			from: 'a@bar.com',
+			to: 'b@foo.com',
+			...options,
+		}).then(
+			() => undefined,
+			(e: unknown) => e,
+		);
+		await Bun.sleep(20);
+		return { error: error as SmtpError, lines, connected };
+	}
+
+	test('a CR LF in a source route is refused before anything is written', async () => {
+		const { error, lines, connected } = await injected({
+			to: '@x\r\nRSET\r\nNOOP:a@c.com',
+		});
+		expect(error).toBeInstanceOf(SmtpError);
+		expect(error).toMatchObject({ code: 'INVALID_OPTION', temporary: false });
+		expect(error.message).toBe(
+			'sendMail(): "@x\\r\\nRSET\\r\\nNOOP:a@c.com" is not an address (local@domain)',
+		);
+		expect(connected).toBe(0);
+		expect(lines).toEqual([]);
+	});
+
+	test('a valid source route is refused too: a client does not send one', async () => {
+		const { error, lines, connected } = await injected({
+			to: '@a,@b:x@c.com',
+		});
+		expect(error.message).toBe(
+			'sendMail(): "@a,@b:x@c.com" holds a source route (@host:), which RFC 5321 says a client should not send: pass "x@c.com" alone',
+		);
+		expect(connected).toBe(0);
+		expect(lines).toEqual([]);
+	});
+
+	test('CR, LF, NUL or > anywhere in from or to: nothing is written', async () => {
+		const shapes = [
+			(c: string) => `${c}a@c.com`,
+			(c: string) => `a${c}@c.com`,
+			(c: string) => `"a${c}b"@c.com`,
+			(c: string) => `a@c${c}.com`,
+			(c: string) => `a@c.com${c}`,
+			(c: string) => `@x${c}:a@c.com`,
+			(c: string) => `@x,@y${c}:a@c.com`,
+		];
+		for (const shape of shapes) {
+			for (const char of ['\r', '\n', '\r\n', '\x00', '>']) {
+				for (const field of ['from', 'to'] as const) {
+					const { error, lines, connected } = await injected({
+						[field]: shape(char),
+					});
+					expect([shape(char), field, error?.code]).toEqual([
+						shape(char),
+						field,
+						'INVALID_OPTION',
+					]);
+					expect(connected).toBe(0);
+					expect(lines).toEqual([]);
+				}
+			}
+		}
+	});
+});

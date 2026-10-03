@@ -4,6 +4,7 @@ import { bytes, type CreateStore, rejects, setup } from './setup.fixtures';
 export function describeFlags(create: CreateStore): void {
 	describe('flags', () => {
 		naming(create);
+		keywordCase(create);
 		changing(create);
 		conditional(create);
 		sharing(create);
@@ -11,13 +12,21 @@ export function describeFlags(create: CreateStore): void {
 }
 
 function naming(create: CreateStore): void {
-	test('a system flag takes its canonical case, a keyword lowercase', async () => {
+	test('a system flag takes its canonical case, a keyword the case it was first stored with', async () => {
 		const { store, account, inbox } = await setup(create);
 		const message = await store.addMessage(account.id, inbox.id, {
 			content: bytes('x'),
-			flags: ['\\FLAGGED', '$Junk', '$junk', 'NonJunk'],
+			flags: ['\\FLAGGED', '$Junk', '$junk', 'NonJunk', '$MDNSent'],
 		});
-		expect(message.flags).toEqual(['$junk', '\\Flagged', 'nonjunk']);
+		expect(message.flags).toEqual([
+			'$Junk',
+			'$MDNSent',
+			'\\Flagged',
+			'NonJunk',
+		]);
+		expect((await store.getMessage(account.id, message.id))?.flags).toEqual(
+			message.flags,
+		);
 	});
 
 	test('RFC 8621 §4.1.1: a keyword is printable ASCII, 255 characters at most, no atom-special', async () => {
@@ -47,6 +56,45 @@ function naming(create: CreateStore): void {
 			flags: ['k'.repeat(255)],
 		});
 		expect(message.flags).toEqual(['k'.repeat(255)]);
+	});
+}
+
+function keywordCase(create: CreateStore): void {
+	test('RFC 9051 §2.3.2: keywords compare without case, and keep the case first stored', async () => {
+		const { store, account, inbox } = await setup(create);
+		const message = await store.addMessage(account.id, inbox.id, {
+			content: bytes('x'),
+			flags: ['$Forwarded'],
+		});
+		// The same keyword in another case is the same keyword: no change, no modseq.
+		const { messages: [same] = [] } = await store.setFlags(
+			account.id,
+			[message.id],
+			{ add: ['$FORWARDED', '$forwarded'] },
+		);
+		expect(same?.flags).toEqual(['$Forwarded']);
+		expect(same?.modseq).toBe(message.modseq);
+		const { messages: [reset] = [] } = await store.setFlags(
+			account.id,
+			[message.id],
+			{ set: ['$forwarded', '$NotJunk', '$notjunk'] },
+		);
+		expect(reset?.flags).toEqual(['$Forwarded', '$NotJunk']);
+		const { messages: [removed] = [] } = await store.setFlags(
+			account.id,
+			[message.id],
+			{ remove: ['$NOTJUNK'] },
+		);
+		expect(removed?.flags).toEqual(['$Forwarded']);
+		const { messages: [added] = [] } = await store.setFlags(
+			account.id,
+			[message.id],
+			{ add: ['Junk', '\\seen'] },
+		);
+		expect(added?.flags).toEqual(['$Forwarded', '\\Seen', 'Junk']);
+		expect((await store.getMessage(account.id, message.id))?.flags).toEqual(
+			added?.flags,
+		);
 	});
 }
 

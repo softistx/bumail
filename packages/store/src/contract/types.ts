@@ -68,7 +68,7 @@ export interface Message {
 	readonly blobId: string;
 	/** The size of the content in bytes. */
 	readonly size: number;
-	/** System flags (`\Seen`, `\Answered`, `\Flagged`, `\Deleted`, `\Draft`) and keywords, lowercase; sorted. */
+	/** System flags (`\Seen`, `\Answered`, `\Flagged`, `\Deleted`, `\Draft`) and keywords as first stored, compared without case; sorted without case. */
 	readonly flags: readonly string[];
 	/** When the message was received (IMAP's INTERNALDATE, JMAP's `receivedAt`). */
 	readonly receivedAt: Date;
