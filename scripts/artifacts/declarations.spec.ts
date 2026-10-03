@@ -38,6 +38,45 @@ describe('declarationSpecifiers', () => {
 		).toEqual(['./protocol/reply']);
 	});
 
+	test('reads the forms a stricter scanner would miss', () => {
+		expect(
+			declarationSpecifiers(
+				[
+					"export type K = import('k', { with: { 'resolution-mode': 'import' } }).K;",
+					// A template literal type, its substitutions written out: '$' + '{'
+					`export type L = \`${'$'}{import('l').Prefix}-${'$'}{string}\`;`,
+					'export { "a-b" as ab } from \'m\';',
+					"import type N = require('n');",
+				].join('\n'),
+			).sort(),
+		).toEqual(['k', 'l', 'm', 'n']);
+	});
+
+	test('a reference inside a block comment or a template is no reference', () => {
+		expect(
+			declarationSpecifiers(
+				[
+					'/*',
+					'/// <reference types="in-block" />',
+					'*/',
+					'export type T = `',
+					'/// <reference types="in-template" />',
+					'`;',
+					'  /// <reference types="indented" />',
+					'export type U = 1; /// <reference types="after-code" />',
+				].join('\n'),
+			),
+		).toEqual(['indented']);
+	});
+
+	test('string escapes are decoded', () => {
+		expect(
+			declarationSpecifiers(
+				"import type { A } from '\\u0061';\nimport type { B } from '\\x62\\u{63}';",
+			),
+		).toEqual(['a', 'bc']);
+	});
+
 	test('an escaped quote does not end a string early', () => {
 		expect(
 			declarationSpecifiers(
