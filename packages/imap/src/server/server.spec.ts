@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { ImapError } from '../errors';
-import { Client, localhostTls, pausedTlsClient } from './client.fixtures';
+import {
+	Client,
+	localhostTls,
+	pausedTlsClient,
+	slowTlsReader,
+} from './client.fixtures';
 import { createImapServer, type ImapServer } from './server';
 import { imapOptions, seededStore } from './session.fixtures';
 import { CLOSE_GRACE } from './transport';
@@ -77,6 +82,53 @@ describe('on a real socket', () => {
 		expect(server.connections).toBe(1);
 		first.end();
 	});
+
+	test('maxConnections on implicit TLS: one too many gets BYE, then the socket closes', async () => {
+		const { server, port } = await start({
+			implicitTls: true,
+			maxConnections: 1,
+		});
+		const first = await Client.connect(port, true);
+		expect(await first.line()).toContain('IMAP4rev2 ready');
+		const second = await Client.connect(port, true);
+		expect(await second.line()).toBe(
+			'* BYE [UNAVAILABLE] Too many connections, try later\r\n',
+		);
+		expect(await second.until(() => second.closed)).toBe(true);
+		expect(server.connections).toBe(1);
+		first.end();
+	});
+
+	test('a slow reader of a large FETCH pipelined with LOGOUT gets every byte, then BYE, then the close', async () => {
+		const { port, store, accountId, inbox } = await start({
+			implicitTls: true,
+		});
+		const line = `${'y'.repeat(998)}\r\n`;
+		const content = `Subject: large\r\n\r\n${line.repeat(4096)}`;
+		await store.addMessage(accountId, inbox.id, {
+			content: new TextEncoder().encode(content),
+		});
+		const client = slowTlsReader(port);
+		await client.waitFor('ready\r\n');
+		const plain = new TextEncoder().encode('\0alice\0secret').toBase64();
+		client.socket.write(`a AUTHENTICATE PLAIN ${plain}\r\nb SELECT INBOX\r\n`);
+		await client.waitFor('b OK');
+		client.sip();
+		client.socket.write('c FETCH 3 BODY.PEEK[]\r\nd LOGOUT\r\n');
+		const started = Date.now();
+		while (!client.closed && Date.now() - started < 10_000) {
+			client.socket.resume();
+			await Bun.sleep(50);
+		}
+		expect(client.closed).toBe(true);
+		const text = client.text();
+		const body = text.indexOf(`{${content.length}}\r\n${content})\r\n`);
+		expect(body).toBeGreaterThan(0);
+		expect(text.indexOf('* BYE Logging out\r\n')).toBeGreaterThan(body);
+		expect(text).toEndWith('* BYE Logging out\r\nd OK LOGOUT completed\r\n');
+		// Shut down once the queue left, not terminated at the grace.
+		expect(Date.now() - (client.lastDataAt ?? 0)).toBeLessThan(CLOSE_GRACE);
+	}, 15_000);
 
 	test('a client that never logs in is cut at loginTimeout, however much it trickles', async () => {
 		const { port } = await start({ loginTimeout: 1 });

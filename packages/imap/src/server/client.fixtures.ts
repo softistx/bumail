@@ -118,6 +118,11 @@ export class Client {
 		this.#socket.pause();
 	}
 
+	/** Reads again after `pause`. */
+	resume(): void {
+		this.#socket.resume();
+	}
+
 	end(): void {
 		this.#socket.end();
 	}
@@ -171,4 +176,44 @@ export async function pausedTlsClient(
 	await new Promise<void>((done) => secure.once('secureConnect', done));
 	secure.pause();
 	return secure;
+}
+
+/**
+ * A `node:tls` client on implicit TLS that keeps every byte it gets. After
+ * `sip`, it takes one chunk each time it is resumed, then pauses again: a
+ * client reading slowly, so the server's queue fills behind it.
+ */
+export function slowTlsReader(port: number) {
+	const socket = tlsConnect({
+		host: '127.0.0.1',
+		port,
+		rejectUnauthorized: false,
+		servername: 'localhost',
+	});
+	const chunks: Buffer[] = [];
+	let sipping = false;
+	const reader = {
+		socket,
+		closed: false,
+		lastDataAt: undefined as number | undefined,
+		text: () => Buffer.concat(chunks).toString('latin1'),
+		async waitFor(text: string): Promise<void> {
+			while (!reader.text().includes(text) && !reader.closed)
+				await Bun.sleep(5);
+		},
+		sip(): void {
+			sipping = true;
+			socket.pause();
+		},
+	};
+	socket.on('error', () => {});
+	socket.on('data', (chunk: Buffer) => {
+		chunks.push(chunk);
+		reader.lastDataAt = Date.now();
+		if (sipping) socket.pause();
+	});
+	socket.on('close', () => {
+		reader.closed = true;
+	});
+	return reader;
 }
