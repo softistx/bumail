@@ -72,6 +72,24 @@
         "typescript",
       ],
     },
+    "packages/queue": {
+      "name": "@bumail/queue",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@bumail/dns": "workspace:^",
+        "@bumail/mime": "workspace:^",
+        "@bumail/smtp": "workspace:^",
+        "@types/bun": "^1.4.2",
+      },
+      "peerDependencies": {
+        "@bumail/mime": "workspace:^",
+        "@bumail/smtp": "workspace:^",
+        "typescript": "^6.0.3 || ^7.0.0",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
+    },
     "packages/smtp": {
       "name": "@bumail/smtp",
       "version": "0.2.0",
@@ -131,6 +149,8 @@
     "@bumail/imap": ["@bumail/imap@workspace:packages/imap"],
 
     "@bumail/mime": ["@bumail/mime@workspace:packages/mime"],
+
+    "@bumail/queue": ["@bumail/queue@workspace:packages/queue"],
 
     "@bumail/smtp": ["@bumail/smtp@workspace:packages/smtp"],
 
