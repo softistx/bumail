@@ -111,8 +111,9 @@ message first and pass the `blobId` the upload answered.
 
 ## `invalidProperties` — `mailboxIds names at least one mailbox, each set to true`
 
-A new email's `mailboxIds` is missing, empty, or holds a value other than
-`true` or a key that is not an id: `{ "<inboxId>": true }`.
+A new email's `mailboxIds` is missing, empty, names more than 1000
+mailboxes, or holds a value other than `true` or a key that is not an
+id: `{ "<inboxId>": true }`.
 
 ## `invalidProperties` — `mailboxIds names a mailbox the account does not have`
 
