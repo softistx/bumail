@@ -59,15 +59,24 @@ export class BlobFiles {
 	/**
 	 * Removes every blob `held` says no account holds: what a crash between
 	 * a blob and its commit left, or a removal that failed. Only for
-	 * opening, under the database's lock, when no add can be pending.
+	 * opening, under the database's lock, when no add can be pending. It
+	 * reads every shard, so opening takes longer as the store grows. What
+	 * is not a file, or cannot be removed, is left for the next open: a
+	 * leftover is harmless, a store that will not open is not.
 	 */
 	sweep(held: (blobId: string) => boolean): void {
 		for (const shard of readdirSync(this.directory, { withFileTypes: true })) {
 			if (!shard.isDirectory() || !SHARD.test(shard.name)) continue;
 			const at = join(this.directory, shard.name);
-			for (const name of readdirSync(at)) {
-				if (BLOB_ID.test(name) && name.startsWith(shard.name) && !held(name)) {
+			for (const entry of readdirSync(at, { withFileTypes: true })) {
+				const name = entry.name;
+				if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+				if (!BLOB_ID.test(name) || !name.startsWith(shard.name)) continue;
+				if (held(name)) continue;
+				try {
 					rmSync(join(at, name), { force: true });
+				} catch {
+					// Left for the next open.
 				}
 			}
 		}

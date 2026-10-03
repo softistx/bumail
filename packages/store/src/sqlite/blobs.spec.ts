@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { blobIdOf } from '../contract/blob';
 import { bytes, streamOf } from '../contract/fixtures/setup.fixtures';
@@ -81,6 +81,16 @@ describe('BlobFiles', () => {
 		);
 		const content = await after.readContent(account.id, held.blobId);
 		expect(await content?.text()).toBe('held');
+	});
+
+	test('a directory named like a blob does not stop the store opening', () => {
+		const at = directory();
+		open(at).close();
+		const name = blobIdOf(bytes('a directory'));
+		const odd = join(at, 'blobs', name.slice(0, 2), name);
+		mkdirSync(odd, { recursive: true });
+		open(at).close();
+		expect(readdirSync(odd)).toEqual([]);
 	});
 });
 
