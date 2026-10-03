@@ -362,7 +362,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | export | |
 | --- | --- |
 | `createSmtpServer(options)` | the server; throws an `SmtpError` (`INVALID_OPTION`) on a bad option |
-| `SmtpServer` | `listen({ port, hostname? })` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)`, `connections` |
+| `SmtpServer` | `listen({ port, hostname? })` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `connections` |
 | `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits, `hookTimeout`, `greetingDelay`, `onError`, and the hooks |
 | `SmtpError`, `SmtpErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and what a content stream or `onError` can get: `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `CONNECTION_LOST`, `HOOK_TIMEOUT`, `INVALID_HOOK_REPLY`, `MESSAGE_NOT_READ`; `sendMail`'s are listed below. `temporary`, `reply` and `rejected` are set for `sendMail`'s errors |
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |

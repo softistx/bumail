@@ -882,17 +882,21 @@ if any were still waiting. So a client that pipelines commands and stops
 reading cannot keep a slot of `maxConnections` past its `timeout`.
 
 Every hang-up is bounded, on a clear socket, on implicit TLS and after
-STARTTLS alike. The server never waits for the client to answer its
-hang-up: the connection is counted out at once, even when the client has
-stopped reading. When nothing is left queued, a client that reads later
+STARTTLS alike. When the server decides, it never waits for the client to
+answer its hang-up: the connection is counted out at once, even when the
+client has stopped reading. When nothing is left queued, a client that reads later
 still gets the last reply, then the end; when replies are still queued, a
 forced close drops them and resets the connection. A graceful
 close — after `QUIT`, or a reply that still has to leave — waits 5 seconds
 at most for what is queued to go out; past that, what is left is dropped
-and the connection reset. So a `221` behind replies that are never read
-holds the slot 5 seconds, not until the `timeout`.
+and the connection reset. On TLS, once such queued replies have left, the
+server closes when the client answers, within the same 5 seconds: a
+half-close right then could drop the end of what Bun still holds in its
+TLS buffer. So a `221` behind replies that are never read holds the slot
+5 seconds, not until the `timeout`.
 
-Stop a server with `stop()`; `stop(true)` also hangs up on every client.
+Stop a server with `stop()`; `stop(true)` also hangs up on every client,
+those moved to TLS by STARTTLS included, as the idle timeout does.
 `connections` counts the clients currently connected:
 
 ```ts

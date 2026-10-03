@@ -80,6 +80,18 @@ describe('SocketTransport keeps what the socket could not take', () => {
 		expect(fake.shutdowns).toEqual([true]);
 	});
 
+	test('end() on TLS behind a queue: a full shutdown() once it drained, not a half-close', () => {
+		const fake = slowSocket(4);
+		const transport = new SocketTransport(fake.socket, true, () => {});
+		transport.write('221 bye\r\n');
+		transport.end();
+		transport.drain();
+		transport.drain();
+		expect(fake.text()).toBe('221 bye\r\n');
+		// The last write may still sit in Bun's TLS buffer: a half-close drops it.
+		expect(fake.shutdowns).toEqual([undefined]);
+	});
+
 	test('a write the socket refuses (-1) queues all of it, not its last byte', () => {
 		const sent: string[] = [];
 		let room = -1;
@@ -147,7 +159,7 @@ describe('every end is bounded by CLOSE_GRACE_MS', () => {
 		const transport = new SocketTransport(fake.socket, true, () => {});
 		transport.write('221 bye\r\n');
 		transport.end();
-		expect(fake.ended).toBe(true);
+		expect(fake.shutdowns).toEqual([true]);
 		jest.advanceTimersByTime(CLOSE_GRACE_MS - 1);
 		expect(fake.terminated).toBe(false);
 		jest.advanceTimersByTime(1);

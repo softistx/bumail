@@ -167,6 +167,23 @@ describe('createSmtpServer on Bun.listen', () => {
 		expect(server?.connections).toBe(0);
 	});
 
+	test('stop(true) after STARTTLS hangs up on the session and counts it out', async () => {
+		const { port } = await start();
+		const client = await Client.connect(port);
+		await client.reply();
+		await client.command('EHLO bar.com');
+		await client.command('STARTTLS');
+		await client.startTls();
+		await client.command('EHLO bar.com');
+		expect(server?.connections).toBe(1);
+		// Bun's own stop(true) no longer holds a socket moved to TLS.
+		server?.stop(true);
+		for (let i = 0; i < 50 && server?.connections !== 0; i++)
+			await Bun.sleep(20);
+		expect(server?.connections).toBe(0);
+		expect(await client.until(() => client.closed, 1)).toBe(true);
+	});
+
 	test('listen twice throws ALREADY_LISTENING', async () => {
 		await start();
 		expect(server?.listen({ port: 0, hostname: '127.0.0.1' })).rejects.toThrow(

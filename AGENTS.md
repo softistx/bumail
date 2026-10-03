@@ -14,6 +14,7 @@ below lists only what has landed.
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
+| `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, and SPF checking (RFC 7208), results in RFC 8601's words; DMARC next | `@bumail/dns`, `@bumail/mime` |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
@@ -72,6 +73,7 @@ mime            (standalone)
 smtp            (standalone; its specs use store and dns, its Mailpit example auth, as devDependencies)
 store           (standalone)
 auth            → dns, mime
+imap            → store, mime
 ```
 
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
@@ -80,6 +82,16 @@ this section draws their arrows. A package that uses a sibling declares it by
 published name, which resolves through `node_modules` to the sibling's
 `dist/`. A sibling only a spec uses is a devDependency alone, never a peer:
 the package still needs nothing of it at runtime. **There are no cycles.**
+
+Two pieces are copied rather than shared, on purpose:
+
+- **SASL PLAIN decoding** (RFC 4616), in `smtp/src/protocol/sasl.ts` and
+  `imap/src/protocol/sasl.ts`: about forty lines, the same `Credentials`
+  shape. A package for them would be a peer each server needs for one
+  function; a fix to one is a fix to the other.
+- **The socket transport**, in `smtp/src/server/transport.ts` and
+  `imap/src/server/transport.ts`: its rule is under Deliberate
+  duplications.
 
 ## The build
 
@@ -188,32 +200,64 @@ Every PR goes into `develop`. Before merging:
   fit fails `typecheck`. With nothing of `@bumail/dns` imported, smtp
   lists it as a devDependency only, never a peer (see Layering).
 - **The socket transport** — writing with a backlog, `drained()`, pause and
-  resume, the STARTTLS upgrade — lives in `smtp/src/server/transport.ts`.
-  `@bumail/imap` (PR #29) will carry a copy adapted to its protocol's flow,
-  and that copy must keep the same rule; should a third server need it, it
-  becomes a package. The rule: **a hang-up never waits on the client; a
-  forced close terminates when bytes are queued; every end is bounded by a
-  grace timer.** A close the server decides on — a timeout, a 421 — must
-  complete even when the client never reads, or the connection keeps a
-  `maxConnections` slot for good. In smtp: the connection queues its last
-  words and marks itself closed without awaiting the backlog; `abort()`
-  with bytes still queued drops them and terminates the socket; every
-  `end`, queue empty or not, arms the 5-second `CLOSE_GRACE_MS`, whose
-  timer terminates the socket unless `close` came first; and `closed()`
-  clears that timer and sets a `#closed` guard, so a later `write`, `end`
-  or `abort` — as the `close` handlers call `connection.close()` after a
-  client hung up first — touches no socket and arms no timer. Hanging up
-  is a half-close, `socket.shutdown(true)`, never `end()`. Measured on
-  Bun 1.4.2: on TLS, `socket.end()` against a paused peer never closes,
-  and a `terminate()` after it is a no-op; a full `shutdown()` holds a
-  paused client until the grace, then loses the reply to the reset when
-  that client reads later; `shutdown(true)` fires `close` at once, freeing
-  the slot, and still delivers the last reply and a clean end. smtp's
-  real-socket specs (`quiet.spec.ts`, with a `node:tls` client) cover a
-  paused client on a clear socket, on implicit TLS and after STARTTLS, at
-  the idle `timeout` and after `QUIT`; `close.spec.ts` covers a client
-  that never reads with replies queued; `transport.spec.ts` covers the
-  grace and the `#closed` guard. A fix to one copy is a fix to the other.
+  resume, the STARTTLS upgrade, the hang-up — in
+  `smtp/src/server/transport.ts` and `imap/src/server/transport.ts`, each
+  adapted to its protocol's flow (smtp writes text through an `Outgoing`,
+  imap writes bytes and exposes its `backlog`). Should a third server need
+  it, it becomes a package. Both copies keep one rule, with the same names
+  and shape:
+  - **a hang-up never waits on the client.** A close the server decides on
+    — a timeout, a 421 or a BYE — must complete even when the client never
+    reads, or the connection keeps a `maxConnections` slot for good: the
+    connection marks itself closed and queues its last words without
+    awaiting the backlog;
+  - **it half-closes with `socket.shutdown(true)`**, never Bun's `end()`,
+    once what is queued has left — except on TLS when the hang-up waited
+    for a queue to drain: there it calls a full `shutdown()`, which closes
+    once the client, reading a moment ago, answers (`#hangUp(drained)`);
+  - **a forced close terminates when bytes are queued**: `abort()` drops
+    them and calls `terminate()`; with nothing queued it hangs up as `end()`
+    does;
+  - **every end is bounded by the grace**: each `end`, queue empty or not,
+    arms the 5-second `CLOSE_GRACE_MS`, whose timer terminates the socket
+    unless `close` came first; a second `end` or `abort` keeps the first
+    deadline;
+  - **the `#closed` guard**: `closed()`, called from every `close` handler,
+    clears that timer, drops the queue and sets `#closed`, so a later
+    `write`, `end` or `abort` — as each `close` handler then runs
+    `connection.close()` for a client that hung up first, or for
+    `stop(true)` — touches no socket and arms no timer.
+
+  Measured on Bun 1.4.2: on TLS, `socket.end()` against a paused peer never
+  closes, and a `terminate()` after it does nothing; a full `shutdown()`
+  holds a paused client's slot until the grace, then the client gets
+  ECONNRESET and loses its last reply when it reads later; `shutdown(true)`
+  fires `close` at once, freeing the slot, and still delivers the last
+  reply and a clean end — but on TLS, called in the `drain` that took the
+  last of a large queue, it drops what Bun still holds in its own TLS
+  buffer: 1 run in 20 to 2 in 15, 16 to 96 KiB short, for a `node:tls`
+  client reading slowly, in both copies; a full `shutdown()` there lost
+  nothing in 15 runs, and `write` gives no sign of that buffer. Bun's
+  `listener.stop(true)` no longer closes a socket STARTTLS moved to TLS,
+  so each server's `stop(true)` also closes every connection it holds.
+
+  smtp's real-socket specs: `quiet.spec.ts` (`node:net` and `node:tls`
+  clients) covers a paused client on a clear socket, on implicit TLS and
+  after STARTTLS, counted out within a bound at the idle `timeout` and then
+  reading the 421 and a clean end, and a paused client after `QUIT`;
+  `close.spec.ts` covers a client that never reads with replies queued;
+  `server.spec.ts` covers `stop(true)` after STARTTLS. imap's:
+  `server.spec.ts` covers a client that never reads with output queued, a
+  slow reader of a large FETCH pipelined with LOGOUT, a paused client on a
+  clear `node:net` socket, on implicit TLS and after STARTTLS, freed at
+  `loginTimeout` before the grace and reading the BYE and a clean end once
+  it resumes after the grace, and `stop(true)` after STARTTLS;
+  `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`.
+  The idle `timeout` (30 minutes at least) runs the same close but no imap
+  real-socket spec waits for it. Each copy's `transport.spec.ts` checks,
+  on a fake socket, that `shutdown` gets `true` (and nothing on TLS after
+  a drain), the grace and the `#closed` guard. A fix to one copy is a fix
+  to the other.
 
 ## Prior work
 

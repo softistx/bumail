@@ -107,11 +107,11 @@ function transportOf(
 export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 	const settings = settingsOf(options);
 	let listener: TCPSocketListener<SocketState> | undefined;
-	let open = 0;
+	const open = new Set<Connection>();
 	const secure = options.implicitTls === true;
 	return {
 		get connections() {
-			return open;
+			return open.size;
 		},
 		async listen({ port, hostname = '0.0.0.0' }) {
 			if (listener) {
@@ -131,7 +131,7 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 					open(socket) {
 						socket.data = { upgraded: false };
 						socket.timeout(settings.timeout);
-						if (open >= settings.maxConnections) {
+						if (open.size >= settings.maxConnections) {
 							// Through a transport, so this hang-up is bounded as every other is.
 							const refused = new SocketTransport(
 								socket as Socket<unknown>,
@@ -145,16 +145,17 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 							refused.end();
 							return;
 						}
-						open++;
 						const connection = new Connection(
 							settings,
 							transportOf(socket, settings, secure),
 						);
+						open.add(connection);
 						socket.data.connection = connection;
 						void connection.open();
 					},
 					close(socket) {
-						if (socket.data.connection) open--;
+						const connection = socket.data.connection;
+						if (connection) open.delete(connection);
 						socket.data.transport?.closed();
 						socket.data.connection?.close();
 					},
@@ -165,6 +166,11 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 		stop(closeConnections = false) {
 			listener?.stop(closeConnections);
 			listener = undefined;
+			if (!closeConnections) return;
+			// Bun's `stop(true)` closes the sockets the listener holds, and a
+			// socket STARTTLS moved to TLS is no longer one of them: hang up on
+			// every connection here, as a timeout does.
+			for (const connection of [...open]) connection.close();
 		},
 	};
 }

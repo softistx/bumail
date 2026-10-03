@@ -45,6 +45,11 @@ Nothing in progress.
   queued. `QUIT` still sends its `221` whole before hanging up, within a
   5-second grace when the client does not read it.
 
+- **`stop(true)` closes sessions moved to TLS by STARTTLS.** They used to
+  stay open, each holding its slot, because the listener no longer held
+  them. A hang-up on TLS right after queued replies left no longer drops
+  the end of them.
+
 - **The client, as `@bumail/smtp/client`** — `sendMail(message, options)`
   delivers one message to a host (a smarthost, submission on 587 or 465,
   a local Mailpit) or to a domain's MX hosts by preference, through a
