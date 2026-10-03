@@ -48,6 +48,8 @@ export class SocketTransport implements Transport {
 	readonly #startTls: () => void;
 	readonly #outgoing: Outgoing;
 	#ending = false;
+	/** The socket closed: every later write, end or abort is a no-op. */
+	#closed = false;
 	#grace: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
@@ -64,6 +66,7 @@ export class SocketTransport implements Transport {
 	}
 
 	write(text: string): void {
+		if (this.#closed) return;
 		this.#outgoing.write(new TextEncoder().encode(text));
 	}
 
@@ -78,17 +81,21 @@ export class SocketTransport implements Transport {
 
 	/** The socket closed: nothing more will leave. */
 	closed(): void {
+		this.#closed = true;
 		this.#disarm();
 		this.#outgoing.clear();
 	}
 
+	/** After `closed()`, does nothing: no grace is armed on a dead socket. */
 	end(): void {
+		if (this.#closed) return;
 		this.#arm();
 		if (this.#outgoing.empty) this.#hangUp();
 		else this.#ending = true;
 	}
 
 	abort(): void {
+		if (this.#closed) return;
 		if (this.#outgoing.empty) this.end();
 		else this.#terminate();
 	}

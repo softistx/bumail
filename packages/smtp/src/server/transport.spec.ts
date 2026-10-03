@@ -7,9 +7,12 @@ function slowSocket(room: number) {
 	const sent: number[] = [];
 	let ended = false;
 	let terminated = false;
+	const shutdowns: unknown[] = [];
+	const calls: string[] = [];
 	const socket = {
 		remoteAddress: '192.0.2.10',
 		write: (bytes: Uint8Array) => {
+			calls.push('write');
 			const taken = Math.min(room, bytes.length);
 			sent.push(...bytes.subarray(0, taken));
 			return taken;
@@ -19,10 +22,13 @@ function slowSocket(room: number) {
 				'end() waits on a TLS client: the transport uses shutdown()',
 			);
 		},
-		shutdown: () => {
+		shutdown: (halfClose?: boolean) => {
+			calls.push('shutdown');
+			shutdowns.push(halfClose);
 			ended = true;
 		},
 		terminate: () => {
+			calls.push('terminate');
 			terminated = true;
 		},
 	} as unknown as Socket<unknown>;
@@ -35,6 +41,10 @@ function slowSocket(room: number) {
 		get terminated() {
 			return terminated;
 		},
+		/** The argument of every `shutdown` call. */
+		shutdowns,
+		/** Every socket method called, in order. */
+		calls,
 	};
 }
 
@@ -57,7 +67,7 @@ describe('SocketTransport keeps what the socket could not take', () => {
 		expect(fake.text()).toBe('250 first\r\n250 second\r\n');
 	});
 
-	test('end() waits for what is queued, then hangs up with shutdown()', () => {
+	test('end() waits for what is queued, then hangs up with shutdown(true)', () => {
 		const fake = slowSocket(4);
 		const transport = new SocketTransport(fake.socket, false, () => {});
 		transport.write('221 bye\r\n');
@@ -67,6 +77,7 @@ describe('SocketTransport keeps what the socket could not take', () => {
 		transport.drain();
 		expect(fake.text()).toBe('221 bye\r\n');
 		expect(fake.ended).toBe(true);
+		expect(fake.shutdowns).toEqual([true]);
 	});
 
 	test('a write the socket refuses (-1) queues all of it, not its last byte', () => {
@@ -174,6 +185,33 @@ describe('every end is bounded by CLOSE_GRACE_MS', () => {
 		transport.closed();
 		jest.advanceTimersByTime(CLOSE_GRACE_MS * 2);
 		expect(fake.terminated).toBe(false);
+	});
+
+	test('closed() first: a later abort(), end() or write() arms no timer and touches no socket', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.closed();
+		transport.abort();
+		transport.end();
+		transport.write('421 bye\r\n');
+		expect(jest.getTimerCount()).toBe(0);
+		jest.advanceTimersByTime(CLOSE_GRACE_MS * 2);
+		expect(fake.calls).toEqual([]);
+	});
+
+	test('closed() first, with bytes queued: abort() and end() touch no socket', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(4);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.write('250 first\r\n');
+		transport.closed();
+		fake.calls.length = 0;
+		transport.end();
+		transport.abort();
+		expect(jest.getTimerCount()).toBe(0);
+		jest.advanceTimersByTime(CLOSE_GRACE_MS * 2);
+		expect(fake.calls).toEqual([]);
 	});
 
 	test('a second end() or abort() does not push the deadline back', () => {
