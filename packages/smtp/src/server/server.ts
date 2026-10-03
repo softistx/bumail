@@ -47,7 +47,11 @@ function handlers(settings: Settings): SocketHandler<SocketState> {
 		},
 		timeout(socket) {
 			if (socket.data.upgraded) return;
-			socket.data.connection?.close(idle);
+			const { connection, transport } = socket.data;
+			// Closed already, after QUIT, and the 221 still waits for a client
+			// that stopped reading: the idle time is up for that too.
+			if (connection?.closed) transport?.abort();
+			else connection?.close(idle);
 		},
 	};
 }

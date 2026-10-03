@@ -871,6 +871,16 @@ message `onData` has not read, before it stops reading that client. Replies
 to a client that does not read them wait in the server, and the server reads
 no further command until they went out.
 
+How the server hangs up depends on who decided. After `QUIT` it is
+graceful: the `221` leaves whole, then the connection closes. When the
+server decides — the idle `timeout`, `maxErrors`, three failed AUTH
+attempts, a refusal from `onConnect`, a local error — it writes its reply
+and closes at once: the connection is counted out of `connections` then and
+there, and replies the client never read are dropped, the connection reset
+if any were still waiting. So a client that pipelines commands and stops
+reading cannot keep a slot of `maxConnections` past its `timeout`; the
+same holds after `QUIT` when the `221` itself is never read.
+
 Stop a server with `stop()`; `stop(true)` also hangs up on every client.
 `connections` counts the clients currently connected:
 
@@ -952,7 +962,8 @@ at that domain: group them by domain first, one `sendMail` each.
   one its address resolves back to. By MX it is required — an MX may
   refuse or penalise a name that does not resolve back to your address,
   and the machine's own name (`laptop.local`) is rarely one and would leak
-  it — so `{ domain }` without `helo` is `INVALID_OPTION`. To a host
+  it — so `MxDestination` declares `helo: string`, and `{ domain }`
+  without it does not compile; from JavaScript it is `INVALID_OPTION`. To a host
   (`{ host }`: a smarthost, Mailpit) it defaults to the machine's host
   name.
 - `SIZE=` is sent when the server offers SIZE and the size is known: a

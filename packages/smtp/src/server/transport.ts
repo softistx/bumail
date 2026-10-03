@@ -9,8 +9,14 @@ export interface Transport {
 	write(text: string): void;
 	/** Resolves once everything written has left. */
 	drained(): Promise<void>;
-	/** Hangs up once everything written has left. */
+	/** Hangs up once everything written has left: a graceful close, as after QUIT. */
 	end(): void;
+	/**
+	 * Hangs up now, the server's decision: what the socket already took
+	 * leaves, but what still waits for a client that stopped reading is
+	 * dropped and the connection reset, so the close never hangs on it.
+	 */
+	abort(): void;
 	/** Stops reading from the client, while the server catches up. */
 	pause(): void;
 	resume(): void;
@@ -67,6 +73,15 @@ export class SocketTransport implements Transport {
 	end(): void {
 		if (this.#outgoing.empty) this.#socket.end();
 		else this.#ending = true;
+	}
+
+	abort(): void {
+		if (this.#outgoing.empty) {
+			this.#socket.end();
+			return;
+		}
+		this.#outgoing.clear();
+		this.#socket.terminate();
 	}
 
 	pause(): void {

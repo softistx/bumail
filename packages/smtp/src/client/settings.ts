@@ -2,7 +2,9 @@ import { hostname as machineName } from 'node:os';
 import { SmtpError } from '../errors';
 import { parsePath } from '../protocol/path';
 import type {
+	MxDestination,
 	SendMailAuth,
+	SendMailEnvelope,
 	SendMailOptions,
 	SendMailTimeouts,
 	TlsMode,
@@ -175,7 +177,9 @@ export function settingsOf(options: SendMailOptions): ClientSettings {
 }
 
 /** Whether the options name a domain to deliver to by MX, not a host. */
-export const byMx = (options: SendMailOptions): boolean =>
+export const byMx = (
+	options: SendMailOptions,
+): options is SendMailEnvelope & MxDestination =>
 	!('host' in options && options.host !== undefined);
 
 /** A port: an integer from 1 to 65535. */

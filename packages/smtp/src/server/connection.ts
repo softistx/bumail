@@ -65,9 +65,24 @@ export class Connection {
 		this.transport.write(formatReply(answer, this.state.esmtp));
 	}
 
+	/**
+	 * Hangs up, the server's decision (a refusal, too many errors, the idle
+	 * time): `answer` is written, but nothing waits for a client that
+	 * stopped reading. The connection is closed at once, and what it has
+	 * not read is dropped, so a close always completes.
+	 */
 	close(answer?: Reply): void {
 		if (this.#closed) return;
 		if (answer) this.send(answer);
+		this.#closed = true;
+		this.input.abort();
+		this.transport.abort();
+	}
+
+	/** QUIT: `answer` leaves whole, then the connection hangs up. */
+	quit(answer: Reply): void {
+		if (this.#closed) return;
+		this.send(answer);
 		this.#closed = true;
 		this.input.abort();
 		this.transport.end();

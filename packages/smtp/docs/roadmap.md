@@ -34,12 +34,20 @@ Nothing in progress.
 
 ### Unreleased — merged, not yet published
 
+- **A client that stops reading no longer holds a connection slot.** When
+  the server hangs up on its own — the idle `timeout`, `maxErrors`, failed
+  AUTH, a refusal — it no longer waits for the client to read what is
+  queued: the connection is counted out at once, and what was never read
+  is dropped. Such a close used to wait forever, so enough clients that
+  pipelined commands and never read could fill `maxConnections`. `QUIT`
+  still sends its `221` whole before hanging up.
+
 - **The client, as `@bumail/smtp/client`** — `sendMail(message, options)`
   delivers one message to a host (a smarthost, submission on 587 or 465,
   a local Mailpit) or to a domain's MX hosts by preference, through a
   resolver — `@bumail/dns`'s, or any with `mx`, `a` and `aaaa` — the
   domain's own address without MX, and a null MX refused; `helo` required
-  by MX. STARTTLS opportunistic by default for
+  by MX, by the type itself. STARTTLS opportunistic by default for
   MX, required — the certificate checked — with AUTH; implicit TLS; AUTH
   PLAIN and LOGIN only once the certificate checked out; PIPELINING, SIZE, 8BITMIME and
   SMTPUTF8; the message a string, bytes or a stream, dot-stuffed, a bare
