@@ -1,4 +1,4 @@
-import { ID, isId, quoted } from '../shared/text';
+import { isIdOrCreationRef, quoted } from '../shared/text';
 import type { CallContext } from './context';
 import { invalidArguments, MethodError } from './errors';
 
@@ -24,10 +24,8 @@ export function accountOf(args: Args, ctx: CallContext): string {
 
 /** An id, or a `#creationId` of an object created earlier in the request. */
 export function idOf(value: unknown, ctx: CallContext): string | undefined {
-	if (typeof value === 'string' && value.startsWith('#')) {
-		return ctx.created.get(value.slice(1));
-	}
-	return isId(value) ? value : undefined;
+	if (!isIdOrCreationRef(value)) return undefined;
+	return value.startsWith('#') ? ctx.created.get(value.slice(1)) : value;
 }
 
 /** A list of ids, `null` when absent; `#creationId`s resolved, unknown ones kept to be not found. */
@@ -48,7 +46,7 @@ export function idsOf(
 		);
 	}
 	return value.map((item) => {
-		if (typeof item !== 'string' || !(ID.test(item) || item.startsWith('#'))) {
+		if (!isIdOrCreationRef(item)) {
 			throw invalidArguments(
 				`${name} holds ${quoted(item)}, which is not an id`,
 			);

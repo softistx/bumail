@@ -1,5 +1,5 @@
 import { StoreError } from '@bumail/store';
-import { cut, isId, quoted } from '../shared/text';
+import { cut, isId, isIdOrCreationRef, quoted } from '../shared/text';
 import { type Args, idOf, isObject } from './args';
 import type { CallContext } from './context';
 import {
@@ -62,9 +62,11 @@ export function setPlanOf(args: Args, ctx: CallContext, max: number): SetPlan {
 				`create has ${quoted(creationId)}, which is not a creation id`,
 			);
 	}
-	const update = entriesOf(args['update'], 'update').map(
-		([id, patch]) => [idOf(id, ctx) ?? id, patch] as const,
-	);
+	const update = entriesOf(args['update'], 'update').map(([id, patch]) => {
+		if (!isIdOrCreationRef(id))
+			throw invalidArguments(`update has ${quoted(id)}, which is not an id`);
+		return [idOf(id, ctx) ?? id, patch] as const;
+	});
 	const given = args['destroy'];
 	if (given !== undefined && given !== null && !Array.isArray(given)) {
 		throw invalidArguments('destroy must be an array of ids');
@@ -72,6 +74,8 @@ export function setPlanOf(args: Args, ctx: CallContext, max: number): SetPlan {
 	const destroy = ((given ?? []) as unknown[]).map((id) => {
 		if (typeof id !== 'string')
 			throw invalidArguments('destroy must be an array of ids');
+		if (!isIdOrCreationRef(id))
+			throw invalidArguments(`destroy holds ${quoted(id)}, which is not an id`);
 		return idOf(id, ctx) ?? id;
 	});
 	if (create.length + update.length + destroy.length > max) {
