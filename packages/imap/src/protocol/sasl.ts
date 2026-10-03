@@ -2,7 +2,7 @@
  * SASL PLAIN (RFC 4616), as AUTHENTICATE PLAIN reads it.
  *
  * A deliberate duplicate of `decodePlain` in `@bumail/smtp`
- * (`src/protocol/sasl.ts`): thirty lines, recorded in AGENTS.md, rather
+ * (`src/protocol/sasl.ts`): about forty lines, recorded in AGENTS.md, rather
  * than a peer on the SMTP server for an IMAP server, or a package of its
  * own for one function. A fix to one is a fix to the other.
  */

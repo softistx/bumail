@@ -5,6 +5,7 @@
 - [The session](#the-session)
 - [Commands](#commands)
 - [How the store appears over IMAP](#how-the-store-appears-over-imap)
+- [Mailbox names and modified UTF-7](#mailbox-names-and-modified-utf-7)
 - [New mail: IDLE and notify](#new-mail-idle-and-notify)
 - [Limits and slow clients](#limits-and-slow-clients)
 - [Errors and onError](#errors-and-onerror)
@@ -13,8 +14,10 @@
 ## Running the server
 
 `createImapServer(options)` checks the options and returns a server;
-`listen({ port, hostname? })` opens it. One server listens once; run two
-for 143 and 993.
+`listen({ port, hostname? })` opens it, and resolves to the `{ port,
+hostname }` it is bound to once the socket is open. `hostname` defaults
+to `0.0.0.0`; port `0` asks the system for a free port, which the result
+then names. One server listens once; run two for 143 and 993.
 
 ```ts
 import { createImapServer } from '@bumail/imap';
@@ -30,14 +33,22 @@ await server.listen({ port: 143 });
 const implicit = createImapServer({ ...sameOptions, implicitTls: true });
 await implicit.listen({ port: 993 });
 
+// A free port, for a test:
+const { port } = await createImapServer(sameOptions).listen({ port: 0 });
+
 // Later:
+server.connections; // the connections open now
 server.stop();      // stop accepting; open sessions finish
 server.stop(true);  // and close them
 ```
 
 `tls` is required: LOGIN is refused on a clear connection, so a server
-without TLS could log no one in. On 143 the server offers `STARTTLS`; with
-`implicitTls` TLS starts with the first byte (RFC 8314).
+without TLS could log no one in. `implicitTls` is `false` by default: the
+server starts in clear and offers `STARTTLS`, as on 143. With
+`implicitTls: true` TLS starts with the first byte (RFC 8314), as on 993.
+
+`server.connections` is the number of connections open at this moment,
+logged in or not; `maxConnections` caps it.
 
 ## Logging in
 
@@ -69,6 +80,31 @@ async authenticate({ mechanism, username, password }, session) {
   offered.
 
 ## The session
+
+Each connection is a session, which `authenticate` and `onError` receive
+as an `ImapSession`:
+
+| field | |
+| --- | --- |
+| `id` | a random id of 16 hex characters, drawn for each connection: tie your logs to it |
+| `remoteAddress` | the client's IP address |
+| `secure` | `true` once TLS is on: from the first byte with `implicitTls`, or after STARTTLS |
+| `user` | the username the client logged in with; absent before the login |
+| `accountId` | the account `authenticate` answered; absent before the login |
+| `data` | an object for your own state; it lasts the whole connection, STARTTLS included |
+
+The fields are read-only: the server sets them, and a hook reads a
+snapshot of them. Only `data` is yours to write into.
+
+```ts
+authenticate: async ({ username, password }, session) => {
+	session.data.since = Date.now();
+	return (await check(username, password)) ? accountIdOf(username) : null;
+},
+onError: (error, session) => {
+	logger.error({ error, session: session.id, user: session.user, since: session.data.since });
+},
+```
 
 A connection goes through the states of RFC 9051 §3: *not authenticated*,
 *authenticated* after a login, *selected* after SELECT or EXAMINE, and
@@ -155,6 +191,30 @@ told at the next command that allows it (NOOP, IDLE, FETCH, STORE,
 SEARCH…). If the selected mailbox is deleted, the session is closed with
 `* BYE The selected mailbox was deleted, closing`.
 
+## Mailbox names and modified UTF-7
+
+A session speaks IMAP4rev1 until the client sends `ENABLE IMAP4rev2`, and
+IMAP4rev1 writes a mailbox name that is not ASCII in modified UTF-7 (RFC
+3501 §5.1.3): `Entwürfe` is `Entw&APw-rfe`, and `&` itself is `&-`. The
+server decodes what such a client sends and encodes what it answers; the
+store always holds the UTF-8 name. A name that does not decode is
+`BAD "…" is not a valid modified UTF-7 mailbox name`.
+
+The two functions it uses are exported, for logs, tests or an admin tool
+that speaks to the store in the names a client shows:
+
+```ts
+import { decodeUtf7, encodeUtf7 } from '@bumail/imap';
+
+encodeUtf7('Entwürfe');     // 'Entw&APw-rfe'
+encodeUtf7('R&D');          // 'R&-D'
+decodeUtf7('Entw&APw-rfe'); // 'Entwürfe'
+decodeUtf7('&Jjo');         // undefined: not modified UTF-7
+```
+
+`decodeUtf7` answers `undefined`, never throws, for a name that is not
+valid modified UTF-7.
+
 ## New mail: IDLE and notify
 
 During IDLE the server looks at the store every `idleInterval` seconds (10
@@ -170,13 +230,27 @@ server.notify(accountId);
 
 | option | default | |
 | --- | --- | --- |
-| `maxConnections` | 1000 | |
+| `maxConnections` | 1000 | connections open at once, logged in or not; one more is greeted with `* BYE [UNAVAILABLE] Too many connections, try later` and closed |
 | `maxMessageSize` | 25 MiB | APPEND; at most 4 294 967 295 |
 | `maxLiteralSize` | 64 KiB | any other literal |
 | `timeout` | 1800 s | idle time before a hang-up; at least 1800 (§5.4) |
 | `loginTimeout` | 60 s | a deadline from connecting to logged in |
-| `idleInterval` | 10 s | |
-| `hookTimeout` | 60 s | |
+| `idleInterval` | 10 s | seconds between two looks at the store during IDLE; a fraction such as `0.5` is allowed, 0 is not |
+| `hookTimeout` | 60 s | seconds `authenticate` has to settle; past it the login answers `NO [UNAVAILABLE] Temporary authentication failure` and `onError` gets an `ImapError` with code `HOOK_TIMEOUT` |
+
+The sizes are bytes, the timers seconds. `maxConnections`, the sizes,
+`timeout`, `loginTimeout` and `hookTimeout` are whole numbers above 0;
+every timer is at most 2 147 483 seconds, what `setTimeout` can wait.
+
+```ts
+createImapServer({
+	...options,
+	maxConnections: 5000,          // a busy server
+	idleInterval: 30,              // look less often, and call notify on delivery
+	hookTimeout: 10,               // a password check that should never take long
+	maxMessageSize: 50 * 1024 * 1024,
+});
+```
 
 A command line is at most 64 KiB; past that it is `BAD Command line too
 long`, and the rest of the line is skipped. A command holds at most 32
@@ -203,8 +277,31 @@ grammar is `BAD`; one the store refuses is `NO`, with a response code:
 
 `onError(error, session)` is told of what went wrong in your code or the
 store: an `authenticate` that threw or timed out (an `ImapError` with code
-`HOOK_TIMEOUT`), an account it named that the store does not have, a store
-call that failed.
+`HOOK_TIMEOUT`), an account it named that the store does not have
+(`Error: authenticate answered the account "…", which the store does not
+have`), a store call that failed, during a command or a look of IDLE. The
+client sees only `NO [UNAVAILABLE]` or `NO [SERVERBUG]`, so `onError` is
+where you learn why. It is called synchronously and should not throw; if
+it does, the error is dropped.
+
+```ts
+import { createImapServer, ImapError } from '@bumail/imap';
+
+createImapServer({
+	...options,
+	onError(error, session) {
+		if (error instanceof ImapError && error.code === 'HOOK_TIMEOUT') {
+			metrics.increment('imap.auth.timeout');
+		}
+		console.error(`imap ${session.id} ${session.remoteAddress} ${session.user ?? '-'}`, error);
+	},
+});
+```
+
+Without `onError` these errors are not logged anywhere.
+
+[Troubleshooting](troubleshooting.md) has an entry for each error and
+each response, headed by its exact text.
 
 ## Standards
 

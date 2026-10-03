@@ -46,8 +46,9 @@ No dates. Each entry says what someone running or embedding the server gets.
   and a failed state, bounces and delivery status notifications (RFC 3464).
   A contract with a memory and a `bun:sqlite` answer, like the store.
 - **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
-  mail), as an alxia app. *JMAP before IMAP*: it is HTTP and JSON, so alxia
-  gives it routing, validation and its typed client for free.
+  mail), as an alxia app. IMAP comes first, in Now, since real mail
+  clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it routing,
+  validation and its typed client for free.
 - **The server app** — SMTP on 25 and submission on 587,
   the queue, the store and JMAP wired together; an admin API for domains,
   accounts, aliases and DKIM keys; health and metrics. It starts once

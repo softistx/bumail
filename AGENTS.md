@@ -86,9 +86,9 @@ the package still needs nothing of it at runtime. **There are no cycles.**
 Two pieces are copied rather than shared, on purpose:
 
 - **SASL PLAIN decoding** (RFC 4616), in `smtp/src/protocol/sasl.ts` and
-  `imap/src/protocol/sasl.ts`: twenty lines, the same `Credentials` shape.
-  A package for them would be a peer each server needs for one function;
-  a fix to one is a fix to the other.
+  `imap/src/protocol/sasl.ts`: about forty lines, the same `Credentials`
+  shape. A package for them would be a peer each server needs for one
+  function; a fix to one is a fix to the other.
 - **The socket transport** — writing with a backlog, `drained()`, pause and
   resume, the STARTTLS upgrade — in `smtp/src/server/transport.ts` and
   `imap/src/server/transport.ts`, adapted to each protocol's flow. Should a

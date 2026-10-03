@@ -23,6 +23,7 @@ asked only over TLS.
 
 ```ts
 import { createImapServer } from '@bumail/imap';
+import type { ImapServerOptions } from '@bumail/imap';
 import { MemoryMailStore } from '@bumail/store';
 
 const store = new MemoryMailStore();
@@ -34,7 +35,7 @@ await store.createMailbox(alice.id, { name: 'Archive', role: 'archive' });
 const passwords = new Map([['alice', await Bun.password.hash('correct horse')]]);
 const accounts = new Map([['alice', alice.id]]);
 
-const options = {
+const options: ImapServerOptions = {
 	hostname: 'imap.example.com',
 	store,
 	tls: {
@@ -110,7 +111,7 @@ is resolved from its ranges, never expanded.
 | export | |
 | --- | --- |
 | `createImapServer(options)` | the server; throws an `ImapError` (`INVALID_OPTION`) on a bad option |
-| `ImapServer` | `listen({ port, hostname? })` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)`, `notify(accountId)` to wake the account's IDLE sessions, `connections` |
+| `ImapServer` | `listen({ port, hostname? })`, which resolves to the bound `{ port, hostname }` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)`, `notify(accountId)` to wake the account's IDLE sessions, `connections`, the number of open connections |
 | `ImapServerOptions` | `hostname`, `store`, `tls`, `implicitTls`, `authenticate`, the limits above, `onError` |
 | `ImapSession` | what `authenticate` and `onError` receive: `id`, `remoteAddress`, `secure`, `user`, `accountId`, and `data` for your own state |
 | `AuthResult` | what `authenticate` answers: an account id, or `null` / `undefined` to refuse |
@@ -123,7 +124,7 @@ is resolved from its ranges, never expanded.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/README.md): the pages, and when to read each.
 - [Guide](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/guide.md): the session, every command, how the store maps to IMAP, IDLE and `notify`, the RFCs followed and what is not.
-- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/troubleshooting.md): every error, and the responses a client reports.
+- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/troubleshooting.md): every error, and the responses a client reports, by their exact text, split into configuration, logging in, syntax, mailboxes and messages.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/roadmap.md): what is coming — CONDSTORE, QRESYNC, UIDPLUS, BINARY — and what is not planned.
 
 ## License
