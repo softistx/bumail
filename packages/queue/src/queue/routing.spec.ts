@@ -102,7 +102,7 @@ describe('routing', () => {
 			createQueue({ store: {} as never, hostname: 'mail.example.net' }),
 		).toThrow('store must be a QueueStore');
 		expect(make({ resolver: NO_DNS, concurrency: 0 })).toThrow(
-			'concurrency must be an integer from 1',
+			'concurrency must be an integer of at least 1, not 0',
 		);
 		expect(make({ resolver: NO_DNS, limits: { maxReplyText: 2000 } })).toThrow(
 			'limits.maxReplyText must be an integer from 64 to 900',

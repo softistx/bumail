@@ -64,9 +64,11 @@ function numberOf(
 		value <= max;
 	if (!ok) {
 		const kind = integer ? 'an integer' : 'a number';
-		throw invalid(
-			`${name} must be ${kind} from ${min} to ${max}, not ${value}`,
-		);
+		const range =
+			max === Number.MAX_SAFE_INTEGER
+				? `of at least ${min}`
+				: `from ${min} to ${max}`;
+		throw invalid(`${name} must be ${kind} ${range}, not ${value}`);
 	}
 	return value as number;
 }
