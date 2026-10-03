@@ -8,12 +8,14 @@
 - [Flags](#flags)
 - [Copying, linking, moving, removing](#copying-linking-moving-removing)
 - [Changes](#changes)
+- [The bun:sqlite store](#the-bunsqlite-store)
 - [Writing a store](#writing-a-store)
 
 ## The contract
 
-`MailStore` is an interface; `MemoryMailStore` is its first answer, and a
-`bun:sqlite` store is coming. Code that keeps mail takes a `MailStore`:
+`MailStore` is an interface; `MemoryMailStore` answers it in memory, and
+`SqliteMailStore`, from `@bumail/store/sqlite`, on disk. Code that keeps
+mail takes a `MailStore`:
 
 ```ts
 import type { MailStore } from '@bumail/store';
@@ -325,7 +327,146 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   not in `created` is gone. A page since 0 never ends below the oldest
   `since` the store still answers, so its `hasMore` pages can always be
   asked for: it may go past `limit` to get there. `MemoryMailStore`
-  remembers every removal unless given `maxTombstones`.
+  and `SqliteMailStore` remember every removal unless given
+  `maxTombstones`.
+
+## The bun:sqlite store
+
+`SqliteMailStore`, from `@bumail/store/sqlite`, answers the same contract
+on disk with Bun's own `bun:sqlite`, and runs the same contract specs as
+`MemoryMailStore`. The main entry, `@bumail/store`, never imports
+`bun:sqlite`: an app that uses only the memory store never loads it.
+
+### Opening and closing
+
+```ts
+import type { MailStore } from '@bumail/store';
+import { SqliteMailStore } from '@bumail/store/sqlite';
+
+const sqlite = SqliteMailStore.open({ directory: '/var/lib/bumail/mail' });
+const store: MailStore = sqlite; // what the rest of the server is given
+
+process.on('SIGTERM', () => {
+	sqlite.close();
+	process.exit(0);
+});
+```
+
+`open` is synchronous: it makes the directory and whichever of its parents
+are missing, opens or creates `mail.sqlite`, brings its schema up to date,
+and sweeps the blobs (below). Whatever goes wrong there is a `StoreError`
+with the code `INVALID` naming the directory; see
+[Troubleshooting](troubleshooting.md), its last group.
+
+`close()` lets go of the database and of its lock, and may be called more
+than once. Every method called after it rejects with `The store is closed`.
+Within one process, close a store before opening its directory again; a
+process that exits, or dies, lets go of the lock with it.
+
+### The directory
+
+```
+/var/lib/bumail/mail/          0700
+├── mail.sqlite                0600  accounts, mailboxes, messages, flags, changes
+├── mail.sqlite-wal            0600  writes not yet copied into mail.sqlite
+└── blobs/                     0700
+    ├── 9c/                    0700  the first two hex digits of the hash
+    │   └── 9c6c8eb5…d09       0600  the message's bytes, named by their SHA-256
+    └── <uuid>.staging               content being written, gone once it is placed
+```
+
+The database runs in WAL mode, so `mail.sqlite-wal` sits beside it, and
+may stay there after `close()`: it is part of the database. A blob holds
+the exact bytes given to `addMessage`; the same bytes in an account are
+written once, however many messages use them. Which account holds which
+blob is in the database; a blob is removed once no account holds it.
+
+### Durability
+
+A call resolves only once what it changed is on disk:
+
+- the database runs with `synchronous = FULL` and, on macOS,
+  `fullfsync = ON`, so a commit flushes the drive's cache too: there a
+  plain `fsync` leaves data in it. Linux ignores that PRAGMA;
+- content is written to a `.staging` file and flushed, renamed to its
+  hash and both its directories flushed, **before** the transaction that
+  names it commits. A row never names a blob that is not on disk;
+- a removal commits first and removes the blobs no account holds any more
+  after it. A crash in between leaves a blob nobody names, never a row
+  without its blob;
+- a directory `open` makes, and the parent of each, is flushed too.
+
+### Backups
+
+The safest backup is of a **closed** store: copy `mail.sqlite`,
+`mail.sqlite-wal` when it is there, and `blobs/`, together.
+
+```sh
+systemctl stop bumail
+tar -C /var/lib/bumail -czf mail-$(date +%F).tar.gz mail
+systemctl start bumail
+```
+
+A store that must stay open is backed up by a filesystem snapshot of the
+whole directory at one instant (ZFS, Btrfs, LVM, an APFS snapshot), then
+copied from the snapshot. Never copy `mail.sqlite` without its WAL: the
+WAL holds committed writes not yet in the main file. A copy file by file
+while the store runs can catch a message whose blob was removed between
+the two. Restoring is putting the directory back, and opening it: blobs
+no row names are swept, as below. `sqlite3 .backup` cannot read the
+database while the store holds it: see Locking.
+
+### Locking
+
+One process opens a store, and in it one `SqliteMailStore`. `open` sets
+`locking_mode = EXCLUSIVE` and takes a write lock it keeps until
+`close()`, with `busy_timeout = 0`: a second `open` of the same directory,
+in this process or another, fails at once with `it is already open`,
+rather than waiting. Within the store, every call runs in one transaction
+without awaiting, so concurrent calls never interleave. Several processes
+that share mail need a store meant for that: the roadmap's PostgreSQL
+store.
+
+### The sweep on open
+
+Opening removes what a crash left: the `.staging` files of a write that
+never finished, and every blob no account holds — written for an add whose
+transaction never committed, or left by a removal that died before its
+unlink. It reads every shard under `blobs/`, so **opening takes longer as
+the store grows**: open once at start-up, not per request. What cannot be
+removed is left for the next open: a leftover blob is harmless, a store
+that will not open is not.
+
+### maxTombstones
+
+```ts
+const store = SqliteMailStore.open({ directory, maxTombstones: 10_000 });
+```
+
+As for `MemoryMailStore`: how many removals each account remembers for
+`messageChanges` and `mailboxChanges`. Past it the oldest are forgotten,
+and a `since` before them is `CANNOT_CALCULATE_CHANGES`. The default
+remembers all of them, which grows the database for good. It is not kept
+in the database: give it on every `open`. Lowering it forgets the excess
+at the account's next removal. It must be an integer of at least 0, or
+`Infinity`.
+
+### Permissions
+
+Mail is its owner's alone. The directories `open` makes are 0700, and the
+database, its WAL and every blob are 0600, whatever the process's umask:
+`open` sets the mode of a `mail.sqlite` and a WAL that exist already. A
+directory that already exists keeps its mode; make it 0700 yourself, owned
+by the user the server runs as.
+
+### Migrations
+
+The schema's version is the database's `PRAGMA user_version`. `open` runs
+the migrations the database has not had, in one transaction: one that
+fails leaves the database as it was. A database written by a newer
+`@bumail/store`, with a higher `user_version` than this version knows, is
+refused and left untouched, so downgrading the package never damages it:
+upgrade again, or restore a backup taken before the upgrade.
 
 ## Writing a store
 

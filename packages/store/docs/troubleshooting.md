@@ -1,7 +1,9 @@
 # Troubleshooting
 
 Each entry is headed by the message of the `StoreError` thrown; its `code`
-is the group it is listed under. The parts shown as … vary.
+is the group it is listed under. The parts shown as … vary. The last group
+is the `bun:sqlite` store's own: what opening a directory, a closed store
+and its content on disk can throw.
 
 **NOT_FOUND**
 
@@ -46,6 +48,17 @@ is the group it is listed under. The parts shown as … vary.
 **CANNOT_CALCULATE_CHANGES**
 
 - [`StoreError: Changes since … are forgotten; ask for the changes since 0, which lists every item as created`](#storeerror-changes-since--are-forgotten-ask-for-the-changes-since-0-which-lists-every-item-as-created)
+
+**The `bun:sqlite` store** (`@bumail/store/sqlite`)
+
+- [`StoreError: The store at "…" cannot be opened: it is already open, in this process or another: a database has one store at a time`](#storeerror-the-store-at--cannot-be-opened-it-is-already-open-in-this-process-or-another-a-database-has-one-store-at-a-time)
+- [`StoreError: The store is closed`](#storeerror-the-store-is-closed)
+- [`StoreError: The database is at schema version …, newer than this store's …`](#storeerror-the-database-is-at-schema-version--newer-than-this-stores-)
+- [`StoreError: The store at "…" cannot be opened: file is not a database`](#storeerror-the-store-at--cannot-be-opened-file-is-not-a-database)
+- [`StoreError: A SQLite store needs a directory`](#storeerror-a-sqlite-store-needs-a-directory)
+- [`StoreError: The store at "…" cannot be opened: …`](#storeerror-the-store-at--cannot-be-opened-)
+- [`StoreError: maxTombstones must be an integer of at least 0, not …`](#storeerror-maxtombstones-must-be-an-integer-of-at-least-0-not-)
+- [`ENOENT: no such file or directory, open '…/blobs/…/…'`](#enoent-no-such-file-or-directory-open-blobs)
 
 ## `StoreError: No account "…"`
 
@@ -427,7 +440,7 @@ await store.addMessage(account.id, inbox.id, { content: reply, threadId: origina
 
 **Code**: `INVALID`.
 
-**When**: `changedSince` or `fromUid` (`listMessages`), `unchangedSince` (`setFlags`) or `offset` (`listAccountMessages`) is negative, fractional or not a number; `limit` of `listAccountMessages` is below 1; or `maxTombstones` was so given to `new MemoryMailStore`.
+**When**: `changedSince` or `fromUid` (`listMessages`), `unchangedSince` (`setFlags`) or `offset` (`listAccountMessages`) is negative, fractional or not a number; `limit` of `listAccountMessages` is below 1; or `maxTombstones` was so given to `new MemoryMailStore` (its message names it: see [below](#storeerror-maxtombstones-must-be-an-integer-of-at-least-0-not-)).
 
 **Fix**: Pass a modseq or a UID the store gave, 0, or a positive count.
 
@@ -477,4 +490,111 @@ try {
 	forgetEverythingBut(all.created);
 	return all;
 }
+```
+
+## `StoreError: The store at "…" cannot be opened: it is already open, in this process or another: a database has one store at a time`
+
+**Code**: `INVALID`.
+
+**When**: `SqliteMailStore.open` was given a directory another `SqliteMailStore` holds open — one not yet closed in this process, or one in another process. A store keeps an exclusive lock on `mail.sqlite` until `close()`, and `open` does not wait for it. A second server started by mistake, a hot reload that opened again without closing, or each spec file opening the same directory all give it.
+
+**Fix**: Open each directory once per process and share that store; close it before opening it again. Give another process its own directory, or stop the one that holds it.
+
+```ts
+const store = SqliteMailStore.open({ directory });
+try {
+	await serve(store);
+} finally {
+	store.close(); // the next open, here or elsewhere, succeeds
+}
+```
+
+## `StoreError: The store is closed`
+
+**Code**: `INVALID`.
+
+**When**: a method of a `SqliteMailStore` was called after its `close()`. A request still running at shutdown is the usual one.
+
+**Fix**: Close the store last, once the servers that use it have stopped taking requests.
+
+```ts
+await server.stop(); // the SMTP server: no new delivery from here
+store.close();
+```
+
+## `StoreError: The database is at schema version …, newer than this store's …`
+
+**Code**: `INVALID`.
+
+**When**: `mail.sqlite` was written by a newer `@bumail/store`, whose migrations this version does not know: the package was downgraded, or two versions share a directory. The database is left as it was.
+
+**Fix**: Run the `@bumail/store` that wrote it, or a newer one. To go back to an older version, restore a backup taken before the upgrade.
+
+```sh
+bun add @bumail/store@latest
+```
+
+## `StoreError: The store at "…" cannot be opened: file is not a database`
+
+**Code**: `INVALID`.
+
+**When**: `mail.sqlite` in the directory is not a SQLite database: another file of that name, a truncated copy, or a database encrypted by another tool.
+
+**Fix**: Point `directory` at the store's own directory. If the file is the store's and damaged, restore it from a backup, with its `mail.sqlite-wal` and `blobs/`, as the [guide](guide.md#backups) says.
+
+```ts
+SqliteMailStore.open({ directory: '/var/lib/bumail/mail' }); // the directory, not mail.sqlite
+```
+
+## `StoreError: A SQLite store needs a directory`
+
+**Code**: `INVALID`.
+
+**When**: `SqliteMailStore.open` was called without options, or with a `directory` that is not a string or is empty — often an environment variable that is not set.
+
+**Fix**: Pass the directory the store keeps its mail in. It is created if it is missing.
+
+```ts
+const directory = process.env.MAIL_DIR;
+if (!directory) throw new Error('MAIL_DIR is not set');
+const store = SqliteMailStore.open({ directory });
+```
+
+## `StoreError: The store at "…" cannot be opened: …`
+
+**Code**: `INVALID`.
+
+**When**: the directory, `mail.sqlite` or `blobs/` could not be made or opened, for the reason after the colon: `EACCES: permission denied` (the server's user may not write there), `ENOTDIR: not a directory` (a part of the path is a file), `EROFS` (a read-only filesystem), or SQLite's own message.
+
+**Fix**: Give the user the server runs as a directory of its own that it can write, 0700.
+
+```sh
+install -d -m 0700 -o bumail -g bumail /var/lib/bumail/mail
+```
+
+## `StoreError: maxTombstones must be an integer of at least 0, not …`
+
+**Code**: `INVALID`.
+
+**When**: `SqliteMailStore.open`, or `new MemoryMailStore`, was given a `maxTombstones` that is negative, fractional, `NaN` or not a number — often a setting read from the environment as a string.
+
+**Fix**: Pass an integer of at least 0, `Infinity`, or leave it out to remember every removal.
+
+```ts
+const maxTombstones = Number(process.env.MAX_TOMBSTONES ?? Infinity); // a number, not "10000"
+SqliteMailStore.open({ directory, maxTombstones });
+```
+
+## `ENOENT: no such file or directory, open '…/blobs/…/…'`
+
+**Code**: none: a plain `Error` with `code: 'ENOENT'`, not a `StoreError`.
+
+**When**: a Blob `readContent` returned by a `SqliteMailStore` was read after its message left the account — destroyed, its last mailbox removed, or its account deleted — and no other message of the account had the same bytes. The Blob is lazy: it reads its file when read, and that file is removed once no message of the account uses it. The contract allows this: the Blob is valid until its message leaves the account.
+
+**Fix**: Read the content before removing its message, or ask for it again and treat `undefined` as gone.
+
+```ts
+const content = await store.readContent(account.id, message.blobId);
+const raw = await content?.arrayBuffer(); // read first…
+await store.destroyMessages(account.id, [message.id]); // …then remove
 ```

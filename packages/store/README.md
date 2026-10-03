@@ -1,12 +1,12 @@
 # @bumail/store
 
 Where a mail server keeps its mail: accounts, mailboxes, messages, flags,
-UIDs and modseqs behind one contract, `MailStore`, with a memory store.
-Every store answers the contract the same way, so the SMTP server, IMAP
+UIDs and modseqs behind one contract, `MailStore`, with a memory store
+and a `bun:sqlite` store on disk. Every store answers the contract the same way, so the SMTP server, IMAP
 and JMAP never know which one they were given. No dependency.
 
-**Bun only**: it hashes content with `Bun.CryptoHasher`, so it runs on Bun
-1.4.2 or later, not on Node.
+**Bun only**: it hashes content with `Bun.CryptoHasher`, and the store on
+disk uses `bun:sqlite`, so it runs on Bun 1.4.2 or later, not on Node.
 
 ```sh
 bun add @bumail/store
@@ -82,6 +82,38 @@ same way over its three. This is what IMAP's CONDSTORE and QRESYNC
 with the account's whole state (or, with `mailboxId`, that mailbox's),
 so it is also where to start over after `CANNOT_CALCULATE_CHANGES`.
 
+## On disk: `@bumail/store/sqlite`
+
+`SqliteMailStore` answers the same contract in one directory, with Bun's
+own SQLite: nothing to install, and code written against `MailStore` does
+not change.
+
+```ts
+import { SqliteMailStore } from '@bumail/store/sqlite';
+
+const store = SqliteMailStore.open({ directory: '/var/lib/bumail/mail' }); // created if need be
+const account = await store.createAccount('mary@example.net');
+// … every MailStore method, as above
+
+store.close(); // lets go of the lock; closing twice is fine
+```
+
+- **One process per database**: it holds an EXCLUSIVE lock until `close()`,
+  so a second `open` of the directory, here or in another process, is
+  refused.
+- **Durable**: every write is flushed to disk before it is acknowledged.
+- **Blobs on disk**: message content lives under `blobs/`, one file per
+  SHA-256, written once however many messages share it.
+- **Private**: directories are made 0700 and files 0600.
+- **Lazy content**: the Blob `readContent` returns reads its file when you
+  read it, and is valid until its message leaves the account.
+- `maxTombstones` bounds how many removals an account remembers, as for
+  `MemoryMailStore`; the default is all of them.
+
+The main entry never imports `bun:sqlite`: only `@bumail/store/sqlite`
+does. Layout, durability, backups and migrations are in the
+[guide](https://github.com/softistx/bumail/blob/develop/packages/store/docs/guide.md#the-bunsqlite-store).
+
 ## Writing a store
 
 A store implements `MailStore`, throws `StoreError` with the contract's
@@ -102,6 +134,7 @@ follows.
 | --- | --- |
 | `MailStore` | the contract: accounts, mailboxes, messages, flags, changes |
 | `MemoryMailStore`, `MemoryMailStoreOptions` | the contract in memory; `maxTombstones` bounds what it remembers of removals |
+| `SqliteMailStore`, `SqliteMailStoreOptions` | from `@bumail/store/sqlite`: the contract on `bun:sqlite`, opened with `SqliteMailStore.open({ directory, maxTombstones? })` and let go of with `close()` |
 | `Account`, `Mailbox`, `MailboxRole`, `Message`, `Membership`, `MailboxEntry`, `Expunged` | what a store returns |
 | `MessagesResult`, `FlagResult`, `ExpungeResult`, `MessagePage` | what the calls on several messages return: the messages or expunges, and `notFound`; a page of `listAccountMessages` |
 | `MessageChanges`, `MailboxChanges` | what the changes return |
@@ -117,6 +150,6 @@ follows.
 These pages ship in the package, under `docs/`.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/store/docs/README.md): the pages, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/store/docs/guide.md): accounts, mailboxes and roles, messages and their mailboxes, UIDs and modseqs, flags, changes, and writing a store of your own.
-- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/store/docs/troubleshooting.md): every `StoreError`, and what to do about it.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/store/docs/guide.md): accounts, mailboxes and roles, messages and their mailboxes, UIDs and modseqs, flags, changes, the `bun:sqlite` store, and writing a store of your own.
+- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/store/docs/troubleshooting.md): every `StoreError`, the `bun:sqlite` store's errors, and what to do about them.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/store/docs/roadmap.md): what is coming, and what is not planned.

@@ -12,7 +12,6 @@
 		"dist",
 		"test",
 		"**/*.spec.ts",
-		"**/*.fixtures.ts",
-		"src/sqlite"
+		"**/*.fixtures.ts"
 	]
 }

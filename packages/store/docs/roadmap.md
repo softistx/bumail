@@ -6,12 +6,7 @@ only number on it.
 
 ## Now
 
-- **A `bun:sqlite` store**, to come as `@bumail/store/sqlite` — the same
-  contract on disk, message content as files addressed by their hash, held
-  to the same specs. One process opens a database at a time, and every
-  write is flushed to disk before it is acknowledged. It passes the whole
-  contract, messages included; what is left is exporting it and its
-  documentation. Not exported yet.
+Nothing in progress: the next entry is picked from Next.
 
 ## Next
 
@@ -30,11 +25,21 @@ only number on it.
 ## Not planned
 
 - **A runtime dependency.** The memory store needs none, and the
-  `bun:sqlite` store will use Bun's own SQLite.
+  `bun:sqlite` store uses Bun's own SQLite.
 - **Parsing messages in the store.** A store keeps bytes; `@bumail/mime`
   reads them.
 
 ## Shipped
+
+### Unreleased — merged, not yet published
+
+- **A `bun:sqlite` store**, as `@bumail/store/sqlite` — the same contract
+  on disk, held to the same specs: `SqliteMailStore.open({ directory })`
+  and `close()`. One process opens a database at a time; every write is
+  flushed to disk before it is acknowledged; message content is kept as
+  files addressed by their hash, read lazily; directories are 0700 and
+  files 0600; what a crash leaves behind is swept on open, and the schema
+  migrates itself, refusing a newer one.
 
 ### 0.1.0
 

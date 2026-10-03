@@ -9,10 +9,7 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
-- **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite` — the same
-  contract on disk, message bodies as blobs on disk addressed by their
-  hash. It passes the whole contract; exporting it and its documentation
-  are left. Not exported yet.
+Nothing in progress: the next entry is picked from Next.
 
 ## Next
 
@@ -76,6 +73,13 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **Relaying without authentication** — not even as an option.
 
 ## Shipped
+
+### Unreleased — merged, not yet published
+
+- **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite` — the same
+  contract on disk, held to the same specs, with message bodies as blobs on
+  disk addressed by their hash. One process per database, and every write
+  flushed to disk before it is acknowledged.
 
 ### 0.1.0 — published
 
