@@ -63,8 +63,9 @@ such as `mail2026` for `mail2026._domainkey.example.com`.
 #### `AuthError: signDkim(): identity "…" is not an address within …`
 
 **When**: `identity` has no `@`, holds a character `i=` cannot carry
-(white space, `;`, anything outside printable ASCII), or its domain is
-neither `domain` nor one of its subdomains. **Fix**: use an address such
+(white space, `;`, anything outside printable ASCII), the part after its
+last `@` is not a domain name (`a@x..example.com`, `a@-x.example.com`), or
+its domain is neither `domain` nor one of its subdomains. **Fix**: use an address such
 as `bounces@mail.example.com`, or leave `identity` out.
 
 #### `AuthError: signDkim(): headers must include from (RFC 6376 §5.4)`
