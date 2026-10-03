@@ -1,4 +1,4 @@
-import { alxia, type BaseContext, type Refusal, type Reply } from '@alxia/core';
+import { alxia, type BaseContext, type Refusal } from '@alxia/core';
 import { handleApi } from '../http/api';
 import {
 	type Authenticated,
@@ -8,7 +8,7 @@ import {
 } from '../http/auth';
 import { handleDownload } from '../http/download';
 import { ACCOUNT_NOT_FOUND, BLOB_NOT_FOUND, idParams } from '../http/params';
-import { jmapProblem, limitProblem, type ProblemBody } from '../http/problem';
+import { jmapProblem, limitProblem } from '../http/problem';
 import { handleUpload } from '../http/upload';
 import type { JmapOptions } from './options';
 import { runtimeOf } from './runtime';
@@ -40,13 +40,7 @@ function refused(answers: {
 	readonly notFound?: string;
 }) {
 	const what = answers.limit === 'maxSizeUpload' ? 'upload' : 'request';
-	// One `Reply` type, not a union of them: alxia 0.2.0 names a union of
-	// refusal replies by a type it does not export, which a declaration
-	// file cannot then name (TS2883).
-	return (
-		refusal: Refusal,
-		{ request }: BaseContext,
-	): Reply<400 | 404 | 413 | 429, ProblemBody> => {
+	return (refusal: Refusal, { request }: BaseContext) => {
 		if (refusal.kind === 'body_limit' && answers.limit !== undefined)
 			return limitProblem(
 				answers.limit,

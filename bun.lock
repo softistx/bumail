@@ -63,14 +63,14 @@
       "name": "@bumail/jmap",
       "version": "0.0.0",
       "devDependencies": {
-        "@alxia/core": "^0.2.0",
+        "@alxia/core": "^0.2.1",
         "@bumail/mime": "workspace:^",
         "@bumail/store": "workspace:^",
         "@types/bun": "^1.4.2",
         "jmap-jam": "^0.13.8",
       },
       "peerDependencies": {
-        "@alxia/core": "^0.2.0",
+        "@alxia/core": "^0.2.1",
         "@bumail/mime": "workspace:^",
         "@bumail/store": "workspace:^",
         "typescript": "^6.0.3 || ^7.0.0",
@@ -126,7 +126,7 @@
     "typescript": "~6.0.3",
   },
   "packages": {
-    "@alxia/core": ["@alxia/core@0.2.0", "", { "peerDependencies": { "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-9a+/wMMFx4jVjXsr9J0GmurghUNrKynyu7x6lHc0FmXR/85SnayB18NAmL4GRPl/yKXPsM1QD5tpIs4IofbIAA=="],
+    "@alxia/core": ["@alxia/core@0.2.1", "", { "peerDependencies": { "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-WT9UQ/ZIHYkw578yKV0jeKeutTgwOhEvOX6DlHhMcHNxXAZCv407KjDaP+HexCfU5Km0jM8EYDzK7Pzoc9S+Ng=="],
 
     "@biomejs/biome": ["@biomejs/biome@2.5.15", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.15", "@biomejs/cli-darwin-x64": "2.5.15", "@biomejs/cli-linux-arm64": "2.5.15", "@biomejs/cli-linux-arm64-musl": "2.5.15", "@biomejs/cli-linux-x64": "2.5.15", "@biomejs/cli-linux-x64-musl": "2.5.15", "@biomejs/cli-win32-arm64": "2.5.15", "@biomejs/cli-win32-x64": "2.5.15" }, "bin": { "biome": "bin/biome" } }, "sha512-WZTW4slm/pdkh92K6t/3aEN++44JD1PQ7squ7RCMLI1flHGl43DVOIGXvCjHiZgBMO1V4uYxoFNtqrIA4qGuIQ=="],
 

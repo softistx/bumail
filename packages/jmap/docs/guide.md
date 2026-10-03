@@ -442,6 +442,10 @@ wrong outside the client's control:
 | what `secure` threw | | the request is taken as clear |
 | what a store call threw, with `method` | during a method | `serverFail` for that call |
 
+A client that hangs up while sending an API or upload body is not an
+error: `onError` is not told, alxia logs nothing, and the host app's
+`onResponse` sees a 499 with no body.
+
 ## RFCs followed, and what is not
 
 - **RFC 8620** — the session (§2), the request and response (§3.3,

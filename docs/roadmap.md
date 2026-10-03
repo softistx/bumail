@@ -15,7 +15,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   with real mail clients. The store already keeps the UIDs, UIDVALIDITY and
   modseqs these need.
 - **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
-  mail), as an alxia app on `@alxia/core` 0.2.0 from npm; its first slice
+  mail), as an alxia app on `@alxia/core` 0.2.1 from npm; its first slice
   is in review: the session, the API with back-references, Mailbox, Email
   and Thread, blob download and upload, serving any `@bumail/store`.
   queryChanges and push via EventSource follow, then Identity and

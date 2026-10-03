@@ -71,7 +71,7 @@ and bounded. Each comes out once the store contract grows it.
 
 ### Unreleased — merged, not yet published
 
-- **The first slice** — a JMAP server on `@alxia/core` 0.2.0, mounted in a host app,
+- **The first slice** — a JMAP server on `@alxia/core` 0.2.1, mounted in a host app,
   serving any `@bumail/store`: the session with every core limit, Basic
   only over HTTPS and Bearer through an `authenticate` hook, the API with
   back-references and RFC 7807 problems, `Core/echo`, `Mailbox/get`,
