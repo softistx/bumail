@@ -146,8 +146,19 @@ describe('normalizeName: long international names', () => {
 	});
 
 	test('the longest that can fit still maps', () => {
-		const label = `${'ü'.repeat(20)}.`;
-		expect(normalizeName(label.repeat(4)).length).toBeLessThanOrEqual(253);
+		const ascii = `${'a'.repeat(63)}.`.repeat(3) + 'a'.repeat(61);
+		expect(normalizeName(ascii)).toHaveLength(253);
+		expect(() => normalizeName(`${ascii}a`)).toThrow(
+			'it is longer than 253 characters',
+		);
+	});
+
+	test('a decomposed name is counted once composed', () => {
+		// 각 written as three jamo: 663 code units, 251 characters as A-labels.
+		const label = '\u1100\u1161\u11a8'.repeat(55);
+		const name = Array(4).fill(label).join('.');
+		expect(name.length).toBe(663);
+		expect(normalizeName(name)).toHaveLength(251);
 	});
 });
 

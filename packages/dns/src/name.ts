@@ -67,6 +67,13 @@ function idnOf(name: string, unicode: string): string {
 	return ascii;
 }
 
+function codePointsOver(text: string, limit: number): boolean {
+	if (text.length <= limit) return false;
+	let count = 0;
+	for (const _ of text) if (++count > limit) return true;
+	return false;
+}
+
 /**
  * A name as it is queried: lowercase, no trailing dot, an IDN in its
  * A-labels (`bücher.example` → `xn--bcher-kva.example`), each label 1 to
@@ -98,10 +105,12 @@ export function normalizeName(name: unknown): string {
 			name,
 			'it holds an invisible character the IDN mapping would drop',
 		);
-	// Each code point is at least one A-label character, and at most two
-	// code units: past 506 units the name can never fit, so the IDN mapping,
-	// which slows with the length, is not run.
-	if (ascii.length > 506)
+	// A name is kept only when its Unicode form is the input composed and
+	// lowercased, which never drops a code point, and each code point costs
+	// at least one A-label character: past 253 code points once composed,
+	// it can never fit, so the IDN mapping, which slows with the length,
+	// is not run.
+	if (codePointsOver(ascii.normalize('NFC'), 253))
 		throw invalid(name, 'it is longer than 253 characters');
 	if (/[^\x21-\x7e]/.test(ascii)) ascii = idnOf(name, ascii);
 	ascii = ascii.toLowerCase();
