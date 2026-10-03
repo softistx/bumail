@@ -79,6 +79,16 @@ describe('hostile method calls', () => {
 		});
 	});
 
+	test('maxSizeResponse counts the escapes of a string', async () => {
+		h = await harness('memory', { limits: { maxSizeResponse: 5_000_000 } });
+		const over = await h.fetch('/jmap/api', {
+			method: 'POST',
+			body: body([['Core/echo', { s: '\u0001'.repeat(1e6) }, 'a']]),
+		});
+		expect(over.status).toBe(400);
+		expect(await over.json()).toMatchObject({ limit: 'maxSizeResponse' });
+	});
+
 	test('ids are [A-Za-z0-9_-]{1,255}; anything else is invalidArguments', async () => {
 		h = await harness();
 		for (const id of ['a b', 'é', '', 'x'.repeat(256), '../etc']) {

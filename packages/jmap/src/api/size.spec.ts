@@ -14,6 +14,14 @@ describe('jsonSize', () => {
 			[1, 'a', null],
 			{},
 			{ a: 1, b: [true, { c: 'd' }], u: undefined },
+			'"\\\b\f\n\r\t',
+			'\u0000\u0001\u001f\u007f\u2028',
+			{ 'k"\n\u0002': 'v\\' },
+			'\ud800',
+			'a\udc00b',
+			'\ud83d\ude00\ud83d',
+			'\udc00\ud800',
+			['\ud800\ud800', '😀\udfff'],
 		]) {
 			expect(jsonSize(value, 1000)).toBe(
 				Buffer.byteLength(JSON.stringify(value)),
