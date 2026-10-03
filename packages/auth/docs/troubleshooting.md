@@ -3,9 +3,10 @@
 Two kinds of entry. **Errors** are what a call throws: an `AuthError`,
 headed by its message and listed under its `code`; one that wraps
 another error keeps it as `cause`. **Result reasons** are
-what `verifyDkim` gives back in `reason`. It never throws for a message,
-so everything wrong with one comes back this way. Entries are listed under
-their `result`. The parts shown as … vary.
+what `verifyDkim` and `checkSpf` give back in `reason`. Neither throws for
+a message or a record, so everything wrong with one comes back this way.
+Entries are listed under their `result`, DKIM's and then
+[SPF's](#spf-result-reasons). The parts shown as … vary.
 
 ## Errors
 
@@ -110,6 +111,36 @@ or `'simple/simple'`.
 **When**: `maxHeaderBytes` is not a positive whole number. **Fix**: leave
 it out for 256 KiB.
 
+#### `AuthError: checkSpf(): resolver must be a Resolver`
+
+**When**: `checkSpf` was called without a `resolver`, or with something
+that has no `txt` method. **Fix**: pass one from `@bumail/dns`:
+`checkSpf(session, { resolver: cachedResolver(nodeResolver()) })`.
+
+#### `AuthError: checkSpf(): ip "…" is not an IPv4 or IPv6 address`
+
+**When**: `ip` is not an address: a host name, an IPv4 address with a
+leading zero or a part past 255 (`192.0.2.300`), or an IPv6 address with
+a zone (`fe80::1%en0`). **Fix**: pass the client's address as the socket
+reports it, such as `socket.remoteAddress`; an IPv4-mapped IPv6 address
+is fine, and is checked as IPv4.
+
+#### `AuthError: checkSpf(): mailFrom must be a string`, `AuthError: checkSpf(): helo must be a string`
+
+**When**: `mailFrom` or `helo` is missing or not a string. **Fix**: pass
+`''` for a bounce's null sender, and the EHLO argument as it was given,
+even if it is not a domain: a bad one gives `none`, not an error.
+
+#### `AuthError: checkSpf(): timeout must be a positive integer of milliseconds, not …`
+
+**When**: `timeout` is zero, negative or not a whole number. **Fix**:
+leave it out for 20 000 ms, the least RFC 7208 §4.6.4 recommends.
+
+#### `AuthError: checkSpf(): identity must be 'mailfrom' or 'helo', not …`
+
+**When**: `identity` is anything else. **Fix**: leave it out to check
+MAIL FROM, or pass `'helo'` to check the HELO name on its own.
+
 ### INVALID_MESSAGE
 
 #### `AuthError: signDkim(): the message has no From header`
@@ -160,6 +191,8 @@ kind of key. Perhaps it is an EC or DSA key in PKCS #8, or it is damaged.
 **Fix**: `await Bun.file(path).text()`.
 
 ## Result reasons
+
+What `verifyDkim` gives back. [SPF's](#spf-result-reasons) follow.
 
 ### none
 
@@ -367,3 +400,121 @@ The key is at least 1024 bits, but shorter than the `minRsaBits` you set.
 #### `l= body length is refused (rejectBodyLength)`
 
 The signature has `l=`, and `rejectBodyLength` is on.
+
+## SPF result reasons
+
+What `checkSpf` gives back. A `permerror` or `temperror` met inside an
+`include:` or a `redirect=` comes back with the reason it had there, so
+the domain named in it may be another domain than the one checked.
+
+### none
+
+#### `no SPF record at …`
+
+The domain has no TXT record starting with `v=spf1`, or does not exist.
+Nothing to fix on your side: the domain publishes no policy.
+
+#### `"…" is not a domain SPF can check`
+
+The MAIL FROM domain (or the HELO name, for a bounce or
+`identity: 'helo'`) cannot have a record: a single label such as
+`localhost`, an address literal such as `[192.0.2.1]`, an empty label
+(`a..example`), a label past 63 characters, or characters no host name
+holds (RFC 7208 §4.3). Nothing was looked up.
+
+### pass, fail, softfail, neutral
+
+#### `matched …`
+
+The mechanism named, as written in the record, matched the client; its
+qualifier gave the result (`+` pass, `-` fail, `~` softfail, `?`
+neutral). It is also in `mechanism`.
+
+#### `no mechanism matched (default neutral)`
+
+No mechanism matched, and the record has no `redirect=`: the result is
+`neutral` (§4.7). The domain's record should end with an `all`.
+
+### permerror
+
+#### `more than one SPF record at …`
+
+The domain publishes two or more TXT records starting with `v=spf1`
+(§4.5). Its owner must merge them into one.
+
+#### `the SPF record at … holds a non-ASCII character`
+
+The record holds a byte outside ASCII, often a byte-order mark or a
+typographic dash pasted in from a document (§3.1). Its owner must retype
+it.
+
+#### `syntax error in the SPF record at …: …`
+
+The record does not parse (§4.6). Every term is checked before any is
+evaluated, so an error anywhere gives this, even past an `all`. What
+follows the colon says which term:
+
+- `unknown mechanism …`: a term that is no mechanism (`moo`, `redirect:…`
+  written with a colon, a modifier name not starting with a letter).
+- `malformed …`: `all` with something after it (`-all.`, `all:x`).
+- `ip4 has no network in …`, `ip6 has no network in …`: `ip4` or `ip6`
+  with no `:` address.
+- `bad ip4 network in …`, `bad ip6 network in …`: not an address, such as
+  `ip4:1.2.3`, `ip4:1.2.3.4:25` or `ip6::CAFE::BABE`.
+- `bad CIDR length in …`: past 32 (IPv4) or 128 (IPv6), with a leading
+  zero (`/032`), or `a/24/64` where `a/24//64` was meant.
+- `an empty domain-spec`: `a:`, `include:`, `exists:`, `ptr:`.
+- `"…" is not a domain-spec`: a target that does not end in a top label
+  or a macro (§7.1), such as `a:museum`, `a:192.0.2.1` (use `ip4:`),
+  `a:example.-com`, or `include:x.example.com/24` (`include` takes no
+  CIDR).
+- `exp= appears twice`, `redirect= appears twice` (§6).
+- `exp=: …`, `redirect=: …`: the modifier's target has one of the errors
+  here.
+- `unknown macro %{…}`, `macro %{…} keeps zero parts`,
+  `malformed macro %{…}`, `a "%" that starts no macro in "…"`: a macro
+  that is not §7.1's. `%{c}`, `%{r}` and `%{t}` are allowed only in an
+  explanation; a literal `%` is written `%%`.
+- `character "…" in "…"`: a control character in a term. Terms are
+  separated by spaces only (§4.6.1).
+
+#### `include:… has no SPF record`
+
+An `include:` names a domain with no SPF record, or one that does not
+exist (§5.2 makes this a `permerror`, not a non-match).
+
+#### `redirect=… has no SPF record`
+
+The `redirect=` target has no SPF record (§6.1).
+
+#### `more than 10 DNS-querying terms (include, a, mx, ptr, exists, redirect)`
+
+Evaluating the record, its includes and its redirects took an 11th term
+that queries the DNS (§4.6.4). Loops end here too. The domain's owner
+must flatten the record: replace includes by the `ip4:` and `ip6:` they
+resolve to. `lookups` says 11.
+
+#### `more than 2 void lookups (no such name, or no record)`
+
+A third lookup by `a`, `mx`, `ptr` or `exists` found no such name, or no
+record (§4.6.4). The record names hosts that no longer exist.
+
+#### `more than 10 MX records for …`
+
+An `mx` mechanism names a domain with more than ten MX records
+(§4.6.4). Its owner should list the servers with `ip4:` and `ip6:`.
+
+### temperror
+
+#### `DNS lookup failed: … for …`
+
+The DNS gave no answer for the query named (`TEMPORARY` or `TIMEOUT`), or
+the resolver threw something that is not a `DnsError`, whose text is
+given instead. Answer the MAIL FROM with a 451 so the sender retries
+later.
+
+#### `the check took longer than its timeout (… ms)`
+
+The whole check, every lookup included, passed `timeout`. A slow or
+unreachable DNS server is the usual cause. Raise `timeout` only if
+yours is slow; the RFC asks for at least 20 seconds, the default.

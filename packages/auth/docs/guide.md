@@ -8,6 +8,7 @@
 - [Publishing the key](#publishing-the-key)
 - [Choosing a canonicalisation](#choosing-a-canonicalisation)
 - [Body lengths (`l=`)](#body-lengths-l)
+- [Checking SPF](#checking-spf)
 - [Writing specs](#writing-specs)
 
 ## Verifying a message
@@ -296,6 +297,112 @@ can anyone else append anything. Set `rejectBodyLength: true` to answer
 `policy` for every `l=`. An `l=` longer than the body is a `permerror`
 (§3.5: it "MUST NOT be larger").
 
+## Checking SPF
+
+SPF (RFC 7208) answers one question: may this IP address send mail for
+this domain? Ask it once the client has given MAIL FROM, with the
+client's address, the envelope sender and the EHLO name:
+
+```ts
+import { checkSpf } from '@bumail/auth';
+import { cachedResolver, nodeResolver } from '@bumail/dns';
+
+const resolver = cachedResolver(nodeResolver());
+
+const spf = await checkSpf(
+	{ ip: session.remoteAddress, mailFrom: 'joe@example.com', helo: 'mail.example.com' },
+	{ resolver, receiver: 'mx.example.net' },
+);
+if (spf.result === 'temperror') reply(451, '4.4.3 SPF check failed, try again later');
+```
+
+The check follows `check_host()` (§4): it fetches the domain's one
+`v=spf1` TXT record, tries its mechanisms in order — `all`, `include`,
+`a`, `mx`, `ptr`, `ip4`, `ip6`, `exists`, with the `+ - ~ ?` qualifiers
+and the `a/24//64` CIDR forms — then follows `redirect=`, and otherwise
+answers `neutral`. The whole record is parsed before anything is looked
+up, so a syntax error anywhere is a `permerror`.
+
+### Which identity
+
+| input | checked |
+| --- | --- |
+| `mailFrom: 'joe@example.com'` | `example.com`, `<sender>` = `joe@example.com` |
+| `mailFrom: '@example.com'` | `example.com`, `<sender>` = `postmaster@example.com` (§4.3) |
+| `mailFrom: ''` or `'<>'` (a bounce) | the HELO name, `<sender>` = `postmaster@<helo>` (§2.4) |
+| `identity: 'helo'` | the HELO name alone, whatever MAIL FROM is (§2.3) |
+
+A domain that cannot have a record — a single label such as
+`localhost`, an address literal such as `[192.0.2.1]`, an empty label, a
+label past 63 characters — is `none` at once, with no lookup (§4.3). The
+client `ip` may be IPv4 or IPv6; an IPv4-mapped IPv6 address
+(`::ffff:192.0.2.1`, as a dual-stack listener reports an IPv4 peer) is
+checked as IPv4, so it matches `ip4:` and never `ip6:` (§5).
+
+### Reading an SPF result
+
+| `result` | means | do |
+| --- | --- | --- |
+| `pass` | the domain lists this IP | use `domain` in DMARC, reputation, `Authentication-Results` |
+| `fail` | the domain says this IP may not send for it (`-all`) | DMARC decides; on its own, reject or mark |
+| `softfail` | "probably not" (`~all`) | accept, and count it against the message |
+| `neutral` | the domain says nothing about this IP (`?all`, or no mechanism matched) | as `none` |
+| `none` | no SPF record, or no domain to check | — |
+| `temperror` | the DNS gave no answer, or the check passed `timeout` | 451, so the sender retries |
+| `permerror` | the record is broken, or passed a limit | treat as `none`, or as `fail` if local policy says so |
+
+`mechanism` is the term that decided, as written in the record that held
+it: the `include:` at the top for a match inside one, or the target's own
+term after a `redirect=`. `lookups` counts the DNS-querying terms
+evaluated. `explanation` is set on `fail` only, when the record that
+failed has an `exp=` and its text could be had (§6.2): the `exp=` of an
+included record is never used, and one whose lookup or macros fail is
+left out without changing the result. Like DKIM's, `reason` is for logs:
+match on `result`.
+
+### Limits
+
+RFC 7208 §4.6.4 bounds the work a record can cause, and every one is
+applied, across every `include` and `redirect`:
+
+- **10 DNS-querying terms** (`include`, `a`, `mx`, `ptr`, `exists`,
+  `redirect`). The 11th is a `permerror`, so an include loop
+  (`a` includes `b` includes `a`) stops there. Terms are counted as they
+  are evaluated: a record that matches early never reaches its later ones.
+- **2 void lookups**: a lookup by `a`, `mx`, `ptr` or `exists` that
+  finds no such name, or no record. The 3rd is a `permerror`. The `exp=`
+  lookup is never counted.
+- **10 MX names per `mx`**: more is a `permerror`. **10 PTR names per
+  `ptr`**: the rest are ignored.
+- **`timeout`**, 20 000 ms by default, the least §4.6.4 recommends: past
+  it the check is `temperror`. The resolver is not told to stop; the
+  check stops waiting for it.
+- **Macro expansion is bounded.** A name longer than 253 characters
+  loses labels on the left (§7.3). An expansion past 8 192 characters is
+  a macro bomb: it becomes a name no lookup finds, or no explanation.
+
+`%{p}`, the client's validated name, looks the PTR record up once per
+check, and shares it with `ptr`. RFC 7208 discourages both; they cost
+DNS queries that are not among the ten.
+
+### How it compares with the RFC 7208 test suite
+
+The OpenSPF test suite (pyspf's `rfc7208-tests.yml`, committed beside
+the specs) runs on every `bun test`. 197 of its 203 cases agree; where
+the suite accepts several results, any of them counts. The other six:
+
+- **`a-colon-domain`, `a-colon-domain-ip4mapped`, `mx-colon-domain`,
+  `mx-colon-domain-ip4mapped`**: the suite expects `a:foo:bar/baz.example.com`
+  to be looked up. `@bumail/dns` refuses a name holding `:` or `/`
+  before any query, so it reads as a name that does not exist, and the
+  mechanism does not match.
+- **`macro-mania-in-domain`**: the same, for a name holding spaces and
+  `%` built from `%%`, `%_` and `%-`.
+- **`v-macro-ip6`**: the result is right; only the case of the
+  explanation differs. The suite writes the `%{ir}` nibbles of an IPv6
+  address in uppercase, as its input was written. This writes them in
+  lowercase, as the RFC's own example (§7.4) does.
+
 ## Writing specs
 
 Give `verifyDkim` a `fixtureResolver` from `@bumail/dns`, and no spec
@@ -320,3 +427,15 @@ const [result] = await verifyDkim(signature + message, { resolver, now: () => 0 
 Pass the same `now` to both, so a spec does not depend on the date.
 `fixtureResolver(...).queries` counts the key lookups, if a spec needs to
 show that a limit stopped them.
+
+SPF is specified the same way, a record per name:
+
+```ts
+const resolver = fixtureResolver({
+	'example.com': { txt: ['v=spf1 mx include:_spf.example.net -all'], mx: [{ exchange: 'mx.example.com', priority: 10 }] },
+	'mx.example.com': { a: ['192.0.2.25'] },
+	'_spf.example.net': { txt: 'TIMEOUT' }, // temperror
+});
+const spf = await checkSpf({ ip: '192.0.2.25', mailFrom: 'joe@example.com', helo: 'mx.example.com' }, { resolver });
+// spf.result === 'pass', spf.lookups === 1: the include was never reached
+```

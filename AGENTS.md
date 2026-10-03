@@ -14,7 +14,7 @@ below lists only what has landed.
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
-| `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, results in RFC 8601's words; SPF and DMARC next | `@bumail/dns`, `@bumail/mime` |
+| `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, and SPF checking (RFC 7208), results in RFC 8601's words; DMARC next | `@bumail/dns`, `@bumail/mime` |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
