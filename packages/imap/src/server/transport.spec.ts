@@ -256,19 +256,53 @@ describe('a hang-up while the server paused reading', () => {
 		expect(fake.shutdowns).toEqual([true]);
 	});
 
-	test('a client that sends on is half-closed after LINGER_MAX_MS all the same', () => {
+	test('a client still sending at LINGER_MAX_MS is reset, not half-closed', () => {
 		jest.useFakeTimers();
 		const fake = slowSocket(100);
 		const transport = new SocketTransport(fake.socket, false, () => {});
 		transport.pause();
 		transport.abort();
 		const start = Date.now();
-		while (!fake.ended && Date.now() - start <= LINGER_MAX_MS) {
+		while (!fake.terminated && Date.now() - start <= LINGER_MAX_MS) {
 			jest.advanceTimersByTime(LINGER_QUIET_MS / 2);
 			transport.received();
 		}
-		expect(fake.ended).toBe(true);
+		expect(fake.terminated).toBe(true);
+		expect(fake.shutdowns).toEqual([]);
 		expect(Date.now() - start).toBeLessThanOrEqual(LINGER_MAX_MS);
+	});
+
+	test('chunks that come with no turn of the timers between them still end it at LINGER_MAX_MS', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.abort();
+		const start = Date.now();
+		// The clock moves, but each chunk comes before any timer can fire.
+		for (let at = 1; !fake.terminated && at <= LINGER_MAX_MS * 2; at++) {
+			jest.setSystemTime(start + at);
+			transport.received();
+		}
+		expect(fake.terminated).toBe(true);
+		expect(fake.shutdowns).toEqual([]);
+		expect(Date.now() - start).toBe(LINGER_MAX_MS);
+		// Nothing is left armed: the grace and the linger are gone.
+		jest.advanceTimersByTime(CLOSE_GRACE_MS * 2);
+		expect(fake.calls.filter((call) => call === 'terminate')).toHaveLength(1);
+	});
+
+	test('a client that goes quiet within LINGER_MAX_MS is half-closed', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.abort();
+		jest.advanceTimersByTime(LINGER_MAX_MS - LINGER_QUIET_MS - 1);
+		transport.received();
+		jest.advanceTimersByTime(LINGER_QUIET_MS);
+		expect(fake.shutdowns).toEqual([true]);
+		expect(fake.terminated).toBe(false);
 	});
 
 	test('a second end() or abort() while it lingers does not half-close early; closed() stops it', () => {

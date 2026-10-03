@@ -253,10 +253,12 @@ Every PR goes into `develop`. Before merging:
     what the client sends from then on reaches a closed connection and is
     dropped;
   - **a paused hang-up lingers**: after that `resume()` it half-closes
-    only once the client's input stopped for `LINGER_QUIET_MS` (20 ms),
-    `LINGER_MAX_MS` (500 ms) at most; each server's `data` handler calls
-    `transport.received()`, which puts the half-close back while it
-    lingers. A second `end` or `abort` meanwhile does not shut down early;
+    only once the client's input stopped for `LINGER_QUIET_MS` (20 ms);
+    each server's `data` handler calls `transport.received()`, which puts
+    the half-close back while it lingers. It lingers `LINGER_MAX_MS`
+    (500 ms) at most: a client still sending then is reset (`terminate()`),
+    from the timer or from the first `received()` past that time. A second
+    `end` or `abort` meanwhile does not shut down early;
   - **every end is bounded by the grace**: each `end`, queue empty or not,
     arms the 5-second `CLOSE_GRACE_MS`, whose timer terminates the socket
     unless `close` came first; a second `end` or `abort` keeps the first
@@ -296,6 +298,15 @@ Every PR goes into `develop`. Before merging:
     showed. Lingering — reading and dropping until the input stopped for
     20 ms — then half-closing delivered the 421 and a clean end on Linux,
     and both close specs passed 20 runs in 20 on Linux and on macOS;
+  - that linger was not bounded until it reset at `LINGER_MAX_MS`: each
+    `received()` re-armed its timer, so a client that never paused kept
+    it from firing, and a `shutdown(true)` that came late against a client
+    still sending did not always fire `close` on Linux. A `node:net` client
+    writing without pause, refilling on `drain`, held the slot for the
+    5-second grace (5000 ms on Linux, 1265 ms on macOS). Resetting it at
+    `LINGER_MAX_MS` freed the slot 499 to 502 ms after the hang-up on
+    Linux and 469 to 501 ms on macOS, and that client, reading, still had
+    the 421 or the BYE: both close specs passed 20 runs in 20 on each;
   - a `node:tls` client that does read, pipelining about 1 MiB behind
     commands that fail into a close the server decides on while it paused
     reading — smtp's `maxErrors` (refusals from an `onRcptTo` that takes
@@ -319,7 +330,9 @@ Every PR goes into `develop`. Before merging:
   `close.spec.ts` covers a client that never reads with replies queued,
   counted out as soon as the idle time is up, and a hang-up while the
   server paused reading, freed at once, a `node:net` client that stopped
-  sending then reading the 421 and a clean end, and a `maxErrors` hang-up
+  sending then reading the 421 and a clean end, one that reads and never
+  stops sending reset at `LINGER_MAX_MS` and freed within 1 s, having read
+  the 421, and a `maxErrors` hang-up
   while paused on a real server, freed within 1 s of the decision with no
   RCPT the client kept pipelining behind it run;
   `server.spec.ts` covers `stop(true)` after STARTTLS. imap's:
@@ -333,13 +346,15 @@ Every PR goes into `develop`. Before merging:
   reading with nothing queued, on implicit TLS and after STARTTLS: freed
   within 1 s of the `loginTimeout` decision, then reading the BYE and a
   clean end, or, sending on, freed as fast with no LOGIN sent after the
-  first reaching `authenticate`;
+  first reaching `authenticate`, or reading and never pausing its sending,
+  freed as fast once reset at `LINGER_MAX_MS`, having read the BYE;
   `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`.
   The idle `timeout` (30 minutes at least) runs the same close but no imap
   real-socket spec waits for it. Each copy's `transport.spec.ts` checks,
   on a fake socket, that `shutdown` gets `true` (and nothing on TLS after
   a drain), that a paused hang-up calls `resume` first and lingers while
-  `received()` comes, `LINGER_MAX_MS` at most, the grace and the
+  `received()` comes, and resets at `LINGER_MAX_MS` a client still sending,
+  even when no timer can fire between its chunks, the grace and the
   `#closed` guard. A fix to one copy is a fix
   to the other.
 

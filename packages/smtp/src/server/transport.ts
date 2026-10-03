@@ -40,10 +40,10 @@ export const CLOSE_GRACE_MS = 5_000;
 
 /**
  * A hang-up while the server paused reading lingers: it reads again and
- * drops what the client sent until nothing came for `LINGER_QUIET_MS`, or
- * for `LINGER_MAX_MS` at most, then half-closes. Bun closes the socket at
- * once on `shutdown(true)`, and Linux answers a close over unread input
- * with a reset that loses the last reply.
+ * drops what the client sent until nothing came for `LINGER_QUIET_MS`,
+ * then half-closes. Bun closes the socket at once on `shutdown(true)`, and
+ * Linux answers a close over unread input with a reset that loses the last
+ * reply. A client still sending after `LINGER_MAX_MS` is reset.
  */
 export const LINGER_QUIET_MS = 20;
 export const LINGER_MAX_MS = 500;
@@ -103,12 +103,17 @@ export class SocketTransport implements Transport {
 
 	/**
 	 * Bun's `data`: the client sent bytes. While a hang-up lingers, they are
-	 * dropped, and the half-close waits until they stop.
+	 * dropped, and the half-close waits until they stop — `LINGER_MAX_MS` at
+	 * most: a client still sending then is reset. Re-arming the timer on each
+	 * chunk would let a client that never pauses keep it from firing, and a
+	 * half-close over its input may never fire `close` (Linux).
 	 */
 	received(): void {
 		const linger = this.#linger;
-		if (linger)
-			this.#lingerFor(Math.min(LINGER_QUIET_MS, linger.until - Date.now()));
+		if (!linger) return;
+		const left = linger.until - Date.now();
+		if (left <= 0) this.#terminate();
+		else this.#lingerFor(Math.min(LINGER_QUIET_MS, left));
 	}
 
 	/** The socket closed: nothing more will leave. */
@@ -155,7 +160,8 @@ export class SocketTransport implements Transport {
 	 * reset, which loses the last reply. So it drops what the client sends
 	 * until that stops for `LINGER_QUIET_MS` (`LINGER_MAX_MS` at most), then
 	 * half-closes: `close` fires at once, and a client that stopped sending
-	 * still gets the last reply and the end. One that sends on is reset.
+	 * still gets the last reply and the end. One still sending at
+	 * `LINGER_MAX_MS` is reset (`received()`).
 	 */
 	#hangUp(drained: boolean): void {
 		this.#ending = false;
@@ -169,18 +175,20 @@ export class SocketTransport implements Transport {
 		this.#lingerFor(LINGER_QUIET_MS);
 	}
 
-	/** Half-closes in `ms`, unless the client sends again first. */
+	/**
+	 * Half-closes in `ms`, unless the client sends again first. Armed for
+	 * less than `LINGER_QUIET_MS`, the input never went quiet before
+	 * `LINGER_MAX_MS`: it resets instead.
+	 */
 	#lingerFor(ms: number): void {
 		const linger = this.#linger;
 		if (!linger) return;
 		clearTimeout(linger.timer);
-		linger.timer = setTimeout(
-			() => {
-				this.#stopLingering();
-				this.#shutdown(linger.drained);
-			},
-			Math.max(ms, 0),
-		);
+		linger.timer = setTimeout(() => {
+			if (ms < LINGER_QUIET_MS) return this.#terminate();
+			this.#stopLingering();
+			this.#shutdown(linger.drained);
+		}, ms);
 		linger.timer.unref?.();
 	}
 

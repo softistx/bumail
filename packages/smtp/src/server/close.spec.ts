@@ -146,11 +146,16 @@ describe('a client that never reads is still disconnected', () => {
  * the grace; the transport reads again first, so it closes at once.
  */
 async function pausedServer(
-	run: (port: number, closed: () => boolean) => Promise<void>,
+	run: (
+		port: number,
+		closed: () => boolean,
+		times: { decided: number; closed: number },
+	) => Promise<void>,
 ): Promise<void> {
 	let transport: SocketTransport | undefined;
 	let closed = false;
 	let paused = false;
+	const times = { decided: 0, closed: 0 };
 	const listener = Bun.listen({
 		hostname: '127.0.0.1',
 		port: 0,
@@ -169,6 +174,7 @@ async function pausedServer(
 				paused = true;
 				transport.pause();
 				setTimeout(() => {
+					times.decided = performance.now();
 					transport?.write('421 closing\r\n');
 					transport?.abort();
 				}, 100);
@@ -177,13 +183,14 @@ async function pausedServer(
 				transport?.drain();
 			},
 			close() {
+				times.closed = performance.now();
 				closed = true;
 				transport?.closed();
 			},
 		},
 	});
 	try {
-		await run(listener.port, () => closed);
+		await run(listener.port, () => closed, times);
 	} finally {
 		listener.stop(true);
 	}
@@ -228,6 +235,37 @@ describe('a hang-up while the server paused reading', () => {
 				expect(seen.failed).toBeUndefined();
 				expect(text).toEndWith('421 closing\r\n');
 			} finally {
+				client.destroy();
+			}
+		});
+	});
+
+	test('is bounded for a client that reads and never stops sending: the 421 arrives, then the reset', async () => {
+		await pausedServer(async (port, closed, times) => {
+			const client = connect({ host: '127.0.0.1', port });
+			let sending = true;
+			try {
+				let text = '';
+				client.on('data', (chunk: Buffer) => {
+					text += chunk.toString('latin1');
+				});
+				client.on('error', () => {});
+				await within(1_000, () => text.includes('220 ready'));
+				// Sends without a pause: refills whenever its buffer drains.
+				const chunk = 'NOOP\r\n'.repeat(10_000);
+				const send = () => {
+					while (sending && !client.destroyed && client.write(chunk));
+				};
+				client.on('drain', send);
+				send();
+				expect(await within(2_000, closed)).toBe(true);
+				expect(times.closed - times.decided).toBeLessThan(1_000);
+				expect(await within(1_000, () => text.includes('421 closing'))).toBe(
+					true,
+				);
+				expect(text).toEndWith('421 closing\r\n');
+			} finally {
+				sending = false;
 				client.destroy();
 			}
 		});

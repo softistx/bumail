@@ -146,5 +146,28 @@ describe('a client that sends past INPUT_LIMIT and never reads', () => {
 			}
 			expect(logins.count).toBe(1);
 		}, 10_000);
+
+		test(`(${path}) and reads but never stops sending is cut at loginTimeout with its slot freed at once, after the BYE`, async () => {
+			const { server, port } = await start(path === 'implicit TLS');
+			const { client, text } = await neverReads(port, path);
+			client.resume();
+			// Sends without a pause: refills whenever its buffer drains.
+			const chunk = 'x'.repeat(64 * 1024);
+			let sending = true;
+			const send = () => {
+				while (sending && !client.destroyed && client.write(chunk));
+			};
+			client.on('drain', send);
+			send();
+			try {
+				await freedAtOnce(server);
+				expect(
+					await within(1_000, () => text().includes('* BYE Too slow')),
+				).toBe(true);
+			} finally {
+				sending = false;
+			}
+			expect(text()).toEndWith('* BYE Too slow to log in, closing\r\n');
+		}, 10_000);
 	}
 });

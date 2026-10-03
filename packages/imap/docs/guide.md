@@ -293,11 +293,12 @@ clear socket, so the connection leaves `connections` at once, and a
 client that paused still reads that `BYE`, then a clean end, whenever it
 reads again. When the server had stopped reading the client, which sent
 more than it could take, it reads again first, dropping whatever comes,
-and half-closes once the client's input stops for 20 ms (500 ms at most):
-a half-close does not complete over input left unread, and on Linux a
-close over unread input is a reset that loses the `BYE`. The connection
-still leaves `connections` as fast; a client that stopped sending still
-reads the `BYE` and the end, and one that keeps sending is reset. What is
+and half-closes once the client's input stops for 20 ms: a half-close
+does not complete over input left unread, and on Linux a close over
+unread input is a reset that loses the `BYE`. A client that stopped
+sending still reads the `BYE` and the end. It waits 500 ms at most: a
+client still sending at 500 ms is reset, so the connection leaves
+`connections` within 500 ms all the same. What is
 still queued when a hang-up starts may wait 5 seconds at most for the
 client to take it; past that the connection is reset. On TLS, once such
 output has left, the server closes when the client answers, within the
