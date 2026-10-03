@@ -25,6 +25,19 @@
         "typescript",
       ],
     },
+    "packages/smtp": {
+      "name": "@bumail/smtp",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/bun": "^1.4.2",
+      },
+      "peerDependencies": {
+        "typescript": "^6.0.3 || ^7.0.0",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
+    },
     "packages/store": {
       "name": "@bumail/store",
       "version": "0.0.0",
@@ -62,6 +75,8 @@
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.15", "", { "os": "win32", "cpu": "x64" }, "sha512-yAzh4UqEImV6Hcy0zjUqNfJAsUhoD64FBQCdTG8Md/Z2wQeVP/ZmJ3XRYAs1g8J9fjTFyl2fCtc5FB5til47+g=="],
 
     "@bumail/mime": ["@bumail/mime@workspace:packages/mime"],
+
+    "@bumail/smtp": ["@bumail/smtp@workspace:packages/smtp"],
 
     "@bumail/store": ["@bumail/store@workspace:packages/store"],
 
