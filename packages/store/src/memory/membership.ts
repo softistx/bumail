@@ -12,18 +12,11 @@ export function expunge(
 	message: MessageState,
 	mailboxId: string,
 ): Expunged {
-	const { uid, modseq: joinedModseq } = message.mailboxes.get(mailboxId) as {
-		uid: number;
-		modseq: number;
-	};
+	const uid = (message.mailboxes.get(mailboxId) as { uid: number }).uid;
 	message.mailboxes.delete(mailboxId);
 	const modseq = state.touch(message, mailboxId);
 	const expunged = { messageId: message.id, mailboxId, uid, modseq };
-	state.bury(message.accountId, {
-		kind: 'expunged',
-		...expunged,
-		joinedModseq,
-	});
+	state.bury(message.accountId, { kind: 'expunged', ...expunged });
 	if (message.mailboxes.size === 0) {
 		state.messages.delete(message.id);
 		state.release(message.accountId, message.blobId);
@@ -57,10 +50,7 @@ export function moveMessages(
 	const joining = found.filter((message) => !message.mailboxes.has(to));
 	state.checkUids(target, joining.length);
 	for (const message of found) {
-		const { uid, modseq: joinedModseq } = message.mailboxes.get(from) as {
-			uid: number;
-			modseq: number;
-		};
+		const uid = (message.mailboxes.get(from) as { uid: number }).uid;
 		message.mailboxes.delete(from);
 		const modseq = state.touch(message, from);
 		if (!message.mailboxes.has(to)) join(target, message, modseq);
@@ -70,7 +60,6 @@ export function moveMessages(
 			mailboxId: from,
 			uid,
 			modseq,
-			joinedModseq,
 		});
 	}
 	return view();

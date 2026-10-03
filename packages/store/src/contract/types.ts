@@ -178,12 +178,11 @@ export interface NewMailbox {
 /**
  * What `renameMailbox` changes: a field left out keeps its value. `parentId`
  * `null` moves the mailbox to the top (JMAP `Mailbox/set` with `parentId:
- * null`).
+ * null`). It names at least one of the two, so `{}` does not compile.
  */
-export interface MailboxRename {
-	readonly name?: string;
-	readonly parentId?: string | null;
-}
+export type MailboxRename =
+	| { readonly name: string; readonly parentId?: string | null }
+	| { readonly name?: string; readonly parentId: string | null };
 
 export interface ListOptions {
 	/** From this UID up. */

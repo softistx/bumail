@@ -27,7 +27,10 @@ function renaming(create: CreateStore): void {
 		expect(
 			await store.renameMailbox(account.id, inbox.id, { name: 'Received' }),
 		).toMatchObject({ role: 'inbox' });
-		await rejects(store.renameMailbox(account.id, a.id, {}), 'INVALID');
+		await rejects(
+			store.renameMailbox(account.id, a.id, {} as never),
+			'INVALID',
+		);
 		await rejects(
 			store.renameMailbox(account.id, a.id, null as never),
 			'INVALID',

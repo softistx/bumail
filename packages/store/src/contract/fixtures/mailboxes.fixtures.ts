@@ -31,6 +31,7 @@ function creating(create: CreateStore): void {
 		expect(await store.findMailbox(account.id, 'sent')).toEqual(sent);
 		expect(await store.findMailbox(account.id, 'junk')).toBeUndefined();
 		await rejects(store.findMailbox(account.id, 'spam' as never), 'INVALID');
+		await rejects(store.findMailbox(account.id, undefined as never), 'INVALID');
 		expect(
 			(await store.listMailboxes(account.id)).map((m) => m.name).sort(),
 		).toEqual(['INBOX', 'Sent']);

@@ -1,6 +1,7 @@
 import {
 	checkNoCycle,
 	checkRole,
+	isMailboxRole,
 	normalizeMailboxName,
 } from '../contract/mailbox-name';
 import type {
@@ -92,7 +93,10 @@ export function findMailbox(
 	role: MailboxRole,
 ): MailboxState | undefined {
 	state.account(accountId);
-	checkRole(role);
+	// Unlike createMailbox's optional field, no role here is not a role.
+	if (!isMailboxRole(role)) {
+		throw new StoreError('INVALID', `"${String(role)}" is not a mailbox role`);
+	}
 	for (const mailbox of state.mailboxes.values()) {
 		if (mailbox.accountId === accountId && mailbox.role === role)
 			return mailbox;

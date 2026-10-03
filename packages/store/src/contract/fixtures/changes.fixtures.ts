@@ -51,25 +51,33 @@ function messages(create: CreateStore): void {
 		});
 	});
 
-	test('a message, or a UID, that came and went since is left out', async () => {
+	test('a message created and destroyed since is left out', async () => {
+		const { store, account, inbox } = await setup(create);
+		const { modseq } = await store.messageChanges(account.id, 0);
+		const brief = await store.addMessage(account.id, inbox.id, {
+			content: bytes('x'),
+		});
+		await store.destroyMessages(account.id, [brief.id]);
+		const changes = await store.messageChanges(account.id, modseq);
+		expect([
+			...changes.created,
+			...changes.updated,
+			...changes.destroyed,
+		]).toEqual([]);
+	});
+
+	test('RFC 7162 §3.2.6: a UID that came and went since is still expunged', async () => {
 		const { store, account, inbox } = await setup(create);
 		const a = await store.createMailbox(account.id, { name: 'A' });
 		const old = await store.addMessage(account.id, inbox.id, {
 			content: bytes('old'),
 		});
 		const { modseq } = await store.messageChanges(account.id, 0);
-		const brief = await store.addMessage(account.id, inbox.id, {
-			content: bytes('x'),
-		});
-		await store.destroyMessages(account.id, [brief.id]);
 		await store.linkMessages(account.id, [old.id], a.id);
-		await store.removeMessages(account.id, [old.id], a.id);
+		const removed = await store.removeMessages(account.id, [old.id], a.id);
 		const changes = await store.messageChanges(account.id, modseq);
-		expect([
-			...changes.created,
-			...changes.destroyed,
-			...changes.expunged,
-		]).toEqual([]);
+		expect(removed.expunged).toMatchObject([{ mailboxId: a.id }]);
+		expect(changes.expunged).toEqual(removed.expunged);
 		expect(changes.updated).toEqual([old.id]);
 	});
 }

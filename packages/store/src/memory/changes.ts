@@ -130,15 +130,16 @@ export function messageChanges(
 		options.limit,
 	);
 	const expunged: Expunged[] = [];
-	// A UID that joined after `since` was never seen: since 0, none was.
-	for (const tombstone of account.tombstones) {
+	// RFC 7162 §3.2.6: every UID expunged after `since`, even one the client
+	// may never have seen; a client ignores a UID it does not hold. Since 0,
+	// the client holds nothing that could have vanished.
+	for (const tombstone of since === 0 ? [] : account.tombstones) {
 		if (
 			tombstone.kind === 'expunged' &&
-			tombstone.joinedModseq <= since &&
 			tombstone.modseq > since &&
 			tombstone.modseq <= modseq
 		) {
-			const { kind: _, joinedModseq: __, ...rest } = tombstone;
+			const { kind: _, ...rest } = tombstone;
 			expunged.push(rest);
 		}
 	}

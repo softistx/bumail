@@ -171,7 +171,7 @@ await store.createMailbox(account.id, { name: 'Clients', parentId: work.id }); /
 
 **Code**: `INVALID`.
 
-**When**: `createMailbox` or `findMailbox` was given a role that is not one of `MAILBOX_ROLES`.
+**When**: `createMailbox` or `findMailbox` was given a role that is not one of `MAILBOX_ROLES`. `findMailbox` also refuses no role at all (`undefined`, shown as `"undefined"`): it looks a mailbox up by its role.
 
 **Fix**: Use one of `inbox`, `all`, `archive`, `drafts`, `flagged`, `important`, `junk`, `sent`, `trash`, or no role. `isMailboxRole` checks a string read from outside, and narrows it.
 
@@ -320,7 +320,7 @@ await store.renameMailbox(account.id, work.id, { name: 'Projects' });
 
 **Code**: `INVALID`.
 
-**When**: `renameMailbox` was given `{}`, or a change whose `name` and `parentId` are both `undefined`.
+**When**: `renameMailbox` was given `{}`, or a change whose `name` and `parentId` are both `undefined`. `MailboxRename` refuses `{}` at compile time, so this comes from JavaScript or a value cast past the type.
 
 **Fix**: Give what changes. Leaving a field out keeps it; `parentId: null` moves the mailbox to the top.
 

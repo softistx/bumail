@@ -110,11 +110,11 @@ await store.setSubscribed(account.id, lists.id, true); // IMAP SUBSCRIBE
   `parentId`, so the IMAP layer can use `/` as its delimiter.
 - `renameMailbox(accountId, id, { name?, parentId? })` changes what it is
   given and keeps the rest, like JMAP's `Mailbox/set`: `parentId: null`
-  moves the mailbox to the top, and a change with neither field is
-  `INVALID`. The mailbox keeps its id, role, subscription, UIDVALIDITY
+  moves the mailbox to the top, and a change with neither field does not
+  compile, and is `INVALID` from JavaScript. The mailbox keeps its id, role, subscription, UIDVALIDITY
   and messages.
-- `findMailbox` with a string that is not a role is `INVALID`, as
-  `createMailbox` is.
+- `findMailbox` with anything that is not a role, `undefined` included,
+  is `INVALID`, as `createMailbox` is.
 - **`INBOX`** at the top is case-insensitive (RFC 9051 §5.1): `inbox` or
   `Inbox` there is stored as `INBOX`, and is the same name. Under a parent
   it is an ordinary name.
@@ -280,9 +280,9 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   neither list.
 - `expunged` lists every message that left a mailbox in the same range,
   with its UID there: IMAP's `VANISHED (EARLIER)` (RFC 7162 §3.2.10). It
-  leaves out a UID that came into its mailbox after `since` — added,
-  copied, linked or moved there, then gone again — since the client never
-  saw it.
+  lists every UID expunged after `since`, even one that came into its
+  mailbox after `since`, as RFC 7162 §3.2.6 asks: a client may know it
+  from a session in between, and ignores a UID it does not hold.
 - `limit` caps the ids returned (JMAP's `maxChanges`); `hasMore` says to
   ask again from the returned `modseq`. A page cuts by when each thing was
   created, for `created`, and by its last change otherwise, so a message

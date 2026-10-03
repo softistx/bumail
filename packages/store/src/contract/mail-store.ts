@@ -183,9 +183,10 @@ export interface MailStore {
 	 * What changed among the account's messages since a modseq: one a change
 	 * returned, or 0. Since 0 is always answered, as the account's whole
 	 * state: every message `created`, nothing destroyed or expunged — the
-	 * way to start over after `CANNOT_CALCULATE_CHANGES`. `expunged` leaves
-	 * out a UID that came into its mailbox after `since`: the client never
-	 * saw it.
+	 * way to start over after `CANNOT_CALCULATE_CHANGES`. `expunged` lists
+	 * every UID expunged after `since` (RFC 7162 §3.2.6), even one that came
+	 * into its mailbox after `since`: a client may hold it from a later
+	 * session, and ignores one it does not.
 	 */
 	messageChanges(
 		accountId: string,
