@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/auth",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Message authentication for a mail server: DKIM signing and verifying (RFC 6376) with rsa-sha256 and ed25519-sha256 through Web Crypto, and SPF checking (RFC 7208), results in RFC 8601's words",
 	"license": "MIT",
 	"type": "module",

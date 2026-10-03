@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/mime",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Read and write e-mail messages: RFC 5322 headers, encoded-words, MIME multipart, base64 and quoted-printable, and a streaming parser, with no dependency",
 	"license": "MIT",
 	"type": "module",
