@@ -46,6 +46,10 @@ import { type Tarball, tarballProblems } from './tarball';
  *     publish without a word.
  *   - **test code**: a `*.spec.*`, a `*.test.*`, a snapshot, or a
  *     `<subject>.fixtures.*` file.
+ *   - a **source map that embeds data**: a module listed under
+ *     `bumail.unmappedSources` with its content still in a `.map`, or a
+ *     source past `LARGEST_MAPPED_SOURCE` that is not listed, so the data
+ *     would ship twice (`sourcemaps.ts`).
  *   - a **scoped package without `publishConfig.access: "public"`**.
  *     `scripts/publish.ts` runs `bun publish`, which never reads the
  *     changeset config's `access`, and npm publishes a scoped package as

@@ -45,7 +45,9 @@ The repository is **private** until the owner says otherwise.
   (MPL 2.0, its notice kept in the file, its text shipped as
   `LICENSE-MPL-2.0`). A refresh is a patch changeset. A module that is
   only data is listed under `bumail.unmappedSources`, so the build leaves
-  its content out of the source map and it ships once.
+  its content out of the source map and it ships once. `verify:artifacts`
+  refuses a packed map that still embeds a listed module, or embeds any
+  source over 32 KiB that is not listed, so dropping the entry fails it.
 - **Never an open relay.** A message for a domain the server does not host
   is refused unless the session authenticated. That is the default of every
   server option, and every spec that relays authenticates first. A spec
