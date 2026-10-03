@@ -361,7 +361,10 @@ JMAP never need to know which one they were given.
 
 **In bumail.** `@bumail/jmap` comes first, as an
 [alxia](https://github.com/softistx/alxia) app: alxia already provides the
-routing, validation and typed client. IMAP4rev2 follows.
+routing, validation and typed client. IMAP4rev2 follows. Later, bumail
+gets its own web mail client on JMAP, built on the same stack (alxia's
+typed client, `@nxgt/material`); any other JMAP or IMAP client keeps
+working.
 
 ## The server app
 
@@ -374,6 +377,15 @@ together:
 - health checks and metrics.
 
 **In bumail.** It is next, built on alxia, once `@alxia/core` is on npm.
+
+## Trying it
+
+The first end-to-end tests run against **Mailpit**, a local mail catcher:
+it receives what bumail sends and shows every message with its headers,
+the DKIM signature included, and it can release a caught message to
+bumail's MX. Then a real mail client (a MUA such as Thunderbird) logs in
+over submission and reads its mailbox through bumail. The
+[roadmap](roadmap.md#next) tracks both.
 
 ## Around the edges
 

@@ -19,6 +19,12 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
+- **Trying it end to end, first with Mailpit, then with a real mail
+  client** — Mailpit, a local mail catcher, receives what bumail sends and
+  shows each message with its headers (the DKIM signature included), and
+  can release a caught message to bumail's MX on port 25. Once submission
+  and mailbox access exist, a real mail client (Thunderbird, Apple Mail)
+  logs in, sends and reads through bumail itself.
 - **The DNS records a domain needs, written for you** — from a domain, its
   MX hosts, its sending IPs and its DKIM keys, the records to publish: MX,
   SPF (`v=spf1 …`), each DKIM key's TXT at `<selector>._domainkey`, DMARC
@@ -72,11 +78,15 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **A transport for `@nxgt/mail`**, so an app that sends with it can hand
   mail to a bumail server's queue directly.
 
+- **Our own mail client** — a web MUA on JMAP, built on our own stack:
+  alxia's typed client and `@nxgt/material` for the interface. It comes
+  once `@bumail/jmap` and the server app exist, and any other JMAP client
+  keeps working.
+
 ## Not planned
 
 - **POP3** — JMAP and IMAP cover every client worth supporting, and POP3
   would be a third access protocol to secure and test.
-- **A webmail interface** — bumail is the server; a client builds on JMAP.
 - **DANE** (RFC 7672) — it needs DNSSEC validation, which `node:dns` does
   not give; MTA-STS covers outbound TLS policy instead.
 - **A built-in spam classifier** — scoring stays behind a hook, so the
