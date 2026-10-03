@@ -1,6 +1,6 @@
 import { isBuiltin } from 'node:module';
 import { join } from 'node:path';
-import ts from 'typescript';
+import { declarationSpecifiers } from './declarations';
 import type { Pkg } from './packages';
 
 /** The fields whose names a built import may reach: what a consumer installs. */
@@ -31,18 +31,13 @@ function isRuntime(specifier: string): boolean {
 
 /**
  * The specifiers a file imports. JavaScript goes through Bun's own scanner;
- * a declaration file through TypeScript's, since Bun's drops the type-only
- * imports (`import type`, `export type … from`, `import('x').T`, and
- * `/// <reference types>`) that are all a `.d.ts` holds, and a consumer's
- * `tsc` still resolves them.
+ * a declaration file through `declarationSpecifiers`, since Bun's drops the
+ * type-only imports (`import type`, `export type … from`, `import('x').T`,
+ * and `/// <reference types>`) that are all a `.d.ts` holds, and a
+ * consumer's `tsc` still resolves them.
  */
 function specifiersOf(rel: string, text: string): string[] {
-	if (rel.endsWith('.d.ts')) {
-		const info = ts.preProcessFile(text, true, true);
-		return [...info.importedFiles, ...info.typeReferenceDirectives].map(
-			(file) => file.fileName,
-		);
-	}
+	if (rel.endsWith('.d.ts')) return declarationSpecifiers(text);
 	return new Bun.Transpiler({ loader: 'js' })
 		.scanImports(text)
 		.map(({ path }) => path);
