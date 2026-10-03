@@ -21,6 +21,7 @@ import type {
 	NewMailbox,
 	NewMessage,
 } from '../contract/types';
+import { StoreError } from '../errors';
 import * as accounts from './accounts';
 import { mailboxChanges } from './changes';
 import * as mailboxes from './mailboxes';
@@ -29,6 +30,7 @@ import {
 	openDirectory,
 	type SqliteMailStoreOptions,
 } from './open';
+import { deleteMailbox } from './removal';
 import { SqliteState } from './state';
 
 export type { SqliteMailStoreOptions } from './open';
@@ -44,13 +46,19 @@ function notYet(): never {
  * transaction, without awaiting, so concurrent calls never interleave.
  */
 export class SqliteMailStore implements MailStore {
-	readonly #state: SqliteState;
+	readonly #opened: SqliteState;
 	#closed = false;
 
 	// The blobs are opened with the database, staging files cleared; the
 	// messages slice keeps them, to write and read content.
 	private constructor({ db }: Opened) {
-		this.#state = new SqliteState(db);
+		this.#opened = new SqliteState(db);
+	}
+
+	/** The database, or `INVALID` once closed, rather than SQLite's own error. */
+	get #state(): SqliteState {
+		if (this.#closed) throw new StoreError('INVALID', 'The store is closed');
+		return this.#opened;
 	}
 
 	/**
@@ -65,7 +73,7 @@ export class SqliteMailStore implements MailStore {
 	close(): void {
 		if (this.#closed) return;
 		this.#closed = true;
-		this.#state.db.close();
+		this.#opened.db.close();
 	}
 
 	async createAccount(name: string): Promise<Account> {
@@ -130,7 +138,7 @@ export class SqliteMailStore implements MailStore {
 		id: string,
 		_options: { readonly removeMessages?: boolean } = {},
 	): Promise<void> {
-		mailboxes.deleteMailbox(this.#state, accountId, id);
+		deleteMailbox(this.#state, accountId, id);
 	}
 
 	async addMessage(

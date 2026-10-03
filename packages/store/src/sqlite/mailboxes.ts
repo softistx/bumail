@@ -1,50 +1,20 @@
 import { renameTarget } from '../contract/checks';
 import {
-	checkNoCycle,
-	checkRequiredRole,
-	checkRole,
-	normalizeMailboxName,
-} from '../contract/mailbox-name';
+	checkNewMailbox,
+	checkSubscribed,
+	type MailboxLookups,
+	placeMailbox,
+} from '../contract/mailbox-checks';
+import { checkRequiredRole } from '../contract/mailbox-name';
 import type {
 	Mailbox,
 	MailboxRename,
 	MailboxRole,
 	NewMailbox,
 } from '../contract/types';
-import { StoreError } from '../errors';
 import type { MailboxRow, SqliteState } from './state';
 
-/** Checks a name and a parent for a mailbox, `self` when it is a rename. */
-function placeOf(
-	state: SqliteState,
-	accountId: string,
-	name: string,
-	parentId: string | undefined,
-	self?: string,
-): string {
-	const clean = normalizeMailboxName(name, parentId);
-	if (parentId !== undefined) {
-		state.mailbox(accountId, parentId);
-		if (self !== undefined) {
-			checkNoCycle(self, parentId, (id) => state.parentOf(id));
-		}
-	}
-	const taken = state.db
-		.query<{ id: string }, [string, string, string, string]>(
-			`SELECT id FROM mailboxes
-			WHERE account_id = ? AND coalesce(parent_id, '') = ? AND name = ? AND id != ?`,
-		)
-		.get(accountId, parentId ?? '', clean, self ?? '');
-	if (taken) {
-		throw new StoreError(
-			'ALREADY_EXISTS',
-			`A mailbox "${clean}" already exists there`,
-		);
-	}
-	return clean;
-}
-
-function roleTaken(
+function roleRow(
 	state: SqliteState,
 	accountId: string,
 	role: MailboxRole,
@@ -56,6 +26,22 @@ function roleTaken(
 			)
 			.get(accountId, role) ?? undefined
 	);
+}
+
+/** The account's mailboxes, as the shared checks ask about them. */
+function lookups(state: SqliteState, accountId: string): MailboxLookups {
+	return {
+		checkParent: (id) => state.mailbox(accountId, id),
+		parentOf: (id) => state.parentOf(id),
+		isTaken: (name, parentId, self) =>
+			state.db
+				.query<{ id: string }, [string, string, string, string]>(
+					`SELECT id FROM mailboxes
+					WHERE account_id = ? AND coalesce(parent_id, '') = ? AND name = ? AND id != ?`,
+				)
+				.get(accountId, parentId ?? '', name, self ?? '') !== null,
+		hasRole: (role) => roleRow(state, accountId, role) !== undefined,
+	};
 }
 
 function insert(state: SqliteState, row: MailboxRow): void {
@@ -87,23 +73,7 @@ export function createMailbox(
 ): Mailbox {
 	return state.atomic(() => {
 		state.account(accountId);
-		if (typeof input !== 'object' || input === null) {
-			throw new StoreError('INVALID', 'A new mailbox is an object');
-		}
-		const name = placeOf(state, accountId, input.name, input.parentId);
-		checkRole(input.role);
-		if (
-			input.isSubscribed !== undefined &&
-			typeof input.isSubscribed !== 'boolean'
-		) {
-			throw new StoreError('INVALID', 'isSubscribed is true or false');
-		}
-		if (input.role !== undefined && roleTaken(state, accountId, input.role)) {
-			throw new StoreError(
-				'ALREADY_EXISTS',
-				`The account already has a mailbox with the role ${input.role}`,
-			);
-		}
+		const name = checkNewMailbox(lookups(state, accountId), input);
 		const modseq = state.bump(accountId);
 		const row: MailboxRow = {
 			id: crypto.randomUUID(),
@@ -130,7 +100,7 @@ export function findMailbox(
 ): Mailbox | undefined {
 	state.account(accountId);
 	checkRequiredRole(role);
-	const row = roleTaken(state, accountId, role);
+	const row = roleRow(state, accountId, role);
 	return row && state.mailboxView(row);
 }
 
@@ -172,7 +142,7 @@ export function renameMailbox(
 			},
 			change,
 		);
-		row.name = placeOf(state, accountId, name, parentId, row.id);
+		row.name = placeMailbox(lookups(state, accountId), name, parentId, row.id);
 		row.parent_id = parentId ?? null;
 		row.modseq = state.bump(accountId);
 		state.db
@@ -192,9 +162,7 @@ export function setSubscribed(
 ): Mailbox {
 	return state.atomic(() => {
 		const row = state.mailbox(accountId, id);
-		if (typeof subscribed !== 'boolean') {
-			throw new StoreError('INVALID', 'isSubscribed is true or false');
-		}
+		checkSubscribed(subscribed);
 		if ((row.is_subscribed === 1) !== subscribed) {
 			row.is_subscribed = subscribed ? 1 : 0;
 			row.modseq = state.bump(accountId);
@@ -205,33 +173,5 @@ export function setSubscribed(
 				.run(row.is_subscribed, row.modseq, row.id);
 		}
 		return state.mailboxView(row);
-	});
-}
-
-/**
- * Deletes a mailbox with no children. Before the messages slice no
- * mailbox holds a message, so `removeMessages` has nothing to remove yet.
- */
-export function deleteMailbox(
-	state: SqliteState,
-	accountId: string,
-	id: string,
-): void {
-	state.atomic(() => {
-		const row = state.mailbox(accountId, id);
-		const child = state.db
-			.query<{ id: string }, [string]>(
-				'SELECT id FROM mailboxes WHERE parent_id = ? LIMIT 1',
-			)
-			.get(id);
-		if (child) {
-			throw new StoreError(
-				'INVALID',
-				'A mailbox with children cannot be deleted',
-			);
-		}
-		const modseq = state.bump(accountId);
-		state.db.query('DELETE FROM mailboxes WHERE id = ?').run(id);
-		state.buryMailbox(accountId, id, modseq, row.created_modseq);
 	});
 }

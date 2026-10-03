@@ -1,6 +1,6 @@
 import { loginKey, normalizeLogin } from '../contract/checks';
+import { accountExists } from '../contract/conflicts';
 import type { Account } from '../contract/types';
-import { StoreError } from '../errors';
 import type { SqliteState } from './state';
 
 export function getAccount(
@@ -32,10 +32,7 @@ export function createAccount(state: SqliteState, name: string): Account {
 	const login = normalizeLogin(name);
 	return state.atomic(() => {
 		if (findAccount(state, login)) {
-			throw new StoreError(
-				'ALREADY_EXISTS',
-				`An account "${login}" already exists`,
-			);
+			throw accountExists(login);
 		}
 		const account = { id: crypto.randomUUID(), name: login };
 		state.db

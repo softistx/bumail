@@ -1,21 +1,18 @@
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { type FileHandle, open, rename, stat, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { readChunks } from '../contract/blob';
 import type { Content } from '../contract/types';
+import {
+	makeDirectory,
+	PRIVATE_DIRECTORY,
+	PRIVATE_FILE,
+	syncDirectory,
+	syncDirectorySync,
+} from './disk';
 
 const STAGING = '.staging';
 const BLOB_ID = /^[0-9a-f]{64}$/;
-
-/** Flushes a directory, so a file renamed or created in it survives a crash. */
-async function syncDirectory(path: string): Promise<void> {
-	const handle = await open(path, 'r');
-	try {
-		await handle.sync();
-	} finally {
-		await handle.close();
-	}
-}
 
 async function exists(path: string): Promise<boolean> {
 	try {
@@ -41,10 +38,14 @@ export class BlobFiles {
 	/** The blobs under `directory`, created if need be; staging files a crash left are removed. */
 	constructor(directory: string) {
 		this.directory = directory;
-		mkdirSync(directory, { recursive: true });
+		makeDirectory(directory);
 		for (const name of readdirSync(directory)) {
 			if (name.endsWith(STAGING)) rmSync(join(directory, name));
 		}
+		// What a crash left half-flushed is flushed now: the sweep, a shard
+		// made by a process that died before it flushed it, and `blobs/` itself.
+		syncDirectorySync(directory);
+		syncDirectorySync(dirname(directory));
 	}
 
 	/** Where a blob lives, or `undefined` for a string that is no blob id. */
@@ -60,7 +61,7 @@ export class BlobFiles {
 	 */
 	async write(content: Content): Promise<{ blobId: string; size: number }> {
 		const staging = join(this.directory, `${crypto.randomUUID()}${STAGING}`);
-		const handle = await open(staging, 'wx');
+		const handle = await open(staging, 'wx', PRIVATE_FILE);
 		let read: { blobId: string; size: number };
 		try {
 			read = await readChunks(content, (chunk) => writeAll(handle, chunk));
@@ -84,7 +85,8 @@ export class BlobFiles {
 		}
 		const shard = join(this.directory, blobId.slice(0, 2));
 		const newShard = !(await exists(shard));
-		if (newShard) mkdirSync(shard, { recursive: true });
+		if (newShard)
+			mkdirSync(shard, { recursive: true, mode: PRIVATE_DIRECTORY });
 		try {
 			await rename(staging, target);
 		} catch (error) {

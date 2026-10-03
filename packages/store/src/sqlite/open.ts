@@ -1,8 +1,9 @@
 import { Database } from 'bun:sqlite';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { StoreError } from '../errors';
 import { BlobFiles } from './blobs';
+import { makeDirectory, PRIVATE_FILE } from './disk';
 import { migrate } from './schema';
 
 /** Where a store keeps its mail: one directory, for one process at a time. */
@@ -23,11 +24,25 @@ function configure(db: Database): void {
 	db.exec('PRAGMA locking_mode = EXCLUSIVE');
 	db.exec('PRAGMA journal_mode = WAL');
 	db.exec('PRAGMA synchronous = FULL');
+	// On macOS a plain fsync leaves the data in the drive's cache: FULL is
+	// durable there only with F_FULLFSYNC. Linux ignores the PRAGMA.
+	db.exec('PRAGMA fullfsync = ON');
 	db.exec('PRAGMA foreign_keys = ON');
 	// In EXCLUSIVE mode the lock a write takes is never released: a second
 	// opener, in this process or another, finds the database locked.
 	db.exec('BEGIN EXCLUSIVE');
 	db.exec('COMMIT');
+}
+
+/**
+ * The database and a WAL a crash left are the owner's alone, whoever made
+ * them: SQLite creates its files 0644, and a new WAL takes the database's
+ * mode.
+ */
+function keepPrivate(file: string): void {
+	for (const path of [file, `${file}-wal`]) {
+		if (existsSync(path)) chmodSync(path, PRIVATE_FILE);
+	}
 }
 
 function why(error: unknown): string {
@@ -50,12 +65,10 @@ export function openDirectory(options: SqliteMailStoreOptions): Opened {
 	}
 	let db: Database | undefined;
 	try {
-		mkdirSync(directory, { recursive: true });
-		db = new Database(join(directory, 'mail.sqlite'), {
-			create: true,
-			readwrite: true,
-			strict: true,
-		});
+		makeDirectory(directory);
+		const file = join(directory, 'mail.sqlite');
+		db = new Database(file, { create: true, readwrite: true, strict: true });
+		keepPrivate(file);
 		configure(db);
 		migrate(db);
 		return { db, blobs: new BlobFiles(join(directory, 'blobs')) };

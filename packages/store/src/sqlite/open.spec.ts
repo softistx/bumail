@@ -1,8 +1,9 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { rejects } from '../contract/fixtures/setup.fixtures';
+import { bytes, rejects } from '../contract/fixtures/setup.fixtures';
+import { BlobFiles } from './blobs';
 import { temporaryStores } from './directories.fixtures';
 import { MIGRATIONS } from './schema';
 import { SqliteMailStore } from './store';
@@ -58,7 +59,81 @@ describe('SqliteMailStore.open', () => {
 	});
 });
 
+describe('SqliteMailStore.open: privacy', () => {
+	const modeOf = (path: string) => statSync(path).mode & 0o777;
+
+	test("the directories are 0700 and the files 0600: mail is its owner's", async () => {
+		const at = join(directory(), 'nested', 'mail');
+		const store = open(at);
+		await store.createAccount('mary@example.net');
+		const { blobId } = await new BlobFiles(join(at, 'blobs')).write(
+			bytes('private'),
+		);
+		const shard = join(at, 'blobs', blobId.slice(0, 2));
+		for (const path of [join(at, '..'), at, join(at, 'blobs'), shard]) {
+			expect([path, modeOf(path)]).toEqual([path, 0o700]);
+		}
+		const sqlite = join(at, 'mail.sqlite');
+		expect(existsSync(`${sqlite}-wal`)).toBe(true);
+		for (const path of [sqlite, `${sqlite}-wal`, join(shard, blobId)]) {
+			expect([path, modeOf(path)]).toEqual([path, 0o600]);
+		}
+		expect(readdirSync(join(at, 'blobs'))).toEqual([blobId.slice(0, 2)]);
+	});
+
+	test('a database made world-readable is made private again on open', () => {
+		const at = directory();
+		writeFileSync(join(at, 'mail.sqlite'), '', { mode: 0o644 });
+		open(at);
+		expect(modeOf(join(at, 'mail.sqlite'))).toBe(0o600);
+	});
+});
+
+describe('SqliteMailStore.close', () => {
+	test("a call after it is INVALID, never SQLite's own error", async () => {
+		const store = open();
+		const account = await store.createAccount('mary@example.net');
+		store.close();
+		for (const call of [
+			store.createAccount('john@example.net'),
+			store.getAccount(account.id),
+			store.listMailboxes(account.id),
+			store.deleteMailbox(account.id, 'x'),
+			store.mailboxChanges(account.id, 0),
+		]) {
+			await expect(call).rejects.toMatchObject({
+				name: 'StoreError',
+				code: 'INVALID',
+				message: 'The store is closed',
+			});
+		}
+	});
+});
+
 describe('SqliteMailStore.open: the schema', () => {
+	test('an expunged tombstone, and only one, names when its message joined', () => {
+		const at = directory();
+		open(at).close();
+		const db = new Database(join(at, 'mail.sqlite'));
+		try {
+			db.exec(
+				"INSERT INTO accounts (id, name, login_key) VALUES ('a', 'a', 'a')",
+			);
+			const bury = (kind: string, joined: number | null) =>
+				db
+					.query(
+						'INSERT INTO tombstones (account_id, kind, modseq, id, created_modseq, joined_modseq) VALUES (?, ?, 1, ?, 1, ?)',
+					)
+					.run('a', kind, crypto.randomUUID(), joined);
+			bury('expunged', 1);
+			bury('mailbox', null);
+			expect(() => bury('expunged', null)).toThrow('CHECK');
+			expect(() => bury('message', 1)).toThrow('CHECK');
+		} finally {
+			db.close();
+		}
+	});
+
 	test('writes the schema version and the WAL journal', () => {
 		const at = directory();
 		open(at).close();

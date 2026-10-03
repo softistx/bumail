@@ -49,9 +49,13 @@ export const MIGRATIONS: readonly string[] = [
 		id TEXT NOT NULL,
 		created_modseq INTEGER NOT NULL,
 		mailbox_id TEXT,
-		uid INTEGER
+		uid INTEGER,
+		joined_modseq INTEGER,
+		CHECK ((kind = 'expunged') = (joined_modseq IS NOT NULL))
 	) STRICT;
 	CREATE INDEX tombstones_since ON tombstones (account_id, kind, modseq);
+	CREATE INDEX tombstones_mailbox
+		ON tombstones (account_id, kind, mailbox_id, modseq);
 	`,
 ];
 
