@@ -64,7 +64,7 @@ if (account) await store.listMailboxes(account.id);
 
 **Code**: `NOT_FOUND`.
 
-**When**: a mailbox id names no mailbox of the account the call was given: `addMessage`, `listMessages`, `renameMailbox`, `setSubscribed`, `deleteMailbox`, a copy, link or move target or source, or a `parentId`. Another account's mailbox counts as none: every call acts in one account only.
+**When**: a mailbox id names no mailbox of the account the call was given: `addMessage`, `listMessages`, `renameMailbox`, `setSubscribed`, `deleteMailbox`, a copy, link or move target or source, a `parentId`, or `messageChanges`'s `mailboxId` — a mailbox deleted since included. Another account's mailbox counts as none: every call acts in one account only.
 
 **Fix**: Read the mailbox first with `getMailbox(accountId, id)` or `findMailbox(accountId, role)`; another client may have deleted it.
 
@@ -452,7 +452,7 @@ const { modseq } = await store.messageChanges(account.id, 0);
 
 **Code**: `INVALID`.
 
-**When**: `messageChanges` or `mailboxChanges` was given a `limit` of 0, a negative or fractional one.
+**When**: `messageChanges` or `mailboxChanges` was given a `limit` of 0, a negative or fractional one. For `messageChanges` it counts `created`, `updated`, `destroyed` and `expunged` together.
 
 **Fix**: Pass a positive integer, or leave `limit` out for all the changes at once.
 

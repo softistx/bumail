@@ -14,6 +14,7 @@ import type {
 	MailboxRole,
 	Message,
 	MessageChanges,
+	MessageChangesOptions,
 	MessagePage,
 	MessagesResult,
 	NewMailbox,
@@ -186,12 +187,14 @@ export interface MailStore {
 	 * way to start over after `CANNOT_CALCULATE_CHANGES`. `expunged` lists
 	 * every UID expunged after `since` (RFC 7162 §3.2.6), even one that came
 	 * into its mailbox after `since`: a client may hold it from a later
-	 * session, and ignores one it does not.
+	 * session, and ignores one it does not. `limit` counts the expunged
+	 * entries too. With `mailboxId`, only that mailbox's changes; one that
+	 * names no mailbox of the account is `NOT_FOUND`.
 	 */
 	messageChanges(
 		accountId: string,
 		since: number,
-		options?: ChangesOptions,
+		options?: MessageChangesOptions,
 	): Promise<MessageChanges>;
 	/** What changed among the account's mailboxes since a modseq. */
 	mailboxChanges(

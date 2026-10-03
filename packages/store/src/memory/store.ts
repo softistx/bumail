@@ -15,6 +15,7 @@ import type {
 	MailboxRole,
 	Message,
 	MessageChanges,
+	MessageChangesOptions,
 	MessagePage,
 	MessagesResult,
 	NewMailbox,
@@ -244,7 +245,7 @@ export class MemoryMailStore implements MailStore {
 	async messageChanges(
 		accountId: string,
 		since: number,
-		options: ChangesOptions = {},
+		options: MessageChangesOptions = {},
 	): Promise<MessageChanges> {
 		return messageChanges(this.#state, accountId, since, options ?? {});
 	}

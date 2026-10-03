@@ -26,7 +26,13 @@ export interface MessageState {
 	receivedAt: number;
 	createdModseq: number;
 	modseq: number;
-	mailboxes: Map<string, { uid: number; modseq: number }>;
+	mailboxes: Map<string, Place>;
+}
+
+/** A message's place in one mailbox; `modseq` is when it came in. */
+export interface Place {
+	uid: number;
+	modseq: number;
 }
 
 export type Tombstone =
@@ -36,6 +42,8 @@ export type Tombstone =
 			messageId: string;
 			mailboxId: string;
 			uid: number;
+			/** When the message came into the mailbox. */
+			joinedModseq: number;
 	  }
 	| {
 			kind: 'message' | 'mailbox';

@@ -271,6 +271,7 @@ for (;;) {
 	since = changes.modseq;
 	if (!changes.hasMore) break;
 }
+const inInbox = await store.messageChanges(account.id, since, { mailboxId: inbox.id });
 const mailboxes = await store.mailboxChanges(account.id, 0);
 ```
 
@@ -283,13 +284,23 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   lists every UID expunged after `since`, even one that came into its
   mailbox after `since`, as RFC 7162 §3.2.6 asks: a client may know it
   from a session in between, and ignores a UID it does not hold.
-- `limit` caps the ids returned (JMAP's `maxChanges`); `hasMore` says to
-  ask again from the returned `modseq`. A page cuts by when each thing was
+- `limit` caps the entries returned, `created`, `updated`, `destroyed`
+  and `expunged` together (JMAP's `maxChanges`); `hasMore` says to ask
+  again from the returned `modseq`. A page cuts by when each thing was
   created, for `created`, and by its last change otherwise, so a message
   created then changed again is `created` on the first page that reaches
   it and `updated` on a later one — RFC 8620 §5.2's intermediate states.
   A page never splits the changes of one modseq, so it holds more than
   `limit` only when one modseq alone has more.
+- `mailboxId` narrows the answer to one mailbox, for a client that holds
+  only that one — an IMAP session on it, or a JMAP view of a folder. A
+  message that came into it since `since` is `created`, even when the
+  account had it before; one that was in it at `since` and left is
+  `destroyed`, even when it is still in another mailbox; one that left
+  and came back is `updated`; and `expunged` lists only its UIDs, every
+  one expunged after `since` as above. Paging works the same. A mailbox
+  the account does not have, or no longer has, is `NOT_FOUND`: after
+  deleting a mailbox, a client drops what it held of it.
 - `mailboxChanges` lists mailboxes created, deleted, renamed or moved,
   and those whose messages changed, since their counts did.
 - `since` is 0 or a modseq the account gave. One the store no longer

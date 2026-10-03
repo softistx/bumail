@@ -1,76 +1,42 @@
 import type {
 	ChangesOptions,
-	Expunged,
 	MailboxChanges,
 	MessageChanges,
+	MessageChangesOptions,
 } from '../contract/types';
-import { StoreError } from '../errors';
-import type { AccountState, MemoryState } from './state';
+import { checkSince, type Item, ids, liveItem, page } from './paging';
+import type { AccountState, MemoryState, Tombstone } from './state';
 
-interface Item {
-	id: string;
-	/** Where it sorts: its creation for a created item, else its last change. */
-	modseq: number;
-	kind: 'created' | 'updated' | 'destroyed';
-}
+type ExpungedTombstone = Extract<Tombstone, { kind: 'expunged' }>;
 
-function checkSince(
+const expungedItem = ({
+	kind: _,
+	joinedModseq: __,
+	...expunged
+}: ExpungedTombstone): Item => ({
+	id: expunged.messageId,
+	modseq: expunged.modseq,
+	kind: 'expunged',
+	expunged,
+});
+
+/** Every message of the account, destroyed since or changed since. */
+function accountItems(
+	state: MemoryState,
 	account: AccountState,
+	accountId: string,
 	since: number,
-	options: ChangesOptions,
-): void {
-	if (!Number.isSafeInteger(since) || since < 0 || since > account.modseq) {
-		throw new StoreError(
-			'INVALID',
-			`since must be a modseq the account has given, from 0 to ${account.modseq}, not ${since}`,
-		);
-	}
-	// Since 0 needs no tombstone: everything that exists is created.
-	if (since > 0 && since < account.floor) {
-		throw new StoreError(
-			'CANNOT_CALCULATE_CHANGES',
-			`Changes since ${since} are forgotten; ask for the changes since 0, which lists every item as created`,
-		);
-	}
-	const limit = options.limit;
-	if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
-		throw new StoreError(
-			'INVALID',
-			`limit must be a positive integer, not ${limit}`,
-		);
-	}
-}
-
-/**
- * The live items and the tombstones after `since`, oldest first, cut at
- * `limit`. A created item sorts by its creation, so a page that ends past
- * it lists it as created even when it changed again later; the next page
- * then lists that change as an update (RFC 8620 §5.2's intermediate
- * states). A thing created and destroyed since is left out. A cut never
- * splits items of one modseq: a page goes over `limit` only when one
- * modseq alone holds more, or to reach the account's floor, below which
- * the next page could not be answered.
- */
-function page(
-	account: AccountState,
-	since: number,
-	live: Iterable<{ id: string; createdModseq: number; modseq: number }>,
-	kind: 'message' | 'mailbox',
-	limit: number | undefined,
-): { items: Item[]; modseq: number; hasMore: boolean } {
+): Item[] {
 	const items: Item[] = [];
-	for (const thing of live) {
-		if (thing.modseq <= since) continue;
-		const created = thing.createdModseq > since;
-		items.push({
-			id: thing.id,
-			modseq: created ? thing.createdModseq : thing.modseq,
-			kind: created ? 'created' : 'updated',
-		});
+	for (const message of state.messages.values()) {
+		if (message.accountId !== accountId) continue;
+		const item = liveItem(message, since);
+		if (item) items.push(item);
 	}
 	for (const tombstone of account.tombstones) {
+		// A thing created and destroyed since is left out.
 		if (
-			tombstone.kind === kind &&
+			tombstone.kind === 'message' &&
 			tombstone.modseq > since &&
 			tombstone.createdModseq <= since
 		) {
@@ -81,55 +47,61 @@ function page(
 			});
 		}
 	}
-	items.sort((a, b) => a.modseq - b.modseq);
-	if (limit === undefined || items.length <= limit) {
-		return { items, modseq: account.modseq, hasMore: false };
-	}
-	let last = (items[limit - 1] as Item).modseq;
-	let kept = items.filter((item) => item.modseq <= last);
-	if (kept.length > limit) {
-		// Items of one modseq straddle the limit: stop before them, unless
-		// they alone fill the page.
-		const before = items.filter((item) => item.modseq < last);
-		if (before.length > 0) {
-			kept = before;
-			last = (before.at(-1) as Item).modseq;
-		}
-	}
-	// The next page asks since `last`: one below the floor would be
-	// CANNOT_CALCULATE_CHANGES, so a since-0 page reaches the floor at least.
-	if (last < account.floor) {
-		last = account.floor;
-		kept = items.filter((item) => item.modseq <= last);
-	}
-	if (kept.length === items.length) {
-		return { items, modseq: account.modseq, hasMore: false };
-	}
-	return { items: kept, modseq: last, hasMore: true };
+	return items;
 }
 
-const ids = (items: Item[], kind: Item['kind']) =>
-	items.filter((item) => item.kind === kind).map((item) => item.id);
+/**
+ * The messages of one mailbox as if it were the account: one that came in
+ * since is created, one that was in it at `since` and is no more is
+ * destroyed, when it left. One that left and came back is updated.
+ */
+function mailboxItems(
+	state: MemoryState,
+	account: AccountState,
+	mailboxId: string,
+	since: number,
+): Item[] {
+	const left = new Map<string, number>();
+	for (const tombstone of account.tombstones) {
+		if (
+			tombstone.kind === 'expunged' &&
+			tombstone.mailboxId === mailboxId &&
+			tombstone.modseq > since &&
+			tombstone.joinedModseq <= since
+		) {
+			left.set(tombstone.messageId, tombstone.modseq);
+		}
+	}
+	const items: Item[] = [];
+	for (const message of state.messages.values()) {
+		const place = message.mailboxes.get(mailboxId);
+		if (!place) continue;
+		const item = liveItem(
+			{ id: message.id, createdModseq: place.modseq, modseq: message.modseq },
+			since,
+			left.delete(message.id),
+		);
+		if (item) items.push(item);
+	}
+	for (const [id, modseq] of left)
+		items.push({ id, modseq, kind: 'destroyed' });
+	return items;
+}
 
 export function messageChanges(
 	state: MemoryState,
 	accountId: string,
 	since: number,
-	options: ChangesOptions,
+	options: MessageChangesOptions,
 ): MessageChanges {
 	const account = state.account(accountId);
+	const { mailboxId } = options;
+	if (mailboxId !== undefined) state.mailbox(accountId, mailboxId);
 	checkSince(account, since, options);
-	const live = [...state.messages.values()].filter(
-		(message) => message.accountId === accountId,
-	);
-	const { items, modseq, hasMore } = page(
-		account,
-		since,
-		live,
-		'message',
-		options.limit,
-	);
-	const expunged: Expunged[] = [];
+	const items =
+		mailboxId === undefined
+			? accountItems(state, account, accountId, since)
+			: mailboxItems(state, account, mailboxId, since);
 	// RFC 7162 §3.2.6: every UID expunged after `since`, even one the client
 	// may never have seen; a client ignores a UID it does not hold. Since 0,
 	// the client holds nothing that could have vanished.
@@ -137,19 +109,19 @@ export function messageChanges(
 		if (
 			tombstone.kind === 'expunged' &&
 			tombstone.modseq > since &&
-			tombstone.modseq <= modseq
+			(mailboxId === undefined || tombstone.mailboxId === mailboxId)
 		) {
-			const { kind: _, ...rest } = tombstone;
-			expunged.push(rest);
+			items.push(expungedItem(tombstone));
 		}
 	}
+	const { items: kept, modseq, hasMore } = page(account, items, options.limit);
 	return {
 		modseq,
 		hasMore,
-		created: ids(items, 'created'),
-		updated: ids(items, 'updated'),
-		destroyed: ids(items, 'destroyed'),
-		expunged,
+		created: ids(kept, 'created'),
+		updated: ids(kept, 'updated'),
+		destroyed: ids(kept, 'destroyed'),
+		expunged: kept.flatMap((item) => (item.expunged ? [item.expunged] : [])),
 	};
 }
 
@@ -161,26 +133,39 @@ export function mailboxChanges(
 ): MailboxChanges {
 	const account = state.account(accountId);
 	checkSince(account, since, options);
-	// A mailbox whose messages changed changed too: its counts are its own.
-	const live = [...state.mailboxes.values()]
-		.filter((mailbox) => mailbox.accountId === accountId)
-		.map((mailbox) => ({
-			id: mailbox.id,
-			createdModseq: mailbox.createdModseq,
-			modseq: Math.max(mailbox.modseq, mailbox.highestModseq),
-		}));
-	const { items, modseq, hasMore } = page(
-		account,
-		since,
-		live,
-		'mailbox',
-		options.limit,
-	);
+	const items: Item[] = [];
+	for (const mailbox of state.mailboxes.values()) {
+		if (mailbox.accountId !== accountId) continue;
+		// A mailbox whose messages changed changed too: its counts are its own.
+		const item = liveItem(
+			{
+				id: mailbox.id,
+				createdModseq: mailbox.createdModseq,
+				modseq: Math.max(mailbox.modseq, mailbox.highestModseq),
+			},
+			since,
+		);
+		if (item) items.push(item);
+	}
+	for (const tombstone of account.tombstones) {
+		if (
+			tombstone.kind === 'mailbox' &&
+			tombstone.modseq > since &&
+			tombstone.createdModseq <= since
+		) {
+			items.push({
+				id: tombstone.id,
+				modseq: tombstone.modseq,
+				kind: 'destroyed',
+			});
+		}
+	}
+	const { items: kept, modseq, hasMore } = page(account, items, options.limit);
 	return {
 		modseq,
 		hasMore,
-		created: ids(items, 'created'),
-		updated: ids(items, 'updated'),
-		destroyed: ids(items, 'destroyed'),
+		created: ids(kept, 'created'),
+		updated: ids(kept, 'updated'),
+		destroyed: ids(kept, 'destroyed'),
 	};
 }

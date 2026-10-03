@@ -1188,7 +1188,8 @@ claim it took it.
 
 **Fix**: read the stream to its end before returning — or refuse with a
 `Reply`, which needs no reading and leaves `message.signal` alone unless
-a later stream failure or a closed connection answers instead:
+a later stream failure replaces that reply or the connection closes
+before it is sent, which abort it instead:
 
 ```ts
 import { createSmtpServer, reply } from '@bumail/smtp';
