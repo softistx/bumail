@@ -355,7 +355,8 @@ process.on('SIGTERM', () => {
 `open` is synchronous: it makes the directory and whichever of its parents
 are missing, opens or creates `mail.sqlite`, brings its schema up to date,
 and sweeps the blobs (below). Whatever goes wrong there is a `StoreError`
-with the code `INVALID` naming the directory; see
+with the code `INVALID`, most often naming the directory (a missing
+`directory`, a bad `maxTombstones` or a newer schema do not); see
 [Troubleshooting](troubleshooting.md), its last group.
 
 `close()` lets go of the database and of its lock, and may be called more

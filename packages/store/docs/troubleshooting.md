@@ -564,7 +564,7 @@ const store = SqliteMailStore.open({ directory });
 
 **Code**: `INVALID`.
 
-**When**: the directory, `mail.sqlite` or `blobs/` could not be made or opened, for the reason after the colon: `EACCES: permission denied` (the server's user may not write there), `ENOTDIR: not a directory` (a part of the path is a file), `EROFS` (a read-only filesystem), or SQLite's own message.
+**When**: the directory, `mail.sqlite` or `blobs/` could not be made or opened, for the reason after the colon: `EACCES: permission denied` or, on macOS, `EPERM: operation not permitted` (the server's user may not write there), `ENOTDIR: not a directory` (a part of the path is a file), `EROFS` (a read-only filesystem), or SQLite's own message.
 
 **Fix**: Give the user the server runs as a directory of its own that it can write, 0700.
 
@@ -581,7 +581,9 @@ install -d -m 0700 -o bumail -g bumail /var/lib/bumail/mail
 **Fix**: Pass an integer of at least 0, `Infinity`, or leave it out to remember every removal.
 
 ```ts
-const maxTombstones = Number(process.env.MAX_TOMBSTONES ?? Infinity); // a number, not "10000"
+const maxTombstones = process.env.MAX_TOMBSTONES
+	? Number(process.env.MAX_TOMBSTONES) // a number, not "10000"
+	: Infinity; // unset or empty: remember every removal
 SqliteMailStore.open({ directory, maxTombstones });
 ```
 
