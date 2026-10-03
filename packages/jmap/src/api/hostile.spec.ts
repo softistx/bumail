@@ -34,6 +34,51 @@ describe('hostile method calls', () => {
 		});
 	});
 
+	test('chained back-references do not amplify the response', async () => {
+		h = await harness();
+		const calls: unknown[] = [['Core/echo', { pad: 'x'.repeat(2500) }, 'c0']];
+		for (let i = 1; i < 16; i++) {
+			const ref = { resultOf: `c${i - 1}`, name: 'Core/echo', path: '' };
+			calls.push(['Core/echo', { '#a': ref, '#b': ref }, `c${i}`]);
+		}
+		const response = await h.fetch('/jmap/api', {
+			method: 'POST',
+			body: body(calls),
+		});
+		const text = await response.text();
+		expect(text.length).toBeLessThan(5 * 1024 * 1024);
+		const { methodResponses } = JSON.parse(text) as {
+			methodResponses: [string, { description?: string }, string][];
+		};
+		expect(
+			methodResponses.map(([, args]) => args.description).filter(Boolean)[0],
+		).toBe(
+			`The references of this request resolve to more than ${4 * 1024 * 1024} bytes`,
+		);
+	});
+
+	test('maxReferenceBytes counts a path to an object, and maxSizeResponse caps the whole', async () => {
+		h = await harness('memory', {
+			limits: { maxReferenceBytes: 100, maxSizeResponse: 2000 },
+		});
+		const echo = (id: string, args: object) => ['Core/echo', args, id];
+		const ref = { resultOf: 'a', name: 'Core/echo', path: '/o' };
+		const { methodResponses } = await h.api([
+			echo('a', { o: { pad: 'x'.repeat(200) } }),
+			echo('b', { '#o': ref }),
+		]);
+		expect(methodResponses[1]?.[1].type).toBe('invalidResultReference');
+		const over = await h.fetch('/jmap/api', {
+			method: 'POST',
+			body: body([echo('a', { pad: 'x'.repeat(3000) })]),
+		});
+		expect(over.status).toBe(400);
+		expect(await over.json()).toMatchObject({
+			type: 'urn:ietf:params:jmap:error:limit',
+			limit: 'maxSizeResponse',
+		});
+	});
+
 	test('ids are [A-Za-z0-9_-]{1,255}; anything else is invalidArguments', async () => {
 		h = await harness();
 		for (const id of ['a b', 'é', '', 'x'.repeat(256), '../etc']) {

@@ -13,6 +13,8 @@ const RESULT = {
 	'a/b': { 'm~n': 7 },
 };
 
+const budget = (left = 1000) => ({ maxItems: 10, maxBytes: left, left });
+
 describe('RFC 8620 §3.7 back-references', () => {
 	test('/list/*/threadId maps over the list', () => {
 		expect(pointer(RESULT, '/list/*/threadId', 100)).toEqual(['t1', 't2']);
@@ -57,11 +59,11 @@ describe('RFC 8620 §3.7 back-references', () => {
 		];
 		const ref = { resultOf: 't0', name: 'Email/query', path: '/ids' };
 		expect(
-			resolveReferences({ accountId: 'x', '#ids': ref }, responses, 10),
+			resolveReferences({ accountId: 'x', '#ids': ref }, responses, budget()),
 		).toEqual({ accountId: 'x', ids: ['a', 'b'] });
 		const type = (args: Record<string, unknown>) => {
 			try {
-				resolveReferences(args, responses, 10);
+				resolveReferences(args, responses, budget());
 			} catch (error) {
 				return (error as MethodError).type;
 			}
@@ -75,6 +77,28 @@ describe('RFC 8620 §3.7 back-references', () => {
 		);
 		expect(type({ '#ids': 'not a reference' })).toBe('invalidResultReference');
 		expect(type({ ids: [], '#ids': ref })).toBe('invalidArguments');
+	});
+
+	test('every value resolved is charged to the request, whatever its path', () => {
+		const responses: Invocation[] = [
+			['Core/echo', { big: 'x'.repeat(100) }, 'e'],
+		];
+		const whole = { resultOf: 'e', name: 'Core/echo', path: '' };
+		const shared = budget(250);
+		expect(resolveReferences({ '#a': whole }, responses, shared)).toEqual({
+			a: responses[0]?.[1],
+		});
+		expect(shared.left).toBe(250 - JSON.stringify(responses[0]?.[1]).length);
+		expect(() =>
+			resolveReferences({ '#a': whole, '#b': whole }, responses, shared),
+		).toThrow('resolve to more than 250 bytes');
+		expect(() =>
+			resolveReferences(
+				{ '#a': { ...whole, path: '/big' } },
+				responses,
+				budget(50),
+			),
+		).toThrow(MethodError);
 	});
 });
 

@@ -3,7 +3,8 @@ import type { Args } from './args';
 import type { CallContext } from './context';
 import { MethodError } from './errors';
 import { resolveReferences } from './refs';
-import type { Invocation, JmapRequest } from './request';
+import type { Invocation, JmapRequest, Refused } from './request';
+import { jsonSize } from './size';
 
 /** A method: its arguments, checked by itself, to its response's arguments. */
 export type MethodHandler = (args: Args, ctx: CallContext) => Promise<Args>;
@@ -49,33 +50,50 @@ async function call(
 		return ['error', { type: 'unknownMethod' }, callId];
 	}
 	try {
-		const args = resolveReferences(
-			given,
-			responses,
-			ctx.settings.limits.maxReferenceItems,
-		);
+		const args = resolveReferences(given, responses, ctx.references);
 		return [name, await method.handler(args, ctx), callId];
 	} catch (error) {
 		return ['error', errorOf(error, ctx, name), callId];
 	}
 }
 
-/** Runs each method call in order, each seeing the responses before it (RFC 8620 §3.3). */
+/**
+ * Runs each method call in order, each seeing the responses before it
+ * (RFC 8620 §3.3). A response growing past `maxSizeResponse` stops the
+ * request: it is refused as a whole, as a `limit` (RFC 8620 §3.6.1).
+ */
 export async function dispatch(
 	request: JmapRequest,
 	ctx: CallContext,
 	methods: ReadonlyMap<string, Method>,
 	sessionState: string,
-): Promise<JmapResponse> {
+): Promise<
+	{ ok: true; response: JmapResponse } | { ok: false; refused: Refused }
+> {
+	const max = ctx.settings.limits.maxSizeResponse;
+	let left = max;
 	const responses: Invocation[] = [];
 	for (const invocation of request.methodCalls) {
-		responses.push(await call(invocation, responses, ctx, methods));
+		const response = await call(invocation, responses, ctx, methods);
+		left -= jsonSize(response, left);
+		if (left < 0) {
+			return {
+				ok: false,
+				refused: {
+					type: 'limit',
+					limit: 'maxSizeResponse',
+					detail: `The response would be larger than ${max} bytes`,
+				},
+			};
+		}
+		responses.push(response);
 	}
-	return {
+	const response: JmapResponse = {
 		methodResponses: responses,
 		...(request.createdIds === undefined
 			? {}
 			: { createdIds: Object.fromEntries(ctx.created) }),
 		sessionState,
 	};
+	return { ok: true, response };
 }

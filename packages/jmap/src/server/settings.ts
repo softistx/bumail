@@ -34,6 +34,8 @@ const BOUNDS: { readonly [Key in keyof Limits]: readonly [number, number] } = {
 	maxJsonDepth: [64, 1000],
 	maxJsonTokens: [100_000, 100_000_000],
 	maxReferenceItems: [5000, 1_000_000],
+	maxReferenceBytes: [4 * MiB, 2 ** 31],
+	maxSizeResponse: [64 * MiB, 2 ** 31],
 	maxQueryScan: [10_000, 10_000_000],
 	maxBodyValueBytes: [MiB, 2 ** 31],
 	maxBodyValuesTotal: [16 * MiB, 2 ** 31],

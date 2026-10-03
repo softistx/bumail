@@ -1,6 +1,17 @@
 import { quoted } from '../shared/text';
 import { invalidArguments, MethodError } from './errors';
 import type { Invocation } from './request';
+import { jsonSize } from './size';
+
+/** What one request's back-references may still resolve to. */
+export interface ReferenceBudget {
+	/** Values one reference may expand to: `maxReferenceItems`. */
+	readonly maxItems: number;
+	/** The request's `maxReferenceBytes`, for the error. */
+	readonly maxBytes: number;
+	/** Bytes of JSON the request's references may still copy. */
+	left: number;
+}
 
 /** The longest `path` of a ResultReference, and the most segments it may have. */
 const MAX_PATH = 1024;
@@ -75,7 +86,7 @@ export function pointer(value: unknown, path: string, max: number): unknown {
 function resolveOne(
 	reference: unknown,
 	responses: readonly Invocation[],
-	max: number,
+	budget: ReferenceBudget,
 ): unknown {
 	if (
 		!isObject(reference) ||
@@ -99,17 +110,26 @@ function resolveOne(
 			`The call ${quoted(resultOf)} answered ${quoted(response[0])}, not ${quoted(name)}`,
 		);
 	}
-	return pointer(response[1], path, max);
+	const found = pointer(response[1], path, budget.maxItems);
+	budget.left -= jsonSize(found, budget.left);
+	if (budget.left < 0) {
+		throw bad(
+			`The references of this request resolve to more than ${budget.maxBytes} bytes`,
+		);
+	}
+	return found;
 }
 
 /**
  * The arguments with each `#name` back-reference replaced by what it
- * points to in an earlier response of the same request.
+ * points to in an earlier response of the same request. Every value
+ * resolved is charged to the request's `budget`, whatever its shape, so
+ * chained references cannot copy a response over and over.
  */
 export function resolveReferences(
 	args: Record<string, unknown>,
 	responses: readonly Invocation[],
-	max: number,
+	budget: ReferenceBudget,
 ): Record<string, unknown> {
 	if (!Object.keys(args).some((key) => key.startsWith('#'))) return args;
 	const resolved: Record<string, unknown> = {};
@@ -124,7 +144,7 @@ export function resolveReferences(
 				`Both ${quoted(name)} and ${quoted(key)} are given`,
 			);
 		}
-		resolved[name] = resolveOne(value, responses, max);
+		resolved[name] = resolveOne(value, responses, budget);
 	}
 	return resolved;
 }

@@ -1,6 +1,7 @@
 import type { MailStore } from '@bumail/store';
 import type { Uploads } from '../blob/uploads';
 import type { Settings } from '../server/settings';
+import type { ReferenceBudget } from './refs';
 
 /** What every method call of one request reads. */
 export interface CallContext {
@@ -15,4 +16,6 @@ export interface CallContext {
 	readonly request: Request;
 	/** Bytes of body values this request may still return. */
 	bodyBudget: number;
+	/** Bytes of JSON this request's back-references may still copy. */
+	readonly references: ReferenceBudget;
 }

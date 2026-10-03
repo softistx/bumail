@@ -50,14 +50,22 @@ async function answer(
 		uploads: runtime.uploads,
 		request,
 		bodyBudget: limits.maxBodyValuesTotal,
+		references: {
+			maxItems: limits.maxReferenceItems,
+			maxBytes: limits.maxReferenceBytes,
+			left: limits.maxReferenceBytes,
+		},
 	};
-	const response = await dispatch(
+	const answered = await dispatch(
 		checked.request,
 		ctx,
 		METHODS,
 		sessionOf(settings, auth).state,
 	);
-	return reply(200, response, { headers: { 'cache-control': 'no-store' } });
+	if (!answered.ok) return refusal(reply, answered.refused);
+	return reply(200, answered.response, {
+		headers: { 'cache-control': 'no-store' },
+	});
 }
 
 /** `POST {basePath}/api` (RFC 8620 §3): one request, its calls in order, at most `maxConcurrentRequests` at once. */

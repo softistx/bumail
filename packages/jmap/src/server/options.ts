@@ -49,6 +49,13 @@ export interface JmapLimits {
 	readonly maxJsonTokens?: number;
 	/** Values one back-reference may expand to. Default 5000. */
 	readonly maxReferenceItems?: number;
+	/**
+	 * Bytes of JSON all the back-references of one request may resolve to,
+	 * together, whatever the path. Default 4 MiB.
+	 */
+	readonly maxReferenceBytes?: number;
+	/** The largest API response, in bytes of JSON. Default 64 MiB. */
+	readonly maxSizeResponse?: number;
 	/** Emails a query, a thread lookup or a text search reads at most. Default 10 000. */
 	readonly maxQueryScan?: number;
 	/** The longest body value returned, in bytes, whatever the client asks. Default 1 MiB. */

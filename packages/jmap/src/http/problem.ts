@@ -37,17 +37,18 @@ export function problem(
 	return reply(status as 400, body, { headers });
 }
 
-/** A limit broken: 413 for a size, 429 for a concurrency, 400 for the rest. */
+/** A limit broken: 413 for a size the client sent, 429 for a concurrency, 400 for the rest. */
 export function limitProblem(
 	reply: FreeReplyFunction,
 	limit: string,
 	detail: string,
 ) {
-	const status = limit.startsWith('maxSize')
-		? 413
-		: limit.startsWith('maxConcurrent')
-			? 429
-			: 400;
+	const status =
+		limit.startsWith('maxSize') && limit !== 'maxSizeResponse'
+			? 413
+			: limit.startsWith('maxConcurrent')
+				? 429
+				: 400;
 	return problem(reply, status, 'urn:ietf:params:jmap:error:limit', detail, {
 		limit,
 	});
