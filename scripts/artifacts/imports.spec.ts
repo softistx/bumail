@@ -89,11 +89,17 @@ describe('undeclaredImports', () => {
 				],
 				['dist/c.d.ts', "export type R = import('@bumail/dns').Resolver;"],
 				['dist/d.d.ts', "export type { Reply } from './protocol/reply';"],
+				['dist/e.d.ts', '/// <reference types="@bumail/jmap" />'],
+				[
+					'dist/f.d.ts',
+					"import type { Server } from 'bun';\nexport type S = Server;",
+				],
 			]),
 		).toEqual([
 			['dist/a.d.ts', '@bumail/store'],
 			['dist/b.d.ts', '@bumail/queue'],
 			['dist/c.d.ts', '@bumail/dns'],
+			['dist/e.d.ts', '@bumail/jmap'],
 		]);
 	});
 });

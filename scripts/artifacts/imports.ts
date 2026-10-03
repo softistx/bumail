@@ -32,14 +32,16 @@ function isRuntime(specifier: string): boolean {
 /**
  * The specifiers a file imports. JavaScript goes through Bun's own scanner;
  * a declaration file through TypeScript's, since Bun's drops the type-only
- * imports (`import type`, `export type … from`, `import('x').T`) that are
- * all a `.d.ts` holds, and a consumer's `tsc` still resolves them.
+ * imports (`import type`, `export type … from`, `import('x').T`, and
+ * `/// <reference types>`) that are all a `.d.ts` holds, and a consumer's
+ * `tsc` still resolves them.
  */
 function specifiersOf(rel: string, text: string): string[] {
 	if (rel.endsWith('.d.ts')) {
-		return ts
-			.preProcessFile(text, true, true)
-			.importedFiles.map((file) => file.fileName);
+		const info = ts.preProcessFile(text, true, true);
+		return [...info.importedFiles, ...info.typeReferenceDirectives].map(
+			(file) => file.fileName,
+		);
 	}
 	return new Bun.Transpiler({ loader: 'js' })
 		.scanImports(text)
@@ -49,7 +51,8 @@ function specifiersOf(rel: string, text: string): string[] {
 /**
  * Every import in the given bundles that names a package the manifest does
  * not declare, from the bundles' paths and texts. Relative imports, the
- * runtime's own (`bun`, `bun:*`, `node:*`) and the package itself pass; so
+ * runtime's own (`bun`, `bun:*`, Node's built-ins with or without `node:`)
+ * and the package itself pass; so
  * does anything in `dependencies`, `peerDependencies` or
  * `optionalDependencies`. A devDependency never does: no consumer installs
  * it. Bundles are `.js` or `.d.ts`. Pure, so it has specs.
