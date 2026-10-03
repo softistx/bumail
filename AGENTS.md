@@ -16,6 +16,7 @@ below lists only what has landed.
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
 | `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
+| `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
@@ -33,8 +34,10 @@ The repository is **private** until the owner says otherwise.
   `@nxgt/s3`). Apart from those store answers, nothing peers outside
   `@bumail/*` and `@alxia/core`; every package also names `typescript` as
   an optional peer, for its types only. Any peer only once it is on npm:
-  `verify:artifacts` refuses a required peer that is on no registry, so
-  nothing here peers on alxia before its first publish. Bun's and the
+  `verify:artifacts` refuses a required peer that is on no registry.
+  `@alxia/core` is on npm since 0.1.0, and `@bumail/jmap` peers on it by a
+  caret range from the registry — never a `link:` or a workspace path to
+  alxia's checkout — and lists the same range as a devDependency. Bun's and the
   web platform's own APIs — `Bun.listen`, `socket.upgradeTLS`, `bun:sqlite`,
   `Bun.file`, Web Crypto, `TextDecoder`, `node:dns` — are not dependencies.
   `verify:artifacts` fails a manifest with a `dependencies` field that lists
@@ -83,6 +86,7 @@ smtp            (standalone; its specs use store and dns, its Mailpit example au
 store           (standalone)
 auth            → dns, mime
 imap            → store, mime
+jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam as a devDependency)
 ```
 
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
@@ -91,6 +95,10 @@ this section draws their arrows. A package that uses a sibling declares it by
 published name, which resolves through `node_modules` to the sibling's
 `dist/`. A sibling only a spec uses is a devDependency alone, never a peer:
 the package still needs nothing of it at runtime. **There are no cycles.**
+A peer outside bumail (`@alxia/core`) is declared the same way, by its
+npm range, as a peer and a devDependency: `verify:artifacts` checks it is
+on the registry and installs it from there beside the tarballs, and the
+"Newest peers" job leaves a range with one alternative as it is.
 
 Two pieces are copied rather than shared, on purpose:
 
