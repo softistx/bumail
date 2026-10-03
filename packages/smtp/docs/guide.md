@@ -958,6 +958,17 @@ bounce — and `to` one recipient or more. Both are checked as RFC 5321 paths
 before anything is sent: an address holding a CR, an LF or a `>` is refused
 with `INVALID_OPTION`, so it cannot inject a command.
 
+Code that keeps addresses to send to later — a queue — checks
+each one when it takes it with `isMailbox`, the same grammar, so the
+refusal comes back to whoever gave it:
+
+```ts
+import { isMailbox } from '@bumail/smtp/client';
+
+isMailbox('mary@example.net'); // true
+isMailbox('a,b@example.net'); // false: sendMail would refuse it
+```
+
 One call is one destination. With `{ domain }`, every recipient should be
 at that domain: group them by domain first, one `sendMail` each.
 

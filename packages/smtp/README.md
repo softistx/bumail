@@ -392,6 +392,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | `TlsMode` | `'opportunistic'`, `'required'` or `'none'` |
 | `MessageSource` | `Uint8Array`, `string` or `ReadableStream<Uint8Array>` |
 | `MxResolver` | what MX delivery asks of the DNS, by shape: `mx`, `a` and `aaaa`, as `@bumail/dns`'s `Resolver` has them |
+| `isMailbox(address)` | whether `sendMail` takes `address` as `local@domain` (RFC 5321 §4.1.2, no brackets, no source route): check addresses you keep for later when you take them |
 | `resolveMx(domain, resolver)`, `MailHost` | a domain's mail hosts in the order to try them: `{ host, priority, implicit }`; `NULL_MX` or `DNS_FAILED` otherwise |
 | `SmtpError`, `SmtpErrorCode`, `SmtpErrorDetails`, `RecipientReply`, `Reply` | as above; `sendMail` adds the codes `CONNECTION_FAILED`, `CONNECTION_LOST`, `TIMEOUT`, `BAD_REPLY`, `REFUSED`, `RECIPIENTS_REFUSED`, `TLS_UNAVAILABLE`, `TLS_FAILED`, `AUTH_UNAVAILABLE`, `EXTENSION_MISSING`, `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `NULL_MX`, `DNS_FAILED`, `INVALID_OPTION` |
 
