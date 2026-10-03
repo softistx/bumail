@@ -84,9 +84,7 @@ export class BlobFiles {
 			return;
 		}
 		const shard = join(this.directory, blobId.slice(0, 2));
-		const newShard = !(await exists(shard));
-		if (newShard)
-			mkdirSync(shard, { recursive: true, mode: PRIVATE_DIRECTORY });
+		mkdirSync(shard, { recursive: true, mode: PRIVATE_DIRECTORY });
 		try {
 			await rename(staging, target);
 		} catch (error) {
@@ -94,7 +92,9 @@ export class BlobFiles {
 			throw error;
 		}
 		await syncDirectory(shard);
-		if (newShard) await syncDirectory(this.directory);
+		// Always: another write may have made the shard and not synced its
+		// entry yet, and this blob must not be lost with it.
+		await syncDirectory(this.directory);
 	}
 
 	/** The blob as a lazy file, or `undefined` when there is none by that id. */
