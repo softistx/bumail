@@ -187,9 +187,25 @@ export interface MailStore {
 	 * way to start over after `CANNOT_CALCULATE_CHANGES`. `expunged` lists
 	 * every UID expunged after `since` (RFC 7162 §3.2.6), even one that came
 	 * into its mailbox after `since`: a client may hold it from a later
-	 * session, and ignores one it does not. `limit` counts the expunged
-	 * entries too. With `mailboxId`, only that mailbox's changes; one that
-	 * names no mailbox of the account is `NOT_FOUND`.
+	 * session, and ignores one it does not.
+	 *
+	 * With `mailboxId`, only that mailbox's changes; one that names no
+	 * mailbox of the account is `NOT_FOUND`. A message is `created` when it
+	 * came in after `since`, `destroyed` when it was in at `since` and is
+	 * not now, and `updated` when it was in at `since`, is in now and
+	 * changed — its flags, or its mailboxes, this one or another. So a
+	 * store keeps, for each message that left a mailbox, when it had come
+	 * in.
+	 *
+	 * Paging: `limit` counts the four lists together. Each entry sorts by
+	 * a modseq and a page ends at one: a `created` entry by its creation
+	 * (with `mailboxId`, its first coming in after `since`), a `destroyed`
+	 * one by its going (its first leaving), an `updated` one by its last
+	 * change, an `expunged` one by its own. A page never splits one modseq,
+	 * and a page since 0 reaches the oldest `since` the store answers, so
+	 * either may hold more than `limit`. The pages are intermediate states
+	 * (RFC 8620 §5.2): a client treats `created` as add-or-replace, and
+	 * ignores a `destroyed` or `expunged` entry it does not hold.
 	 */
 	messageChanges(
 		accountId: string,

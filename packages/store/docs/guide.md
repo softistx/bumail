@@ -300,7 +300,14 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   and came back is `updated`; and `expunged` lists only its UIDs, every
   one expunged after `since` as above. Paging works the same. A mailbox
   the account does not have, or no longer has, is `NOT_FOUND`: after
-  deleting a mailbox, a client drops what it held of it.
+  deleting a mailbox, a client drops what it held of it. A change in
+  another mailbox counts too: linking a message elsewhere makes it
+  `updated` here, since its mailboxes are part of it.
+- Pages are intermediate states. Across pages, a message that left a
+  mailbox and came back may be `created` for a client that already holds
+  it, and one may be `destroyed` twice: treat `created` as add-or-replace,
+  and ignore a `destroyed` id you do not hold. Following every page always
+  ends at the current state.
 - `mailboxChanges` lists mailboxes created, deleted, renamed or moved,
   and those whose messages changed, since their counts did.
 - `since` is 0 or a modseq the account gave. One the store no longer
@@ -327,7 +334,14 @@ A store of your own implements `MailStore` and:
   stream is hashed chunk by chunk — `readBlob(content)` does that, and
   returns `{ blobId, size, blob }`;
 - keeps flags with `normalizeFlag`;
-- follows the UID and modseq rules above.
+- follows the UID and modseq rules above;
+- keeps, with each removal from a mailbox, the modseq at which the message
+  had come into it — `messageChanges` with `mailboxId` needs it to tell a
+  message that was there at `since` from one that came and went — and
+  sorts its changes for paging as `messageChanges`'s JSDoc lays out: a
+  `created` message by its creation, or in one mailbox by its first coming
+  in after `since`, so no page lists an update for a message the client
+  was never given.
 
 ```ts
 import { readBlob } from '@bumail/store';

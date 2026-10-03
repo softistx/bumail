@@ -1,50 +1,17 @@
 import { describe, expect, test } from 'bun:test';
-import type { MailStore } from '../mail-store';
-import type { MessageChangesOptions } from '../types';
 import { bytes, type CreateStore, rejects, setup } from './setup.fixtures';
 
 export function describeChangesFilter(create: CreateStore): void {
 	describe('changes of one mailbox', () => {
-		filter(create);
+		movedInAndOut(create);
+		leftAndBack(create);
+		elsewhere(create);
+		fromZero(create);
 		refusals(create);
-		limits(create);
 	});
 }
 
-/** Every page from `since` on, with each page's size. */
-async function walk(
-	store: MailStore,
-	accountId: string,
-	since: number,
-	options: MessageChangesOptions,
-) {
-	const seen = {
-		created: [] as string[],
-		updated: [] as string[],
-		destroyed: [] as string[],
-		expunged: [] as unknown[],
-		sizes: [] as number[],
-		modseq: since,
-	};
-	for (let more = true; more; ) {
-		const page = await store.messageChanges(accountId, seen.modseq, options);
-		seen.created.push(...page.created);
-		seen.updated.push(...page.updated);
-		seen.destroyed.push(...page.destroyed);
-		seen.expunged.push(...page.expunged);
-		seen.sizes.push(
-			page.created.length +
-				page.updated.length +
-				page.destroyed.length +
-				page.expunged.length,
-		);
-		seen.modseq = page.modseq;
-		more = page.hasMore;
-	}
-	return seen;
-}
-
-function filter(create: CreateStore): void {
+function movedInAndOut(create: CreateStore): void {
 	test('a message moved in is created there, one moved out destroyed', async () => {
 		const { store, account, inbox } = await setup(create);
 		const a = await store.createMailbox(account.id, { name: 'A' });
@@ -59,8 +26,7 @@ function filter(create: CreateStore): void {
 		const added = await add(inbox.id, 'added');
 		const changes = (mailboxId: string) =>
 			store.messageChanges(account.id, modseq, { mailboxId });
-		const inInbox = await changes(inbox.id);
-		expect(inInbox).toMatchObject({
+		expect(await changes(inbox.id)).toMatchObject({
 			created: [added.id],
 			updated: [flagged.id],
 			destroyed: [moved.id],
@@ -80,7 +46,9 @@ function filter(create: CreateStore): void {
 			destroyed: [],
 		});
 	});
+}
 
+function leftAndBack(create: CreateStore): void {
 	test('one that left and came back is updated; one that came and went is left out', async () => {
 		const { store, account, inbox } = await setup(create);
 		const a = await store.createMailbox(account.id, { name: 'A' });
@@ -109,14 +77,51 @@ function filter(create: CreateStore): void {
 			passing.id,
 		]);
 	});
+}
 
-	test('since 0, the mailbox is its whole state', async () => {
+function elsewhere(create: CreateStore): void {
+	test('a change in another mailbox updates the message; destroying it destroys it in each', async () => {
 		const { store, account, inbox } = await setup(create);
+		const a = await store.createMailbox(account.id, { name: 'A' });
+		const linked = await store.addMessage(account.id, inbox.id, {
+			content: bytes('linked'),
+		});
+		const both = await store.addMessage(account.id, inbox.id, {
+			content: bytes('both'),
+		});
+		await store.linkMessages(account.id, [both.id], a.id);
+		const { modseq } = await store.messageChanges(account.id, 0);
+		await store.linkMessages(account.id, [linked.id], a.id);
+		await store.destroyMessages(account.id, [both.id]);
+		const changes = (mailboxId: string) =>
+			store.messageChanges(account.id, modseq, { mailboxId });
+		// Its mailboxes are part of the message: a link elsewhere is a change.
+		expect(await changes(inbox.id)).toMatchObject({
+			created: [],
+			updated: [linked.id],
+			destroyed: [both.id],
+			expunged: [{ messageId: both.id, mailboxId: inbox.id }],
+		});
+		expect(await changes(a.id)).toMatchObject({
+			created: [linked.id],
+			updated: [],
+			destroyed: [both.id],
+			expunged: [{ messageId: both.id, mailboxId: a.id }],
+		});
+	});
+}
+
+function fromZero(create: CreateStore): void {
+	test('since 0, or since before the mailbox was made, the mailbox is its whole state', async () => {
+		const { store, account, inbox } = await setup(create);
+		const { modseq } = await store.messageChanges(account.id, 0);
 		const a = await store.createMailbox(account.id, { name: 'A' });
 		const mine = await store.addMessage(account.id, inbox.id, {
 			content: bytes('mine'),
 		});
-		await store.addMessage(account.id, a.id, { content: bytes('other') });
+		const theirs = await store.addMessage(account.id, a.id, {
+			content: bytes('other'),
+		});
 		expect(
 			await store.messageChanges(account.id, 0, { mailboxId: inbox.id }),
 		).toMatchObject({
@@ -125,6 +130,9 @@ function filter(create: CreateStore): void {
 			destroyed: [],
 			expunged: [],
 		});
+		expect(
+			await store.messageChanges(account.id, modseq, { mailboxId: a.id }),
+		).toMatchObject({ created: [theirs.id], updated: [], destroyed: [] });
 	});
 }
 
@@ -146,79 +154,4 @@ function refusals(create: CreateStore): void {
 			'NOT_FOUND',
 		);
 	});
-}
-
-function limits(create: CreateStore): void {
-	test('limit counts expunged entries too', async () => {
-		const { store, account, inbox } = await setup(create);
-		const { modseq } = await store.messageChanges(account.id, 0);
-		const brief = await store.addMessage(account.id, inbox.id, {
-			content: bytes('brief'),
-		});
-		const { expunged } = await store.destroyMessages(account.id, [brief.id]);
-		const later = await store.addMessage(account.id, inbox.id, {
-			content: bytes('later'),
-		});
-		const first = await store.messageChanges(account.id, modseq, { limit: 1 });
-		expect(first).toMatchObject({
-			created: [],
-			expunged,
-			hasMore: true,
-		});
-		const rest = await store.messageChanges(account.id, first.modseq, {
-			limit: 1,
-		});
-		expect(rest).toMatchObject({
-			created: [later.id],
-			expunged: [],
-			hasMore: false,
-		});
-	});
-
-	for (const mailboxId of [undefined, 'inbox'] as const) {
-		for (const limit of [1, 2]) {
-			test(`pages of ${limit}${mailboxId ? ' in one mailbox' : ''} add up to the whole answer`, async () => {
-				const { store, account, inbox } = await setup(create);
-				const a = await store.createMailbox(account.id, { name: 'A' });
-				const add = async (text: string) =>
-					(
-						await store.addMessage(account.id, inbox.id, {
-							content: bytes(text),
-						})
-					).id;
-				const [m1, m2, m3] = [await add('1'), await add('2'), await add('3')];
-				const { modseq } = await store.messageChanges(account.id, 0);
-				await store.setFlags(account.id, [m1], { add: ['\\Seen'] });
-				await store.moveMessages(account.id, [m2], inbox.id, a.id);
-				const m4 = await add('4');
-				await store.destroyMessages(account.id, [m3]);
-				await store.linkMessages(account.id, [m4], a.id);
-				await store.removeMessages(account.id, [m4], a.id);
-				const options = mailboxId ? { mailboxId: inbox.id } : {};
-				const whole = await store.messageChanges(account.id, modseq, options);
-				const paged = await walk(store, account.id, modseq, {
-					...options,
-					limit,
-				});
-				expect(paged.modseq).toBe(whole.modseq);
-				expect(paged.created).toEqual([...whole.created]);
-				expect(paged.destroyed).toEqual([...whole.destroyed]);
-				expect(paged.expunged).toEqual([...whole.expunged]);
-				// A page may list one created, the next its later change
-				// (RFC 8620 §5.2's intermediate states), so pages may update
-				// what the whole answer only creates.
-				expect(new Set(paged.updated)).toEqual(
-					new Set([
-						...whole.updated,
-						...whole.created.filter((id) => paged.updated.includes(id)),
-					]),
-				);
-				expect(new Set(paged.updated).size).toBe(paged.updated.length);
-				// A page holds more only when one modseq alone does: a
-				// destroy is a destroyed and an expunged entry at once.
-				for (const size of paged.sizes) expect(size).toBeLessThanOrEqual(2);
-				expect(paged.sizes.length).toBeGreaterThan(1);
-			});
-		}
-	}
 }

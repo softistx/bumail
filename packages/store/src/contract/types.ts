@@ -105,7 +105,7 @@ export interface MessageChanges {
 	readonly updated: readonly string[];
 	/** Gone from every mailbox; with `mailboxId`, gone from that one. */
 	readonly destroyed: readonly string[];
-	/** Every message that left a mailbox in the same range, for IMAP. */
+	/** Every message that left a mailbox in the same range, for IMAP; with `mailboxId`, only that one's. */
 	readonly expunged: readonly Expunged[];
 }
 

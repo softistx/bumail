@@ -24,13 +24,7 @@ import type {
 import { StoreError } from '../errors';
 import * as accounts from './accounts';
 import { mailboxChanges, messageChanges } from './changes';
-import {
-	createMailbox,
-	deleteMailbox,
-	findMailbox,
-	renameMailbox,
-	setSubscribed,
-} from './mailboxes';
+import * as mailboxes from './mailboxes';
 import * as membership from './membership';
 import * as messages from './messages';
 import { MemoryState } from './state';
@@ -89,7 +83,7 @@ export class MemoryMailStore implements MailStore {
 		accountId: string,
 		mailbox: NewMailbox,
 	): Promise<Mailbox> {
-		return createMailbox(this.#state, accountId, mailbox);
+		return mailboxes.createMailbox(this.#state, accountId, mailbox);
 	}
 
 	async getMailbox(
@@ -114,7 +108,7 @@ export class MemoryMailStore implements MailStore {
 		accountId: string,
 		role: MailboxRole,
 	): Promise<Mailbox | undefined> {
-		const mailbox = findMailbox(this.#state, accountId, role);
+		const mailbox = mailboxes.findMailbox(this.#state, accountId, role);
 		return mailbox && this.#state.mailboxView(mailbox);
 	}
 
@@ -123,7 +117,7 @@ export class MemoryMailStore implements MailStore {
 		id: string,
 		change: MailboxRename,
 	): Promise<Mailbox> {
-		return renameMailbox(this.#state, accountId, id, change);
+		return mailboxes.renameMailbox(this.#state, accountId, id, change);
 	}
 
 	async setSubscribed(
@@ -131,7 +125,7 @@ export class MemoryMailStore implements MailStore {
 		id: string,
 		subscribed: boolean,
 	): Promise<Mailbox> {
-		return setSubscribed(this.#state, accountId, id, subscribed);
+		return mailboxes.setSubscribed(this.#state, accountId, id, subscribed);
 	}
 
 	async deleteMailbox(
@@ -139,7 +133,12 @@ export class MemoryMailStore implements MailStore {
 		id: string,
 		options: { readonly removeMessages?: boolean } = {},
 	): Promise<void> {
-		deleteMailbox(this.#state, accountId, id, options?.removeMessages === true);
+		mailboxes.deleteMailbox(
+			this.#state,
+			accountId,
+			id,
+			options?.removeMessages === true,
+		);
 	}
 
 	addMessage(

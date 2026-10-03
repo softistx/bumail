@@ -20,8 +20,17 @@ describe('MemoryMailStore: maxTombstones', () => {
 		).rejects.toMatchObject({
 			code: 'CANNOT_CALCULATE_CHANGES',
 		});
+		await expect(
+			store.messageChanges(account.id, modseq, { mailboxId: inbox.id }),
+		).rejects.toMatchObject({
+			code: 'CANNOT_CALCULATE_CHANGES',
+		});
 		const latest = await store.messageChanges(account.id, modseq + 2);
 		expect(latest.destroyed).toEqual([ids[2] as string]);
+		const inInbox = await store.messageChanges(account.id, modseq + 2, {
+			mailboxId: inbox.id,
+		});
+		expect(inInbox.destroyed).toEqual([ids[2] as string]);
 	});
 
 	test('since 0 is still answered once tombstones are forgotten: the whole state', async () => {
@@ -42,31 +51,33 @@ describe('MemoryMailStore: maxTombstones', () => {
 		]);
 	});
 
-	test('a since-0 page never ends below what it remembers', async () => {
-		const store = new MemoryMailStore({ maxTombstones: 0 });
-		const account = await store.createAccount('mary@example.net');
-		const inbox = await store.createMailbox(account.id, { name: 'INBOX' });
-		const add = async (text: string) =>
-			(
-				await store.addMessage(account.id, inbox.id, {
-					content: new TextEncoder().encode(text),
-				})
-			).id;
-		const kept = [await add('a'), await add('b'), await add('c')];
-		await store.destroyMessages(account.id, [await add('d')]);
-		kept.push(await add('e'));
-		const created: string[] = [];
-		let since = 0;
-		for (let more = true; more; ) {
-			const page = await store.messageChanges(account.id, since, {
-				limit: 1,
-			});
-			created.push(...page.created);
-			since = page.modseq;
-			more = page.hasMore;
-		}
-		expect(created).toEqual(kept);
-	});
+	for (const filtered of [false, true])
+		test(`a since-0 page${filtered ? ' of one mailbox' : ''} never ends below what it remembers`, async () => {
+			const store = new MemoryMailStore({ maxTombstones: 0 });
+			const account = await store.createAccount('mary@example.net');
+			const inbox = await store.createMailbox(account.id, { name: 'INBOX' });
+			const add = async (text: string) =>
+				(
+					await store.addMessage(account.id, inbox.id, {
+						content: new TextEncoder().encode(text),
+					})
+				).id;
+			const kept = [await add('a'), await add('b'), await add('c')];
+			await store.destroyMessages(account.id, [await add('d')]);
+			kept.push(await add('e'));
+			const created: string[] = [];
+			let since = 0;
+			for (let more = true; more; ) {
+				const page = await store.messageChanges(account.id, since, {
+					limit: 1,
+					...(filtered ? { mailboxId: inbox.id } : {}),
+				});
+				created.push(...page.created);
+				since = page.modseq;
+				more = page.hasMore;
+			}
+			expect(created).toEqual(kept);
+		});
 
 	test('refuses a bad count', () => {
 		expect(() => new MemoryMailStore({ maxTombstones: -1 })).toThrow(

@@ -52,7 +52,8 @@ function accountItems(
 
 /**
  * The messages of one mailbox as if it were the account: one that came in
- * since is created, one that was in it at `since` and is no more is
+ * since is created, sorted by its first coming in, as a created item sorts
+ * by its creation; one that was in it at `since` and is no more is
  * destroyed, when it left. One that left and came back is updated.
  */
 function mailboxItems(
@@ -62,22 +63,26 @@ function mailboxItems(
 	since: number,
 ): Item[] {
 	const left = new Map<string, number>();
+	const firstJoined = new Map<string, number>();
 	for (const tombstone of account.tombstones) {
 		if (
-			tombstone.kind === 'expunged' &&
-			tombstone.mailboxId === mailboxId &&
-			tombstone.modseq > since &&
-			tombstone.joinedModseq <= since
+			tombstone.kind !== 'expunged' ||
+			tombstone.mailboxId !== mailboxId ||
+			tombstone.modseq <= since
 		) {
-			left.set(tombstone.messageId, tombstone.modseq);
+			continue;
 		}
+		const id = tombstone.messageId;
+		if (tombstone.joinedModseq <= since) left.set(id, tombstone.modseq);
+		else if (!firstJoined.has(id)) firstJoined.set(id, tombstone.joinedModseq);
 	}
 	const items: Item[] = [];
 	for (const message of state.messages.values()) {
 		const place = message.mailboxes.get(mailboxId);
 		if (!place) continue;
+		const createdModseq = firstJoined.get(message.id) ?? place.modseq;
 		const item = liveItem(
-			{ id: message.id, createdModseq: place.modseq, modseq: message.modseq },
+			{ id: message.id, createdModseq, modseq: message.modseq },
 			since,
 			left.delete(message.id),
 		);

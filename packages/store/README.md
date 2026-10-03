@@ -74,9 +74,10 @@ since = changes.modseq; // next time; ask again at once while changes.hasMore
 await store.messageChanges(account.id, since, { mailboxId: inbox.id });
 ```
 
-`limit` counts every entry of the four lists. `mailboxChanges` does the same for mailboxes. This is what IMAP's
-CONDSTORE and QRESYNC (RFC 7162) and JMAP's `/changes` need. `since` 0 is
-always answered, with the account's whole state, so it is also where to
+`limit` counts the entries of all four lists; `mailboxChanges` pages the
+same way over its three. This is what IMAP's CONDSTORE and QRESYNC (RFC 7162) and JMAP's `/changes` need. `since` 0 is
+always answered, with the account's whole state (or, with `mailboxId`,
+that mailbox's), so it is also where to
 start over after `CANNOT_CALCULATE_CHANGES`.
 
 ## Writing a store
