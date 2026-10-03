@@ -39,9 +39,14 @@ parts shown as … vary.
 - [`QueueError: busyTimeout must be an integer of at least 0, not …`](#queueerror-busytimeout-must-be-an-integer-of-at-least-0-not-)
 - [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed)
 
+**Listing** (`list`)
+
+- [`QueueError: limit must be an integer from 1 to 1000, not …`](#queueerror-limit-must-be-an-integer-from-1-to-1000-not-)
+- [`QueueError: offset must be an integer of at least 0, not …`](#queueerror-offset-must-be-an-integer-of-at-least-0-not-)
+
 **A store's own checks** (a store of your own, called directly)
 
-- [`QueueError: … must be a finite number`, `limit must be an integer from 1 to 1000, not …`, and the others](#a-stores-own-checks)
+- [`QueueError: … must be a finite number`, `owner must be a non-empty string`, and the others](#a-stores-own-checks)
 
 **Delivery**
 
@@ -149,8 +154,9 @@ or route everything through a smarthost (`route: { host, port, auth }`).
 ### `QueueError: … must be an integer of at least …, not …`
 
 **Code:** `INVALID`, also as `… must be an integer from … to …, not …`
-or `… must be a number from … to …`. A number option out of its range:
-`concurrency`, `perDomain`, `leaseMs` (at least 1000), `pollInterval`,
+or `… must be a number from … to …, not …`. A number option out of its range:
+`concurrency`, `perDomain`, `leaseMs` (from 1000 to 6442450941),
+`pollInterval` (at most 2147483647, the longest a timer waits),
 `retry.*` (`retry.max` at least `retry.first`, `retry.jitter` from 0 to
 1), `dsn.delayAfter`, `limits.*` (`limits.maxReplyText` from 64 to
 900). Times are milliseconds.
@@ -211,18 +217,35 @@ upgrade this one.
 **Code:** `CLOSED`. The store was used after `close()`: call
 `queue.stop()` first, then `store.close()`.
 
+## Listing
+
+### `QueueError: limit must be an integer from 1 to 1000, not …`
+
+**Code:** `INVALID`. `queue.list()` (and a store's `list`) gives at most
+1000 items a page: page through with `offset`.
+
+```ts
+for (let offset = 0; ; offset += 1000) {
+	const page = await queue.list({ offset, limit: 1000 });
+	if (page.length === 0) break;
+}
+```
+
+### `QueueError: offset must be an integer of at least 0, not …`
+
+**Code:** `INVALID`. `offset` counts items from the first due, from 0.
+
 ## A store's own checks
 
 `… must be a finite number`, `owner must be a non-empty string`,
 `leaseMs must be a positive number`, `maxItems must be an integer of at
-least 1, not …`, `offset must be an integer of at least 0, not …`,
-`limit must be an integer from 1 to 1000, not …`, `A new item is an
+least 1, not …`, `A new item is an
 object`, `to must be a non-empty array of addresses`, `message must be a
 Uint8Array`, `A claim is an object`, `An attempt result is an object`,
-`attempts must be an integer of at least 0`, `recipients must be an
-array`: **code** `INVALID`, from a store called directly with what the
-queue never gives it. `queue.list()` passes its options through: keep
-`limit` from 1 to 1000.
+`attempts must be an integer of at least 0`, `delayNotified must be
+true or false`, `recipients must be an array of { address, status:
+delivered, deferred or failed }`: **code** `INVALID`, from a store called directly with what the
+queue never gives it.
 
 ## Delivery
 

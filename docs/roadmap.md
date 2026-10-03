@@ -23,8 +23,8 @@ No dates. Each entry says what someone running or embedding the server gets.
   each recipient's own state (pending, delivered, deferred, failed, with
   the last reply), delivered one session per domain through the published
   `@bumail/smtp/client`: by MX, through a smarthost (around a blocked port
-  25) or by a route per domain, within a global and a per-domain
-  concurrency limit. A 4xx, a connection error or a timeout is retried
+  25) or by a route per domain, within a limit of items at once and of
+  sessions to one domain. A 4xx, a connection error or a timeout is retried
   with exponential back-off and jitter (RFC 5321 §4.5.4.1: 30 minutes at
   first, given up after 5 days); a 5xx fails at once. Delivery status
   notifications (RFC 3464) for a failure and for a delay, never about a
@@ -40,6 +40,9 @@ No dates. Each entry says what someone running or embedding the server gets.
   reports to a domain's `rua=` and `ruf=` (RFC 7489 §7), and ARC
   (RFC 8617), so forwarded mail keeps its authentication. DKIM, SPF and
   DMARC themselves are in Shipped.
+- **`@bumail/queue`, MTA-STS (RFC 8461) and TLS-RPT (RFC 8460)** for
+  outbound TLS policy; then **DANE** (RFC 7672), once the queue can be
+  given a resolver that validates DNSSEC, which `node:dns` does not.
 - **Trying it end to end, first with Mailpit, then with a real mail
   client** — Mailpit, a local mail catcher, receives what bumail sends and
   shows each message with its headers (the DKIM signature included), and
@@ -83,9 +86,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **Sieve** filtering (RFC 5228) at delivery.
 - **Spam scoring hooks and greylisting** — hooks a scorer plugs into, and
   greylisting on the queue's store; no classifier of our own.
-- **MTA-STS (RFC 8461) and TLS-RPT (RFC 8460)** for outbound TLS policy,
-  in `@bumail/queue`; then **DANE** (RFC 7672), once the queue can be
-  given a resolver that validates DNSSEC, which `node:dns` does not.
 - **Rate limits per sender**, on submission.
 - **Webhooks** on delivery, bounce and inbound mail.
 - **A transport for `@nxgt/mail`**, so an app that sends with it can hand

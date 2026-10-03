@@ -160,8 +160,9 @@ The jitter only adds, so 30 minutes stays a floor, and spreads the
 retries of many messages deferred at once.
 
 The last attempt falls on the moment of giving up: a recipient still
-deferred then fails, its last reply kept, its status `4.4.7` (RFC 3463:
-delivery time expired), and its text `Gave up after N attempts: …`.
+deferred then fails, its status `4.4.7` (RFC 3463: delivery time
+expired), its last reply's code and text kept as the server said them;
+the DSN's text for a person says the delivery time expired.
 
 The schedule is per message: an attempt tries every recipient not yet
 final, and the item's `attempts` counts them.
@@ -224,7 +225,9 @@ queue.start();
   default) while the item is delivered, and let go of with the outcome.
 - **A crashed worker** loses its items when their leases expire: another
   worker claims them then. A worker whose lease was taken meanwhile
-  records nothing, and says so on the `error` event (`LEASE_LOST`).
+  records nothing, and says so on the `error` event (`LEASE_LOST`). An
+  item cancelled while it was delivered still has its outcomes told by
+  the events, with no DSN and no error.
 - **`stop()`** claims nothing more, lets every session under way end and
   records its outcome, and gives back what was claimed but not started —
   due at once, no attempt counted — so another worker can take it.
@@ -236,9 +239,14 @@ process.on('SIGTERM', async () => {
 });
 ```
 
-`concurrency` (20) bounds how many items one worker delivers at once;
-`perDomain` (2) how many sessions it opens to one recipient domain, so a
-slow or greylisting domain does not take every slot. `pollInterval` (5
+`concurrency` (20) bounds how many items one worker delivers at once,
+not sessions: an item opens one session per recipient domain, in
+parallel, so one worker may hold up to `concurrency` times
+`limits.maxRecipients` sessions. `perDomain` (2) bounds the sessions it
+opens to one recipient domain, so a slow or greylisting domain does not
+take every slot. A `stop()` that leaves some domains of an item untried
+keeps the back-off for the whole item when another domain was deferred,
+and makes it due at once otherwise. `pollInterval` (5
 seconds) is how often `start()` looks for due items; `enqueue` and
 `retryNow` wake it at once.
 
@@ -411,10 +419,10 @@ them yet.
 | `limits.maxItems` | `number` | none | `QUEUE_FULL` past it |
 | `limits.maxReplyText` | `number`, 64–900 | 512 | characters of a reply kept |
 | `limits.maxDsnReturn` | `number` | 64 KiB | bytes of the original a DSN returns |
-| `concurrency` | `number` | 20 | items at once, per worker |
+| `concurrency` | `number` | 20 | items at once, per worker (an item: a session per domain) |
 | `perDomain` | `number` | 2 | sessions at once to one domain, per worker |
-| `leaseMs` | `number`, ≥ 1000 | 10 minutes | a claim's lease |
-| `pollInterval` | `number` | 5000 | ms between passes of `start()` |
+| `leaseMs` | `number`, 1000 to 6442450941 | 10 minutes | a claim's lease |
+| `pollInterval` | `number`, to 2147483647 | 5000 | ms between passes of `start()` |
 | `owner` | `string` | a random UUID | this worker's name on its leases |
 | `clock` | `{ now(): number }` | `Date.now` | the time |
 | `send` | `Sender` | `sendMail` | delivers one session |

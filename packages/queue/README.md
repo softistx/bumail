@@ -5,7 +5,7 @@ sends to another one, delivers it through `@bumail/smtp/client`, retries
 what failed for now, and sends a delivery status notification (RFC 3464)
 back when it gives up. Each recipient has its own state, the queue
 survives a restart on `bun:sqlite`, and several workers can share one
-queue. No dependency.
+queue. No runtime dependency: only peers.
 
 **Bun only**: the store on disk uses `bun:sqlite`, so it runs on Bun 1.4.2
 or later, not on Node.
@@ -114,8 +114,9 @@ queue.start();
 A worker claims a due item with a lease, renews it while it delivers, and
 lets go of it with the outcome. If it crashes, another worker claims the
 item once the lease expires (`leaseMs`, 10 minutes by default).
-`concurrency` (20) bounds the items one worker delivers at once,
-`perDomain` (2) its sessions to one recipient domain.
+`concurrency` (20) bounds the items one worker delivers at once — each
+item opens one session per recipient domain — and `perDomain` (2) its
+sessions to one recipient domain.
 
 ## Events and admin
 
@@ -160,6 +161,15 @@ now += 30 * 60_000;
 ```
 
 ## Limits
+
+```ts
+createQueue({
+	store,
+	hostname: 'mail.example.net',
+	resolver,
+	limits: { maxMessageSize: 10 * 1024 * 1024, maxRecipients: 50, maxItems: 100_000 },
+});
+```
 
 Everything is bounded, through `limits`: the message (25 MiB), the
 recipients per message (100), the items in the store (none by default),
