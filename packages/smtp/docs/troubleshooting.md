@@ -637,8 +637,9 @@ createSmtpServer({
 
 ### `421 4.7.0 … Too many failed authentications, closing`
 
-**When**: the third `535 5.7.8` in one session. The server hangs up. `…`
-is the server's `hostname`.
+**When**: the third `535 5.7.8` in one session. The server hangs up at
+once: replies the client has not read are dropped, not waited for. `…` is
+the server's `hostname`.
 
 **Why**: it bounds password guessing on one connection. The limit is
 three, and is not an option. A response that is not valid base64 gets
@@ -1302,8 +1303,9 @@ too, even to drop it.
 
 ### `421 4.3.0 Local error, closing`
 
-**When**: during a session, then the server hangs up. The reply carries
-no enhanced code before EHLO.
+**When**: during a session, then the server hangs up at once: replies
+the client has not read are dropped, not waited for. The reply carries no
+enhanced code before EHLO.
 
 **Why**: the server failed while handling a command, outside any hook:
 a bug in this package. `onError` gets the error.
@@ -1317,7 +1319,8 @@ error, the session transcript and the `@bumail/smtp` and Bun versions.
 ### `421 4.7.0 … Too many errors, closing`
 
 **When**: the `maxErrors`-th failed command of a session (10 by default).
-The reply replaces the reply to that command, and the server hangs up.
+The reply replaces the reply to that command, and the server hangs up at
+once: replies the client has not read are dropped, not waited for.
 
 **Why**: a client that keeps failing is broken or probing. What counts:
 unknown commands, bad syntax, commands out of order, relay denials,
@@ -1343,7 +1346,12 @@ to retry later.
 
 **Fix**, as the operator: raise `maxConnections`, or look for clients that
 hold connections open without `QUIT`. `server.connections` gives the
-number open.
+number open. A client that stopped reading holds its slot until its
+`timeout` at most: the server's own hang-ups — idle, too many errors, a
+refusal — never wait for it to read, and drop what it did not. In 0.1.0
+such a close could wait forever, and enough of those clients filled
+`maxConnections`: upgrade if `connections` stays high while no client is
+active.
 
 **Fix**, as a client: retry later, and send `QUIT` when done.
 
@@ -1357,7 +1365,11 @@ quiet, so that a dead client does not hold a connection forever. The time
 counts from the client's last byte, or from the 220 when nothing came after
 it, so a slow hook can run into it too — keep `hookTimeout` below
 `timeout`. Bun's socket timer ticks in steps of about 4 seconds, so the
-hang-up can come up to that much after `timeout`.
+hang-up can come up to that much after `timeout`. The hang-up is at once
+even when the client stopped reading: replies it never read, and the 421
+itself if the socket cannot take it, are dropped, and the connection is
+counted out of `connections` then — on implicit TLS and after STARTTLS
+too, where the server does not wait for the client to answer the hang-up.
 
 **Fix**, as a client: send `QUIT` when done; a pooled connection that
 waits longer must reconnect, or send `NOOP` within the timeout.
@@ -1414,7 +1426,7 @@ anything else could break the command or inject another.
 ```ts
 import { sendMail } from '@bumail/smtp/client';
 
-await sendMail(message, { host: 'relay.example.net', from: '', to: ['b@example.org'] });
+await sendMail('Subject: hi\r\n\r\nhello\r\n', { host: 'relay.example.net', from: '', to: ['b@example.org'] });
 ```
 
 ### `SmtpError: sendMail(): to must name one recipient or more`
@@ -1437,7 +1449,9 @@ to: `helo: 'mail.example.com'`.
 
 ### `SmtpError: sendMail(): helo is required for delivery by MX: pass your server's public name, such as helo: 'mail.example.com'`
 
-**When**: `{ domain, resolver }` without `helo`.
+**When**: `{ domain, resolver }` without `helo`. From TypeScript, `tsc`
+refuses it first: `MxDestination` declares `helo: string`; the error comes
+at runtime from JavaScript, or past a cast.
 
 **Why**: by MX, the receiving host reads the EHLO name. The machine's own
 name — `os.hostname()`, often `laptop.local` or a bare `web-1` — is rarely
@@ -1476,7 +1490,7 @@ number, or past 2 147 483 seconds.
 ```ts
 import { sendMail } from '@bumail/smtp/client';
 
-await sendMail(message, {
+await sendMail('Subject: hi\r\n\r\nhello\r\n', {
 	host: 'relay.example.net',
 	from: 'a@example.com', to: 'b@example.org',
 	timeouts: { greeting: 30, dataEnd: 120 }, // seconds
@@ -1768,7 +1782,7 @@ test's self-signed certificate with `ca`:
 ```ts
 import { sendMail } from '@bumail/smtp/client';
 
-await sendMail(message, {
+await sendMail('Subject: hi\r\n\r\nhello\r\n', {
 	host: 'mail.internal.example',
 	port: 587,
 	tls: 'required',
@@ -1812,7 +1826,7 @@ written, and should not be seen. Permanent.
 ```ts
 import { sendMail } from '@bumail/smtp/client';
 
-await sendMail(message, {
+await sendMail('Subject: hi\r\n\r\nhello\r\n', {
 	host: 'localhost',
 	port: 1025,
 	from: 'a@example.com', to: 'b@example.org',

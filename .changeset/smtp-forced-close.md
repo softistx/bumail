@@ -1,0 +1,5 @@
+---
+"@bumail/smtp": patch
+---
+
+A client that stops reading no longer holds a connection slot for good. When the server hangs up on its own — the idle `timeout`, `maxErrors`, three failed AUTH attempts, a refusal from `onConnect`, a local error — it writes its reply and closes at once: the connection leaves `server.connections` then, and replies the client never read are dropped, the connection reset if any were still waiting. Such a close used to wait for the client to read first, which a client that pipelined commands and never read never did, so enough of them filled `maxConnections` and locked every other client out. The same holds on implicit TLS and after STARTTLS: there a hang-up used to wait for the client to answer it, so a client that paused and stayed quiet kept its slot even with nothing queued. The server now half-closes and never waits for that answer; a client that reads later still gets the last reply, then the end. Every hang-up is bounded by a 5-second grace, past which the connection is reset. `QUIT` stays graceful: the `221` leaves whole, then the server hangs up; a `221` behind replies that are never read is dropped when the grace is up.

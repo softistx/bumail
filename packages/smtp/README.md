@@ -288,7 +288,10 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
   from `onConnect` goes out at once, delay or not.
 - **Bounded memory.** The server holds 64 KiB of a client's input and of a
   message at most, and stops reading the client past that; replies to a
-  client that reads slowly wait in the server, none is lost.
+  client that reads slowly wait in the server, and none is lost while the
+  connection is open. A client that stops reading altogether is hung up on
+  at its `timeout`, what it never read dropped, so it cannot hold a slot of
+  `maxConnections`, on TLS too.
 
 ## Traps
 

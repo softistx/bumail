@@ -42,6 +42,11 @@ export interface HostDestination {
 export interface MxDestination {
 	readonly domain: string;
 	readonly resolver: MxResolver;
+	/**
+	 * The name this client gives in EHLO, required by MX: your server's
+	 * public name, such as `mail.example.com`, not the machine's.
+	 */
+	readonly helo: string;
 	/** Default 25. */
 	readonly port?: number;
 }

@@ -40,6 +40,8 @@ describe('a mail transaction', () => {
 			'221 2.0.0 foo.com closing connection\r\n',
 		);
 		expect(s.ended).toBe(true);
+		// QUIT is graceful: the 221 leaves whole before the hang-up.
+		expect(s.aborted).toBe(false);
 
 		const [message] = s.received;
 		expect(message?.envelope).toEqual({

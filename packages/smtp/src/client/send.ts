@@ -2,7 +2,6 @@ import { SmtpError } from '../errors';
 import { type Content, contentOf } from './content';
 import { addressesOf, noAddress, resolveMx } from './mx';
 import type {
-	HostDestination,
 	MessageSource,
 	MxDestination,
 	SendMailOptions,
@@ -166,11 +165,11 @@ export async function sendMail(
 	const content = contentOf(message, settings.normalizeLineEnds, settings.size);
 	const clock = new Clock(settings.deadline);
 	if (!byMx(options)) {
-		const { host } = options as HostDestination;
+		const { host } = options;
 		if (typeof host !== 'string' || !/^[^\s/]+$/.test(host))
 			throw invalid(`host must be a host name or an address, not ${host}`);
 		const port = portOf(options.port, settings.secure ? 465 : 25);
 		return attempt({ host, address: host, port }, settings, content, clock);
 	}
-	return viaMx(options as MxDestination, settings, content, clock);
+	return viaMx(options, settings, content, clock);
 }

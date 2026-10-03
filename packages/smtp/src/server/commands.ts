@@ -143,7 +143,7 @@ export async function runCommand(
 		case 'HELP':
 			return connection.send(reply(214, '2.0.0', 'See RFC 5321'));
 		case 'QUIT':
-			return connection.close(
+			return connection.quit(
 				reply(
 					221,
 					'2.0.0',
