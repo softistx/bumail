@@ -55,6 +55,24 @@ characters at most, and each level is one mailbox. The name is refused
 whole, before any missing parent is created, so nothing is left behind.
 Shorten that level, or split it in two.
 
+## `NO [CANNOT] A level of a mailbox name cannot begin or end with white space`
+
+CREATE or RENAME to a name with a level that starts or ends with white
+space, or is nothing but white space: `"Work/ /2026"`, `"Work/ Notes"`,
+`"Work "`. A store trims each mailbox name, so `" Notes"` would be kept
+as `Notes`, another name than the one asked for, and `" "` not at all.
+The name is refused whole, before any missing parent is created, so
+nothing is left behind. White space inside a level is fine:
+`"Work/Q1 notes"`. Drop the spaces at either end of each level.
+
+## `NO [CANNOT] A mailbox name cannot hold a control character`
+
+CREATE or RENAME to a name holding a character below U+0020, or U+007F:
+a tab inside a level, or one written in modified UTF-7 (`Work/&AAE-`),
+or sent raw in a literal after `ENABLE IMAP4rev2`. A store keeps no
+control character in a mailbox name. The name is refused whole, before
+any missing parent is created. Use a name without one.
+
 ## `BAD CREATE parameters are not supported`
 
 CREATE with a parenthesised list after the name, such as

@@ -79,6 +79,8 @@ fixed part of the text.
 - [`NO [LIMIT] A mailbox name has at most 32 levels`](troubleshooting/mailboxes.md#no-limit-a-mailbox-name-has-at-most-32-levels)
 - [`NO [LIMIT] A mailbox name is at most 1024 characters`](troubleshooting/mailboxes.md#no-limit-a-mailbox-name-is-at-most-1024-characters)
 - [`NO [LIMIT] A level of a mailbox name is at most 255 characters`](troubleshooting/mailboxes.md#no-limit-a-level-of-a-mailbox-name-is-at-most-255-characters)
+- [`NO [CANNOT] A level of a mailbox name cannot begin or end with white space`](troubleshooting/mailboxes.md#no-cannot-a-level-of-a-mailbox-name-cannot-begin-or-end-with-white-space)
+- [`NO [CANNOT] A mailbox name cannot hold a control character`](troubleshooting/mailboxes.md#no-cannot-a-mailbox-name-cannot-hold-a-control-character)
 - [`BAD CREATE parameters are not supported`](troubleshooting/mailboxes.md#bad-create-parameters-are-not-supported)
 - [`BAD SELECT parameters are not supported`, `BAD EXAMINE parameters are not supported`](troubleshooting/mailboxes.md#bad-select-parameters-are-not-supported-bad-examine-parameters-are-not-supported)
 - [`BAD Unknown STATUS item …`](troubleshooting/mailboxes.md#bad-unknown-status-item-)

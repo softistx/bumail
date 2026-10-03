@@ -27,8 +27,24 @@ export const MAX_NAME = 1024;
  */
 export const MAX_LEVEL = 255;
 
-/** Why a new path is too large for the server, if it is: a `NO [LIMIT]` text. */
-function overLimit(path: string): string | undefined {
+/** Whether a level holds a control character: the store keeps none in a name. */
+function hasControl(level: string): boolean {
+	for (let i = 0; i < level.length; i++) {
+		const code = level.charCodeAt(i);
+		if (code < 0x20 || code === 0x7f) return true;
+	}
+	return false;
+}
+
+/**
+ * Why the store would refuse a new path, if it would: a `NO` text. It
+ * mirrors the store's own checks on a mailbox name (each level trimmed and
+ * not empty, at most 255 characters, no control character) and is run
+ * before any missing parent is created, so a refused CREATE or RENAME
+ * leaves nothing behind. A level with white space at either end would be
+ * kept trimmed, under another name than the client asked for.
+ */
+function refusal(path: string): string | undefined {
 	if (path.length > MAX_NAME)
 		return `[LIMIT] A mailbox name is at most ${MAX_NAME} characters`;
 	const levels = path.split(DELIMITER);
@@ -36,6 +52,10 @@ function overLimit(path: string): string | undefined {
 		return `[LIMIT] A mailbox name has at most ${MAX_LEVELS} levels`;
 	if (levels.some((level) => level.length > MAX_LEVEL))
 		return `[LIMIT] A level of a mailbox name is at most ${MAX_LEVEL} characters`;
+	if (levels.some((level) => level.trim() !== level))
+		return '[CANNOT] A level of a mailbox name cannot begin or end with white space';
+	if (levels.some(hasControl))
+		return '[CANNOT] A mailbox name cannot hold a control character';
 	return undefined;
 }
 
@@ -72,8 +92,8 @@ export const CREATE: Command = {
 		const path = newPath(context, cursor.astring());
 		if (cursor.take(' ')) cursor.fail('CREATE parameters are not supported');
 		cursor.end();
-		const limit = overLimit(path);
-		if (limit) return no(context, limit);
+		const refused = refusal(path);
+		if (refused) return no(context, refused);
 		const tree = await Tree.load(connection);
 		if (tree.find(path))
 			return no(context, '[ALREADYEXISTS] The mailbox already exists');
@@ -125,8 +145,8 @@ export const RENAME: Command = {
 		cursor.sp();
 		const to = newPath(context, cursor.astring());
 		cursor.end();
-		const limit = overLimit(to);
-		if (limit) return no(context, limit);
+		const refused = refusal(to);
+		if (refused) return no(context, refused);
 		const tree = await Tree.load(connection);
 		const mailbox = tree.find(from);
 		if (!mailbox) return no(context, '[NONEXISTENT] No such mailbox');

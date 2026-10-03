@@ -268,6 +268,7 @@ amount:
 | lists and search keys nested | 32 deep | `BAD Lists nest too deep`, `BAD Search keys nest too deep` |
 | a mailbox name, CREATE and RENAME | 32 levels, 1024 characters | `NO [LIMIT] A mailbox name has at most 32 levels`, `NO [LIMIT] A mailbox name is at most 1024 characters` |
 | one level of a mailbox name, CREATE and RENAME | 255 characters, what a store keeps; checked before any parent is created | `NO [LIMIT] A level of a mailbox name is at most 255 characters` |
+| one level of a mailbox name, CREATE and RENAME | what a store keeps: no white space at either end, no control character; checked before any parent is created | `NO [CANNOT] A level of a mailbox name cannot begin or end with white space`, `NO [CANNOT] A mailbox name cannot hold a control character` |
 | a LIST pattern, reference included | 1024 characters | `BAD The pattern is too long` |
 | patterns in one LIST | 16 | `BAD More than 16 patterns in one LIST` |
 | TEXT and BODY keys in one SEARCH | 32 | `BAD More than 32 TEXT or BODY keys in one SEARCH` |

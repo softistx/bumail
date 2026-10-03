@@ -51,6 +51,51 @@ describe('what one command may cost', () => {
 		);
 	});
 
+	test('CREATE and RENAME: a level padded or all white space is refused before any parent is made', async () => {
+		const s = await session();
+		const refused =
+			'NO [CANNOT] A level of a mailbox name cannot begin or end with white space\r\n';
+		expect(await s.send('a CREATE "p1/ /x"\r\n')).toBe(`a ${refused}`);
+		expect(await s.send('b CREATE "p2/ y/x"\r\n')).toBe(`b ${refused}`);
+		// A tab and a no-break space, in modified UTF-7: the store trims both.
+		expect(await s.send('c CREATE p3/y&AAk-/x\r\n')).toBe(`c ${refused}`);
+		expect(await s.send('c2 CREATE p6/&AKA-y/x\r\n')).toBe(`c2 ${refused}`);
+		expect(await s.send('d CREATE " p4/x"\r\n')).toBe(`d ${refused}`);
+		expect(await s.send('e CREATE "p5/x "\r\n')).toBe(`e ${refused}`);
+		expect(await s.send('f RENAME Archive "t1/ /y"\r\n')).toBe(`f ${refused}`);
+		expect(await s.send('g RENAME Archive "t2/y / z"\r\n')).toBe(
+			`g ${refused}`,
+		);
+		const list = await s.send('h LIST "" *\r\n');
+		expect(list).not.toMatch(/"\/" "?(p\d|t\d| p4)/);
+		expect(list).toContain('"/" Archive\r\n');
+		expect(list).toEndWith('h OK LIST completed\r\n');
+		expect(await s.send('i CREATE "p1/a b/x"\r\n')).toBe(
+			'i OK CREATE completed\r\n',
+		);
+		expect(await s.send('j LIST "" p1*\r\n')).toBe(
+			'* LIST (\\HasChildren) "/" p1\r\n* LIST (\\HasChildren) "/" "p1/a b"\r\n* LIST (\\HasNoChildren) "/" "p1/a b/x"\r\nj OK LIST completed\r\n',
+		);
+	});
+
+	test('CREATE and RENAME: a control character is refused before any parent is made', async () => {
+		const s = await session();
+		const refused =
+			'NO [CANNOT] A mailbox name cannot hold a control character\r\n';
+		expect(await s.send('a CREATE p1/&AAE-/x\r\n')).toBe(`a ${refused}`);
+		expect(await s.send('b RENAME Archive t1/y&AAk-z/w\r\n')).toBe(
+			`b ${refused}`,
+		);
+		expect(await s.send('c ENABLE IMAP4rev2\r\n')).toContain('c OK ');
+		expect(await s.send('c1 CREATE {7+}\r\np2/\x01y/x\r\n')).toBe(
+			`c1 ${refused}`,
+		);
+		expect(await s.send('c2 RENAME Archive {6+}\r\nt2/\x7f/y\r\n')).toBe(
+			`c2 ${refused}`,
+		);
+		expect(await s.send('d LIST "" *\r\n')).not.toMatch(/"\/" (p\d|t\d)/);
+	});
+
 	test('8000 levels are refused before the store is asked', async () => {
 		const s = await session();
 		const started = performance.now();
