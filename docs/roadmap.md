@@ -21,6 +21,12 @@ No dates. Each entry says what someone running or embedding the server gets.
   and answer in RFC 8601's words. DMARC (RFC 7489) evaluation and its
   policy, and the `Authentication-Results` header, follow in the same
   package.
+- **`@bumail/jmap`, JMAP** (RFC 8620 core, RFC 8621 mail), as an alxia
+  app on `@alxia/core` from npm. Its first slice: the session, the API
+  with back-references, Mailbox, Email and Thread, blob download and
+  upload, serving any `@bumail/store`, merged, not yet published.
+  queryChanges and push via EventSource follow, then Identity and
+  EmailSubmission through `@bumail/smtp/client`.
 
 ## Next
 
@@ -43,16 +49,11 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **`@bumail/queue`** — outbound mail with retries and back-off, a deferred
   and a failed state, bounces and delivery status notifications (RFC 3464).
   A contract with a memory and a `bun:sqlite` answer, like the store.
-- **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
-  mail), as an alxia app. IMAP comes first, in Now, since real mail
-  clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it routing,
-  validation and its typed client for free.
 - **The server app** — SMTP on 25 and submission on 587,
   the queue, and the store served over IMAP and JMAP, wired together; an admin API for domains,
-  accounts, aliases and DKIM keys; health and metrics. It starts once
-  `@alxia/core` is on npm: it consumes alxia's published packages, not a
-  link to its working tree, so bumail's CI never depends on another
-  repository's checkout.
+  accounts, aliases and DKIM keys; health and metrics. It consumes
+  alxia's published packages, not a link to its working tree, so
+  bumail's CI never depends on another repository's checkout.
 
 ## Later
 
@@ -98,6 +99,12 @@ No dates. Each entry says what someone running or embedding the server gets.
   failure says whether it is temporary, for the queue to come; every reply
   and every wait is bounded against a hostile server. *Kept in the same
   package as the server, on its own subpath*: both share the grammar.
+
+- **`@bumail/jmap`, the first slice** — JMAP (RFC 8620, RFC 8621) as an
+  alxia app a host mounts: the session, the API with back-references and
+  its errors, Mailbox, Email and Thread, blob download and upload, Basic
+  only over HTTPS, every input bounded; serving any `@bumail/store`.
+  Queries run in memory until the store has an index.
 
 - **`@bumail/imap`, the first slice** — IMAP4rev2 (RFC 9051) on
   `Bun.listen`, serving any `@bumail/store`: STARTTLS and implicit TLS,

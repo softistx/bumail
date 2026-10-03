@@ -150,7 +150,12 @@ async function update(
 		}
 		result.updated[id] = null;
 	} catch (error) {
-		result.notUpdated[id] = storeSetError(error, 'name');
+		result.notUpdated[id] = storeSetError(
+			error,
+			error instanceof StoreError && error.code === 'NOT_FOUND'
+				? 'parentId'
+				: 'name',
+		);
 	}
 }
 

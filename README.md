@@ -12,6 +12,7 @@ package has a runtime dependency. The server app at the end is built on
 | [`@bumail/auth`](./packages/auth) | DKIM: verify every signature on a message and sign outbound mail (rsa-sha256, ed25519-sha256); SPF and DMARC next |
 | [`@bumail/dns`](./packages/dns) | the DNS a mail server reads (MX, TXT, A, AAAA, PTR): on `node:dns`, a fixture for specs, a TTL cache |
 | [`@bumail/imap`](./packages/imap) | an IMAP4rev2 server that serves a store's mail to Thunderbird, Apple Mail and the rest, logging in only over TLS |
+| [`@bumail/jmap`](./packages/jmap) | a JMAP server (RFC 8620, RFC 8621) mounted in an alxia app: mailboxes, emails, threads and blobs of a store over HTTP and JSON |
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH; and, on `@bumail/smtp/client`, a client that sends it out to a smarthost or by MX |
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store and a `bun:sqlite` store on disk |
