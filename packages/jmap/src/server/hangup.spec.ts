@@ -6,7 +6,7 @@ import { jmap } from './jmap';
 
 /** Sends the head and part of a body to `path`, then hangs up. */
 function hangUp(port: number, path: string): Promise<void> {
-	return new Promise((resolve) => {
+	return new Promise((resolve, reject) => {
 		const socket = connect(port, '127.0.0.1', () => {
 			socket.write(
 				`POST ${path} HTTP/1.1\r\nHost: mail\r\nAuthorization: Bearer t\r\nContent-Length: 100000\r\n\r\n${'x'.repeat(1000)}`,
@@ -16,6 +16,7 @@ function hangUp(port: number, path: string): Promise<void> {
 				resolve();
 			}, 100);
 		});
+		socket.on('error', reject);
 	});
 }
 

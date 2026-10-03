@@ -59,3 +59,17 @@ export function storedSpellings(
 	const key = flag.toLowerCase();
 	return flags.filter((one) => one.toLowerCase() === key);
 }
+
+/**
+ * Every stored flag `keywordsOf` shows as a system flag's keyword: the flag
+ * itself and, kept as an ordinary keyword beside it, `$seen` in any case (an
+ * IMAP client may store `$Seen`). A filter matches either, and a remove
+ * takes both, or the email would stay `$seen` for good.
+ */
+export function shownAs(flags: readonly string[], flag: string): string[] {
+	const keyword = SYSTEM[flag];
+	const spellings = storedSpellings(flags, flag);
+	return keyword === undefined
+		? spellings
+		: [...spellings, ...storedSpellings(flags, keyword)];
+}

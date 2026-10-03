@@ -2,7 +2,13 @@ import type { FlagChange, Message } from '@bumail/store';
 import { type Args, idOf, isObject } from '../api/args';
 import type { CallContext } from '../api/context';
 import { type SetError, setError } from '../api/errors';
-import { flagOf, hasFlag, isKeyword, storedSpellings } from './keywords';
+import {
+	flagOf,
+	hasFlag,
+	isKeyword,
+	shownAs,
+	storedSpellings,
+} from './keywords';
 
 /** A set of keys changed whole, or one key at a time. */
 interface KeyChange {
@@ -107,10 +113,7 @@ export function flagChangeOf(change: KeyChange, message: Message): FlagChange {
 			add: change.add.filter((flag) => !hasFlag(flags, flag)),
 			remove: [
 				...new Set(
-					change.remove.flatMap((flag) => [
-						flag,
-						...storedSpellings(flags, flag),
-					]),
+					change.remove.flatMap((flag) => [flag, ...shownAs(flags, flag)]),
 				),
 			],
 		};

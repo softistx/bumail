@@ -60,6 +60,23 @@ describe('keywords in any case (RFC 8621 §4.1.1)', () => {
 			),
 		).toEqual({ set: ['$MDNSent', '$junk', '\\Deleted'] });
 	});
+
+	test('a system keyword stored as an ordinary one ($Seen) matches and is removed with its flag', async () => {
+		const candidate = {
+			message: {
+				...messageWith(['$Seen']),
+				receivedAt: new Date(0),
+				mailboxes: [],
+			},
+		} as unknown as Candidate;
+		expect(keywordsOf(['$Seen'])).toEqual({ $seen: true });
+		// A filter's keyword reaches here as the flag `flagOf` gives: `\Seen`.
+		expect(await matches({ hasKeyword: '\\Seen' }, candidate)).toBe(true);
+		expect(await matches({ notKeyword: '\\Seen' }, candidate)).toBe(false);
+		expect(
+			flagChangeOf({ add: [], remove: ['\\Seen'] }, messageWith(['$Seen'])),
+		).toEqual({ add: [], remove: ['\\Seen', '$Seen'] });
+	});
 });
 
 describe.each(STORES)('Mixed-case keywords on the %s store', (kind) => {

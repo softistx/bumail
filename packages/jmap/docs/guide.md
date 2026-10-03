@@ -250,6 +250,10 @@ and `$mdnsent`, and two flags that differ only by case are one keyword.
 again, removing `$forwarded` removes a stored `$Forwarded`, and a whole
 `keywords` keeps the spelling a keyword was stored with. A keyword the
 server stores itself, from `Email/set` or `Email/import`, is lowercased.
+An IMAP client may also store `$Seen` (or `$Answered`, `$Flagged`,
+`$Draft`) as an ordinary keyword beside the system flag: it shows as
+`$seen` like `\Seen`, `hasKeyword: '$seen'` matches either, and removing
+`$seen` removes both.
 
 ### Email/get
 
