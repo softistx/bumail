@@ -1,6 +1,7 @@
 import { hostname as machineName } from 'node:os';
 import { SmtpError } from '../errors';
 import { isHelloName, parsePath } from '../protocol/path';
+import { isMailbox } from './address';
 import type {
 	MxDestination,
 	SendMailAuth,
@@ -78,12 +79,13 @@ function timeoutsOf(given: SendMailTimeouts = {}): Required<SendMailTimeouts> {
  * `from` or a recipient, checked as an RFC 5321 path, since it is written
  * into `MAIL FROM:<…>` or `RCPT TO:<…>` as it is. A source route is refused
  * (§4.1.1.3: clients should not send one), with a message of its own when
- * the route is otherwise valid.
+ * the route is otherwise valid. What it takes, past the null sender, is
+ * exactly what `isMailbox` says yes to: the two share one predicate.
  */
 function address(value: unknown, allowNull: boolean): string {
+	if (allowNull && value === '') return '';
+	if (isMailbox(value)) return value;
 	const text = typeof value === 'string' ? value : '';
-	if (typeof value === 'string' && parsePath(`<${text}>`, allowNull, 'refuse'))
-		return text;
 	const routed = typeof value === 'string' && parsePath(`<${text}>`, false);
 	if (routed) {
 		throw invalid(

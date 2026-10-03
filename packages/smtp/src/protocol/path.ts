@@ -100,7 +100,7 @@ function afterRoute(inner: string): string | undefined {
  * `sourceRoute` is `'discard'`, the default, provided each hop is
  * `@domain`; with `'refuse'` the path is not one. A C0 control (CR, LF,
  * NUL…), DEL or `>` anywhere refuses the path, as do C1 controls,
- * Unicode format characters and lone surrogates. An IPv4 address literal
+ * U+2028 and U+2029, Unicode format characters and lone surrogates. An IPv4 address literal
  * takes octets up to 255.
  * Non-ASCII is allowed: whether the session may use it is SMTPUTF8's
  * question (RFC 6531), not the grammar's. `undefined` when it is not a path.

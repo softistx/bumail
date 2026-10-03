@@ -1,0 +1,71 @@
+{
+	"name": "@bumail/queue",
+	"version": "0.0.0",
+	"description": "The outbound mail queue of a mail server: every recipient's state, retries with back-off, delivery status notifications (RFC 3464), leases for several workers, and a memory and a bun:sqlite store, delivering through @bumail/smtp/client",
+	"license": "MIT",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist",
+		"docs",
+		"README.md",
+		"package.json",
+		"LICENSE"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./memory": {
+			"types": "./dist/memory/index.d.ts",
+			"import": "./dist/memory/index.js",
+			"default": "./dist/memory/index.js"
+		},
+		"./sqlite": {
+			"types": "./dist/sqlite/index.d.ts",
+			"import": "./dist/sqlite/index.js",
+			"default": "./dist/sqlite/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/softistx/bumail.git",
+		"directory": "packages/queue"
+	},
+	"publishConfig": {
+		"registry": "https://registry.npmjs.org",
+		"access": "public"
+	},
+	"scripts": {
+		"build": "bun run ../../build.ts",
+		"test": "bun test src",
+		"typecheck": "tsc --noEmit"
+	},
+	"bumail": {
+		"entrypoints": [
+			"src/index.ts",
+			"src/memory/index.ts",
+			"src/sqlite/index.ts"
+		]
+	},
+	"devDependencies": {
+		"@bumail/dns": "workspace:^",
+		"@bumail/mime": "workspace:^",
+		"@bumail/smtp": "workspace:^",
+		"@types/bun": "^1.4.2"
+	},
+	"peerDependencies": {
+		"@bumail/mime": "workspace:^",
+		"@bumail/smtp": "workspace:^",
+		"typescript": "^6.0.3 || ^7.0.0"
+	},
+	"peerDependenciesMeta": {
+		"typescript": {
+			"optional": true
+		}
+	}
+}

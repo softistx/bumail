@@ -976,6 +976,21 @@ source route (`@a.example,@b.example:x@c.example`) is refused too, valid
 or not: RFC 5321 §4.1.1.3 says a client should not send one, and the
 address is written as it is given.
 
+Code that keeps addresses to send to later — a queue — checks
+each one when it takes it with `isMailbox`, which says yes to exactly the
+addresses `sendMail` takes — it checks with the same predicate: an RFC 5321
+Mailbox with no source route, no control character (C0, DEL or C1), no
+`>`, no U+2028 or U+2029, no Unicode format character (`\p{Cf}`), no
+lone surrogate and no IPv4 literal octet above 255 — so the refusal
+comes back to whoever gave it:
+
+```ts
+import { isMailbox } from '@bumail/smtp/client';
+
+isMailbox('mary@example.net'); // true
+isMailbox('a,b@example.net'); // false: sendMail would refuse it
+```
+
 One call is one destination. With `{ domain }`, every recipient should be
 at that domain: group them by domain first, one `sendMail` each.
 

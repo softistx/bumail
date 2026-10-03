@@ -5,6 +5,7 @@ export {
 	type SmtpErrorDetails,
 } from '../errors';
 export type { Reply } from '../protocol/reply';
+export { isMailbox } from './address';
 export { type MailHost, resolveMx } from './mx';
 export type {
 	HostDestination,

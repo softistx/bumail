@@ -373,7 +373,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | `Credentials` | what `authenticate` receives: `mechanism`, `username`, `password`, `authorizationId?` |
 | `reply(code, status, text)`, `Reply` | a reply, for a hook to refuse with |
 | `formatReply(reply, enhanced?)` | a reply as sent on the wire, CRLF included |
-| `parsePath(text, allowNull, sourceRoute?)`, `Path`, `SourceRoute` | `<local@domain>` (RFC 5321 §4.1.2) to `{ address, local, domain }`; a source route `@a,@b:` is dropped (`'discard'`, the default) or refused (`'refuse'`); a control character, `>` or a lone surrogate anywhere, or an IPv4 literal octet above 255, refuses the path |
+| `parsePath(text, allowNull, sourceRoute?)`, `Path`, `SourceRoute` | `<local@domain>` (RFC 5321 §4.1.2) to `{ address, local, domain }`; a source route `@a,@b:` is dropped (`'discard'`, the default) or refused (`'refuse'`); a control character (C0, DEL or C1), `>`, U+2028 or U+2029, Unicode format character (`\p{Cf}`) or lone surrogate anywhere, or an IPv4 literal octet above 255, refuses the path |
 | `parseCommand(line)`, `Command` | a command line to `{ verb, argument }` |
 | `parsePathCommand(argument, 'FROM' \| 'TO')`, `PathCommand` | the argument of MAIL or RCPT to `{ path, parameters }` |
 | `DataReader`, `DataChunk` | reads DATA: dot-unstuffing, the terminator, bare CR and LF counted |
@@ -392,6 +392,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | `TlsMode` | `'opportunistic'`, `'required'` or `'none'` |
 | `MessageSource` | `Uint8Array`, `string` or `ReadableStream<Uint8Array>` |
 | `MxResolver` | what MX delivery asks of the DNS, by shape: `mx`, `a` and `aaaa`, as `@bumail/dns`'s `Resolver` has them |
+| `isMailbox(address)` | whether `address` is exactly one `sendMail` takes (it checks with the same predicate): an RFC 5321 Mailbox, `local@domain` (§4.1.2, no brackets), with no source route, no control character (C0, DEL or C1), no `>`, no U+2028 or U+2029, no Unicode format character (`\p{Cf}`), no lone surrogate and no IPv4 literal octet above 255; check addresses you keep for later when you take them |
 | `resolveMx(domain, resolver)`, `MailHost` | a domain's mail hosts in the order to try them: `{ host, priority, implicit }`; `NULL_MX` or `DNS_FAILED` otherwise |
 | `SmtpError`, `SmtpErrorCode`, `SmtpErrorDetails`, `RecipientReply`, `Reply` | as above; `sendMail` adds the codes `CONNECTION_FAILED`, `CONNECTION_LOST`, `TIMEOUT`, `BAD_REPLY`, `REFUSED`, `RECIPIENTS_REFUSED`, `TLS_UNAVAILABLE`, `TLS_FAILED`, `AUTH_UNAVAILABLE`, `EXTENSION_MISSING`, `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `NULL_MX`, `DNS_FAILED`, `INVALID_OPTION` |
 
