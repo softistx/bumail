@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, jest, test } from 'bun:test';
 import type { Socket } from 'bun';
-import { CLOSE_GRACE_MS, SocketTransport } from './transport';
+import {
+	CLOSE_GRACE_MS,
+	LINGER_MAX_MS,
+	LINGER_QUIET_MS,
+	SocketTransport,
+} from './transport';
 
 /** A socket that takes at most `room` bytes per write, as a full kernel buffer does. */
 function slowSocket(room: number) {
@@ -31,6 +36,8 @@ function slowSocket(room: number) {
 			calls.push('terminate');
 			terminated = true;
 		},
+		pause: () => calls.push('pause'),
+		resume: () => calls.push('resume'),
 	} as unknown as Socket<unknown>;
 	return {
 		socket,
@@ -137,6 +144,34 @@ describe('SocketTransport.abort never waits on a client that stopped reading', (
 		expect(fake.terminated).toBe(false);
 	});
 
+	test('with nothing queued but reading paused: reads again, lingers, then half-closes', () => {
+		jest.useFakeTimers();
+		try {
+			const fake = slowSocket(100);
+			const transport = new SocketTransport(fake.socket, false, () => {});
+			transport.pause();
+			transport.write('421 bye\r\n');
+			transport.abort();
+			expect(fake.calls).toEqual(['pause', 'write', 'resume']);
+			jest.advanceTimersByTime(LINGER_QUIET_MS);
+			expect(fake.calls).toEqual(['pause', 'write', 'resume', 'shutdown']);
+			expect(fake.shutdowns).toEqual([true]);
+			expect(fake.terminated).toBe(false);
+		} finally {
+			jest.useRealTimers();
+		}
+	});
+
+	test('reading paused, then resumed: nothing queued ends gracefully again', () => {
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.resume();
+		transport.abort();
+		expect(fake.shutdowns).toEqual([true]);
+		expect(fake.terminated).toBe(false);
+	});
+
 	test('after a graceful end() that is still waiting: abort() terminates', () => {
 		const fake = slowSocket(4);
 		const transport = new SocketTransport(fake.socket, false, () => {});
@@ -145,6 +180,106 @@ describe('SocketTransport.abort never waits on a client that stopped reading', (
 		expect(fake.ended).toBe(false);
 		transport.abort();
 		expect(fake.terminated).toBe(true);
+	});
+});
+
+describe('a hang-up while the server paused reading', () => {
+	afterEach(() => {
+		jest.useRealTimers();
+	});
+
+	test('end() reads again only once what is queued has left, then hangs up', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(4);
+		const transport = new SocketTransport(fake.socket, true, () => {});
+		transport.pause();
+		transport.write('221 bye\r\n');
+		transport.end();
+		expect(fake.calls).not.toContain('resume');
+		while (fake.calls.at(-1) !== 'resume') transport.drain();
+		jest.advanceTimersByTime(LINGER_QUIET_MS);
+		expect(fake.calls.slice(-2)).toEqual(['resume', 'shutdown']);
+		// On TLS after a drain: the full shutdown, as when not paused.
+		expect(fake.shutdowns).toEqual([undefined]);
+		expect(fake.terminated).toBe(false);
+	});
+
+	test('it lingers while the client sends: each chunk puts the half-close back, until the input stops', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.abort();
+		for (let i = 0; i < 5; i++) {
+			jest.advanceTimersByTime(LINGER_QUIET_MS - 1);
+			transport.received();
+		}
+		expect(fake.ended).toBe(false);
+		jest.advanceTimersByTime(LINGER_QUIET_MS);
+		expect(fake.shutdowns).toEqual([true]);
+	});
+
+	test('a client still sending at LINGER_MAX_MS is reset, not half-closed', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.abort();
+		const start = Date.now();
+		while (!fake.terminated && Date.now() - start <= LINGER_MAX_MS) {
+			jest.advanceTimersByTime(LINGER_QUIET_MS / 2);
+			transport.received();
+		}
+		expect(fake.terminated).toBe(true);
+		expect(fake.shutdowns).toEqual([]);
+		expect(Date.now() - start).toBeLessThanOrEqual(LINGER_MAX_MS);
+	});
+
+	test('chunks that come with no turn of the timers between them still end it at LINGER_MAX_MS', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.abort();
+		const start = Date.now();
+		// The clock moves, but each chunk comes before any timer can fire.
+		for (let at = 1; !fake.terminated && at <= LINGER_MAX_MS * 2; at++) {
+			jest.setSystemTime(start + at);
+			transport.received();
+		}
+		expect(fake.terminated).toBe(true);
+		expect(fake.shutdowns).toEqual([]);
+		expect(Date.now() - start).toBe(LINGER_MAX_MS);
+		// Nothing is left armed: the grace and the linger are gone.
+		jest.advanceTimersByTime(CLOSE_GRACE_MS * 2);
+		expect(fake.calls.filter((call) => call === 'terminate')).toHaveLength(1);
+	});
+
+	test('a client that goes quiet within LINGER_MAX_MS is half-closed', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.abort();
+		jest.advanceTimersByTime(LINGER_MAX_MS - LINGER_QUIET_MS - 1);
+		transport.received();
+		jest.advanceTimersByTime(LINGER_QUIET_MS);
+		expect(fake.shutdowns).toEqual([true]);
+		expect(fake.terminated).toBe(false);
+	});
+
+	test('a second end() or abort() while it lingers does not half-close early; closed() stops it', () => {
+		jest.useFakeTimers();
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.end();
+		transport.abort();
+		transport.end();
+		expect(fake.ended).toBe(false);
+		transport.closed();
+		jest.advanceTimersByTime(CLOSE_GRACE_MS * 2);
+		expect(fake.calls).toEqual(['pause', 'resume']);
 	});
 });
 

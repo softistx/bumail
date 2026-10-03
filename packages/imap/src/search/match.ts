@@ -108,8 +108,12 @@ export async function matches(
 	switch (key.kind) {
 		case 'const':
 			return key.value;
-		case 'flag':
-			return message.flags.includes(key.flag) === key.set;
+		case 'flag': {
+			// RFC 9051 §2.3.2: a keyword matches whatever its case.
+			const wanted = key.flag.toLowerCase();
+			const has = message.flags.some((flag) => flag.toLowerCase() === wanted);
+			return has === key.set;
+		}
 		case 'size':
 			return key.larger ? message.size > key.size : message.size < key.size;
 		case 'set':

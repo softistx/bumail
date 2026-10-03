@@ -15,10 +15,14 @@ No dates. Each entry says what someone running or embedding the server gets.
   with real mail clients. The store already keeps the UIDs, UIDVALIDITY and
   modseqs these need.
 - **`@bumail/jmap`** — mailbox access over JMAP (RFC 8620 core, RFC 8621
-  mail), as an alxia app; in review. IMAP came first, since real mail
-  clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it routing,
-  validation and its typed client for free. It is what bumail's own web
-  client will speak.
+  mail), as an alxia app on `@alxia/core` 0.2.1 from npm; its first slice
+  is in review: the session, the API with back-references, Mailbox, Email
+  and Thread, blob download and upload, serving any `@bumail/store`.
+  queryChanges and push via EventSource follow, then Identity and
+  EmailSubmission through `@bumail/smtp/client`. IMAP came first, since
+  real mail clients speak IMAP; JMAP is HTTP and JSON, so alxia gives it
+  routing, validation and its typed client for free. It is what bumail's
+  own web client will speak.
 - **`@bumail/queue`, the first slice** — in review. Outbound mail with
   each recipient's own state (pending, delivered, deferred, failed, with
   the last reply), delivered one session per domain through the published
@@ -76,10 +80,9 @@ No dates. Each entry says what someone running or embedding the server gets.
   are allotted in transactions. The same contract specs again.
 - **The server app** — SMTP on 25 and submission on 587, the queue, and
   the store served over IMAP and JMAP, wired together; an admin API for
-  domains, accounts, aliases and DKIM keys; health and metrics. It starts once
-  `@alxia/core` is on npm: it consumes alxia's published packages, not a
-  link to its working tree, so bumail's CI never depends on another
-  repository's checkout.
+  domains, accounts, aliases and DKIM keys; health and metrics. It consumes
+  alxia's published packages, not a link to its working tree, so bumail's
+  CI never depends on another repository's checkout.
 
 ## Later
 

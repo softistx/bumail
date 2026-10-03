@@ -1,6 +1,6 @@
 import { hostname as machineName } from 'node:os';
 import { SmtpError } from '../errors';
-import { parsePath } from '../protocol/path';
+import { isHelloName, parsePath } from '../protocol/path';
 import type {
 	MxDestination,
 	SendMailAuth,
@@ -47,8 +47,6 @@ export interface ClientSettings {
 export const invalid = (message: string) =>
 	new SmtpError('INVALID_OPTION', `sendMail(): ${message}`);
 
-const HELO = /^(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*|\[[0-9A-Fa-f:.Iv]+\])$/;
-
 function seconds(name: string, value: unknown, fallback: number): number {
 	if (value === undefined) return fallback;
 	if (
@@ -76,14 +74,25 @@ function timeoutsOf(given: SendMailTimeouts = {}): Required<SendMailTimeouts> {
 	return out as Required<SendMailTimeouts>;
 }
 
+/**
+ * `from` or a recipient, checked as an RFC 5321 path, since it is written
+ * into `MAIL FROM:<…>` or `RCPT TO:<…>` as it is. A source route is refused
+ * (§4.1.1.3: clients should not send one), with a message of its own when
+ * the route is otherwise valid.
+ */
 function address(value: unknown, allowNull: boolean): string {
 	const text = typeof value === 'string' ? value : '';
-	if (typeof value !== 'string' || !parsePath(`<${text}>`, allowNull)) {
+	if (typeof value === 'string' && parsePath(`<${text}>`, allowNull, 'refuse'))
+		return text;
+	const routed = typeof value === 'string' && parsePath(`<${text}>`, false);
+	if (routed) {
 		throw invalid(
-			`${JSON.stringify(value)} is not an address (local@domain${allowNull ? ", or '' for a bounce" : ''})`,
+			`${JSON.stringify(value)} holds a source route (@host:), which RFC 5321 says a client should not send: pass ${JSON.stringify(`${routed.local}@${text.slice(text.lastIndexOf('@') + 1)}`)} alone`,
 		);
 	}
-	return text;
+	throw invalid(
+		`${JSON.stringify(value)} is not an address (local@domain${allowNull ? ", or '' for a bounce" : ''})`,
+	);
 }
 
 /**
@@ -93,7 +102,8 @@ function address(value: unknown, allowNull: boolean): string {
  */
 function heloOf(value: string | undefined, byMx: boolean): string {
 	if (value !== undefined) {
-		if (!HELO.test(value)) throw invalid(`helo "${value}" is not a host name`);
+		if (!isHelloName(value))
+			throw invalid(`helo "${value}" is not a host name`);
 		return value;
 	}
 	if (byMx)
@@ -101,7 +111,7 @@ function heloOf(value: string | undefined, byMx: boolean): string {
 			"helo is required for delivery by MX: pass your server's public name, such as helo: 'mail.example.com'",
 		);
 	const name = machineName();
-	return HELO.test(name) ? name : 'localhost';
+	return isHelloName(name) ? name : 'localhost';
 }
 
 function authOf(auth: SendMailAuth | undefined): SendMailAuth | undefined {

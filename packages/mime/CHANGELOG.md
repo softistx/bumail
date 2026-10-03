@@ -1,5 +1,11 @@
 # @bumail/mime
 
+## 0.1.2
+
+### Patch Changes
+
+- [#34](https://github.com/softistx/bumail/pull/34) [`e5f50d4`](https://github.com/softistx/bumail/commit/e5f50d46a2c14aa2a9fec2f1574e66a90086a0c0) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Decode a run of adjacent RFC 2047 encoded-words in linear time. A run in one charset was joined one word at a time, so a hostile header of tens of thousands of words took the square of its length (100,000 adjacent `B` words: about 660 ms); its bytes are now collected and joined once (about 30 ms).
+
 ## 0.1.1
 
 ### Patch Changes

@@ -1,4 +1,5 @@
 import { parseCommand } from '../protocol/command';
+import { isHelloName } from '../protocol/path';
 import { reply } from '../protocol/reply';
 import { authenticate, continueAuth } from './auth';
 import type { Connection } from './connection';
@@ -31,11 +32,7 @@ async function hello(
 	argument: string,
 	esmtp: boolean,
 ): Promise<void> {
-	if (
-		!/^(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*|\[[0-9A-Fa-f:.Iv]+\])$/.test(
-			argument,
-		)
-	) {
+	if (!isHelloName(argument)) {
 		connection.fail(
 			reply(501, '5.5.4', `Syntax: ${esmtp ? 'EHLO' : 'HELO'} hostname`),
 		);

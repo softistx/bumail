@@ -63,7 +63,7 @@ function withArgument(cursor: Cursor, name: string): SearchKey | undefined {
 	if (name === 'KEYWORD' || name === 'UNKEYWORD') {
 		return {
 			kind: 'flag',
-			flag: cursor.atom('a keyword').toLowerCase(),
+			flag: cursor.atom('a keyword'),
 			set: name === 'KEYWORD',
 		};
 	}

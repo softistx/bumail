@@ -1,5 +1,11 @@
 # @bumail/store
 
+## 0.3.0
+
+### Minor Changes
+
+- [#34](https://github.com/softistx/bumail/pull/34) [`6960313`](https://github.com/softistx/bumail/commit/69603137a0dc546ef49a10ba5e171057d08b141a) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Keep a keyword in the case it was first stored with — `$Forwarded`, `$MDNSent`, `NonJunk` — instead of lowercasing it, in the memory and the SQLite stores alike. Keywords still compare without case (RFC 9051 §2.3.2): a message never holds two that differ only by case, `add`, `remove` and `set` match them without case, and adding `$junk` to a message with `$Junk` changes nothing. Flags sort without case. Keywords stored lowercase by an earlier version stay as they are. A minor release: `@bumail/imap` 0.1.0 lowercased the argument of `SEARCH KEYWORD` and `UNKEYWORD` and compared it exactly, so it would miss a keyword stored as `$Forwarded`, and listed a keyword stored in two cases (`$Forwarded` on one message, `$forwarded` on another) twice in FLAGS and PERMANENTFLAGS; serve this store with `@bumail/imap` 0.1.1 or later.
+
 ## 0.2.0
 
 ### Minor Changes

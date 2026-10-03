@@ -178,7 +178,7 @@ A sequence number past the last message is `BAD No such message`
 | mailbox `Work/2026` | a mailbox named `2026` whose parent is `Work`; the delimiter is `/` |
 | `\Sent`, `\Archive`, `\Trash`… | the mailbox `role` |
 | UIDVALIDITY, UIDNEXT, UIDs | the mailbox's `uidValidity`, `uidNext`, and each entry's `uid` |
-| flags and keywords | the message's `flags`, as the store spells them |
+| flags and keywords | the message's `flags`: a keyword in the case it was first set, `$Forwarded` as a client set it; STORE, `KEYWORD` and `UNKEYWORD` compare keywords without case, and FLAGS and PERMANENTFLAGS list each once |
 | INTERNALDATE | `receivedAt` |
 | the message | the stored blob, read as it streams |
 | SUBSCRIBE | `isSubscribed` |
@@ -291,11 +291,21 @@ queued, LOGOUT, a `BYE` — sends its last words, then half-closes the
 socket: the server never waits for the client to answer, on TLS as on a
 clear socket, so the connection leaves `connections` at once, and a
 client that paused still reads that `BYE`, then a clean end, whenever it
-reads again. What is still queued when a hang-up starts may wait 5
-seconds at most for the client to take it; past that the connection is
-reset. On TLS, once such output has left, the server closes when the
-client answers, within the same 5 seconds. A client that connects and
-never logs in is cut at `loginTimeout`, however slowly it trickles bytes, and whether it reads or
+reads again. When the server had stopped reading the client, which sent
+more than it could take, it reads again first, dropping whatever comes,
+and half-closes once the client's input stops for 20 ms: a half-close
+does not complete over input left unread, and on Linux a close over
+unread input is a reset that loses the `BYE`. A client whose input went
+quiet for 20 ms within 500 ms of the hang-up still reads the `BYE` and
+the end. It waits 500 ms at most: input not quiet for 20 ms by then, a
+client still sending or one that stopped in the last 20 ms, is reset,
+so the connection leaves
+`connections` within 500 ms all the same. What is
+still queued when a hang-up starts may wait 5 seconds at most for the
+client to take it; past that the connection is reset. On TLS, once such
+output has left, the server closes when the client answers, within the
+same 5 seconds. A client that connects and never logs in is cut at
+`loginTimeout`, however slowly it trickles bytes, and whether it reads or
 not; its place under `maxConnections` is free again.
 
 `server.stop(true)` hangs up on every open connection, those moved to TLS

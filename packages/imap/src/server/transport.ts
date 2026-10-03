@@ -1,4 +1,5 @@
 import type { Socket } from 'bun';
+import { Outgoing } from '../io/outgoing';
 
 /** What a connection needs from its socket: Bun's, or a fake one in specs. */
 export interface Transport {
@@ -13,6 +14,8 @@ export interface Transport {
 	/**
 	 * Hangs up once everything written has left: a graceful close, as after
 	 * LOGOUT. A socket not closed within `CLOSE_GRACE_MS` is terminated.
+	 * If the server paused reading, it reads again first, since a half-close
+	 * does not complete over input left unread.
 	 */
 	end(): void;
 	/**
@@ -36,9 +39,19 @@ export interface Transport {
 export const CLOSE_GRACE_MS = 5_000;
 
 /**
- * A Bun socket as a Transport. Bun's sockets do not buffer: `write` takes
- * what the kernel takes and says how much. The rest waits here for the
- * `drain` event; a writer that cares awaits `drained` before writing more.
+ * A hang-up while the server paused reading lingers: it reads again and
+ * drops what the client sent until nothing came for `LINGER_QUIET_MS`,
+ * then half-closes. Bun closes the socket at once on `shutdown(true)`, and
+ * Linux answers a close over unread input with a reset that loses the last
+ * reply. A client still sending after `LINGER_MAX_MS` is reset.
+ */
+export const LINGER_QUIET_MS = 20;
+export const LINGER_MAX_MS = 500;
+
+/**
+ * A Bun socket as a Transport. What the socket cannot take now waits in an
+ * `Outgoing` for the `drain` event, so no output is lost to a client that
+ * reads slowly; a writer that cares awaits `drained` before writing more.
  *
  * Adapted from `@bumail/smtp`'s own (`src/server/transport.ts`), which
  * writes text: the two are internal, and differ in what they carry, not in
@@ -49,13 +62,21 @@ export class SocketTransport implements Transport {
 	readonly remoteAddress: string;
 	readonly secure: boolean;
 	readonly #startTls: () => void;
-	#queue: Uint8Array[] = [];
-	#backlog = 0;
-	#waiters: (() => void)[] = [];
+	readonly #outgoing: Outgoing;
 	#ending = false;
 	/** The socket closed: every later write, end or abort is a no-op. */
 	#closed = false;
+	/** The server stopped reading: what the client sends waits in the socket. */
+	#paused = false;
 	#grace: ReturnType<typeof setTimeout> | undefined;
+	/** A paused hang-up waiting for the client's input to stop: how it will shut down, when it stops waiting, its timer. */
+	#linger:
+		| {
+				drained: boolean;
+				until: number;
+				timer?: ReturnType<typeof setTimeout>;
+		  }
+		| undefined;
 
 	constructor(
 		socket: Socket<unknown>,
@@ -67,65 +88,61 @@ export class SocketTransport implements Transport {
 		this.secure = secure;
 		this.#startTls = startTls;
 		this.remoteAddress = remoteAddress;
+		this.#outgoing = new Outgoing((bytes) => socket.write(bytes));
 	}
 
 	get backlog(): number {
-		return this.#backlog;
+		return this.#outgoing.backlog;
 	}
 
 	write(bytes: Uint8Array): void {
 		if (this.#closed) return;
-		if (this.#queue.length > 0) {
-			this.#queue.push(bytes);
-			this.#backlog += bytes.length;
-			return;
-		}
-		const written = Math.max(this.#socket.write(bytes), 0);
-		if (written < bytes.length) {
-			this.#queue.push(bytes.subarray(written));
-			this.#backlog += bytes.length - written;
-		}
+		this.#outgoing.write(bytes);
 	}
 
 	/** Bun's `drain`: the socket can take more. */
 	drain(): void {
-		while (this.#queue.length > 0) {
-			const bytes = this.#queue[0] as Uint8Array;
-			const written = Math.max(this.#socket.write(bytes), 0);
-			this.#backlog -= written;
-			if (written < bytes.length) {
-				this.#queue[0] = bytes.subarray(written);
-				return;
-			}
-			this.#queue.shift();
-		}
-		for (const wake of this.#waiters.splice(0)) wake();
-		if (this.#ending) this.#hangUp(true);
+		if (this.#outgoing.drain() && this.#ending) this.#hangUp(true);
 	}
 
 	drained(): Promise<void> {
-		if (this.#queue.length === 0) return Promise.resolve();
-		return new Promise((wake) => this.#waiters.push(wake));
+		return this.#outgoing.drained();
+	}
+
+	/**
+	 * Bun's `data`: the client sent bytes. While a hang-up lingers, they are
+	 * dropped, and the half-close waits until they stop — `LINGER_MAX_MS` at
+	 * most: a client still sending then is reset. Re-arming the timer on each
+	 * chunk would let a client that never pauses keep it from firing, and a
+	 * half-close over its input may never fire `close` (Linux).
+	 */
+	received(): void {
+		const linger = this.#linger;
+		if (!linger) return;
+		const left = linger.until - Date.now();
+		if (left <= 0) this.#terminate();
+		else this.#lingerFor(Math.min(LINGER_QUIET_MS, left));
 	}
 
 	/** The socket closed: nothing more will leave. */
 	closed(): void {
 		this.#closed = true;
 		this.#disarm();
-		this.#clear();
+		this.#stopLingering();
+		this.#outgoing.clear();
 	}
 
 	/** After `closed()`, does nothing: no grace is armed on a dead socket. */
 	end(): void {
 		if (this.#closed) return;
 		this.#arm();
-		if (this.#queue.length === 0) this.#hangUp(false);
+		if (this.#outgoing.empty) this.#hangUp(false);
 		else this.#ending = true;
 	}
 
 	abort(): void {
 		if (this.#closed) return;
-		if (this.#queue.length === 0) this.end();
+		if (this.#outgoing.empty) this.end();
 		else this.#terminate();
 	}
 
@@ -143,9 +160,52 @@ export class SocketTransport implements Transport {
 	 * (Bun 1.4.2: up to 96 KiB lost by a client reading slowly). The client
 	 * was reading a moment ago, so a full `shutdown()` closes once it
 	 * answers, and the grace bounds it if it stops.
+	 *
+	 * Reading paused, it reads again first: over input the server never
+	 * read, a half-close does not fire `close` (Bun 1.4.2), and the slot
+	 * waited for the grace. And it lingers: Bun closes the socket as soon as
+	 * it half-closes, and on Linux a close with input still unread is a
+	 * reset, which loses the last reply. So it drops what the client sends
+	 * until that stops for `LINGER_QUIET_MS` (`LINGER_MAX_MS` at most), then
+	 * half-closes: `close` fires at once, and a client that stopped sending
+	 * still gets the last reply and the end. One still sending at
+	 * `LINGER_MAX_MS` is reset (`received()`).
 	 */
 	#hangUp(drained: boolean): void {
 		this.#ending = false;
+		if (this.#linger) return;
+		if (!this.#paused) {
+			this.#shutdown(drained);
+			return;
+		}
+		this.resume();
+		this.#linger = { drained, until: Date.now() + LINGER_MAX_MS };
+		this.#lingerFor(LINGER_QUIET_MS);
+	}
+
+	/**
+	 * Half-closes in `ms`, unless the client sends again first. Armed for
+	 * less than `LINGER_QUIET_MS`, the input never went quiet before
+	 * `LINGER_MAX_MS`: it resets instead.
+	 */
+	#lingerFor(ms: number): void {
+		const linger = this.#linger;
+		if (!linger) return;
+		clearTimeout(linger.timer);
+		linger.timer = setTimeout(() => {
+			if (ms < LINGER_QUIET_MS) return this.#terminate();
+			this.#stopLingering();
+			this.#shutdown(linger.drained);
+		}, ms);
+		linger.timer.unref?.();
+	}
+
+	#stopLingering(): void {
+		clearTimeout(this.#linger?.timer);
+		this.#linger = undefined;
+	}
+
+	#shutdown(drained: boolean): void {
 		if (drained && this.secure) this.#socket.shutdown();
 		else this.#socket.shutdown(true);
 	}
@@ -153,15 +213,9 @@ export class SocketTransport implements Transport {
 	/** Drops what is queued and resets the connection. */
 	#terminate(): void {
 		this.#disarm();
-		this.#clear();
+		this.#stopLingering();
+		this.#outgoing.clear();
 		this.#socket.terminate();
-	}
-
-	/** Drops what is queued, and lets go whoever waited for it. */
-	#clear(): void {
-		this.#queue = [];
-		this.#backlog = 0;
-		for (const wake of this.#waiters.splice(0)) wake();
 	}
 
 	/** Terminates the socket once the grace is up, unless it closed first; the first deadline stands. */
@@ -177,10 +231,12 @@ export class SocketTransport implements Transport {
 	}
 
 	pause(): void {
+		this.#paused = true;
 		this.#socket.pause();
 	}
 
 	resume(): void {
+		this.#paused = false;
 		this.#socket.resume();
 	}
 

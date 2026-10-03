@@ -215,8 +215,12 @@ const { messages, modified } = await store.setFlags(account.id, ids, { add: ['\\
   `\Deleted`, `\Draft`, in any case, stored in this case — or a
   **keyword**: printable ASCII without white space, `(`, `)`, `{`, `%`,
   `*`, `"`, `\` or `]`, 1 to 255 characters (RFC 9051 §9, RFC 8621
-  §4.1.1). Keywords are stored in **lowercase**, since IMAP and JMAP both
-  compare them without case: `$Junk` and `$junk` are one keyword.
+  §4.1.1). IMAP and JMAP compare keywords without case, so `$Junk` and
+  `$junk` are one keyword: a message never holds both, and `add`, `remove`
+  and `set` match them without case. A keyword keeps the case it was
+  **first stored** with — clients look for the one they set, `$Forwarded`,
+  `$MDNSent`, `NonJunk` — so adding `$junk` to a message with `$Junk`
+  changes nothing. Flags sort without case.
   `\Recent`, gone in IMAP4rev2, is `INVALID`.
 - Flags belong to the message, so a flag set through one mailbox shows in
   every mailbox it is in. Flags come back sorted. A change that changes

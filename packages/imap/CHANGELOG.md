@@ -1,5 +1,14 @@
 # @bumail/imap
 
+## 0.1.1
+
+### Patch Changes
+
+- [#34](https://github.com/softistx/bumail/pull/34) [`5fecf59`](https://github.com/softistx/bumail/commit/5fecf5968a10baf27b28507167d2dc5693182c98) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Return keywords as the client set them, and compare them without case: `SEARCH KEYWORD` and `UNKEYWORD` match whatever the case, and FLAGS and PERMANENTFLAGS list a keyword once, in its stored case. Free the slot within 500 ms instead of 5 seconds on any hang-up — the login or idle timeout, LOGOUT, a BYE, `stop(true)` — of a client the server had stopped reading because it sent more than the server could take: a half-close does not complete over that unread input, and the connection held its place under `maxConnections` for the 5-second grace. The server now reads again before it half-closes, dropping what comes until the client's input stops for 20 ms, and a client whose input went quiet for 20 ms within 500 ms of the hang-up still reads the BYE and a clean end — on Linux too, where a close over input left unread is a reset that lost the BYE. It waits 500 ms at most: input not quiet for 20 ms by then — a client still sending, or one that stopped in the last 20 ms — is reset, so the socket closes within 500 ms however the client sends.
+- Updated dependencies [[`e5f50d4`](https://github.com/softistx/bumail/commit/e5f50d46a2c14aa2a9fec2f1574e66a90086a0c0), [`6960313`](https://github.com/softistx/bumail/commit/69603137a0dc546ef49a10ba5e171057d08b141a)]:
+  - @bumail/mime@0.1.2
+  - @bumail/store@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes
