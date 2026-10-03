@@ -130,7 +130,6 @@ part of the text.
 - [`tooLarge` — `The query would read more than … emails: the store has no index yet`](troubleshooting/methods.md#toolarge--the-query-would-read-more-than--emails-the-store-has-no-index-yet)
 - [`tooLarge` — `The query reads more than … emails`](troubleshooting/methods.md#toolarge--the-query-reads-more-than--emails)
 - [`tooLarge` — `The account has more than … emails: the store has no thread index yet`](troubleshooting/methods.md#toolarge--the-account-has-more-than--emails-the-store-has-no-thread-index-yet)
-- [`tooLarge` — `Counting threads would read more than … emails: leave totalThreads and unreadThreads out`](troubleshooting/methods.md#toolarge--counting-threads-would-read-more-than--emails-leave-totalthreads-and-unreadthreads-out)
 - [`serverFail`](troubleshooting/methods.md#serverfail)
 
 **[Objects not created, updated or destroyed](troubleshooting/objects.md)**

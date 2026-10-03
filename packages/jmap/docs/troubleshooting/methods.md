@@ -293,18 +293,6 @@ The query's conditions or sort read more emails' content than
 `Thread/get` reads the account's emails to find a thread's: past
 `maxQueryScan`, it refuses.
 
-## `tooLarge` — `Counting threads would read more than … emails: leave totalThreads and unreadThreads out`
-
-`Mailbox/get` counts a mailbox's threads by listing its emails, since
-the store keeps no thread counts. The mailboxes asked for hold more
-emails, together, than `maxQueryScan`. Ask for the properties you need
-without `totalThreads` and `unreadThreads`, ask for fewer mailboxes, or
-raise `limits.maxQueryScan`:
-
-```json
-["Mailbox/get", { "accountId": "…", "properties": ["name", "role", "totalEmails", "unreadEmails"] }, "c1"]
-```
-
 ## `serverFail`
 
 Something failed that is not the client's doing: the store threw, or a

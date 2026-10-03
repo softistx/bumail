@@ -202,7 +202,9 @@ level, `parentId` its parent, `role` its role (`inbox`, `archive`,
 store's counts; `totalThreads` and `unreadThreads` are counted by listing
 the mailbox's messages, only when asked — `properties` left out (null)
 asks for them — and at most `maxQueryScan` emails for one call, all its
-mailboxes together: past it, `tooLarge`. `sortOrder` is always 0, and
+mailboxes together: past it, a mailbox's `totalThreads` and
+`unreadThreads` are its `totalEmails` and `unreadEmails`, which is exact
+while threads are single emails. `sortOrder` is always 0, and
 `myRights` grants everything but `maySubmit`.
 
 `Mailbox/set`:
@@ -390,7 +392,7 @@ writer between that check and the call's own changes is not caught.
 | `maxReferenceItems` | 5000 | values of one back-reference | `invalidResultReference` |
 | `maxReferenceBytes` | 4 MiB | bytes of JSON all the back-references of a request resolve to | `invalidResultReference` |
 | `maxSizeResponse` | 64 MiB | bytes of JSON of one API response | 400 problem `limit` |
-| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` thread count reads | `tooLarge` |
+| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` thread count reads | `tooLarge`; thread counts are email counts |
 | `maxBodyValueBytes` | 1 MiB | one body value | cut, `isTruncated` |
 | `maxBodyValuesTotal` | 16 MiB | body values of one request | cut, `isTruncated` |
 | `maxSizeUpload` | 25 MiB | one upload | 413 problem `limit` |

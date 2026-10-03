@@ -62,19 +62,25 @@ describe('edge cases of emails', () => {
 		}
 	});
 
-	test('Mailbox/get counts threads by reading at most maxQueryScan emails', async () => {
+	test('Mailbox/get past maxQueryScan emails gives the email counts as thread counts', async () => {
 		h = await harness('memory', { limits: { maxQueryScan: 1 } });
 		await h.add(SIMPLE);
 		await h.add(MULTIPART);
-		const counted = await h.call('Mailbox/get', {
-			ids: [h.inbox.id],
-			properties: ['totalThreads'],
-		});
-		expect(counted.args.type).toBe('tooLarge');
-		const plain = await h.call('Mailbox/get', {
-			ids: [h.inbox.id],
-			properties: ['totalEmails'],
-		});
-		expect(plain.args.list[0].totalEmails).toBe(2);
+		for (const properties of [null, ['totalThreads', 'unreadThreads']]) {
+			const { args } = await h.call('Mailbox/get', {
+				ids: [h.inbox.id],
+				properties,
+			});
+			expect(args.type).toBeUndefined();
+			const [inbox] = args.list;
+			expect(inbox.totalThreads).toBe(2);
+			expect(inbox.unreadThreads).toBe(2);
+		}
+		const all = await h.call('Mailbox/get', { ids: null, properties: null });
+		expect(all.args.type).toBeUndefined();
+		for (const mailbox of all.args.list) {
+			expect(mailbox.totalThreads).toBe(mailbox.totalEmails);
+			expect(mailbox.unreadThreads).toBe(mailbox.unreadEmails);
+		}
 	});
 });
