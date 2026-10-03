@@ -72,7 +72,7 @@ export class SocketTransport implements Transport {
 
 	/** Bun's `drain`: the socket can take more. */
 	drain(): void {
-		if (this.#outgoing.drain() && this.#ending) this.#hangUp();
+		if (this.#outgoing.drain() && this.#ending) this.#hangUp(true);
 	}
 
 	drained(): Promise<void> {
@@ -90,7 +90,7 @@ export class SocketTransport implements Transport {
 	end(): void {
 		if (this.#closed) return;
 		this.#arm();
-		if (this.#outgoing.empty) this.#hangUp();
+		if (this.#outgoing.empty) this.#hangUp(false);
 		else this.#ending = true;
 	}
 
@@ -108,9 +108,16 @@ export class SocketTransport implements Transport {
 	 * that reads later still gets every byte, then the end. A full
 	 * `shutdown()` would hold a paused client until the grace, then lose
 	 * its last reply to the reset.
+	 *
+	 * Except on TLS right after a queue drained (`drained`): there the last
+	 * write may still sit in Bun's own TLS buffer, which a half-close drops
+	 * (Bun 1.4.2: up to 96 KiB lost by a client reading slowly). The client
+	 * was reading a moment ago, so a full `shutdown()` closes once it
+	 * answers, and the grace bounds it if it stops.
 	 */
-	#hangUp(): void {
-		this.#socket.shutdown(true);
+	#hangUp(drained: boolean): void {
+		if (drained && this.secure) this.#socket.shutdown();
+		else this.#socket.shutdown(true);
 	}
 
 	/** Drops what is queued and resets the connection. */

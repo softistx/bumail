@@ -3,12 +3,12 @@ import { ImapError } from '../errors';
 import {
 	Client,
 	localhostTls,
-	pausedTlsClient,
+	pausedClient,
 	slowTlsReader,
 } from './client.fixtures';
 import { createImapServer, type ImapServer } from './server';
 import { imapOptions, seededStore } from './session.fixtures';
-import { CLOSE_GRACE } from './transport';
+import { CLOSE_GRACE_MS } from './transport';
 
 const servers: ImapServer[] = [];
 afterEach(() => {
@@ -127,7 +127,7 @@ describe('on a real socket', () => {
 		expect(text.indexOf('* BYE Logging out\r\n')).toBeGreaterThan(body);
 		expect(text).toEndWith('* BYE Logging out\r\nd OK LOGOUT completed\r\n');
 		// Shut down once the queue left, not terminated at the grace.
-		expect(Date.now() - (client.lastDataAt ?? 0)).toBeLessThan(CLOSE_GRACE);
+		expect(Date.now() - (client.lastDataAt ?? 0)).toBeLessThan(CLOSE_GRACE_MS);
 	}, 15_000);
 
 	test('a client that never logs in is cut at loginTimeout, however much it trickles', async () => {
@@ -153,25 +153,44 @@ describe('on a real socket', () => {
 		expect(await within(1000, () => client.closed)).toBe(true);
 	}, 10_000);
 
-	// On TLS, Bun's `end()` waits for the client's own close before `close`
-	// fires: a client that stopped reading never sends it, so only the
-	// grace timer's `terminate` frees the slot. Nothing is queued here.
-	for (const starttls of [false, true]) {
-		const how = starttls ? 'after STARTTLS' : 'on implicit TLS';
-		test(`a paused client ${how} is cut at loginTimeout, and its slot freed`, async () => {
+	// A client that pauses never answers the server's close. On TLS, Bun's
+	// `end()` waits for that answer, and a full `shutdown()` holds the
+	// socket until the grace's `terminate`, whose reset loses the BYE: the
+	// half-close frees the slot at once and the BYE waits in the kernel.
+	for (const path of ['clear', 'implicit TLS', 'STARTTLS'] as const) {
+		test(`a paused client (${path}) is cut at loginTimeout, its slot freed at once, and reads the BYE after the grace`, async () => {
 			const { server, port } = await start({
-				implicitTls: !starttls,
+				implicitTls: path === 'implicit TLS',
 				loginTimeout: 1,
 			});
-			const client = await pausedTlsClient(port, starttls);
+			const client = await pausedClient(port, path);
+			const started = Date.now();
 			try {
+				let text = '';
+				let ended = false;
+				let failed: unknown;
+				client.on('data', (chunk: Buffer) => {
+					text += chunk.toString('latin1');
+				});
+				client.on('end', () => {
+					ended = true;
+				});
+				client.on('error', (error) => {
+					failed = error;
+				});
 				expect(await within(500, () => server.connections === 1)).toBe(true);
-				expect(
-					await within(
-						1000 + CLOSE_GRACE + 2000,
-						() => server.connections === 0,
-					),
-				).toBe(true);
+				// The login deadline, not the grace: the hang-up closes at once.
+				expect(await within(2500, () => server.connections === 0)).toBe(true);
+				expect(Date.now() - started).toBeLessThan(CLOSE_GRACE_MS);
+				// Reads again only once a terminate at the grace would have come.
+				await Bun.sleep(1000 + CLOSE_GRACE_MS + 500 - (Date.now() - started));
+				client.resume();
+				expect(await within(2000, () => ended || failed !== undefined)).toBe(
+					true,
+				);
+				expect(failed).toBeUndefined();
+				expect(ended).toBe(true);
+				expect(text).toEndWith('* BYE Too slow to log in, closing\r\n');
 			} finally {
 				client.destroy();
 			}
@@ -187,6 +206,20 @@ describe('on a real socket', () => {
 		const client = await Client.connect(port, true);
 		expect(await client.line()).toContain('IMAP4rev2 ready');
 		client.end();
+	});
+
+	test('stop(true) after STARTTLS hangs up on the session and counts it out', async () => {
+		const { server, port } = await start();
+		const client = await Client.connect(port);
+		await client.line();
+		await client.command('a1', 'STARTTLS');
+		await client.startTls();
+		await client.command('a2', 'CAPABILITY');
+		expect(server.connections).toBe(1);
+		// Bun's own stop(true) no longer holds a socket moved to TLS.
+		server.stop(true);
+		expect(await within(1000, () => server.connections === 0)).toBe(true);
+		expect(await client.until(() => client.closed, 1)).toBe(true);
 	});
 
 	test('listen twice throws ALREADY_LISTENING', async () => {

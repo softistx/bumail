@@ -157,18 +157,29 @@ async function askedStartTls(port: number): Promise<NetSocket> {
 	return clear;
 }
 
+/** How a paused client reaches the server. */
+export type PausedPath = 'clear' | 'implicit TLS' | 'STARTTLS';
+
 /**
- * A `node:tls` client that stops reading once TLS is up: implicit TLS, or
- * STARTTLS on a clear socket first. It never answers the server's close,
- * as a paused or vanished client would not.
+ * A client that stops reading at once — over a clear `node:net` socket,
+ * implicit TLS, or STARTTLS on a clear socket first — and never answers
+ * the server's close, as a paused or vanished client would not. What the
+ * server sends waits in the kernel for it; `resume()` reads it.
  */
-export async function pausedTlsClient(
+export async function pausedClient(
 	port: number,
-	starttls = false,
-): Promise<TLSSocket> {
+	path: PausedPath,
+): Promise<NetSocket> {
+	if (path === 'clear') {
+		const clear = connect({ host: '127.0.0.1', port });
+		clear.pause();
+		clear.on('error', () => {});
+		await new Promise<void>((done) => clear.once('connect', done));
+		return clear;
+	}
 	const options = { rejectUnauthorized: false, servername: 'localhost' };
-	const secure = tlsConnect(
-		starttls
+	const secure: TLSSocket = tlsConnect(
+		path === 'STARTTLS'
 			? { ...options, socket: await askedStartTls(port) }
 			: { ...options, host: '127.0.0.1', port },
 	);

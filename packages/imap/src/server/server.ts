@@ -173,6 +173,13 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 		stop(closeConnections = false) {
 			listener?.stop(closeConnections);
 			listener = undefined;
+			if (!closeConnections) return;
+			// Bun's `stop(true)` closes the sockets the listener holds, and a
+			// socket STARTTLS moved to TLS is no longer one of them: hang up on
+			// every connection here, as a timeout does.
+			for (const connection of [...open]) {
+				void connection.close(undefined, { forced: true });
+			}
 		},
 	};
 }

@@ -95,7 +95,8 @@ BODY keys. A
 sequence set such as `1:4294967295` is resolved from its ranges, never
 expanded. A client that stops reading is still hung up on at
 `loginTimeout` or `timeout`, and gives back its place under
-`maxConnections`.
+`maxConnections` at once; with nothing queued for it, it still reads the
+`BYE`, then a clean end, whenever it reads again.
 
 ## Traps
 
@@ -121,7 +122,7 @@ expanded. A client that stops reading is still hung up on at
 | export | |
 | --- | --- |
 | `createImapServer(options)` | the server; throws an `ImapError` (`INVALID_OPTION`) on a bad option |
-| `ImapServer` | `listen({ port, hostname? })`, which resolves to the bound `{ port, hostname }` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)`, `notify(accountId)` to wake the account's IDLE sessions, `connections`, the number of open connections |
+| `ImapServer` | `listen({ port, hostname? })`, which resolves to the bound `{ port, hostname }` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `notify(accountId)` to wake the account's IDLE sessions, `connections`, the number of open connections |
 | `ImapServerOptions` | `hostname`, `store`, `tls`, `implicitTls`, `authenticate`, the limits above, `onError` |
 | `ImapSession` | what `authenticate` and `onError` receive: `id`, `remoteAddress`, `secure`, `user`, `accountId`, and `data` for your own state |
 | `AuthResult` | what `authenticate` answers: an account id, or `null` / `undefined` to refuse |

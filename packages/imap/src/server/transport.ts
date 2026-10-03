@@ -11,12 +11,16 @@ export interface Transport {
 	/** Resolves once everything written has left. */
 	drained(): Promise<void>;
 	/**
-	 * Hangs up once everything written has left, and terminates the socket
-	 * after a short grace if it has not closed by then — whether bytes were
-	 * queued or not: a hang-up never waits on the client.
+	 * Hangs up once everything written has left: a graceful close, as after
+	 * LOGOUT. A socket not closed within `CLOSE_GRACE_MS` is terminated.
 	 */
 	end(): void;
-	/** Hangs up now, dropping whatever the client has not taken. */
+	/**
+	 * Hangs up now, the server's decision: what the socket already took
+	 * leaves, but what still waits for a client that stopped reading is
+	 * dropped and the connection reset, so the close never hangs on it.
+	 * With nothing queued it hangs up as `end()` does, within the same grace.
+	 */
 	abort(): void;
 	/** Stops reading from the client, while the server catches up. */
 	pause(): void;
@@ -25,21 +29,20 @@ export interface Transport {
 	startTls(): void;
 }
 
-/** How long a hang-up waits for the client to take what is queued, and to close. */
-export const CLOSE_GRACE = 5000;
+/**
+ * How long any end may wait on the client — for what is queued to leave,
+ * then for the close itself — before the socket is terminated.
+ */
+export const CLOSE_GRACE_MS = 5_000;
 
 /**
  * A Bun socket as a Transport. Bun's sockets do not buffer: `write` takes
  * what the kernel takes and says how much. The rest waits here for the
  * `drain` event; a writer that cares awaits `drained` before writing more.
  *
- * A hang-up is bounded: `end` waits `CLOSE_GRACE` at most for the queue to
- * leave and the socket to close, `abort` does not wait at all. A client
- * that never reads is cut all the same, on TLS too, and gives back its
- * place under `maxConnections`.
- *
  * Adapted from `@bumail/smtp`'s own (`src/server/transport.ts`), which
- * writes text: the two are internal, and differ in what they carry.
+ * writes text: the two are internal, and differ in what they carry, not in
+ * how they hang up. A fix to one is a fix to the other.
  */
 export class SocketTransport implements Transport {
 	readonly #socket: Socket<unknown>;
@@ -50,6 +53,8 @@ export class SocketTransport implements Transport {
 	#backlog = 0;
 	#waiters: (() => void)[] = [];
 	#ending = false;
+	/** The socket closed: every later write, end or abort is a no-op. */
+	#closed = false;
 	#grace: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
@@ -69,15 +74,16 @@ export class SocketTransport implements Transport {
 	}
 
 	write(bytes: Uint8Array): void {
+		if (this.#closed) return;
 		if (this.#queue.length > 0) {
 			this.#queue.push(bytes);
 			this.#backlog += bytes.length;
 			return;
 		}
-		const written = this.#socket.write(bytes);
+		const written = Math.max(this.#socket.write(bytes), 0);
 		if (written < bytes.length) {
-			this.#queue.push(bytes.subarray(Math.max(written, 0)));
-			this.#backlog += bytes.length - Math.max(written, 0);
+			this.#queue.push(bytes.subarray(written));
+			this.#backlog += bytes.length - written;
 		}
 	}
 
@@ -94,7 +100,7 @@ export class SocketTransport implements Transport {
 			this.#queue.shift();
 		}
 		for (const wake of this.#waiters.splice(0)) wake();
-		if (this.#ending) this.#socket.shutdown();
+		if (this.#ending) this.#hangUp(true);
 	}
 
 	drained(): Promise<void> {
@@ -104,31 +110,70 @@ export class SocketTransport implements Transport {
 
 	/** The socket closed: nothing more will leave. */
 	closed(): void {
-		clearTimeout(this.#grace);
+		this.#closed = true;
+		this.#disarm();
+		this.#clear();
+	}
+
+	/** After `closed()`, does nothing: no grace is armed on a dead socket. */
+	end(): void {
+		if (this.#closed) return;
+		this.#arm();
+		if (this.#queue.length === 0) this.#hangUp(false);
+		else this.#ending = true;
+	}
+
+	abort(): void {
+		if (this.#closed) return;
+		if (this.#queue.length === 0) this.end();
+		else this.#terminate();
+	}
+
+	/**
+	 * Hangs up with a half-close, `shutdown(true)`, not Bun's `end`: on TLS,
+	 * `end` waits for the client's own close, which a client that stopped
+	 * reading never sends, and a `terminate` after it no longer closes the
+	 * socket (Bun 1.4). The half-close fires `close` at once, and a client
+	 * that reads later still gets every byte, then the end. A full
+	 * `shutdown()` would hold a paused client until the grace, then lose
+	 * its last reply to the reset.
+	 *
+	 * Except on TLS right after a queue drained (`drained`): there the last
+	 * write may still sit in Bun's own TLS buffer, which a half-close drops
+	 * (Bun 1.4.2: up to 96 KiB lost by a client reading slowly). The client
+	 * was reading a moment ago, so a full `shutdown()` closes once it
+	 * answers, and the grace bounds it if it stops.
+	 */
+	#hangUp(drained: boolean): void {
+		this.#ending = false;
+		if (drained && this.secure) this.#socket.shutdown();
+		else this.#socket.shutdown(true);
+	}
+
+	/** Drops what is queued and resets the connection. */
+	#terminate(): void {
+		this.#disarm();
+		this.#clear();
+		this.#socket.terminate();
+	}
+
+	/** Drops what is queued, and lets go whoever waited for it. */
+	#clear(): void {
 		this.#queue = [];
 		this.#backlog = 0;
 		for (const wake of this.#waiters.splice(0)) wake();
 	}
 
-	/**
-	 * Shuts the socket's writing side now when nothing is queued, else once
-	 * the queue leaves; either way the grace timer terminates the socket if
-	 * `close` has not come by then. Not Bun's `end`: on TLS, it waits for
-	 * the client's own close, which a client that stopped reading never
-	 * sends, and a `terminate` after it no longer closes the socket (Bun
-	 * 1.4). `shutdown` lets the client read to the end and close, and
-	 * leaves `terminate` able to cut it when it does not.
-	 */
-	end(): void {
-		if (this.#ending) return;
-		this.#ending = true;
-		this.#grace = setTimeout(() => this.abort(), CLOSE_GRACE);
-		if (this.#queue.length === 0) this.#socket.shutdown();
+	/** Terminates the socket once the grace is up, unless it closed first; the first deadline stands. */
+	#arm(): void {
+		if (this.#grace) return;
+		this.#grace = setTimeout(() => this.#terminate(), CLOSE_GRACE_MS);
+		this.#grace.unref?.();
 	}
 
-	abort(): void {
-		this.closed();
-		this.#socket.terminate();
+	#disarm(): void {
+		clearTimeout(this.#grace);
+		this.#grace = undefined;
 	}
 
 	pause(): void {

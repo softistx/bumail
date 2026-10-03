@@ -892,7 +892,8 @@ at most for what is queued to go out; past that, what is left is dropped
 and the connection reset. So a `221` behind replies that are never read
 holds the slot 5 seconds, not until the `timeout`.
 
-Stop a server with `stop()`; `stop(true)` also hangs up on every client.
+Stop a server with `stop()`; `stop(true)` also hangs up on every client,
+those moved to TLS by STARTTLS included, as the idle timeout does.
 `connections` counts the clients currently connected:
 
 ```ts
