@@ -130,7 +130,9 @@ A download serves an email's bytes, one of its parts (each part's
 | `uploadTtl` | 3600 s | how long an upload is kept |
 | `maxJsonDepth`, `maxJsonTokens` | 64, 100 000 | checked before the body is parsed |
 | `maxReferenceItems` | 5000 | values one back-reference expands to |
-| `maxQueryScan` | 10 000 | emails a query, a thread lookup or a text search reads |
+| `maxReferenceBytes` | 4 MiB | bytes of JSON all the back-references of one request resolve to |
+| `maxSizeResponse` | 64 MiB | bytes of JSON of one API response |
+| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a text search or a `Mailbox/get` thread count reads |
 | `maxBodyValueBytes` | 1 MiB | one body value, whatever the client asks |
 | `maxBodyValuesTotal` | 16 MiB | body values in one request |
 
@@ -138,8 +140,8 @@ Set them under `limits`. `maxSizeRequest`, `maxCallsInRequest`,
 `maxConcurrentRequests`, `maxObjectsInGet`, `maxObjectsInSet`,
 `maxSizeUpload` and `maxConcurrentUpload` are announced in the session's
 `urn:ietf:params:jmap:core` capability. A limit broken by the request is a
-`urn:ietf:params:jmap:error:limit` problem naming it (413 for a size, 429
-for a concurrency, 400 for the rest); one broken by a call is a method
+`urn:ietf:params:jmap:error:limit` problem naming it (413 for a size it
+sent, 429 for a concurrency, 400 for the rest, `maxSizeResponse` included); one broken by a call is a method
 error. Ids are `[A-Za-z0-9_-]{1,255}`; an account never reaches another
 account's data, whatever id it names; client text repeated in an error is
 cut after 100 characters.

@@ -97,6 +97,14 @@ Split the request, or raise the limit.
 `limit: "maxCallsInRequest"`, with a 400. Send at most the session's
 `maxCallsInRequest` calls in one request.
 
+## `urn:ietf:params:jmap:error:limit` — `The response would be larger than … bytes`
+
+`limit: "maxSizeResponse"`, with a 400. The calls answered so far add up
+to more JSON than `maxSizeResponse` (64 MiB by default): the request
+stops there and none of its responses is sent. Split the request, ask
+for fewer `properties` or a smaller `limit`, or raise
+`limits.maxSizeResponse`.
+
 ## `urn:ietf:params:jmap:error:limit` — `The account has … requests in flight already`
 
 `limit: "maxConcurrentRequests"`, with a 429. The account already has the

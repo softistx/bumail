@@ -114,6 +114,14 @@ message first and pass the `blobId` the upload answered.
 A new email's `mailboxIds` is missing, empty, or holds a value other than
 `true` or a key that is not an id: `{ "<inboxId>": true }`.
 
+## `invalidProperties` — `mailboxIds names a mailbox the account does not have`
+
+An `Email/import` entry, or an `Email/set` create, names a mailbox that
+is not one of the account's — another account's, destroyed, or a
+`#creationId` that created nothing. Every mailbox is checked before the
+email is stored, so nothing of it is left behind: fix `mailboxIds` and
+send it again.
+
 ## `invalidProperties` — `keywords is an object of keywords set to true`
 
 A new email's `keywords` is not an object, holds a value other than
@@ -125,9 +133,10 @@ A new email's `keywords` is not an object, holds a value other than
 
 ## `invalidProperties` — `…`, with `properties: ["mailboxIds"]`
 
-The store refused the email: on an import, its first mailbox does not
-exist or the content is not one it keeps; on an `Email/set` update that
-changes `mailboxIds`, a mailbox it names is gone. The description is the
+The store refused the email: on an import, the content is not one it
+keeps, or a mailbox went away while the email was linked into it (the
+email is then removed again); on an `Email/set` update that changes
+`mailboxIds`, a mailbox it names is gone. The description is the
 store's message.
 
 ## `invalidProperties` — `…`, with `properties: ["keywords"]`

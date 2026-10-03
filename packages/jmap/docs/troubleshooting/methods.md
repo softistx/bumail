@@ -40,8 +40,9 @@ the method allows it). Send `["id1", "id2"]`.
 
 ## `invalidArguments` — `… holds "…", which is not an id`
 
-An id is not `[A-Za-z0-9_-]{1,255}` (RFC 8620 §1.2) nor a
-`#creationId`. Ids come from the server: send them back as they came.
+An id is not `[A-Za-z0-9_-]{1,255}` (RFC 8620 §1.2) nor `#` and a
+creation id of that syntax. Ids come from the server: send them back as
+they came.
 
 ## `invalidArguments` — `… must be an array of at most 256 property names`
 
@@ -84,9 +85,28 @@ A creation id is not `[A-Za-z0-9_-]{1,255}`.
 
 `destroy` is not an array of strings.
 
+## `invalidArguments` — `update has "…", which is not an id`
+
+A key of `update` is neither an id, `[A-Za-z0-9_-]{1,255}` (RFC 8620
+§1.2), nor `#` and a creation id of that syntax. Send the ids the server
+gave, as they came:
+
+```json
+["Email/set", { "accountId": "…", "update": { "M1a2b3": { "keywords/$seen": true } } }, "c1"]
+```
+
+## `invalidArguments` — `destroy holds "…", which is not an id`
+
+An item of `destroy` is neither an id nor `#` and a creation id. The
+id is repeated cut after 100 characters: an id is at most 255
+characters of `[A-Za-z0-9_-]`, so a longer one is never one the server
+gave.
+
 ## `invalidArguments` — `emails["…"] is not an EmailImport`
 
-An `Email/import` entry is not an object, or its creation id is not an id.
+An `Email/import` entry is not an object, or its creation id is not an
+id. Every entry is checked before any is imported, so nothing of the
+call was created: fix the entry and send the whole call again.
 
 ## `invalidArguments` — `Both "…" and "#…" are given`
 
@@ -162,6 +182,19 @@ JMAP response nests that deep.
 
 The pointer, `*`s expanded, gives more values than `maxReferenceItems`.
 Page the earlier call with `limit`.
+
+## `invalidResultReference` — `The references of this request resolve to more than … bytes`
+
+Everything the back-references of one request resolved to, counted as
+JSON, went past `maxReferenceBytes` (4 MiB by default). A path of `''`,
+or to an object, counts whole: chaining `Core/echo` calls on each other
+cannot double the response at each step. Point the reference at what the
+call needs (`/ids`, `/list/*/id`) rather than at a whole response, page
+the earlier call with `limit`, or raise `limits.maxReferenceBytes`:
+
+```ts
+jmap({ store, origin, authenticate, limits: { maxReferenceBytes: 16 * 1024 * 1024 } });
+```
 
 ## `requestTooLarge` — `… holds more than … ids`
 
@@ -259,6 +292,18 @@ The query's conditions or sort read more emails' content than
 
 `Thread/get` reads the account's emails to find a thread's: past
 `maxQueryScan`, it refuses.
+
+## `tooLarge` — `Counting threads would read more than … emails: leave totalThreads and unreadThreads out`
+
+`Mailbox/get` counts a mailbox's threads by listing its emails, since
+the store keeps no thread counts. The mailboxes asked for hold more
+emails, together, than `maxQueryScan`. Ask for the properties you need
+without `totalThreads` and `unreadThreads`, ask for fewer mailboxes, or
+raise `limits.maxQueryScan`:
+
+```json
+["Mailbox/get", { "accountId": "…", "properties": ["name", "role", "totalEmails", "unreadEmails"] }, "c1"]
+```
 
 ## `serverFail`
 

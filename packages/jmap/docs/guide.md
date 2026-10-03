@@ -168,7 +168,11 @@ Then each call runs in order, each seeing the responses before it:
    with the call id `resultOf`, which must be named `name`, read at
    `path` — RFC 6901 JSON Pointer, where `*` on an array maps the rest of
    the path over its items and flattens one level of arrays (RFC 8620
-   §3.7). A reference expands to at most `maxReferenceItems` values.
+   §3.7). A reference expands to at most `maxReferenceItems` values, and
+   all the references of one request together resolve to at most
+   `maxReferenceBytes` bytes of JSON — a path of `''` or to an object
+   counts whole — so chained `Core/echo` calls cannot double a response
+   at each step. Past either, the call is `invalidResultReference`.
    Giving both `ids` and `#ids` is `invalidArguments`.
 3. The method checks its arguments: an unknown one is `invalidArguments`.
    `accountId` must be the authenticated account; any other is
@@ -179,11 +183,15 @@ Then each call runs in order, each seeing the responses before it:
 
 The response is `{ methodResponses, sessionState }`, and `createdIds`
 when the request gave it: the ids it gave, and every creation id the
-request created.
+request created. A response that grows past `maxSizeResponse` bytes of
+JSON stops the request: no further call runs, and the whole request is a
+400 `urn:ietf:params:jmap:error:limit` problem naming `maxSizeResponse`.
 
 A `#creationId` stands for an id created earlier in the request, in an
 argument that takes an id: `ids` of a `/get`, the keys of `update`,
-`destroy`, `parentId`, `mailboxIds`, `inMailbox`.
+`destroy`, `parentId`, `mailboxIds`, `inMailbox`. The creation id after
+`#` has an id's syntax, `[A-Za-z0-9_-]{1,255}`; a key of `update` or an
+item of `destroy` that is neither is `invalidArguments`.
 
 ## Mailboxes
 
@@ -192,7 +200,8 @@ level, `parentId` its parent, `role` its role (`inbox`, `archive`,
 `drafts`, `sent`, `trash`, `junk`, `all`, `flagged`, `important`),
 `isSubscribed` its subscription. `totalEmails` and `unreadEmails` are the
 store's counts; `totalThreads` and `unreadThreads` are counted by listing
-the mailbox's messages, only when asked. `sortOrder` is always 0, and
+the mailbox's messages, only when asked, and at most `maxQueryScan`
+emails for one call, all its mailboxes together: past it, `tooLarge`. `sortOrder` is always 0, and
 `myRights` grants everything but `maySubmit`.
 
 `Mailbox/set`:
@@ -300,9 +309,14 @@ Past `maxQueryScan` it is `tooLarge`. `limit` is capped at
 ### Email/import
 
 `emails` maps creation ids to `{ blobId, mailboxIds, keywords?,
-receivedAt? }`. The blob is an upload, or any blob of the account. The
-email is added to its first mailbox, then linked into the others; the
-answer holds `id`, `blobId`, `threadId` and `size`.
+receivedAt? }`. The blob is an upload, or any blob of the account. Every
+entry is checked before any is imported: a creation id that is not an
+id, or an entry that is not an object, refuses the whole call with
+`invalidArguments`, and nothing is created. Every mailbox an entry names
+must be one of the account's, or that entry is `invalidProperties` on
+`mailboxIds` and nothing of it is stored; the same holds for a create of
+`Email/set`. The email is added to its first mailbox, then linked into
+the others; the answer holds `id`, `blobId`, `threadId` and `size`.
 
 ## Threads
 
@@ -333,8 +347,17 @@ serves:
   its transfer encoding.
 
 `accept`, when it is a media type, is the `Content-Type`; else the part's
-or the upload's type, else `application/octet-stream`. `name` is the file
-name in `Content-Disposition: attachment`. One `Range: bytes=` range is
+or the upload's type, else `application/octet-stream`. `name`, cut to
+255 code points, is the file name in `Content-Disposition`: `inline` for
+`image/png`, `image/jpeg`, `image/gif`, `image/webp` and `text/plain`,
+`attachment` for every other type, HTML and SVG included. Every download
+carries `X-Content-Type-Options: nosniff` and `Content-Security-Policy:
+default-src 'none'; sandbox`, so a blob never runs as a page of the
+server's origin.
+
+A `multipart/*` part with no `boundary` parameter cannot be split (RFC
+2046 §5.1.1 requires it): it is one opaque part, with a `partId` and a
+`blobId`, listed in `attachments`, and its body is its content. One `Range: bytes=` range is
 served as a 206, one past the end as a 416. An `accountId` other than the
 authenticated one, or a blob the account does not have, is a 404.
 
@@ -364,7 +387,9 @@ writer between that check and the call's own changes is not caught.
 | `maxObjectsInGet` | 500 | ids of a `/get`; a query's page | `requestTooLarge`; `limit` capped |
 | `maxObjectsInSet` | 500 | creates, updates and destroys of a `/set`; emails of an import; `createdIds` | `requestTooLarge`; 400 problem `notRequest` |
 | `maxReferenceItems` | 5000 | values of one back-reference | `invalidResultReference` |
-| `maxQueryScan` | 10 000 | emails a query, a thread lookup or a search reads | `tooLarge` |
+| `maxReferenceBytes` | 4 MiB | bytes of JSON all the back-references of a request resolve to | `invalidResultReference` |
+| `maxSizeResponse` | 64 MiB | bytes of JSON of one API response | 400 problem `limit` |
+| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` thread count reads | `tooLarge` |
 | `maxBodyValueBytes` | 1 MiB | one body value | cut, `isTruncated` |
 | `maxBodyValuesTotal` | 16 MiB | body values of one request | cut, `isTruncated` |
 | `maxSizeUpload` | 25 MiB | one upload | 413 problem `limit` |
