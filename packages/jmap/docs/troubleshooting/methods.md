@@ -13,7 +13,7 @@ The method is not one this server answers, or its capability is not in
 `using`: `Mailbox/…`, `Email/…` and `Thread/…` need
 `urn:ietf:params:jmap:mail`, `Core/echo` needs
 `urn:ietf:params:jmap:core`. The methods are listed in the
-[README](../README.md#what-it-answers); `Email/queryChanges`, `Thread/changes`,
+[README](../../README.md#what-it-answers); `Email/queryChanges`, `Thread/changes`,
 `Identity/…`, `EmailSubmission/…`, `SearchSnippet/get` and
 `VacationResponse/…` are later slices.
 

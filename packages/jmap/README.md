@@ -150,7 +150,11 @@ cut after 100 characters.
 
 - **Queries run in memory.** The store has no index yet: `Email/query`
   and `Thread/get` read at most `maxQueryScan` emails (one mailbox's when
-  the filter names `inMailbox`), and answer `tooLarge` past it.
+  the filter names `inMailbox`), and answer `tooLarge` past it. So does
+  `Mailbox/get` when it counts threads: `properties` left out (null) asks
+  for `totalThreads` and `unreadThreads`, so on an account whose mailboxes
+  hold more than `maxQueryScan` emails, list `properties` without those
+  two, or raise `maxQueryScan`.
 - **Uploads live in memory** for `uploadTtl`, in the process that took
   them: a restart forgets them, and two processes do not share them.
 - **Threads are single emails** unless your delivery code passes a

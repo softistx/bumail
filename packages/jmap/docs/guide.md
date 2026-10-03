@@ -200,8 +200,9 @@ level, `parentId` its parent, `role` its role (`inbox`, `archive`,
 `drafts`, `sent`, `trash`, `junk`, `all`, `flagged`, `important`),
 `isSubscribed` its subscription. `totalEmails` and `unreadEmails` are the
 store's counts; `totalThreads` and `unreadThreads` are counted by listing
-the mailbox's messages, only when asked, and at most `maxQueryScan`
-emails for one call, all its mailboxes together: past it, `tooLarge`. `sortOrder` is always 0, and
+the mailbox's messages, only when asked — `properties` left out (null)
+asks for them — and at most `maxQueryScan` emails for one call, all its
+mailboxes together: past it, `tooLarge`. `sortOrder` is always 0, and
 `myRights` grants everything but `maySubmit`.
 
 `Mailbox/set`:
