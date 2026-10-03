@@ -100,7 +100,12 @@ describe('sendMail options', () => {
 	});
 
 	test('helo: an address literal, IPv4 or IPv6 (RFC 5321 §4.1.3)', () => {
-		for (const helo of ['[192.0.2.1]', '[IPv6:2001:db8::1]']) {
+		for (const helo of [
+			'[192.0.2.1]',
+			'[IPv6:2001:db8::1]',
+			'[ipv6:2001:DB8::1]',
+			'[IPV6:2001:db8::1]',
+		]) {
 			const given = { ...base, helo } as unknown as SendMailOptions;
 			expect(settingsOf(given).helo).toBe(helo);
 		}

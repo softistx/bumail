@@ -67,6 +67,9 @@ describe('parsePath (RFC 5321 §4.1.2)', () => {
 		expect(parsePath('<postmaster@[192.0.2.1]>', false)?.domain).toBe(
 			'[192.0.2.1]',
 		);
+		expect(parsePath('<postmaster@[ipv6:2001:db8::1]>', false)?.domain).toBe(
+			'[ipv6:2001:db8::1]',
+		);
 		expect(parsePath('<postmaster@[IPv6:2001:db8::1]>', false)?.domain).toBe(
 			'[ipv6:2001:db8::1]',
 		);

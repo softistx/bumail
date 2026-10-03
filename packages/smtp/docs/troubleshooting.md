@@ -740,7 +740,8 @@ base64 response to the challenge — see
 **When**: `EHLO` with no argument, or with one that is neither a domain nor
 an address literal — an underscore, a space, a bare IP without brackets,
 an IPv4 literal with an octet above 255 (`[999.1.1.1]`), an IPv6 one
-without its `IPv6:` tag (`[2001:db8::1]`).
+without its `IPv6:` tag (`[2001:db8::1]`). The tag may be in any case:
+`[ipv6:2001:db8::1]` is accepted.
 `HELO` gets `501 Syntax: HELO hostname`. Before an EHLO was accepted the
 reply has no enhanced code; after one, it is
 `501 5.5.4 Syntax: EHLO hostname`. It counts toward `maxErrors`.
@@ -1474,7 +1475,8 @@ await sendMail('Subject: hi\r\n\r\nhello\r\n', { host: 'relay.example.net', from
 **When**: `helo` is not a host name nor an address literal such as
 `[192.0.2.1]` or `[IPv6:2001:db8::1]`: an underscore, a space, a bare IP
 without brackets, an IPv4 literal with an octet above 255
-(`[999.1.1.1]`), an IPv6 one without its `IPv6:` tag.
+(`[999.1.1.1]`), an IPv6 one without its `IPv6:` tag. The tag may be in
+any case: `[ipv6:2001:db8::1]` is taken.
 
 **Why**: it is the argument of EHLO and HELO (RFC 5321 §4.1.1.1).
 

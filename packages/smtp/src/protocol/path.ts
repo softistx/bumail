@@ -46,11 +46,11 @@ function isQuotedString(text: string): boolean {
 }
 
 /**
- * An address literal (§4.1.3): `[IPv6:…]`, or `[a.b.c.d]` with each octet
- * at most 255.
+ * An address literal (§4.1.3): `[IPv6:…]`, its tag in any case (a quoted
+ * string in RFC 5234 is), or `[a.b.c.d]` with each octet at most 255.
  */
 export function isAddressLiteral(text: string): boolean {
-	if (/^\[IPv6:[0-9A-Fa-f:.]+\]$/.test(text)) return true;
+	if (/^\[IPv6:[0-9a-f:.]+\]$/i.test(text)) return true;
 	const ipv4 = /^\[(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\]$/.exec(text);
 	return ipv4?.slice(1).every((octet) => Number(octet) <= 255) === true;
 }
