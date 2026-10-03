@@ -59,6 +59,7 @@ parts shown as … vary.
 - [A recipient stays `deferred` with `4.4.1` or `4.4.2`](#a-recipient-stays-deferred-with-441-or-442)
 - [Every delivery fails at once with `5.7.1`, or with a reply naming your IP or EHLO name](#every-delivery-fails-at-once-with-571-or-with-a-reply-naming-your-ip-or-ehlo-name)
 - [A recipient fails with `5.1.3`, `The address is not one SMTP can carry`](#a-recipient-fails-with-513-the-address-is-not-one-smtp-can-carry)
+- [Every recipient fails with `5.1.7`, `The sender's address is not one SMTP can carry`](#every-recipient-fails-with-517-the-senders-address-is-not-one-smtp-can-carry)
 - [`retryNow` returns `false` for an item that is in the queue](#retrynow-returns-false-for-an-item-that-is-in-the-queue)
 
 ## Enqueuing
@@ -370,6 +371,19 @@ written there by other code, since `enqueue` refuses it.
 for the other recipients.
 **Fix:** enqueue through `queue.enqueue`, or check each address with
 `@bumail/smtp/client`'s `isMailbox` before a store of your own keeps it.
+
+### Every recipient fails with `5.1.7`, `The sender's address is not one SMTP can carry`
+
+**When:** an item a store holds has a sender (`from`) `sendMail` would
+refuse, neither `''` nor an RFC 5321 Mailbox: written there by other
+code, since `enqueue` refuses it.
+**Why:** no session can carry it, so every recipient fails at once
+rather than be deferred until `retry.giveUpAfter`. The failure DSN goes
+to that same address, so it fails in turn, as `5.1.3`, and causes no
+other.
+**Fix:** enqueue through `queue.enqueue`, or check the sender with
+`@bumail/smtp/client`'s `isMailbox` (or let it be `''`) before a store of
+your own keeps it.
 
 ### `retryNow` returns `false` for an item that is in the queue
 

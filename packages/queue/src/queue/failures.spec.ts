@@ -312,4 +312,30 @@ describe('an address sendMail would refuse never fails its domain', () => {
 		]);
 		expect(events.error).toEqual([]);
 	});
+
+	test('a bad sender a store kept fails every recipient at once, as 5.1.7', async () => {
+		const { queue, events, store, sender, clock } = setup(strict);
+		const item = await store.add({
+			from: 'a,b@example.net',
+			to: ['joe@c.com', 'ann@d.com'],
+			message: new TextEncoder().encode(MESSAGE),
+			createdAt: clock.now(),
+		});
+		await queue.deliverDue();
+		// No session for the item; its DSN, to a bad address, fails as 5.1.3.
+		expect(sender.calls).toEqual([]);
+		const failed = events.failed.filter((e) => e.id === item.id);
+		expect(failed.map((e) => [e.recipient, e.reply?.status])).toEqual([
+			['joe@c.com', '5.1.7'],
+			['ann@d.com', '5.1.7'],
+		]);
+		expect(events.deferred).toEqual([]);
+		expect(events.dsn).toMatchObject([
+			{ kind: 'failed', of: item.id, to: 'a,b@example.net' },
+		]);
+		expect(events.failed.filter((e) => e.id !== item.id)).toMatchObject([
+			{ from: '', recipient: 'a,b@example.net', reply: { status: '5.1.3' } },
+		]);
+		expect(await store.count()).toBe(0);
+	});
 });

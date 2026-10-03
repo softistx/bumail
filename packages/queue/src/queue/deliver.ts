@@ -46,6 +46,21 @@ const badAddress = (address: string): RecipientUpdate => ({
 	},
 });
 
+/**
+ * Every recipient of an item whose sender `sendMail` would refuse — kept
+ * by a store written to by other code, since `enqueue` refuses it — fails
+ * at once, as X.1.7 (bad sender's mailbox address syntax), rather than be
+ * deferred on every attempt until `retry.giveUpAfter`.
+ */
+const badSender = (address: string): RecipientUpdate => ({
+	address,
+	status: 'failed',
+	reply: {
+		status: '5.1.7',
+		text: "The sender's address is not one SMTP can carry",
+	},
+});
+
 /** One session for one domain's recipients: each one's outcome, whatever happened. */
 async function attemptGroup(
 	ctx: DeliveryContext,
@@ -56,6 +71,9 @@ async function attemptGroup(
 ): Promise<RecipientUpdate[]> {
 	const { settings } = ctx;
 	const max = settings.limits.maxReplyText;
+	if (item.from !== '' && !isMailbox(item.from)) {
+		return recipients.map(badSender);
+	}
 	const bad = recipients.filter((address) => !isMailbox(address));
 	const group = recipients.filter(isMailbox);
 	if (group.length === 0) return bad.map(badAddress);

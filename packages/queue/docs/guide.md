@@ -68,7 +68,8 @@ Mailbox with no source route, which `sendMail` always takes
 `a,b@example.com`, `a@b@example.com` or `a@-example` are refused at
 `enqueue`, never at delivery. An address a store holds that `sendMail`
 would refuse anyway (written there by other code) fails alone, as
-`5.1.3`; the other recipients of its domain are still delivered.
+`5.1.3`; the other recipients of its domain are still delivered. A
+sender it would refuse fails every recipient at once, as `5.1.7`.
 
 ### Never an open relay
 
@@ -91,6 +92,8 @@ recipient's outcome is recorded with the reply that decided it.
 | a `4xx`, a connection error, a timeout, a TLS failure | `deferred` | tried again later |
 | a null MX (RFC 7505), a domain that does not exist | `failed` | final; a DSN |
 | `sendMail` refuses the route's options (`INVALID_OPTION`) | `deferred`, as `4.3.5` | tried again later, and an `error` event: the configuration is yours to fix |
+| a recipient a store holds that `sendMail` would refuse | `failed`, as `5.1.3` | final, alone; a DSN |
+| a sender a store holds that `sendMail` would refuse | `failed`, as `5.1.7` | final, every recipient, with no session |
 
 An error is read by its `name` (`SmtpError`) and `code`, not by its
 class: an app with a second copy of `@bumail/smtp` installed, or a
