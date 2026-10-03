@@ -379,9 +379,9 @@ export interface ReceivedMessage {
 	/**
 	 * Aborts when the server refuses the message on `onData`'s behalf; its
 	 * `reason` says why. A refusal `onData` returns leaves it alone, unless
-	 * the client never hears it: a later stream failure or a closed
-	 * connection still aborts it, with that error, and the server's reply
-	 * replaces `onData`'s.
+	 * the client never hears it: a later stream failure (whose 552 or 550
+	 * replaces `onData`'s reply) or a closed connection still aborts it,
+	 * with that error.
 	 */
 	readonly signal: AbortSignal;
 }
@@ -515,10 +515,10 @@ behalf.
 A refusal `onData` returns leaves the signal alone, whether it read the
 message or not (a read it left running still errors with
 `MESSAGE_NOT_READ`), unless the client never hears it: a later stream
-failure or a closed connection still aborts it, with that error, and the
-server's reply replaces `onData`'s. A client that leaves once the reply
-was sent does not abort it. Check it, or listen for
-`abort`, before keeping a message for good:
+failure (whose 552 or 550 replaces `onData`'s reply) or a closed
+connection still aborts it, with that error. A client that leaves once
+the reply was sent does not abort it. Check it, or listen for `abort`,
+before keeping a message for good:
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';

@@ -1178,8 +1178,9 @@ processing`, never `250`, keeps the message, and `message.signal` aborts
 with this error. An `onData` that refuses before reading gets its own
 refusal sent, its signal left alone and nothing reported; only a read it
 left running ends in this error. That holds unless the client never hears
-the refusal: a later stream failure or a closed connection still aborts
-the signal, with that error, and the server's reply replaces `onData`'s.
+the refusal: a later stream failure (whose 552 or 550 replaces
+`onData`'s reply) or a closed connection still aborts the signal, with
+that error.
 
 **Why**: a `250` makes the server responsible for the message. An `onData`
 that stopped early has stored part of it at most, so the server does not

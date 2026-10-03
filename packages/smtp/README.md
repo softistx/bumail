@@ -214,8 +214,8 @@ console.log(`listening on ${port}, ${server.connections} open`);
   is not a refusal, the stream's own errors, or the connection closed
   before the reply; the guide's table lists every case. A refusal `onData`
   returns leaves it alone, unless the client never hears it: a later
-  stream failure or a closed connection still aborts it, with that error,
-  and the server's reply replaces `onData`'s. Check
+  stream failure (whose 552 or 550 replaces `onData`'s reply) or a closed
+  connection still aborts it, with that error. Check
   `if (message.signal.aborted) return;`
   just before keeping a message for good —
   [the guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md#when-the-refusal-comes-after-the-read)
