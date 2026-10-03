@@ -1,3 +1,4 @@
+import { readQuoted } from './quoted';
 import { literalMarker } from './reader';
 
 /**
@@ -186,30 +187,11 @@ export class Cursor {
 	}
 
 	#quoted(): string {
-		const text = this.#text;
-		let out = '';
-		let at = this.#at + 1;
-		let start = at;
-		for (;;) {
-			const char = text[at];
-			if (char === undefined) this.fail('Unterminated quoted string');
-			if (char === '\r') this.fail('A quoted string cannot hold a CR');
-			if (char === '"') break;
-			if (char === '\\') {
-				const next = text[at + 1];
-				if (next !== '"' && next !== '\\') {
-					this.fail('A quoted string escapes only " and \\');
-				}
-				out += text.slice(start, at) + next;
-				at += 2;
-				start = at;
-				continue;
-			}
-			at++;
-		}
-		out += text.slice(start, at);
-		this.#at = at + 1;
-		return out;
+		const { value, next } = readQuoted(this.#text, this.#at + 1, (m) =>
+			this.fail(m),
+		);
+		this.#at = next;
+		return value;
 	}
 
 	/**
