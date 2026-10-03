@@ -203,9 +203,10 @@ export interface MailStore {
 	 * one by its going (with `mailboxId`, its first leaving after `since`),
 	 * an `updated` one by its last change, an `expunged` one by its own. A
 	 * page never splits one modseq, and a page since 0 reaches the oldest
-	 * `since` the store answers, so either may hold more than `limit`. The pages are intermediate states
-	 * (RFC 8620 §5.2): a client treats `created` as add-or-replace, and
-	 * ignores a `destroyed` or `expunged` entry it does not hold.
+	 * `since` the store answers, so either may hold more than `limit`. The
+	 * pages are intermediate states (RFC 8620 §5.2): a client treats
+	 * `created` as add-or-replace, and ignores a `destroyed` or `expunged`
+	 * entry it does not hold.
 	 */
 	messageChanges(
 		accountId: string,
