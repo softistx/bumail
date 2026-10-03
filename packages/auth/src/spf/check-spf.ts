@@ -1,4 +1,5 @@
 import { normalizeName, type Resolver } from '@bumail/dns';
+import { timeoutProblem } from '../deadline';
 import { AuthError } from '../errors';
 import { checkHost, type Outcome } from './check';
 import { explain } from './explain';
@@ -34,9 +35,6 @@ export interface CheckSpfOptions {
 	readonly now?: () => number;
 }
 
-/** The longest `setTimeout` delay: a longer one fires at once (2^31 − 1 ms, about 24.8 days). */
-const MAX_TIMEOUT = 2_147_483_647;
-
 function fail(message: string): never {
 	throw new AuthError('INVALID_OPTION', `checkSpf(): ${message}`);
 }
@@ -48,18 +46,8 @@ function checkInput(input: SpfInput, options: CheckSpfOptions): void {
 	for (const key of ['ip', 'mailFrom', 'helo'] as const) {
 		if (typeof input?.[key] !== 'string') fail(`${key} must be a string`);
 	}
-	const { timeout } = options;
-	if (
-		timeout !== undefined &&
-		!(Number.isSafeInteger(timeout) && timeout > 0)
-	) {
-		fail(
-			`timeout must be a positive integer of milliseconds, not ${String(timeout)}`,
-		);
-	}
-	if (timeout !== undefined && timeout > MAX_TIMEOUT) {
-		fail(`timeout must be at most ${MAX_TIMEOUT} ms, not ${timeout}`);
-	}
+	const problem = timeoutProblem(options.timeout);
+	if (problem !== undefined) fail(problem);
 	if (
 		options.identity !== undefined &&
 		options.identity !== 'mailfrom' &&
