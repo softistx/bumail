@@ -253,32 +253,39 @@ Every PR goes into `develop`. Before merging:
     `connection.close()` for a client that hung up first, or for
     `stop(true)` — touches no socket and arms no timer.
 
-  Measured on Bun 1.4.2: on TLS, `socket.end()` against a paused peer never
-  closes, and a `terminate()` after it does nothing; a full `shutdown()`
-  holds a paused client's slot until the grace, then the client gets
-  ECONNRESET and loses its last reply when it reads later; `shutdown(true)`
-  fires `close` at once, freeing the slot, and still delivers the last
-  reply and a clean end — but not while the server has paused reading a
-  client that sent more than it could take: over that unread input the
-  half-close never fires `close`, and the slot waited for the grace (a
-  client pipelining EHLOs it never reads, Linux and macOS alike), while
-  `resume()` then `shutdown(true)` fires `close` at once, on a clear socket
-  and on TLS, and a client that stopped sending still gets the last reply
-  and a clean end (80 runs in 80 on macOS, 300 KiB or 1 MiB left unread),
-  where `terminate()` loses that reply to ECONNRESET; a client that keeps
-  sending is reset either way. A `node:tls` client that does read,
-  pipelining about 1 MiB behind commands that fail into a close the server
-  decides on while it paused reading — smtp's `maxErrors` (refusals from
-  an `onRcptTo` that takes 20 ms), imap's third failed LOGIN — got the 421
-  or the BYE and a clean end in 30 runs of 30 on each; resetting there
-  instead cost smtp's client the clean end every time, and imap's
-  half-close waited for the grace and its reset; and on TLS, called in the `drain` that took the
-  last of a large queue, it drops what Bun still holds in its own TLS
-  buffer: 1 run in 20 to 2 in 15, 16 to 96 KiB short, for a `node:tls`
-  client reading slowly, in both copies; a full `shutdown()` there lost
-  nothing in 15 runs, and `write` gives no sign of that buffer. Bun's
-  `listener.stop(true)` no longer closes a socket STARTTLS moved to TLS,
-  so each server's `stop(true)` also closes every connection it holds.
+  Measured on Bun 1.4.2:
+
+  - on TLS, `socket.end()` against a paused peer never closes, and a
+    `terminate()` after it does nothing;
+  - a full `shutdown()` holds a paused client's slot until the grace;
+    the client then gets ECONNRESET and loses its last reply when it
+    reads later;
+  - `shutdown(true)` fires `close` at once, freeing the slot, and still
+    delivers the last reply and a clean end;
+  - but not while the server has paused reading a client that sent more
+    than it could take. Over that unread input the half-close never fires
+    `close`, and the slot waits for the grace (a client pipelining EHLOs
+    it never reads, Linux and macOS alike). `resume()` then
+    `shutdown(true)` fires `close` at once, on a clear socket and on TLS,
+    and a client that stopped sending still gets the last reply and a
+    clean end (80 runs in 80 on macOS, 300 KiB or 1 MiB left unread),
+    where `terminate()` loses that reply to ECONNRESET. A client that
+    keeps sending is reset either way;
+  - a `node:tls` client that does read, pipelining about 1 MiB behind
+    commands that fail into a close the server decides on while it paused
+    reading — smtp's `maxErrors` (refusals from an `onRcptTo` that takes
+    20 ms), imap's third failed LOGIN — got the 421 or the BYE and a clean
+    end in 30 runs of 30 on each. Resetting there instead cost smtp's
+    client the clean end every time, and imap's half-close waited for the
+    grace and then its reset;
+  - on TLS, `shutdown(true)` called in the `drain` that took the last of a
+    large queue drops what Bun still holds in its own TLS buffer: 1 run in
+    20 to 2 in 15, 16 to 96 KiB short, for a `node:tls` client reading
+    slowly, in both copies. A full `shutdown()` there lost nothing in 15
+    runs, and `write` gives no sign of that buffer;
+  - Bun's `listener.stop(true)` no longer closes a socket STARTTLS moved
+    to TLS, so each server's `stop(true)` also closes every connection it
+    holds.
 
   smtp's real-socket specs: `quiet.spec.ts` (`node:net` and `node:tls`
   clients) covers a paused client on a clear socket, on implicit TLS and
