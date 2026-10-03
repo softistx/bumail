@@ -139,7 +139,7 @@ describe('normalizeName', () => {
 describe('normalizeName: long international names', () => {
 	test('are refused before the IDN mapping, which slows with the length', () => {
 		const started = performance.now();
-		expect(() => normalizeName('ü.'.repeat(80_000))).toThrow(
+		expect(() => normalizeName('ü.'.repeat(320_000))).toThrow(
 			'it is longer than 253 characters',
 		);
 		expect(performance.now() - started).toBeLessThan(100);
