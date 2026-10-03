@@ -9,6 +9,11 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
+- **`@bumail/imap`, IMAP4rev2** (RFC 9051), for the mail clients that do
+  not speak JMAP. Its first slice: login only over TLS, LIST with
+  special-use, SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE, SEARCH, APPEND
+  and IDLE, serving any `@bumail/store`. CONDSTORE, QRESYNC and UIDPLUS
+  follow.
 - **`@bumail/auth`, DKIM and SPF first** — DKIM signing and verifying
   (RFC 6376) is published in 0.1.0. SPF checking (RFC 7208):
   `check_host()` with its ten-lookup and void-lookup limits, macros and a
@@ -52,7 +57,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Later
 
-- **IMAP4rev2** (RFC 9051), for the mail clients that do not speak JMAP.
 - **Sieve** filtering (RFC 5228) at delivery.
 - **Spam scoring hooks and greylisting** — hooks a scorer plugs into, and
   greylisting on the queue's store; no classifier of our own.

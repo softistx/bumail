@@ -14,6 +14,7 @@ below lists only what has landed.
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
+| `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, and SPF checking (RFC 7208), results in RFC 8601's words; DMARC next | `@bumail/dns`, `@bumail/mime` |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
@@ -72,6 +73,7 @@ mime            (standalone)
 smtp            (standalone; its delivery spec uses store, as a devDependency only)
 store           (standalone)
 auth            → dns, mime
+imap            → store, mime
 ```
 
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
@@ -80,6 +82,17 @@ this section draws their arrows. A package that uses a sibling declares it by
 published name, which resolves through `node_modules` to the sibling's
 `dist/`. A sibling only a spec uses is a devDependency alone, never a peer:
 the package still needs nothing of it at runtime. **There are no cycles.**
+
+Two pieces are copied rather than shared, on purpose:
+
+- **SASL PLAIN decoding** (RFC 4616), in `smtp/src/protocol/sasl.ts` and
+  `imap/src/protocol/sasl.ts`: twenty lines, the same `Credentials` shape.
+  A package for them would be a peer each server needs for one function;
+  a fix to one is a fix to the other.
+- **The socket transport** — writing with a backlog, `drained()`, pause and
+  resume, the STARTTLS upgrade — in `smtp/src/server/transport.ts` and
+  `imap/src/server/transport.ts`, adapted to each protocol's flow. Should a
+  third server need it, it becomes a package.
 
 ## The build
 
