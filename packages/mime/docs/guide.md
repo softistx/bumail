@@ -247,8 +247,9 @@ formatDate(new Date()); // 'Fri, 02 Oct 2026 22:00:00 +0000'
 
 `parseDate` reads RFC 5322 §3.3 with §4.3's obsolete forms: two- and
 three-digit years, `UT`, `GMT` and the US zone names, comments (nested ones
-included; an unclosed one runs to the end of the value). A military zone letter reads as UTC, as §4.3 asks. It returns `undefined` for what is
-not a date — 31 February or 25:61 included; a leap second, `:60`, reads as
+included; an unclosed one runs to the end of the value). A military zone
+letter reads as UTC, as §4.3 asks. It returns `undefined` for what is not a
+date — 31 February or 25:61 included; a leap second, `:60`, reads as
 `:59`. `formatDate` always writes UTC.
 
 ## Charsets
