@@ -292,6 +292,11 @@ check; with nothing, it writes `none`.
 
 ## License
 
-MIT. The embedded Public Suffix List snapshot
-(`src/dmarc/psl-data.ts`, in `dist/index.js`) is the Mozilla Public
-License 2.0's, from [publicsuffix.org](https://publicsuffix.org/list/).
+`MIT AND MPL-2.0`. The package's own code is MIT ([`LICENSE`](https://github.com/softistx/bumail/blob/develop/packages/auth/LICENSE)).
+The Public Suffix List snapshot it embeds — `src/dmarc/psl-data.ts` in the
+repository, bundled into `dist/index.js` with its notice — comes from
+[publicsuffix.org](https://publicsuffix.org/list/) and is under the
+Mozilla Public License 2.0, whose text ships as
+[`LICENSE-MPL-2.0`](https://github.com/softistx/bumail/blob/develop/packages/auth/LICENSE-MPL-2.0).
+Keep both notices when you redistribute the package; a change to that
+one file stays under the MPL.

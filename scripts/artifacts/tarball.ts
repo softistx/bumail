@@ -25,17 +25,36 @@ export function tarballProblems({ manifest, entries }: Tarball): string[] {
 	];
 }
 
-/** A license other than MIT, or no `LICENSE` among the tarball's entries. */
+/**
+ * A license other than MIT, or no `LICENSE` among the tarball's entries.
+ * A package that embeds a file under another license — `@bumail/auth`'s
+ * Public Suffix List snapshot, MPL 2.0 — declares `MIT AND <id>` and ships
+ * that license's text as `LICENSE-<id>` beside its own.
+ */
 export function licenseProblems(
 	manifest: Record<string, unknown>,
 	entries: readonly string[],
 ): string[] {
 	const problems: string[] = [];
-	if (manifest.license !== 'MIT') {
-		problems.push(`${manifest.name}: license is ${manifest.license}, not MIT`);
+	const license =
+		typeof manifest.license === 'string' ? manifest.license : undefined;
+	const [first, ...others] = license?.split(' AND ') ?? [];
+	const readable =
+		first === 'MIT' && others.every((id) => /^[A-Za-z0-9.+-]+$/.test(id));
+	if (!readable) {
+		problems.push(
+			`${manifest.name}: license is ${manifest.license}, not MIT or MIT AND <SPDX id>`,
+		);
 	}
 	if (!entries.includes('package/LICENSE')) {
 		problems.push(`${manifest.name}: the tarball has no LICENSE`);
+	}
+	for (const id of readable ? others : []) {
+		if (!entries.includes(`package/LICENSE-${id}`)) {
+			problems.push(
+				`${manifest.name}: license names ${id}, but the tarball has no LICENSE-${id}`,
+			);
+		}
 	}
 	return problems;
 }

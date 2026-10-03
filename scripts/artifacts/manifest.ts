@@ -39,6 +39,8 @@ import { type Tarball, tarballProblems } from './tarball';
  *     `name` and `exports`; it never needs to depend on itself.
  *   - a **license other than MIT, or no `LICENSE` in the tarball**. npm only
  *     ships the `LICENSE` in the package's own directory, never the root's.
+ *     `MIT AND <id>`, for a package that embeds a file under another
+ *     license, is taken when the tarball also holds `LICENSE-<id>`.
  *   - a **`files` entry the tarball does not hold**. npm skips an entry that
  *     matches nothing, so a `docs` folder renamed or a mistyped entry would
  *     publish without a word.

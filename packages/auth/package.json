@@ -2,7 +2,7 @@
 	"name": "@bumail/auth",
 	"version": "0.2.0",
 	"description": "Message authentication for a mail server: DKIM signing and verifying (RFC 6376) with rsa-sha256 and ed25519-sha256 through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) and the Authentication-Results header (RFC 8601)",
-	"license": "MIT",
+	"license": "MIT AND MPL-2.0",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
@@ -11,7 +11,8 @@
 		"docs",
 		"README.md",
 		"package.json",
-		"LICENSE"
+		"LICENSE",
+		"LICENSE-MPL-2.0"
 	],
 	"exports": {
 		".": {
@@ -38,6 +39,9 @@
 	"bumail": {
 		"entrypoints": [
 			"src/index.ts"
+		],
+		"unmappedSources": [
+			"src/dmarc/psl-data.ts"
 		]
 	},
 	"devDependencies": {

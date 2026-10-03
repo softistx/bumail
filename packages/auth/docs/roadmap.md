@@ -48,10 +48,12 @@ number on it.
   `_dmarc.<domain>` or its organizational domain, aligns the DKIM `d=`
   and SPF domains with From, strict or relaxed, applies `p=`, `sp=` and
   `pct` through an injectable `random`, and gives the disposition. A
-  message with no From, two From fields or two addresses in one is a
-  `permerror` to reject. The organizational domain comes from an
-  embedded Public Suffix List snapshot (ICANN and private sections),
-  replaceable through an option; `rua=` and `ruf=` are parsed, not sent
+  message whose From is missing, doubled, several addresses, a group,
+  or not exactly one mailbox is a `permerror` to reject; a display name
+  is never read as the author. The organizational domain comes from an
+  embedded Public Suffix List snapshot (ICANN and private sections,
+  MPL 2.0: the package is `MIT AND MPL-2.0`), replaceable through an
+  option; `rua=` and `ruf=` are parsed, not sent
   to. Never a throw for a message, the DNS or a record.
 - **`Authentication-Results`** (RFC 8601): `formatAuthenticationResults`
   writes the DKIM, SPF and DMARC results as one folded field, with
