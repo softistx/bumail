@@ -1,10 +1,12 @@
 import { renameTarget } from '../contract/checks';
+import { hasChildren } from '../contract/conflicts';
 import {
-	checkNoCycle,
-	checkRequiredRole,
-	checkRole,
-	normalizeMailboxName,
-} from '../contract/mailbox-name';
+	checkNewMailbox,
+	checkSubscribed,
+	type MailboxLookups,
+	placeMailbox,
+} from '../contract/mailbox-checks';
+import { checkRequiredRole } from '../contract/mailbox-name';
 import type {
 	Expunged,
 	Mailbox,
@@ -16,35 +18,26 @@ import { StoreError } from '../errors';
 import { expunge } from './membership';
 import type { MailboxState, MemoryState } from './state';
 
-/** Checks a name and a parent for a mailbox, `self` when it is a rename. */
-function placeOf(
-	state: MemoryState,
-	accountId: string,
-	name: string,
-	parentId: string | undefined,
-	self?: string,
-): string {
-	const clean = normalizeMailboxName(name, parentId);
-	if (parentId !== undefined) {
-		state.mailbox(accountId, parentId);
-		if (self !== undefined) {
-			checkNoCycle(self, parentId, (id) => state.mailboxes.get(id)?.parentId);
-		}
-	}
-	for (const mailbox of state.mailboxes.values()) {
-		if (
-			mailbox.id !== self &&
-			mailbox.accountId === accountId &&
-			mailbox.parentId === parentId &&
-			mailbox.name === clean
-		) {
-			throw new StoreError(
-				'ALREADY_EXISTS',
-				`A mailbox "${clean}" already exists there`,
-			);
-		}
-	}
-	return clean;
+/** The account's mailboxes, as the shared checks ask about them. */
+function lookups(state: MemoryState, accountId: string): MailboxLookups {
+	return {
+		checkParent: (id) => state.mailbox(accountId, id),
+		parentOf: (id) => state.mailboxes.get(id)?.parentId,
+		isTaken: (name, parentId, self) => {
+			for (const mailbox of state.mailboxes.values()) {
+				if (
+					mailbox.id !== self &&
+					mailbox.accountId === accountId &&
+					mailbox.parentId === parentId &&
+					mailbox.name === name
+				) {
+					return true;
+				}
+			}
+			return false;
+		},
+		hasRole: (role) => findMailbox(state, accountId, role) !== undefined,
+	};
 }
 
 export function createMailbox(
@@ -53,23 +46,7 @@ export function createMailbox(
 	input: NewMailbox,
 ): Mailbox {
 	state.account(accountId);
-	if (typeof input !== 'object' || input === null) {
-		throw new StoreError('INVALID', 'A new mailbox is an object');
-	}
-	const name = placeOf(state, accountId, input.name, input.parentId);
-	checkRole(input.role);
-	if (
-		input.isSubscribed !== undefined &&
-		typeof input.isSubscribed !== 'boolean'
-	) {
-		throw new StoreError('INVALID', 'isSubscribed is true or false');
-	}
-	if (input.role !== undefined && findMailbox(state, accountId, input.role)) {
-		throw new StoreError(
-			'ALREADY_EXISTS',
-			`The account already has a mailbox with the role ${input.role}`,
-		);
-	}
+	const name = checkNewMailbox(lookups(state, accountId), input);
 	const modseq = state.bump(accountId);
 	const mailbox: MailboxState = {
 		id: crypto.randomUUID(),
@@ -110,7 +87,12 @@ export function renameMailbox(
 ): Mailbox {
 	const mailbox = state.mailbox(accountId, id);
 	const { name, parentId } = renameTarget(mailbox, change);
-	const clean = placeOf(state, mailbox.accountId, name, parentId, id);
+	const clean = placeMailbox(
+		lookups(state, mailbox.accountId),
+		name,
+		parentId,
+		id,
+	);
 	mailbox.name = clean;
 	if (parentId === undefined) delete mailbox.parentId;
 	else mailbox.parentId = parentId;
@@ -125,9 +107,7 @@ export function setSubscribed(
 	subscribed: boolean,
 ): Mailbox {
 	const mailbox = state.mailbox(accountId, id);
-	if (typeof subscribed !== 'boolean') {
-		throw new StoreError('INVALID', 'isSubscribed is true or false');
-	}
+	checkSubscribed(subscribed);
 	if (mailbox.isSubscribed !== subscribed) {
 		mailbox.isSubscribed = subscribed;
 		mailbox.modseq = state.bump(mailbox.accountId);
@@ -143,12 +123,7 @@ export function deleteMailbox(
 ): Expunged[] {
 	const mailbox = state.mailbox(accountId, id);
 	for (const other of state.mailboxes.values()) {
-		if (other.parentId === id) {
-			throw new StoreError(
-				'INVALID',
-				'A mailbox with children cannot be deleted',
-			);
-		}
+		if (other.parentId === id) throw hasChildren();
 	}
 	const inside = [...state.messages.values()].filter((message) =>
 		message.mailboxes.has(id),

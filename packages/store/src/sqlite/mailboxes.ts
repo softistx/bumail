@@ -1,0 +1,177 @@
+import { renameTarget } from '../contract/checks';
+import {
+	checkNewMailbox,
+	checkSubscribed,
+	type MailboxLookups,
+	placeMailbox,
+} from '../contract/mailbox-checks';
+import { checkRequiredRole } from '../contract/mailbox-name';
+import type {
+	Mailbox,
+	MailboxRename,
+	MailboxRole,
+	NewMailbox,
+} from '../contract/types';
+import type { MailboxRow, SqliteState } from './state';
+
+function roleRow(
+	state: SqliteState,
+	accountId: string,
+	role: MailboxRole,
+): MailboxRow | undefined {
+	return (
+		state.db
+			.query<MailboxRow, [string, string]>(
+				'SELECT * FROM mailboxes WHERE account_id = ? AND role = ?',
+			)
+			.get(accountId, role) ?? undefined
+	);
+}
+
+/** The account's mailboxes, as the shared checks ask about them. */
+function lookups(state: SqliteState, accountId: string): MailboxLookups {
+	return {
+		checkParent: (id) => state.mailbox(accountId, id),
+		parentOf: (id) => state.parentOf(id),
+		isTaken: (name, parentId, self) =>
+			state.db
+				.query<{ id: string }, [string, string, string, string]>(
+					`SELECT id FROM mailboxes
+					WHERE account_id = ? AND coalesce(parent_id, '') = ? AND name = ? AND id != ?`,
+				)
+				.get(accountId, parentId ?? '', name, self ?? '') !== null,
+		hasRole: (role) => roleRow(state, accountId, role) !== undefined,
+	};
+}
+
+function insert(state: SqliteState, row: MailboxRow): void {
+	state.db
+		.query(
+			`INSERT INTO mailboxes (id, account_id, name, parent_id, role, is_subscribed,
+				uid_validity, uid_next, created_modseq, modseq, highest_modseq)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		)
+		.run(
+			row.id,
+			row.account_id,
+			row.name,
+			row.parent_id,
+			row.role,
+			row.is_subscribed,
+			row.uid_validity,
+			row.uid_next,
+			row.created_modseq,
+			row.modseq,
+			row.highest_modseq,
+		);
+}
+
+export function createMailbox(
+	state: SqliteState,
+	accountId: string,
+	input: NewMailbox,
+): Mailbox {
+	return state.atomic(() => {
+		state.account(accountId);
+		const name = checkNewMailbox(lookups(state, accountId), input);
+		const modseq = state.bump(accountId);
+		const row: MailboxRow = {
+			id: crypto.randomUUID(),
+			account_id: accountId,
+			name,
+			parent_id: input.parentId ?? null,
+			role: input.role ?? null,
+			is_subscribed: input.isSubscribed === false ? 0 : 1,
+			uid_validity: state.nextUidValidity(),
+			uid_next: 1,
+			created_modseq: modseq,
+			modseq,
+			highest_modseq: modseq,
+		};
+		insert(state, row);
+		return state.mailboxView(row);
+	});
+}
+
+export function findMailbox(
+	state: SqliteState,
+	accountId: string,
+	role: MailboxRole,
+): Mailbox | undefined {
+	state.account(accountId);
+	checkRequiredRole(role);
+	const row = roleRow(state, accountId, role);
+	return row && state.mailboxView(row);
+}
+
+export function getMailbox(
+	state: SqliteState,
+	accountId: string,
+	id: string,
+): Mailbox | undefined {
+	state.account(accountId);
+	const row = state.findMailboxRow(accountId, id);
+	return row && state.mailboxView(row);
+}
+
+export function listMailboxes(
+	state: SqliteState,
+	accountId: string,
+): Mailbox[] {
+	state.account(accountId);
+	return state.db
+		.query<MailboxRow, [string]>(
+			'SELECT * FROM mailboxes WHERE account_id = ? ORDER BY rowid',
+		)
+		.all(accountId)
+		.map((row) => state.mailboxView(row));
+}
+
+export function renameMailbox(
+	state: SqliteState,
+	accountId: string,
+	id: string,
+	change: MailboxRename,
+): Mailbox {
+	return state.atomic(() => {
+		const row = state.mailbox(accountId, id);
+		const { name, parentId } = renameTarget(
+			{
+				name: row.name,
+				...(row.parent_id === null ? {} : { parentId: row.parent_id }),
+			},
+			change,
+		);
+		row.name = placeMailbox(lookups(state, accountId), name, parentId, row.id);
+		row.parent_id = parentId ?? null;
+		row.modseq = state.bump(accountId);
+		state.db
+			.query(
+				'UPDATE mailboxes SET name = ?, parent_id = ?, modseq = ? WHERE id = ?',
+			)
+			.run(row.name, row.parent_id, row.modseq, row.id);
+		return state.mailboxView(row);
+	});
+}
+
+export function setSubscribed(
+	state: SqliteState,
+	accountId: string,
+	id: string,
+	subscribed: boolean,
+): Mailbox {
+	return state.atomic(() => {
+		const row = state.mailbox(accountId, id);
+		checkSubscribed(subscribed);
+		if ((row.is_subscribed === 1) !== subscribed) {
+			row.is_subscribed = subscribed ? 1 : 0;
+			row.modseq = state.bump(accountId);
+			state.db
+				.query(
+					'UPDATE mailboxes SET is_subscribed = ?, modseq = ? WHERE id = ?',
+				)
+				.run(row.is_subscribed, row.modseq, row.id);
+		}
+		return state.mailboxView(row);
+	});
+}

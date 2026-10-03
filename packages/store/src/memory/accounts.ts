@@ -1,6 +1,6 @@
 import { loginKey, normalizeLogin } from '../contract/checks';
+import { accountExists } from '../contract/conflicts';
 import type { Account } from '../contract/types';
-import { StoreError } from '../errors';
 import type { MemoryState } from './state';
 
 /** The account with this login, compared case-insensitively; a copy. */
@@ -18,10 +18,7 @@ export function findAccount(
 export function createAccount(state: MemoryState, name: string): Account {
 	const login = normalizeLogin(name);
 	if (findAccount(state, login)) {
-		throw new StoreError(
-			'ALREADY_EXISTS',
-			`An account "${login}" already exists`,
-		);
+		throw accountExists(login);
 	}
 	const account = { id: crypto.randomUUID(), name: login };
 	state.accounts.set(account.id, {

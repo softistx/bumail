@@ -6,12 +6,14 @@ only number on it.
 
 ## Now
 
-Nothing in progress.
+- **A `bun:sqlite` store**, to come as `@bumail/store/sqlite` — the same
+  contract on disk, message content as files addressed by their hash, held
+  to the same specs. One process opens a database at a time, and every
+  write is flushed to disk before it is acknowledged. Accounts and
+  mailboxes are written; messages come next. Not exported yet.
 
 ## Next
 
-- **A `bun:sqlite` store** — the same contract on disk, message content as
-  files addressed by their hash, held to the same specs.
 - **Searching and sorting** what IMAP's `SEARCH` and JMAP's `Email/query`
   need, once those protocols land.
 - **The contract's specs, exported**, so a store written outside this
