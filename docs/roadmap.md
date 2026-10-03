@@ -68,10 +68,9 @@ No dates. Each entry says what someone running or embedding the server gets.
   are allotted in transactions. The same contract specs again.
 - **The server app** — SMTP on 25 and submission on 587, the queue, and
   the store served over IMAP and JMAP, wired together; an admin API for
-  domains, accounts, aliases and DKIM keys; health and metrics. It starts once
-  `@alxia/core` is on npm: it consumes alxia's published packages, not a
-  link to its working tree, so bumail's CI never depends on another
-  repository's checkout.
+  domains, accounts, aliases and DKIM keys; health and metrics. It consumes
+  alxia's published packages, not a link to its working tree, so bumail's
+  CI never depends on another repository's checkout.
 
 ## Later
 

@@ -21,8 +21,8 @@ does, and which package does it.
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH; and, on `@bumail/smtp/client`, a client that sends it out to a smarthost or by MX |
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store and a `bun:sqlite` store on disk |
 
-All six are on npm. What comes, in what order and why, is in
-[docs/roadmap.md](./docs/roadmap.md).
+Six are on npm; `@bumail/jmap` is in review. What comes, in what order
+and why, is in [docs/roadmap.md](./docs/roadmap.md).
 
 ## Development
 

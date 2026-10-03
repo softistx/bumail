@@ -13,7 +13,8 @@ bun add @bumail/jmap @alxia/core @bumail/store @bumail/mime
 ```
 
 `@alxia/core` (0.2.0 or later), `@bumail/store` and `@bumail/mime` are
-peers: install the versions your app uses. `typescript` is an optional peer, for the types.
+peers: install the versions your app uses. `typescript` is an optional
+peer, for the types.
 
 ## Mounting it in an alxia app
 

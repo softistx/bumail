@@ -152,15 +152,16 @@ name do; every API response carries it as `sessionState`. The
 The body is held to `maxSizeRequest` as the route's alxia `bodyLimit`: a
 `Content-Length` past it is refused without reading a byte, and a body
 without one — chunked — or with a false one is counted as it arrives and
-refused at the first chunk past it, never read whole. Before it is parsed it must be UTF-8 and nest at
-most `maxJsonDepth` levels with at most `maxJsonTokens` tokens. Then it
-must be a Request object: `using` an array of names, `methodCalls` an
-array of `[name, arguments, callId]` with a name and a call id of at most
-255 characters, at most `maxCallsInRequest` of them, and `createdIds`, if
-given, an object of at most `maxObjectsInSet` ids. Each name in `using`
-must be `urn:ietf:params:jmap:core` or `urn:ietf:params:jmap:mail`. A
-request that fails any of these is answered with one problem and no call
-runs (RFC 8620 §3.6.1).
+refused at the first chunk past it, never read whole. Before it is parsed
+it must be UTF-8 and nest at most `maxJsonDepth` levels with at most
+`maxJsonTokens` tokens. Then it must be a Request object: `using` an array
+of names, `methodCalls` an array of `[name, arguments, callId]` with a
+name and a call id of at most 255 characters, at most `maxCallsInRequest`
+of them, and `createdIds`, if given, an object of at most
+`maxObjectsInSet` ids. Each name in `using` must be
+`urn:ietf:params:jmap:core` or `urn:ietf:params:jmap:mail`. A request that
+fails any of these is answered with one problem and no call runs (RFC 8620
+§3.6.1).
 
 Then each call runs in order, each seeing the responses before it:
 
