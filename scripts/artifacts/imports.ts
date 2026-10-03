@@ -1,4 +1,6 @@
+import { isBuiltin } from 'node:module';
 import { join } from 'node:path';
+import ts from 'typescript';
 import type { Pkg } from './packages';
 
 /** The fields whose names a built import may reach: what a consumer installs. */
@@ -16,13 +18,32 @@ export function packageOf(specifier: string): string {
 		: (parts[0] ?? specifier);
 }
 
-/** Whether a specifier is the runtime's own, never a package. */
+/**
+ * Whether a specifier is the runtime's own, never a package: `bun`, `bun:*`,
+ * and Node's built-ins with or without `node:` (`Bun.build` keeps `"fs"` as
+ * written).
+ */
 function isRuntime(specifier: string): boolean {
 	return (
-		specifier === 'bun' ||
-		specifier.startsWith('bun:') ||
-		specifier.startsWith('node:')
+		specifier === 'bun' || specifier.startsWith('bun:') || isBuiltin(specifier)
 	);
+}
+
+/**
+ * The specifiers a file imports. JavaScript goes through Bun's own scanner;
+ * a declaration file through TypeScript's, since Bun's drops the type-only
+ * imports (`import type`, `export type … from`, `import('x').T`) that are
+ * all a `.d.ts` holds, and a consumer's `tsc` still resolves them.
+ */
+function specifiersOf(rel: string, text: string): string[] {
+	if (rel.endsWith('.d.ts')) {
+		return ts
+			.preProcessFile(text, true, true)
+			.importedFiles.map((file) => file.fileName);
+	}
+	return new Bun.Transpiler({ loader: 'js' })
+		.scanImports(text)
+		.map(({ path }) => path);
 }
 
 /**
@@ -31,7 +52,10 @@ function isRuntime(specifier: string): boolean {
  * runtime's own (`bun`, `bun:*`, `node:*`) and the package itself pass; so
  * does anything in `dependencies`, `peerDependencies` or
  * `optionalDependencies`. A devDependency never does: no consumer installs
- * it. Pure, so it has specs.
+ * it. Bundles are `.js` or `.d.ts`. Pure, so it has specs.
+ *
+ * It reads literal specifiers only: `import(variable)`, `require.resolve`,
+ * `import.meta.resolve` and `createRequire(…)(…)` are out of its reach.
  */
 export function undeclaredImports(
 	manifest: { name: string } & Partial<
@@ -43,10 +67,9 @@ export function undeclaredImports(
 	for (const field of RUNTIME_FIELDS) {
 		for (const name of Object.keys(manifest[field] ?? {})) declared.add(name);
 	}
-	const transpiler = new Bun.Transpiler({ loader: 'js' });
 	const found: [string, string][] = [];
 	for (const [rel, text] of bundles) {
-		for (const { path } of transpiler.scanImports(text)) {
+		for (const path of specifiersOf(rel, text)) {
 			if (path.startsWith('.') || path.startsWith('/') || isRuntime(path)) {
 				continue;
 			}
@@ -77,7 +100,7 @@ export async function importsDeclared(
 		const root = join(workdir, 'node_modules', pkg.name);
 		const manifest = await Bun.file(join(root, 'package.json')).json();
 		const bundles: [string, string][] = [];
-		for await (const rel of new Bun.Glob('dist/**/*.js').scan({
+		for await (const rel of new Bun.Glob('dist/**/*.{js,d.ts}').scan({
 			cwd: root,
 			onlyFiles: true,
 		})) {

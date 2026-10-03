@@ -36,9 +36,10 @@ describe('undeclaredImports', () => {
 						'import { listen } from "bun";',
 						'import { Database } from "bun:sqlite";',
 						'import { resolveMx } from "node:dns";',
+						'import { readFileSync } from "fs";',
 						'import { reply } from "./chunks/reply-abc.js";',
 						'import { x } from "@bumail/smtp/client";',
-						'export { listen, Database, resolveMx, reply, x };',
+						'export { listen, Database, resolveMx, readFileSync, reply, x };',
 					].join('\n'),
 				],
 			]),
@@ -64,15 +65,35 @@ describe('undeclaredImports', () => {
 		).toEqual([]);
 	});
 
-	test('catches a dynamic import and a re-export too', () => {
+	test('catches a dynamic import, a require and a re-export too', () => {
 		expect(
 			undeclaredImports(smtp, [
 				['dist/a.js', 'export * from "@bumail/store";'],
 				['dist/b.js', 'export const load = () => import("@bumail/queue");'],
+				['dist/c.js', 'module.exports = require("@bumail/dns");'],
 			]),
 		).toEqual([
 			['dist/a.js', '@bumail/store'],
 			['dist/b.js', '@bumail/queue'],
+			['dist/c.js', '@bumail/dns'],
+		]);
+	});
+
+	test('catches the type-only imports a declaration file holds', () => {
+		expect(
+			undeclaredImports(smtp, [
+				['dist/a.d.ts', "export type { MailStore } from '@bumail/store';"],
+				[
+					'dist/b.d.ts',
+					"import type { Job } from '@bumail/queue';\nexport type J = Job;",
+				],
+				['dist/c.d.ts', "export type R = import('@bumail/dns').Resolver;"],
+				['dist/d.d.ts', "export type { Reply } from './protocol/reply';"],
+			]),
+		).toEqual([
+			['dist/a.d.ts', '@bumail/store'],
+			['dist/b.d.ts', '@bumail/queue'],
+			['dist/c.d.ts', '@bumail/dns'],
 		]);
 	});
 });
