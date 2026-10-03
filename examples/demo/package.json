@@ -1,0 +1,22 @@
+{
+	"name": "bumail-demo",
+	"version": "0.0.0",
+	"private": true,
+	"description": "An end-to-end demo of the @bumail packages: an MX, a submission server and IMAP on one sqlite store. Not published.",
+	"license": "MIT",
+	"type": "module",
+	"scripts": {
+		"start": "bun run main.ts",
+		"e2e": "bun run e2e.ts",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@bumail/auth": "workspace:^",
+		"@bumail/dns": "workspace:^",
+		"@bumail/imap": "workspace:^",
+		"@bumail/mime": "workspace:^",
+		"@bumail/smtp": "workspace:^",
+		"@bumail/store": "workspace:^",
+		"@types/bun": "^1.4.2"
+	}
+}

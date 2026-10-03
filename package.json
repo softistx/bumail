@@ -3,7 +3,8 @@
 	"private": true,
 	"type": "module",
 	"workspaces": [
-		"packages/*"
+		"packages/*",
+		"examples/*"
 	],
 	"scripts": {
 		"build": "bun run scripts/workspace.ts build",
@@ -17,7 +18,9 @@
 		"changeset:version": "changeset version && bun install --lockfile-only",
 		"changeset:publish": "bun run build && bun run verify:artifacts && bun run scripts/publish.ts",
 		"verify:artifacts": "bun run scripts/verify-artifacts.ts",
-		"changeset:status": "changeset status --since=origin/develop"
+		"changeset:status": "changeset status --since=origin/develop",
+		"demo": "bun run build && bun examples/demo/main.ts",
+		"demo:e2e": "bun run build && bun examples/demo/e2e.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.9",
