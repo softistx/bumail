@@ -229,4 +229,43 @@ describe('the message reaches onData as a stream', () => {
 		expect(read?.text).toBeUndefined();
 		expect(read?.error?.code).toBe('MESSAGE_NOT_READ');
 	});
+
+	test('a read started after onData answered errors with MESSAGE_NOT_READ too', async () => {
+		let background: Promise<Awaited<ReturnType<typeof outcome>>> | undefined;
+		const s = await fakeSession(
+			mxOptions({
+				onData: (message) => {
+					background = new Promise((resolve) => {
+						setTimeout(() => resolve(outcome(message.content)), 0);
+					});
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hello\r\n.\r\n')).toBe(
+			'451 4.3.0 Local error in processing\r\n',
+		);
+		const read = await background;
+		expect(read?.text).toBeUndefined();
+		expect(read?.error?.code).toBe('MESSAGE_NOT_READ');
+	});
+
+	test('a refusal from onData stays the reply, and a read left running errors', async () => {
+		let background: Promise<Awaited<ReturnType<typeof outcome>>> | undefined;
+		const s = await fakeSession(
+			mxOptions({
+				onData: (message) => {
+					background = outcome(message.content);
+					return reply(550, '5.7.1', 'No');
+				},
+			}),
+			{ raw: true },
+		);
+		await s.send(transaction);
+		expect(await s.send('hello\r\n.\r\n')).toBe('550 5.7.1 No\r\n');
+		const read = await background;
+		expect(read?.text).toBeUndefined();
+		expect(read?.error?.code).toBe('MESSAGE_NOT_READ');
+	});
 });

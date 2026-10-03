@@ -1066,7 +1066,10 @@ long, in which case its stream also ends in
 [`SmtpError: onData did not read the message within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-read-the-message-within-hooktimeout--s-do-not-deliver-it).
 When `onData` itself did not answer in time, its stream ends in
 [`SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it),
-so a read it finishes late keeps nothing.
+so a read still running then keeps nothing. A read that had already reached
+the end before the timeout is not undone: if `onData` read the whole message
+but never answered, the client was told `451` and will send it again, so do
+not deliver from a hook that ran late.
 The client got `451 4.3.0` (or `454 4.7.0` for `authenticate`).
 
 **Why**: while a hook runs, the session waits; a hook that never settles

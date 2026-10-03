@@ -540,7 +540,7 @@ const server = createSmtpServer({
 		accounts.has(path.address.toLowerCase())
 			? undefined
 			: reply(550, '5.1.1', 'No such user here'),
-	// One copy per recipient: the stream is teed, never buffered here.
+	// One copy per recipient: the stream is teed, not buffered by you.
 	async onData({ envelope, content }) {
 		let rest = content;
 		await Promise.all(
