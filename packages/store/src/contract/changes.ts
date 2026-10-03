@@ -47,7 +47,12 @@ function liveAndDestroyed(
 	return items;
 }
 
-/** Every message of the account, changed since or destroyed since. */
+/**
+ * Every message of the account, changed since or destroyed since. Rows
+ * may come in any order, and a store may give only those with
+ * `modseq > since`; items of one modseq keep the order they came in, so
+ * a SQL store reads them `ORDER BY modseq, rowid` to match.
+ */
 export function accountMessageItems(
 	messages: Iterable<LiveRow>,
 	destroyed: Iterable<DestroyedRow>,
@@ -61,7 +66,9 @@ export function accountMessageItems(
  * since is created, sorted by its first coming in, as a created item sorts
  * by its creation; one that was in it at `since` and is no more is
  * destroyed, when it left. One that left and came back is updated.
- * `expunged` holds that mailbox's departures only, oldest first.
+ * `expunged` holds that mailbox's departures only, oldest first (by
+ * `modseq`, then the order they were made): the first coming in is the
+ * first one met. Either list may be limited to `modseq > since`.
  */
 export function mailboxMessageItems(
 	members: Iterable<MemberRow>,

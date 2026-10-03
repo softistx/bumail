@@ -19,11 +19,12 @@ const NOT_CONTENT =
 /**
  * Reads content given whole or as a stream, as every store must: hashed
  * and counted chunk by chunk, each chunk handed to `onChunk` before the
- * next is read. A stream that fails, yields something other than bytes, or
- * whose chunk `onChunk` refuses, is cancelled and rejects with `INVALID`
- * (a `StoreError` from `onChunk` passes through as it is); so does one
- * already locked by another reader. A chunk may be reused by its stream
- * once `onChunk` returns: copy what must be kept.
+ * next is read. A stream that fails or yields something other than bytes
+ * is cancelled and rejects with `INVALID`; so does one already locked by
+ * another reader. What `onChunk` throws (the store's own write failing)
+ * is the store's, not the content's: the stream is cancelled and the error
+ * passes through as it is. A chunk may be reused by its stream once
+ * `onChunk` returns: copy what must be kept.
  */
 export async function readChunks(
 	content: Content,
@@ -46,26 +47,41 @@ export async function readChunks(
 	}
 	let size = 0;
 	const reader = content.getReader();
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (!(value instanceof Uint8Array)) {
-				throw new StoreError('INVALID', NOT_CONTENT);
-			}
-			hasher.update(value);
-			size += value.length;
+	for (;;) {
+		const value = await nextChunk(reader);
+		if (value === undefined) break;
+		hasher.update(value);
+		size += value.length;
+		try {
 			await onChunk(value);
+		} catch (error) {
+			await reader.cancel().catch(() => undefined);
+			throw error;
 		}
+	}
+	return { blobId: hasher.digest('hex'), size };
+}
+
+/** The next chunk of the stream, or `undefined` at its end; a read that fails is `INVALID`. */
+async function nextChunk(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<Uint8Array | undefined> {
+	let result: ReadableStreamDefaultReadResult<Uint8Array>;
+	try {
+		result = await reader.read();
 	} catch (error) {
 		await reader.cancel().catch(() => undefined);
-		if (error instanceof StoreError) throw error;
 		throw new StoreError(
 			'INVALID',
 			`The message content could not be read: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
-	return { blobId: hasher.digest('hex'), size };
+	if (result.done) return undefined;
+	if (!((result.value as unknown) instanceof Uint8Array)) {
+		await reader.cancel().catch(() => undefined);
+		throw new StoreError('INVALID', NOT_CONTENT);
+	}
+	return result.value;
 }
 
 /**
