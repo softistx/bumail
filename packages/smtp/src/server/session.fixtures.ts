@@ -24,6 +24,8 @@ export interface FakeSession {
 	send(text: string): Promise<string>;
 	/** Whether the server hung up. */
 	readonly ended: boolean;
+	/** Whether it hung up at once, its own decision, rather than gracefully after QUIT. */
+	readonly aborted: boolean;
 	/** Times the server started TLS. */
 	readonly tlsStarts: number;
 	/** Whether the server paused reading. */
@@ -60,6 +62,8 @@ interface FakeTransport {
 	/** What the server wrote since the last `take`. */
 	take(): string;
 	readonly ended: boolean;
+	/** Hung up by `abort`, the server's decision, rather than `end`. */
+	readonly aborted: boolean;
 	readonly tlsStarts: number;
 	readonly paused: boolean;
 	readonly idleRestarts: readonly string[];
@@ -68,6 +72,7 @@ interface FakeTransport {
 function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
 	let output = '';
 	let ended = false;
+	let aborted = false;
 	let tlsStarts = 0;
 	let paused = false;
 	let encrypted = secure;
@@ -86,6 +91,10 @@ function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
 			drained: () => Promise.resolve(),
 			end: () => {
 				ended = true;
+			},
+			abort: () => {
+				ended = true;
+				aborted = true;
 			},
 			pause: () => {
 				paused = true;
@@ -108,6 +117,9 @@ function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
 		},
 		get ended() {
 			return ended;
+		},
+		get aborted() {
+			return aborted;
 		},
 		get tlsStarts() {
 			return tlsStarts;
@@ -183,6 +195,9 @@ export async function fakeSession(
 		errors,
 		get ended() {
 			return fake.ended;
+		},
+		get aborted() {
+			return fake.aborted;
 		},
 		get tlsStarts() {
 			return fake.tlsStarts;

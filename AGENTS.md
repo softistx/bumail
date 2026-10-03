@@ -12,7 +12,7 @@ below lists only what has landed.
 | --- | --- | --- |
 | `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
-| `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
+| `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
 | `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, and SPF checking (RFC 7208), results in RFC 8601's words; DMARC next | `@bumail/dns`, `@bumail/mime` |
@@ -70,7 +70,7 @@ The repository is **private** until the owner says otherwise.
 ```
 dns             (standalone)
 mime            (standalone)
-smtp            (standalone; its delivery spec uses store, as a devDependency only)
+smtp            (standalone; its specs use store and dns, its Mailpit example auth, as devDependencies)
 store           (standalone)
 auth            → dns, mime
 imap            → store, mime
@@ -204,6 +204,48 @@ Every PR goes into `develop`. Before merging:
   and `roadmap.md`. The README ends with a **Documentation** section linking
   them by full GitHub URL on `develop`, since npm does not resolve relative
   links.
+
+## Deliberate duplications
+
+- `packages/smtp/src/client/mx.ts` copies `@bumail/dns`'s `isTemporary`
+  (and reads a `DnsError` by its `name` and `code`): the client imports
+  nothing of `@bumail/dns`, so a smarthost-only app never installs it.
+  Change both together.
+- `packages/smtp/src/client/options.ts` declares `MxResolver` by shape —
+  `mx`, `a` and `aaaa`, with the fields of `MxRecord` and `AddressRecord`
+  the client reads — rather than importing `Resolver`: a type import in
+  the built `.d.ts` fails a consumer's `tsc` (TS2307) when `@bumail/dns`
+  is not installed. `options.spec.ts` asserts that `@bumail/dns`'s
+  `Resolver` is assignable to it, so a change to either that breaks the
+  fit fails `typecheck`. With nothing of `@bumail/dns` imported, smtp
+  lists it as a devDependency only, never a peer (see Layering).
+- **The socket transport** — writing with a backlog, `drained()`, pause and
+  resume, the STARTTLS upgrade — lives in `smtp/src/server/transport.ts`.
+  `@bumail/imap` (PR #29) will carry a copy adapted to its protocol's flow,
+  and that copy must keep the same rule; should a third server need it, it
+  becomes a package. The rule: **a hang-up never waits on the client; a
+  forced close terminates when bytes are queued; every end is bounded by a
+  grace timer.** A close the server decides on — a timeout, a 421 — must
+  complete even when the client never reads, or the connection keeps a
+  `maxConnections` slot for good. In smtp: the connection queues its last
+  words and marks itself closed without awaiting the backlog; `abort()`
+  with bytes still queued drops them and terminates the socket; every
+  `end`, queue empty or not, arms the 5-second `CLOSE_GRACE_MS`, whose
+  timer terminates the socket unless `close` came first; and `closed()`
+  clears that timer and sets a `#closed` guard, so a later `write`, `end`
+  or `abort` — as the `close` handlers call `connection.close()` after a
+  client hung up first — touches no socket and arms no timer. Hanging up
+  is a half-close, `socket.shutdown(true)`, never `end()`. Measured on
+  Bun 1.4.2: on TLS, `socket.end()` against a paused peer never closes,
+  and a `terminate()` after it is a no-op; a full `shutdown()` holds a
+  paused client until the grace, then loses the reply to the reset when
+  that client reads later; `shutdown(true)` fires `close` at once, freeing
+  the slot, and still delivers the last reply and a clean end. smtp's
+  real-socket specs (`quiet.spec.ts`, with a `node:tls` client) cover a
+  paused client on a clear socket, on implicit TLS and after STARTTLS, at
+  the idle `timeout` and after `QUIT`; `close.spec.ts` covers a client
+  that never reads with replies queued; `transport.spec.ts` covers the
+  grace and the `#closed` guard. A fix to one copy is a fix to the other.
 
 ## Prior work
 

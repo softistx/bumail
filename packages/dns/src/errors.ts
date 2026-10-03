@@ -29,6 +29,10 @@ export class DnsError extends Error {
  * `TIMEOUT` error is, a `NOT_FOUND`, `INVALID_NAME` or `INVALID_OPTION` is
  * not, and anything
  * that is not a `DnsError` is treated as temporary.
+ *
+ * Copied as `temporary` in `packages/smtp/src/client/mx.ts`, which reads a
+ * `DnsError` by its `name` and `code` so the SMTP client imports nothing of
+ * this package: change both together (AGENTS.md, deliberate duplications).
  */
 export function isTemporary(error: unknown): boolean {
 	return (
