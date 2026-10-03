@@ -152,6 +152,11 @@ of the message says why:
 - `its IDN mapping changes its labels`: a character the mapping turns
   into a dot (`。`, U+3002), so the name queried would not have the
   labels written;
+- `its IDN mapping turns it into another name; write that name instead`:
+  a compatibility character the mapping folds into a different one
+  (fullwidth `ｅｘａｍｐｌｅ.com`, `ſtripe.com`, `ﬀ.com`, the Kelvin sign,
+  `ⅹn--bcher-kva.com`), so the name queried would not be the one written.
+  Only case and accent composition may change;
 - `it is not a valid international name`.
 
 **Why**: names are checked before any query, so text from a message (a
@@ -189,7 +194,8 @@ not a name and not its `in-addr.arpa` form. A zone names a local
 interface, which has no meaning in the DNS.
 
 **Fix**: pass the address, without a zone; the resolver builds the
-reverse name itself.
+reverse name itself. An IPv4-mapped address (`::ffff:192.0.2.1`) is
+accepted and looked up as its IPv4 address.
 
 ### `DnsError: The DNS refused the name in … (…)`
 

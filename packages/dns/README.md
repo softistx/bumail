@@ -105,10 +105,14 @@ made at once share one query, and its answer or its error.
 - **An address is not a name.** `mx('192.0.2.1')` is `INVALID_NAME`. Look
   an address up with `ptr()`.
 - **A name is never swapped for another.** A name holding URL syntax
-  (`@`, `/`, `:`, `?`, `#`, `%`, `\\`) or an invisible character the IDN
-  mapping would drop (a soft hyphen, a zero-width joiner) is
-  `INVALID_NAME`, so a name taken from a message, as SPF and DMARC take
-  them, cannot make the resolver query a domain the sender chose.
+  (`@`, `/`, `:`, `?`, `#`, `%`, `\`), an invisible character the IDN
+  mapping would drop (a soft hyphen, a zero-width joiner), or a character
+  the mapping turns into another (`ｅｘａｍｐｌｅ.com`, `ſtripe.com`,
+  `ⅹn--…`) is `INVALID_NAME`: only case and accent composition may change.
+  So a name taken from a message, as SPF and DMARC take them, cannot make
+  the resolver query a domain the sender chose.
+- **`ptr()` folds an IPv4-mapped address.** `::ffff:192.0.2.1`, as a
+  dual-stack listener reports an IPv4 peer, is looked up as `192.0.2.1`.
 - **`servers`, `timeout` and `tries` configure `node:dns`.** Next to a
   `backend` they would be ignored, so `nodeResolver` refuses them there
   with `INVALID_OPTION`.

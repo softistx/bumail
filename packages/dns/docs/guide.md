@@ -89,9 +89,17 @@ and drop what it does not show. So, before it, a name holding `@`, `/`,
 `:`, `?`, `#`, `%` or `\` is refused, and so is one holding an invisible
 character the mapping would drop (a soft hyphen, a zero-width joiner); a
 mapping that would add a dot (`。`, U+3002) is refused too. Without that,
-`évil@good.example` would be queried as `good.example`. A name taken from
-a message (a `MAIL FROM` domain, a DKIM `d=` tag) is therefore queried
-as written, or not at all:
+`évil@good.example` would be queried as `good.example`.
+
+After it, the A-labels must read back as the name written, lowercased and
+in NFC: UTS #46 folds compatibility characters, so fullwidth
+`ｅｘａｍｐｌｅ.com`, mathematical `𝐠𝐨𝐨𝐠𝐥𝐞.com`, `ſtripe.com`, `ﬀ.com`, the
+Kelvin sign and even `ⅹn--bcher-kva.com` would otherwise become plain
+`example.com`, `google.com`… or an A-label the sender picked. Those are
+refused. Case, composed accents and `ß` pass: the mapping is
+nontransitional, so `straße.de` is `xn--strae-oqa.de`, not `strasse.de`.
+A name taken from a message (a `MAIL FROM` domain, a DKIM `d=` tag) is
+therefore queried as written, or not at all:
 
 ```ts
 import { DnsError, normalizeName } from '@bumail/dns';
@@ -106,7 +114,10 @@ try {
 `ptr()` takes an IPv4 or IPv6 address instead, and refuses anything else
 the same way, a zone (`fe80::1%eth0`) included. An IPv6 address is
 queried in its canonical form (`2001:0DB8:0:0::1` → `2001:db8::1`), so
-one address is one cache entry and one fixture key.
+one address is one cache entry and one fixture key. An IPv4-mapped address
+(`::ffff:192.0.2.1`, how a dual-stack `Bun.listen` reports an IPv4 peer)
+is folded to `192.0.2.1`, so its PTR is looked up in `in-addr.arpa`,
+where it lives.
 
 ## Errors, and what a mail server makes of them
 

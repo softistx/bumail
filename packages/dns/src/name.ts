@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { domainToUnicode } from 'node:url';
 import { DnsError } from './errors';
 
 const LABEL = /^[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?$/;
@@ -26,11 +27,28 @@ function invalid(name: string, why: string): DnsError {
 }
 
 /**
+ * A name in NFC and lowercase, or `undefined` when either step turns a
+ * non-ASCII character into ASCII (the Kelvin sign `K`, which NFC itself
+ * makes `K`): that is a swap, not a change of case or of composition.
+ */
+function folded(name: string): string | undefined {
+	for (const char of name) {
+		if (char <= '\x7f') continue;
+		const folds = char.normalize('NFC').toLowerCase();
+		if ([...folds].every((c) => c <= '\x7f')) return undefined;
+	}
+	return name.normalize('NFC').toLowerCase();
+}
+
+/**
  * The A-labels of a name holding non-ASCII characters, through the URL
- * API's IDN mapping (UTS #46). Only letters, digits, `.`, `-` and `_` are
- * left in ASCII by then, so the parser has no syntax to read; a mapping
- * that adds or removes a dot (`。`, U+3002) is refused too, so the name
- * queried has the labels the caller wrote.
+ * API's IDN mapping (UTS #46, nontransitional: `ß` stays `ß`). Only
+ * letters, digits, `.`, `-` and `_` are left in ASCII by then, so the
+ * parser has no syntax to read. The A-labels must read back as the name
+ * written, lowercased and in NFC: the mapping may fold case and compose
+ * accents, never turn one character into another (`ｅｘａｍｐｌｅ` →
+ * `example`, `ſ` → `s`, `ﬀ` → `ff`, `ⅹn--` → `xn--`, `K` → `k`), nor add or drop a
+ * dot (`。`, U+3002).
  */
 function idnOf(name: string, unicode: string): string {
 	let ascii: string;
@@ -41,6 +59,11 @@ function idnOf(name: string, unicode: string): string {
 	}
 	if (ascii.split('.').length !== unicode.split('.').length)
 		throw invalid(name, 'its IDN mapping changes its labels');
+	if (domainToUnicode(ascii) !== folded(unicode))
+		throw invalid(
+			name,
+			'its IDN mapping turns it into another name; write that name instead',
+		);
 	return ascii;
 }
 
@@ -98,8 +121,10 @@ export function normalizeName(name: unknown): string {
 /**
  * An IP address as `ptr()` takes it: IPv4 as written, IPv6 in its canonical
  * form (`2001:0DB8:0:0::1` → `2001:db8::1`), so one address is one cache
- * and fixture key. A zone (`fe80::1%eth0`) or anything else is
- * `INVALID_NAME`.
+ * and fixture key. An IPv4-mapped IPv6 address (`::ffff:192.0.2.1`, as a
+ * dual-stack listener reports an IPv4 peer, in any spelling) is folded to
+ * its IPv4 address, so its PTR is looked up in `in-addr.arpa`. A zone
+ * (`fe80::1%eth0`) or anything else is `INVALID_NAME`.
  */
 export function normalizeAddress(address: unknown): string {
 	const version = typeof address === 'string' ? isIP(address) : 0;
@@ -110,7 +135,12 @@ export function normalizeAddress(address: unknown): string {
 		);
 	}
 	if (version === 4) return address;
-	return new URL(`http://[${address}]`).hostname.slice(1, -1);
+	const canonical = new URL(`http://[${address}]`).hostname.slice(1, -1);
+	const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(canonical);
+	if (mapped === null) return canonical;
+	const high = Number.parseInt(mapped[1] ?? '0', 16);
+	const low = Number.parseInt(mapped[2] ?? '0', 16);
+	return [high >> 8, high & 0xff, low >> 8, low & 0xff].join('.');
 }
 
 /** A name a record points to (an MX exchange, a PTR target), as the interface returns it. */

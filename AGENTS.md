@@ -25,8 +25,12 @@ The repository is **private** until the owner says otherwise.
 ## Principles
 
 - **No package has a dependency.** What one needs at runtime is a peer: a
-  sibling `@bumail/*`, or `@alxia/core` for what speaks HTTP — once it is on
-  npm: `verify:artifacts` refuses a required peer that is on no registry, so
+  sibling `@bumail/*`, `@alxia/core` for what speaks HTTP, or — for a store
+  answer only, as the roadmap plans — the published client it wraps
+  (`@nxgt/drizzle` and `drizzle-orm`, `@nxgt/mongo`, `mongodb` and `zod`,
+  `@nxgt/s3`); the protocol packages and the store contract never peer on
+  anything outside `@bumail/*`. Any peer only once it is on npm:
+  `verify:artifacts` refuses a required peer that is on no registry, so
   nothing here peers on alxia before its first publish. Bun's and the
   web platform's own APIs — `Bun.listen`, `socket.upgradeTLS`, `bun:sqlite`,
   `Bun.file`, Web Crypto, `TextDecoder`, `node:dns` — are not dependencies.

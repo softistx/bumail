@@ -29,6 +29,15 @@ describe('normalizeName', () => {
 		expect(normalizeName('münchen.DE.')).toBe('xn--mnchen-3ya.de');
 	});
 
+	test('keeps case folding, composed accents and ß, which name the same domain', () => {
+		expect(normalizeName('Bücher.example')).toBe('xn--bcher-kva.example');
+		expect(normalizeName('e\u0301xample.com')).toBe('xn--xample-9ua.com');
+		expect(normalizeName('straße.de')).toBe('xn--strae-oqa.de');
+		expect(normalizeName('_dmarc.bücher.example')).toBe(
+			'_dmarc.xn--bcher-kva.example',
+		);
+	});
+
 	test('takes a label of 63 characters and a name of 253, no more', () => {
 		const label = 'a'.repeat(63);
 		expect(normalizeName(`${label}.example`)).toBe(`${label}.example`);
@@ -103,6 +112,28 @@ describe('normalizeName', () => {
 			);
 		}
 	});
+
+	test('never lets the IDN mapping turn a name into another one', () => {
+		const why =
+			'its IDN mapping turns it into another name; write that name instead';
+		for (const name of [
+			'ｅｘａｍｐｌｅ.com',
+			'𝐠𝐨𝐨𝐠𝐥𝐞.com',
+			'ⓖoogle.com',
+			'ſtripe.com',
+			'ﬀ.com',
+			'ｘｎ－－ｂｃｈｅｒ－ｋｖａ.com',
+			'ⅹn--bcher-kva.com',
+			'_dmarc.ｅｘａｍｐｌｅ.com',
+			'\u212Aelvin.example',
+		]) {
+			const error = refused(() => normalizeName(name));
+			expect(error.code).toBe('INVALID_NAME');
+			expect(error.message).toBe(
+				`${JSON.stringify(name)} is not a name to look up: ${why}`,
+			);
+		}
+	});
 });
 
 describe('normalizeAddress', () => {
@@ -111,6 +142,17 @@ describe('normalizeAddress', () => {
 		expect(normalizeAddress('2001:DB8::1')).toBe('2001:db8::1');
 		expect(normalizeAddress('2001:0DB8:0:0::1')).toBe('2001:db8::1');
 		expect(normalizeAddress('2001:db8:0:0:0:0:0:1')).toBe('2001:db8::1');
+	});
+
+	test('folds an IPv4-mapped IPv6 address to IPv4, in any spelling', () => {
+		for (const mapped of [
+			'::ffff:192.0.2.1',
+			'::FFFF:C000:0201',
+			'0:0:0:0:0:ffff:192.0.2.1',
+		]) {
+			expect(normalizeAddress(mapped)).toBe('192.0.2.1');
+		}
+		expect(normalizeAddress('::192.0.2.1')).toBe('::c000:201');
 	});
 
 	test('refuses a zone and anything else', () => {
