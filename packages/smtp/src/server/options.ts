@@ -45,11 +45,22 @@ export interface ReceivedMessage {
 	 *
 	 * It ends in an `SmtpError` when the message must not be delivered:
 	 * `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK` (SMTP smuggling),
-	 * `CONNECTION_LOST`, `HOOK_TIMEOUT` or `MESSAGE_NOT_READ`. Read it to its end before keeping
-	 * anything: a message is taken only when the stream ended cleanly and
-	 * `onData` resolved without a refusal.
+	 * `CONNECTION_LOST`, `HOOK_TIMEOUT` or `MESSAGE_NOT_READ`. Read it to
+	 * its end before keeping anything: a message is taken only when the
+	 * stream ended cleanly and `onData` resolved, within `hookTimeout`,
+	 * without a refusal. `signal` says when it was not.
 	 */
 	readonly content: ReadableStream<Uint8Array>;
+	/**
+	 * Aborts, with the `SmtpError` as its `reason`, when the server refuses
+	 * the message after `onData` had it: the stream errored, `onData`
+	 * answered before reading to the end, or it did not answer within
+	 * `hookTimeout`. In that last case the stream may already have ended
+	 * cleanly, so check `signal.aborted` (or listen for `abort`) before
+	 * keeping a message for good: the client was told `451` and will send
+	 * it again.
+	 */
+	readonly signal: AbortSignal;
 }
 
 /**

@@ -291,9 +291,11 @@ createSmtpServer({
 **When**: `greetingDelay` is as long as `timeout` or longer — `timeout`'s
 default, 300, included.
 
-**Why**: a client waiting for the 220 sends nothing, so the idle timer
-runs out first: every client would get `421 4.4.2 … Idle too long,
-closing` and never a greeting.
+**Why**: a client waiting for the 220 sends nothing, so the idle timer,
+which runs from the connection, would run out first: every client would get
+`421 4.4.2 … Idle too long, closing` and never a greeting. The bound covers
+only that wait before the greeting: once the 220 is out, the idle time
+starts again, so the client gets the whole `timeout` after it.
 
 **Fix**: keep the delay to a few seconds, well below `timeout`:
 
@@ -1014,8 +1016,29 @@ the end nor answered within `hookTimeout` seconds. The client got
 **Why**: the client was told 451 and will send the message again; a read
 that ended cleanly after that would deliver it twice.
 
-**Fix**: read the stream first and answer once it ended; do the slow work
-— a scan, a forward — after `onData` answered, or raise `hookTimeout`.
+**Fix**: read the stream inside `onData`, and before keeping the message
+check `message.signal`: it aborts whenever the server refused the message,
+including when the read had already ended cleanly and only the answer was
+late. Or raise `hookTimeout` above what the slow work takes:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	hookTimeout: 120,
+	async onData(message) {
+		const bytes = await new Response(message.content).bytes();
+		await fetch('http://127.0.0.1:3310/scan', { method: 'POST', body: bytes });
+		if (message.signal.aborted) return; // refused: the client will send it again
+		await Bun.write(`spool/${message.id}.eml`, bytes);
+	},
+});
+```
+
+A check just before the commit narrows the race; RFC 5321 §6.1 prefers a
+duplicate to a loss, so what is left costs a second copy, never a message.
 
 ## Hooks
 
@@ -1068,8 +1091,9 @@ When `onData` itself did not answer in time, its stream ends in
 [`SmtpError: onData did not answer within hookTimeout (… s); do not deliver it`](#smtperror-ondata-did-not-answer-within-hooktimeout--s-do-not-deliver-it),
 so a read still running then keeps nothing. A read that had already reached
 the end before the timeout is not undone: if `onData` read the whole message
-but never answered, the client was told `451` and will send it again, so do
-not deliver from a hook that ran late.
+but never answered, the client was told `451` and will send it again.
+`message.signal` aborts in that case too; check it before keeping the
+message.
 The client got `451 4.3.0` (or `454 4.7.0` for `authenticate`).
 
 **Why**: while a hook runs, the session waits; a hook that never settles

@@ -28,6 +28,8 @@ export interface FakeSession {
 	readonly tlsStarts: number;
 	/** Whether the server paused reading. */
 	readonly paused: boolean;
+	/** What the server had written when it restarted the idle time, each time. */
+	readonly idleRestarts: readonly string[];
 }
 
 /** The base options of the specs: an MX for `foo.com`, keeping what it receives. */
@@ -47,7 +49,7 @@ export const FAKE_TLS = { key: 'fake', cert: 'fake' };
 
 /** Reads a message's content to its end; throws what the stream errors with. */
 export async function readContent(
-	message: ReceivedMessage,
+	message: Pick<ReceivedMessage, 'content'>,
 ): Promise<Uint8Array<ArrayBuffer>> {
 	return new Uint8Array(await new Response(message.content).arrayBuffer());
 }
@@ -60,6 +62,7 @@ interface FakeTransport {
 	readonly ended: boolean;
 	readonly tlsStarts: number;
 	readonly paused: boolean;
+	readonly idleRestarts: readonly string[];
 }
 
 function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
@@ -68,6 +71,8 @@ function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
 	let tlsStarts = 0;
 	let paused = false;
 	let encrypted = secure;
+	let written = '';
+	const idleRestarts: string[] = [];
 	return {
 		transport: {
 			remoteAddress,
@@ -76,6 +81,7 @@ function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
 			},
 			write: (text) => {
 				output += text;
+				written += text;
 			},
 			drained: () => Promise.resolve(),
 			end: () => {
@@ -90,6 +96,9 @@ function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
 			startTls: () => {
 				tlsStarts++;
 				encrypted = true;
+			},
+			restartIdle: () => {
+				idleRestarts.push(written);
 			},
 		},
 		take() {
@@ -106,6 +115,7 @@ function fakeTransport(secure: boolean, remoteAddress: string): FakeTransport {
 		get paused() {
 			return paused;
 		},
+		idleRestarts,
 	};
 }
 
@@ -180,6 +190,7 @@ export async function fakeSession(
 		get paused() {
 			return fake.paused;
 		},
+		idleRestarts: fake.idleRestarts,
 		async send(text) {
 			fake.take();
 			connection.receive(new TextEncoder().encode(text));

@@ -152,7 +152,7 @@ const server = createSmtpServer({
 	maxRecipients: 50, // per message; default 100 → 452 4.5.3
 	maxConnections: 200, // at once; default 1000 → 421 4.3.2
 	maxErrors: 5, // failed commands before hanging up; default 10 → 421 4.7.0
-	timeout: 120, // idle seconds, counted from the client's last byte; default 300 → 421 4.4.2
+	timeout: 120, // idle seconds, from the client's last byte or the 220; default 300 → 421 4.4.2
 	hookTimeout: 20, // seconds a hook has to settle; default 60 → 451 4.3.0
 	greetingDelay: 5, // seconds before the 220; default 0 → 554 to a client that talks first
 	onData: async (message) => {
@@ -207,6 +207,31 @@ console.log(`listening on ${port}, ${server.connections} open`);
   `hookTimeout` ends in `HOOK_TIMEOUT`: in both cases the client was told
   `451` and will send the message again, so keeping it would deliver it
   twice. Await the read inside `onData`.
+- **An `onData` that read everything but answers after `hookTimeout`
+  still gets the client `451`**, though its read ended cleanly. Only
+  `message.signal` says so: it aborts, with the `SmtpError` as its reason,
+  whenever the server refuses a message `onData` was given. Check it before
+  keeping a message for good:
+
+  ```ts
+  import { createSmtpServer } from '@bumail/smtp';
+
+  createSmtpServer({
+  	hostname: 'mx.example.com',
+  	localDomains: ['example.com'],
+  	async onData(message) {
+  		const bytes = await new Response(message.content).bytes();
+  		// A scan that may outlast hookTimeout.
+  		await fetch('http://127.0.0.1:3310/scan', { method: 'POST', body: bytes });
+  		// The client was told 451 if it did, and will send the message again.
+  		if (message.signal.aborted) return;
+  		await Bun.write(`spool/${message.id}.eml`, bytes);
+  	},
+  });
+  ```
+
+  RFC 5321 §6.1 tolerates a duplicate over a loss, so a race left open
+  costs a second copy, never a lost message.
 - `authenticate` needs `tls`, and so does `mode: 'submission'`:
   `createSmtpServer` throws without it.
 - Ports 25, 465 and 587 are below 1024: binding them needs the privilege to,
@@ -228,7 +253,7 @@ console.log(`listening on ${port}, ${server.connections} open`);
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |
 | `HookResult` | what a hook returns: `undefined` to accept, a `Reply` to refuse |
 | `Session` | `id`, `remoteAddress`, `secure`, `helo`, `esmtp`, `user`, and `data` for your own state |
-| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`) and `content`, a `ReadableStream<Uint8Array>` |
+| `ReceivedMessage`, `Envelope` | what `onData` receives: `id`, `envelope` (`from`, `to`, `smtputf8`, `body`) `content`, a `ReadableStream<Uint8Array>`, and `signal`, an `AbortSignal` aborted when the server refuses the message |
 | `TlsOptions` | `key` and `cert`, as `Bun.listen` takes them |
 | `Credentials` | what `authenticate` receives: `mechanism`, `username`, `password`, `authorizationId?` |
 | `reply(code, status, text)`, `Reply` | a reply, for a hook to refuse with |

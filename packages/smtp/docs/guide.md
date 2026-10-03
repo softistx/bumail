@@ -376,6 +376,11 @@ export interface ReceivedMessage {
 	 * delivered.
 	 */
 	readonly content: ReadableStream<Uint8Array>;
+	/**
+	 * Aborts, with the `SmtpError` as its reason, when the server refuses
+	 * the message after `onData` had it.
+	 */
+	readonly signal: AbortSignal;
 }
 
 export interface Envelope {
@@ -484,6 +489,39 @@ const server = createSmtpServer({
 
 await server.listen({ port: 25 });
 ```
+
+### When the refusal comes after the read
+
+One refusal cannot reach the stream: `onData` read the message to its
+clean end, then took longer than `hookTimeout` to answer — a slow scan, a
+slow disk. The client gets `451 4.3.0` and will send the message again, but
+the read already succeeded. `message.signal` covers that case and every
+other: it aborts, with the `SmtpError` as its `reason`, whenever the server
+refuses a message `onData` was given (`HOOK_TIMEOUT`, `MESSAGE_NOT_READ`,
+and the stream's own errors). Check it, or listen for `abort`, before
+keeping a message for good:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	async onData(message) {
+		const bytes = await new Response(message.content).bytes();
+		// A scan that may outlast hookTimeout.
+		await fetch('http://127.0.0.1:3310/scan', { method: 'POST', body: bytes });
+		if (message.signal.aborted) return; // the client was told 451: it will send it again
+		await Bun.write(`spool/${message.id}.eml`, bytes);
+	},
+});
+
+await server.listen({ port: 25 });
+```
+
+A check just before the commit narrows the race to that last write; it
+cannot close it. RFC 5321 §6.1 prefers a duplicate to a loss, so the worst
+case is a second copy, never a lost message.
 
 To parse the message, collect it first and give the bytes to a parser.
 `@bumail/mime`, a sibling package, is on the
@@ -774,14 +812,17 @@ await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 
 | `maxRecipients` | 100, the least RFC 5321 §4.5.3.1.8 asks a server to take | `452 4.5.3` for each extra recipient (RFC 5321 §4.5.3.1.10); the client sends the rest in another transaction |
 | `maxConnections` | 1000 | `421 4.3.2` and the server hangs up, before the greeting and before `onConnect` |
 | `maxErrors` | 10 | `421 4.7.0` and the server hangs up |
-| `timeout` | 300 seconds, RFC 5321 §4.5.3.2.7's, counted from the client's last byte | `421 4.4.2` and the server hangs up |
+| `timeout` | 300 seconds, RFC 5321 §4.5.3.2.7's, counted from the client's last byte, or from the 220 | `421 4.4.2` and the server hangs up |
 | `hookTimeout` | 60 seconds | `451 4.3.0` for that command; `onError` gets an `SmtpError` `HOOK_TIMEOUT` |
 | `greetingDelay` | 0 seconds | not a limit but a wait: the 220 goes out that long after `onConnect` accepted; a client that talks in the meantime gets `554 <hostname> Talked before the greeting` and the server hangs up |
 
 `greetingDelay` is a cheap filter against spam engines that do not wait for
 the greeting (RFC 5321 §4.3.1), in the manner of Postfix's postscreen: a few
 seconds is usual. Each waiting client holds one of `maxConnections`, and
-the idle `timeout` runs during the wait, so keep the delay well below it: `createSmtpServer` refuses a delay as long as `timeout`.
+the idle `timeout` runs during the wait, so keep the delay well below it:
+`createSmtpServer` refuses a delay as long as `timeout`. The idle time starts
+again when the 220 goes out, so the wait before it, `onConnect`'s included,
+is never taken from the client's `timeout`.
 `onConnect` runs first; its refusal goes out at once, without the delay:
 
 ```ts

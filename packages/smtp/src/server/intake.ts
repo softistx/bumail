@@ -22,6 +22,8 @@ const HIGH_WATER_MARK = 64 * 1024;
  * The 250 goes out only when `onData` read the stream to its clean end and
  * resolved without a refusal: an `onData` that answers before the end, or
  * cancels the stream, gets `451 4.3.0` and a `MESSAGE_NOT_READ` report.
+ * Whenever the server refuses a message `onData` was given, the message's
+ * `signal` aborts with the reason, even once the stream had ended cleanly.
  */
 export class Intake {
 	readonly id = crypto.getRandomValues(new Uint8Array(10)).toHex();
@@ -41,6 +43,8 @@ export class Intake {
 	readonly #delivery: Promise<Reply | undefined>;
 	/** Whether `onData` had read to the end when it answered. */
 	#readWhenAnswered = false;
+	/** Aborts when the server refuses the message after `onData` had it. */
+	readonly #refusal = new AbortController();
 
 	constructor(connection: Connection, transaction: Transaction) {
 		this.#connection = connection;
@@ -75,6 +79,7 @@ export class Intake {
 				body: transaction.body,
 			},
 			content,
+			signal: this.#refusal.signal,
 		};
 		const { options } = connection.settings;
 		this.#delivery = connection
@@ -126,7 +131,8 @@ export class Intake {
 		const answer = await within(this.#delivery, seconds);
 		if (timedOut(answer)) {
 			this.#connection.report(hookTimeout('onData', seconds));
-			// The client is told 451 and will try again: a late read must not take it.
+			// The client is told 451 and will try again: a late read must not
+			// take it, and a read already finished learns it through the signal.
 			this.#fail(
 				LOCAL_ERROR,
 				new SmtpError(
@@ -138,12 +144,9 @@ export class Intake {
 		}
 		if (answer) return answer;
 		if (!this.#readWhenAnswered) {
-			this.#connection.report(
-				new SmtpError(
-					'MESSAGE_NOT_READ',
-					'onData answered without reading the message to its end; it was not taken',
-				),
-			);
+			const error = notRead();
+			this.#refusal.abort(error);
+			this.#connection.report(error);
 			return LOCAL_ERROR;
 		}
 		return reply(250, '2.0.0', `OK queued as ${this.id}`);
@@ -192,12 +195,9 @@ export class Intake {
 	/** onData answered without reading to the end: the stream errors, and takes no more. */
 	#stop(): void {
 		if (this.#state !== 'open') return;
-		this.#controller.error(
-			new SmtpError(
-				'MESSAGE_NOT_READ',
-				'onData answered without reading the message to its end; it was not taken',
-			),
-		);
+		const error = notRead();
+		this.#refusal.abort(error);
+		this.#controller.error(error);
 		this.#state = 'cancelled';
 		this.#queue = [];
 		this.#queued = 0;
@@ -205,6 +205,7 @@ export class Intake {
 
 	#fail(answer: Reply, error: SmtpError): void {
 		this.#failure ??= answer;
+		this.#refusal.abort(error);
 		if (this.#state === 'open') this.#controller.error(error);
 		this.#state = 'errored';
 		this.#queue = [];
@@ -236,4 +237,11 @@ export class Intake {
 	#wake(): void {
 		for (const wake of this.#wakers.splice(0)) wake();
 	}
+}
+
+function notRead(): SmtpError {
+	return new SmtpError(
+		'MESSAGE_NOT_READ',
+		'onData answered without reading the message to its end; it was not taken',
+	);
 }
