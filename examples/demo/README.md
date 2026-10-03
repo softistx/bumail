@@ -125,7 +125,7 @@ bun run demo:e2e
 It builds the packages, starts Mailpit in Docker unless something already
 answers on `localhost:8025` (and stops it afterwards only if it started
 it), starts the demo as its own process with a fresh store, and checks
-over real sockets:
+over real sockets (ports below are the defaults):
 
 1. **inbound**: `sendMail` to 2525 for alice, signed for `sender.test`;
    then a raw IMAP session over `node:tls` on 1993 — LOGIN, SELECT INBOX,
