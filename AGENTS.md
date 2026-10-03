@@ -89,6 +89,15 @@ imap            → store, mime
 jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam as a devDependency)
 ```
 
+`examples/demo` is an app, not a package: a private workspace that wires
+every package into a runnable server, with its end-to-end script
+(`bun run demo`, `bun run demo:e2e`; see its README). Nothing depends on
+it; the build, `test`, `verify:artifacts` and publishing glob
+`packages/*` only, and the changeset config's `privatePackages` keeps it
+out of versioning. `typecheck` ends with `typecheck:demo`, so CI
+typechecks the demo, in both jobs; its e2e is not run in CI, because it
+needs Docker (for Mailpit).
+
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
 this section draws their arrows. A package that uses a sibling declares it by
 `workspace:^`, as a peer and a devDependency, and imports it by its
