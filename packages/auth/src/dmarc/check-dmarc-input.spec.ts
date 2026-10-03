@@ -34,7 +34,9 @@ describe('the From domain (RFC 7489 §6.6.1)', () => {
 			messageFrom('a@example.com, b@attacker.example'),
 			'From holds more than one address',
 		],
-		[messageFrom('just text'), 'From holds no address DMARC can read'],
+		[messageFrom('just text'), 'From does not parse as one mailbox'],
+		[messageFrom(''), 'From holds no address'],
+		[messageFrom('(only a comment)'), 'From holds no address'],
 		[
 			messageFrom('a@[192.0.2.1]'),
 			'the From domain "[192.0.2.1]" is not a domain name',
@@ -47,19 +49,16 @@ describe('the From domain (RFC 7489 §6.6.1)', () => {
 		} as never);
 	});
 
-	test('a group with no address is none: there is no author to protect', async () => {
-		expect(await check(messageFrom('undisclosed-recipients:;'))).toMatchObject({
-			result: 'none',
-			reason: 'From holds a group with no address',
-			disposition: 'none',
-		});
-	});
-
-	test('a group with one address is that address', async () => {
-		expect(await check(messageFrom('team: a@example.com;'))).toMatchObject({
-			domain: 'example.com',
-			result: 'fail',
-		});
+	test.each([
+		'undisclosed-recipients:;',
+		'example.com:;',
+		'team: a@example.com;',
+	])('a group is refused, empty or not: %s', async (from) => {
+		expect(await check(messageFrom(from))).toEqual({
+			result: 'permerror',
+			reason: 'From holds a group, not a mailbox',
+			...evade,
+		} as never);
 	});
 
 	test('a display name and angle brackets are read through', async () => {

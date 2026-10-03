@@ -656,11 +656,6 @@ TXT record starting with `v=DMARC1`. The domain publishes no policy. A
 record that starts with anything else, such as `v=DMARC1x` or a
 lowercase `v=dmarc1`, is not a DMARC record (§6.6.3).
 
-#### `From holds a group with no address`
-
-From is a group with no member, such as `undisclosed-recipients:;`.
-There is no author domain to protect, so DMARC does not apply (§6.6.1).
-
 ### temperror
 
 #### `DNS lookup failed: … for TXT _dmarc.…`
@@ -719,7 +714,8 @@ RFC 5322 requires one From field; this message has none (§6.6.1).
 
 Two or more From fields, in any case (`From`, `FROM`). A reader may be
 shown either one, so a forger adds a second to get around `p=reject`
-(§6.6.1). `disposition` is `reject`.
+(§6.6.1). A line that starts after a bare CR or LF counts as a field
+too, since some readers break lines there. `disposition` is `reject`.
 
 #### `From holds more than one address`
 
@@ -727,11 +723,37 @@ One From field with several mailboxes (`a@example.com, b@example.net`),
 which RFC 5322 allows only with a Sender field and DMARC-protected mail
 does not use (§6.6.1). `disposition` is `reject`.
 
-#### `From holds no address DMARC can read`
+#### `From holds no address`
 
-The From field holds nothing that parses as an address, such as a bare
-name or broken angle brackets. A mail client might still show it, so it
-is not ignored. `disposition` is `reject`.
+The From field is empty, or holds only white space or a comment.
+`disposition` is `reject`.
+
+#### `From does not parse as one mailbox`
+
+The From field is not exactly one RFC 5322 mailbox — `a@example.com`,
+`<a@example.com>` or `Name <a@example.com>` — so a mail client and DMARC
+could read different authors from it. DMARC reads From strictly, unlike
+`@bumail/mime`'s lenient `parseAddressList`, and refuses: a bare name
+with no `@`, an address in an unquoted display name
+(`a@good.example <x@evil.example>`), two angle addresses or text after
+the `>`, an unclosed `<` or a stray `>` or `)`, an unterminated
+quoted-string or comment, two `@` in the address, an obs-route
+(`<@relay:a@example.com>`), a `;` or an empty list element, a
+backslash outside quotes, a domain with an empty label or a trailing
+dot, and a control character or a bare CR or LF. A display name in
+quotes, an encoded-word or a comment is fine, and never read as the
+author: `"a@good.example" <x@evil.example>` is evaluated for
+`evil.example`. `disposition` is `reject`. **Fix**: none on the receiving
+side; the sender writes a broken or forged From. To flag a display name
+that looks like another domain's address, do it in your own policy, on
+the parsed From.
+
+#### `From holds a group, not a mailbox`
+
+From is a group (RFC 6854), empty or not: `undisclosed-recipients:;`,
+`example.com:;` or `Team: a@example.com;`. A reader is shown the group's
+name, which no domain's policy protects, so DMARC cannot evaluate it.
+`disposition` is `reject`.
 
 #### `the From domain "…" is not a domain name`
 

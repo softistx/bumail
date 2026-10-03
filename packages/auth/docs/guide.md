@@ -474,8 +474,9 @@ if (dmarc.result === 'temperror') return reply(451, '4.7.0 Try again later');
 field: a message with two is the classic way around a domain's
 `p=reject`, since a reader may be shown either one, and a parsed value
 cannot tell you there was a second. `checkDmarc` reads the header
-itself, through `@bumail/mime`'s `parseHeaderBlock` and
-`parseAddressList`, from the same bytes DKIM verified. A stream is read
+itself, the fields through `@bumail/mime`'s `parseHeaderBlock` and the
+From value through a strict reader of its own (below), from the same
+bytes DKIM verified. A stream is read
 up to its blank line and then cancelled, so give both functions the
 same bytes rather than the same stream.
 
@@ -493,13 +494,26 @@ handled. `checkDmarc` answers `permerror` with `disposition: 'reject'`,
 | has no From field | `the message has no From header` |
 | has two or more From fields | `the message has more than one From header` |
 | has one From with several addresses | `From holds more than one address` |
-| has a From with nothing that reads as an address | `From holds no address DMARC can read` |
+| has an empty From | `From holds no address` |
+| has a From that is not exactly one mailbox | `From does not parse as one mailbox` |
+| has a From that is a group (`undisclosed-recipients:;`) | `From holds a group, not a mailbox` |
 | has a From whose domain is not a name (`a@[192.0.2.1]`) | `the From domain "…" is not a domain name` |
 | has a header past `maxHeaderBytes` | `the header is larger than maxHeaderBytes (…)` |
 
-A From that is only an empty group (`undisclosed-recipients:;`) names
-no author to protect: it is `none`, `disposition: 'none'`, as §6.6.1
-says such mail is "typically ignored". A message stream that fails
+**From is read strictly.** `@bumail/mime`'s `parseAddressList` leaves
+out what it cannot read, which is right for showing an address and
+wrong for DMARC: a reader and the check could then take different
+authors from one field. So the From value must be exactly one RFC 5322
+mailbox — `a@example.com`, `<a@example.com>` or `Name <a@example.com>`,
+with comments and folding anywhere between tokens — and anything else
+is `permerror`: an address in an unquoted display name, two angle
+addresses, text after the `>`, something left unterminated, a control
+character. The domain is always the address's own; a display name is
+never read, so `"a@good.example" <x@evil.example>` is evaluated for
+`evil.example`, whose owner signs and publishes for it. Flag such a
+display name in your own policy if you want to. A group, even an empty
+one, is refused too: what a reader is shown is the group's name, which
+no policy protects. A message stream that fails
 before its header ends is `temperror` (`the message could not be
 read: …`), `domain: ''`, `disposition: 'none'`.
 
@@ -580,7 +594,7 @@ made with `identity: 'helo'` is not DMARC's.
 | --- | --- | --- |
 | `pass` | a DKIM signature or SPF check passed and aligned | `none` |
 | `fail` | none did | the policy if `sampled`; else `reject` → `quarantine`, `quarantine` → `none` (§6.6.4) |
-| `none` | no DMARC record, or From is an empty group | `none` |
+| `none` | no DMARC record | `none` |
 | `temperror` | the record could not be had, the message could not be read, or no aligned pass and an aligned check had a temporary error (§6.6.2) | `none`: answer 451 |
 | `permerror` | two records, a record with no usable policy | `none` |
 | `permerror` | From cannot be evaluated (see above) | `reject` |

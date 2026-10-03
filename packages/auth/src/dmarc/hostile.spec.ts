@@ -101,10 +101,21 @@ describe('hostile messages', () => {
 			`${'a@example.com, '.repeat(50_000)}b@example.com`,
 			'From holds more than one address',
 		],
+		['a From of blanks', ' '.repeat(BIG), 'From holds no address'],
 		[
-			'a From of blanks',
-			' '.repeat(BIG),
-			'From holds no address DMARC can read',
+			'an unterminated quoted-string',
+			`"${'\\"'.repeat(BIG / 2)}`,
+			'From does not parse as one mailbox',
+		],
+		[
+			'comments nested a hundred thousand deep',
+			`${'('.repeat(BIG)}a@example.com`,
+			'From does not parse as one mailbox',
+		],
+		[
+			'a hundred thousand angle brackets',
+			`${'<'.repeat(BIG)}a@example.com`,
+			'From does not parse as one mailbox',
 		],
 		[
 			'a domain of a hundred thousand labels',
