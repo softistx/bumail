@@ -14,3 +14,23 @@ export type {
 	RecipientUpdate,
 } from './contract/types';
 export { QueueError, type QueueErrorCode } from './errors';
+export type { MessageSource, QueueEnvelope } from './queue/envelope';
+export type {
+	DeferredEvent,
+	DsnEvent,
+	QueueErrorEvent,
+	QueueEvents,
+	QueueListener,
+	RecipientEvent,
+} from './queue/events';
+export type {
+	Clock,
+	DsnOptions,
+	QueueLimits,
+	QueueOptions,
+	RetrySchedule,
+	Route,
+	Sender,
+	Smarthost,
+} from './queue/options';
+export { createQueue, type Queue } from './queue/queue';
