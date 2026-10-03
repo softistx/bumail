@@ -366,7 +366,7 @@ memory and a `bun:sqlite` implementation, like the store.
 what Thunderbird, Apple Mail, Outlook and the phone clients speak, and so
 what a real mail client tests bumail with. Its first slice is published in
 0.1.0: IMAP4rev2, login only over TLS, IDLE, MOVE and SPECIAL-USE, serving
-any `@bumail/store`. Its second slice adds CONDSTORE and QRESYNC (RFC 7162)
+any `@bumail/store`. Its second slice will add CONDSTORE and QRESYNC (RFC 7162)
 for quick resync, UIDPLUS (RFC 4315) and BINARY (RFC 3516).
 `@bumail/jmap`, in review, follows as an
 [alxia](https://github.com/softistx/alxia) app: alxia already provides the
