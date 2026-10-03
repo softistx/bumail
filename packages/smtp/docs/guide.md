@@ -959,8 +959,9 @@ before anything is sent: an address holding a CR, an LF or a `>` is refused
 with `INVALID_OPTION`, so it cannot inject a command.
 
 Code that keeps addresses to send to later — a queue — checks
-each one when it takes it with `isMailbox`, the same grammar, so the
-refusal comes back to whoever gave it:
+each one when it takes it with `isMailbox`, an RFC 5321 Mailbox with no
+source route, which `sendMail` always takes, so the refusal comes back to
+whoever gave it:
 
 ```ts
 import { isMailbox } from '@bumail/smtp/client';

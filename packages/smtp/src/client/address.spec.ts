@@ -39,7 +39,7 @@ describe('isMailbox', () => {
 		'@c.com',
 		'',
 		`${'a'.repeat(65)}@c.com`,
-	])('refuses %p, as sendMail does', (address) => {
+	])('refuses %p: not an RFC 5321 Mailbox, no source route', (address) => {
 		expect(isMailbox(address)).toBe(false);
 	});
 
