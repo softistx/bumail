@@ -5,17 +5,21 @@ out, MIME, DKIM / SPF / DMARC, mail storage, and access to mailboxes. No
 package has a runtime dependency. The server app at the end is built on
 [alxia](https://github.com/softistx/alxia).
 
+New to mail servers, or to bumail? Start with
+[docs/overview.md](./docs/overview.md): what each part of a mail server
+does, and which package does it.
+
 ## Status
 
 | package | what it is |
 | --- | --- |
-| [`@bumail/auth`](./packages/auth) | DKIM: verify every signature on a message and sign outbound mail (rsa-sha256, ed25519-sha256); SPF and DMARC next |
+| [`@bumail/auth`](./packages/auth) | DKIM: verify every signature on a message and sign outbound mail (rsa-sha256, ed25519-sha256); SPF merged, DMARC next |
 | [`@bumail/dns`](./packages/dns) | the DNS a mail server reads (MX, TXT, A, AAAA, PTR): on `node:dns`, a fixture for specs, a TTL cache |
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH |
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store and a `bun:sqlite` store on disk |
 
-Nothing is published yet. What comes, in what order and why, is in
+All five are on npm. What comes, in what order and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
 
 ## Development
