@@ -1,23 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { accepted, MESSAGE, MINUTE, setup, T0 } from './queue.fixtures';
-
-/** A promise opened by hand. */
-function gate() {
-	let open: () => void = () => {};
-	const opened = new Promise<void>((resolve) => {
-		open = resolve;
-	});
-	return { opened, open };
-}
-
-/** Waits until `ready()`, a few seconds at most. */
-async function until(ready: () => boolean | Promise<boolean>) {
-	for (let i = 0; i < 400; i++) {
-		if (await ready()) return;
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-	throw new Error('never ready');
-}
+import {
+	accepted,
+	gate,
+	MESSAGE,
+	MINUTE,
+	setup,
+	T0,
+	until,
+} from './queue.fixtures';
 
 const to = { from: 'mary@example.net', to: 'joe@example.com' };
 

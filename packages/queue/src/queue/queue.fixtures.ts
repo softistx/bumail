@@ -135,3 +135,21 @@ export function setup(script?: Script, overrides: Overrides = {}) {
 	const events = recordEvents(queue);
 	return { store, clock, sender, queue, events };
 }
+
+/** A promise opened by hand. */
+export function gate() {
+	let open: () => void = () => {};
+	const opened = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+	return { opened, open };
+}
+
+/** Waits until `ready()`, a few seconds at most. */
+export async function until(ready: () => boolean | Promise<boolean>) {
+	for (let i = 0; i < 400; i++) {
+		if (await ready()) return;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+	throw new Error('never ready');
+}

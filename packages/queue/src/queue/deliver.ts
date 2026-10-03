@@ -71,9 +71,6 @@ async function attemptGroup(
 ): Promise<RecipientUpdate[]> {
 	const { settings } = ctx;
 	const max = settings.limits.maxReplyText;
-	if (item.from !== '' && !isMailbox(item.from)) {
-		return recipients.map(badSender);
-	}
 	const bad = recipients.filter((address) => !isMailbox(address));
 	const group = recipients.filter(isMailbox);
 	if (group.length === 0) return bad.map(badAddress);
@@ -111,7 +108,8 @@ function emitOutcomes(events: Events, item: QueueItem, settled: Settled): void {
 
 /**
  * Delivers a claimed item: one session per recipient domain, at most
- * `perDomain` at once to each, then the outcome recorded — which lets go
+ * `perDomain` at once to each — none, and no slot taken, when its sender
+ * is one `sendMail` would refuse — then the outcome recorded — which lets go
  * of the lease — then the events and the DSNs.
  */
 export async function deliverItem(
@@ -121,21 +119,26 @@ export async function deliverItem(
 	const { settings, store, events } = ctx;
 	const message = await store.readMessage(item.id);
 	if (!message) return;
+	const groups = groupsOf(item);
 	let skipped = false;
-	const outcomes = await Promise.all(
-		[...groupsOf(item)].map(async ([domain, group]) => {
-			const release = await ctx.domains.acquire(domain);
-			try {
-				if (ctx.stopping()) {
-					skipped = true;
-					return [];
-				}
-				return await attemptGroup(ctx, item, message, domain, group);
-			} finally {
-				release();
-			}
-		}),
-	);
+	// A sender sendMail would refuse: no session, no slot, every recipient at once.
+	const outcomes =
+		item.from !== '' && !isMailbox(item.from)
+			? [[...groups.values()].flat().map(badSender)]
+			: await Promise.all(
+					[...groups].map(async ([domain, group]) => {
+						const release = await ctx.domains.acquire(domain);
+						try {
+							if (ctx.stopping()) {
+								skipped = true;
+								return [];
+							}
+							return await attemptGroup(ctx, item, message, domain, group);
+						} finally {
+							release();
+						}
+					}),
+				);
 	const now = settings.now();
 	const settled = settle(item, outcomes.flat(), skipped, now, settings);
 	const after = await store.complete(item.id, settings.owner, settled.result);

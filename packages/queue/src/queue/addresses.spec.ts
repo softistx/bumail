@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { SendMailOptions } from '@bumail/smtp/client';
 import { isMailbox, SmtpError } from '@bumail/smtp/client';
-import { accepted, MESSAGE, setup } from './queue.fixtures';
+import { accepted, gate, MESSAGE, setup, until } from './queue.fixtures';
 
 /** The events about mary's own message, not about the DSN it caused. */
 const own = <E extends { from: string }>(events: E[]) =>
@@ -88,5 +88,43 @@ describe('an address sendMail would refuse never fails its domain', () => {
 			{ from: '', recipient: 'a,b@example.net', reply: { status: '5.1.3' } },
 		]);
 		expect(await store.count()).toBe(0);
+	});
+
+	test('a bad sender takes no domain slot: its recipients fail at once, one DSN, even as the worker stops', async () => {
+		const held = gate();
+		const { queue, events, store, sender, clock } = setup(
+			async (call) => {
+				await held.opened;
+				return strict(call);
+			},
+			{ perDomain: 1 },
+		);
+		// A session to c.com holds its only slot until the gate opens.
+		await queue.enqueue(MESSAGE, to('joe@c.com'));
+		const item = await store.add({
+			from: 'a,b@example.net',
+			to: ['ann@c.com', 'bob@d.com'],
+			message: new TextEncoder().encode(MESSAGE),
+			createdAt: clock.now(),
+		});
+		const pass = queue.deliverDue();
+		await until(() => sender.calls.length === 1);
+		await until(
+			() => events.failed.filter((e) => e.id === item.id).length === 2,
+		);
+		const stopping = queue.stop();
+		held.open();
+		await Promise.all([pass, stopping]);
+		expect(sender.calls.map((c) => c.to)).toEqual([['joe@c.com']]);
+		expect(
+			events.failed
+				.filter((e) => e.id === item.id)
+				.map((e) => [e.recipient, e.reply?.status]),
+		).toEqual([
+			['ann@c.com', '5.1.7'],
+			['bob@d.com', '5.1.7'],
+		]);
+		expect(events.dsn.filter((d) => d.of === item.id)).toHaveLength(1);
+		expect(await store.get(item.id)).toBeUndefined();
 	});
 });
