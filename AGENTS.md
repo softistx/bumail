@@ -215,9 +215,9 @@ Every PR goes into `develop`. Before merging:
     once what is queued has left — except on TLS when the hang-up waited
     for a queue to drain: there it calls a full `shutdown()`, which closes
     once the client, reading a moment ago, answers (`#hangUp(drained)`);
-  - **a forced close terminates when bytes are queued**: `abort()` drops
-    them and calls `terminate()`; with nothing queued it hangs up as `end()`
-    does;
+  - **a forced close terminates when bytes are queued, or when reading is
+    paused**: `abort()` drops them and calls `terminate()`; with nothing
+    queued and reading not paused it hangs up as `end()` does;
   - **every end is bounded by the grace**: each `end`, queue empty or not,
     arms the 5-second `CLOSE_GRACE_MS`, whose timer terminates the socket
     unless `close` came first; a second `end` or `abort` keeps the first
@@ -233,7 +233,11 @@ Every PR goes into `develop`. Before merging:
   holds a paused client's slot until the grace, then the client gets
   ECONNRESET and loses its last reply when it reads later; `shutdown(true)`
   fires `close` at once, freeing the slot, and still delivers the last
-  reply and a clean end — but on TLS, called in the `drain` that took the
+  reply and a clean end — but not while the server has paused reading a
+  client that sent more than it could take: over that unread input the
+  half-close never fires `close`, and the slot waited for the grace (a
+  client pipelining EHLOs it never reads, Linux and macOS alike), while
+  `terminate()` closes at once; and on TLS, called in the `drain` that took the
   last of a large queue, it drops what Bun still holds in its own TLS
   buffer: 1 run in 20 to 2 in 15, 16 to 96 KiB short, for a `node:tls`
   client reading slowly, in both copies; a full `shutdown()` there lost
@@ -245,7 +249,9 @@ Every PR goes into `develop`. Before merging:
   clients) covers a paused client on a clear socket, on implicit TLS and
   after STARTTLS, counted out within a bound at the idle `timeout` and then
   reading the 421 and a clean end, and a paused client after `QUIT`;
-  `close.spec.ts` covers a client that never reads with replies queued;
+  `close.spec.ts` covers a client that never reads with replies queued,
+  counted out as soon as the idle time is up, and a hang-up while the
+  server paused reading;
   `server.spec.ts` covers `stop(true)` after STARTTLS. imap's:
   `server.spec.ts` covers a client that never reads with output queued, a
   slow reader of a large FETCH pipelined with LOGOUT, a paused client on a

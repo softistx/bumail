@@ -19,7 +19,9 @@ export interface Transport {
 	 * Hangs up now, the server's decision: what the socket already took
 	 * leaves, but what still waits for a client that stopped reading is
 	 * dropped and the connection reset, so the close never hangs on it.
-	 * With nothing queued it hangs up as `end()` does, within the same grace.
+	 * With nothing queued it hangs up as `end()` does, within the same grace —
+	 * unless the server paused reading: then it is reset too, since a
+	 * half-close does not complete over input left unread.
 	 */
 	abort(): void;
 	/** Stops reading from the client, while the server catches up. */
@@ -55,6 +57,8 @@ export class SocketTransport implements Transport {
 	#ending = false;
 	/** The socket closed: every later write, end or abort is a no-op. */
 	#closed = false;
+	/** The server stopped reading: what the client sends waits in the socket. */
+	#paused = false;
 	#grace: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(
@@ -125,7 +129,10 @@ export class SocketTransport implements Transport {
 
 	abort(): void {
 		if (this.#closed) return;
-		if (this.#queue.length === 0) this.end();
+		// Paused, the socket holds what the client sent and the server will
+		// never read: a half-close does not complete then (Bun 1.4.2), and
+		// the slot would wait for the grace.
+		if (this.#queue.length === 0 && !this.#paused) this.end();
 		else this.#terminate();
 	}
 
@@ -177,10 +184,12 @@ export class SocketTransport implements Transport {
 	}
 
 	pause(): void {
+		this.#paused = true;
 		this.#socket.pause();
 	}
 
 	resume(): void {
+		this.#paused = false;
 		this.#socket.resume();
 	}
 

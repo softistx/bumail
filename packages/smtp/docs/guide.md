@@ -878,7 +878,8 @@ server decides — the idle `timeout`, `maxErrors`, three failed AUTH
 attempts, a refusal from `onConnect`, a local error — it writes its reply
 and closes at once: the connection is counted out of `connections` then and
 there, and replies the client never read are dropped, the connection reset
-if any were still waiting. So a client that pipelines commands and stops
+if any were still waiting, or if the server had stopped reading a client
+that sent more than it could take. So a client that pipelines commands and stops
 reading cannot keep a slot of `maxConnections` past its `timeout`.
 
 Every hang-up is bounded, on a clear socket, on implicit TLS and after

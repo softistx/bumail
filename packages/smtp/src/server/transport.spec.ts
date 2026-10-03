@@ -31,6 +31,8 @@ function slowSocket(room: number) {
 			calls.push('terminate');
 			terminated = true;
 		},
+		pause: () => calls.push('pause'),
+		resume: () => calls.push('resume'),
 	} as unknown as Socket<unknown>;
 	return {
 		socket,
@@ -134,6 +136,26 @@ describe('SocketTransport.abort never waits on a client that stopped reading', (
 		transport.abort();
 		expect(fake.text()).toBe('421 bye\r\n');
 		expect(fake.ended).toBe(true);
+		expect(fake.terminated).toBe(false);
+	});
+
+	test('with nothing queued but reading paused: terminated, as a half-close would wait on unread input', () => {
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.write('421 bye\r\n');
+		transport.abort();
+		expect(fake.terminated).toBe(true);
+		expect(fake.shutdowns).toEqual([]);
+	});
+
+	test('reading paused, then resumed: nothing queued ends gracefully again', () => {
+		const fake = slowSocket(100);
+		const transport = new SocketTransport(fake.socket, false, () => {});
+		transport.pause();
+		transport.resume();
+		transport.abort();
+		expect(fake.shutdowns).toEqual([true]);
 		expect(fake.terminated).toBe(false);
 	});
 
