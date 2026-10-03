@@ -3,16 +3,18 @@ import type { CallContext } from '../api/context';
 import { setError } from '../api/errors';
 import { SetResult, setPlanOf, storeSetError } from '../api/set';
 import { checkIfInState, stateOf } from '../api/state';
-import { importEmail } from './import';
+import { importEmail, importOf, mailboxIdsOf } from './import';
 import { emailChangeOf, flagChangeOf, mailboxesAfter } from './patch';
 
 async function create(
 	ctx: CallContext,
 	result: SetResult,
-	creationId: string,
-	object: Args,
+	[creationId, object]: readonly [string, Args],
+	mailboxes: ReadonlySet<string>,
 ) {
-	const created = await importEmail(object, ctx);
+	const checked = importOf(object, ctx);
+	const created =
+		'type' in checked ? checked : await importEmail(checked, ctx, mailboxes);
 	if ('type' in created) {
 		result.notCreated[creationId] = created as never;
 		return;
@@ -106,8 +108,11 @@ export async function emailSet(args: Args, ctx: CallContext): Promise<Args> {
 		args['ifInState'],
 	);
 	const result = new SetResult();
-	for (const [creationId, object] of plan.create)
-		await create(ctx, result, creationId, object);
+	if (plan.create.length > 0) {
+		const mailboxes = await mailboxIdsOf(ctx);
+		for (const entry of plan.create)
+			await create(ctx, result, entry, mailboxes);
+	}
 	if (plan.update.length > 0) {
 		const mailboxes = new Set(
 			(await ctx.store.listMailboxes(accountId)).map(({ id }) => id),
