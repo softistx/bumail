@@ -9,6 +9,7 @@ package has a runtime dependency. The server app at the end is built on
 
 | package | what it is |
 | --- | --- |
+| [`@bumail/dns`](./packages/dns) | the DNS a mail server reads (MX, TXT, A, AAAA, PTR): on `node:dns`, a fixture for specs, a TTL cache |
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH |
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract and a memory store |

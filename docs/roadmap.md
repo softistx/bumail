@@ -9,15 +9,14 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Now
 
-Nothing scheduled yet.
+- **`@bumail/dns`** — in progress: the DNS answers the other packages
+  need (MX, TXT, A, AAAA, PTR) behind one small interface: `node:dns` in
+  production, a fixture in specs, with a cache that honours TTLs. *Its own
+  package*: SPF, DKIM, DMARC, the SMTP client and MTA-STS all query DNS,
+  and each spec needs a deterministic answer instead of the Internet.
 
 ## Next
 
-- **`@bumail/dns`** — the DNS answers the other packages need (MX, TXT, A,
-  AAAA, PTR) behind one small interface: `node:dns` in production, a fixture
-  in specs, with a cache that honours TTLs. *Its own package*: SPF,
-  DKIM, DMARC, the SMTP client and MTA-STS all query DNS, and each spec
-  needs a deterministic answer instead of the Internet.
 - **`@bumail/auth`** — DKIM signing and verifying (RSA-SHA256 and Ed25519
   through Web Crypto, relaxed and simple canonicalisation), SPF (RFC 7208,
   with its ten-lookup limit), DMARC (RFC 7489) evaluation and its policy,

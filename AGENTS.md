@@ -11,6 +11,7 @@ below lists only what has landed.
 | package | what it is | peers |
 | --- | --- | --- |
 | `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
+| `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay | — |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — and its memory store | — |
 
@@ -60,6 +61,7 @@ The repository is **private** until the owner says otherwise.
 ## Layering
 
 ```
+dns             (standalone)
 mime            (standalone)
 smtp            (standalone; its delivery spec uses store, as a devDependency only)
 store           (standalone)
