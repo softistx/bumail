@@ -55,8 +55,10 @@ clients that open TCP connections and never send a ClientHello cannot fill
 the server. The greeting, and the `BYE` of a server already full, wait for
 the handshake, so the client reads them over TLS; `loginTimeout` starts
 with the greeting. A handshake that fails — a clear client on 993 — is
-closed at once and counted out. A STARTTLS handshake is bounded by
-`loginTimeout`, the connection already counted.
+closed at once and counted out. A STARTTLS handshake that stalls is
+bounded by `loginTimeout` plus the 5-second close grace, the connection
+already counted: at `loginTimeout` the server hangs up, and a hang-up
+the client never completes is reset when the grace is over.
 
 ```ts
 const implicit = createImapServer({

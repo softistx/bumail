@@ -70,7 +70,8 @@ export interface ImapServerOptions {
 	 * the TCP connection on; past it, the socket is closed without a word.
 	 * The socket holds its slot of `maxConnections` meanwhile. Bun's socket
 	 * timer ticks in steps of about 4 s, so the close comes up to that much
-	 * later. A STARTTLS handshake is bounded by `loginTimeout`. Default 10.
+	 * later. A STARTTLS handshake that stalls is bounded by `loginTimeout`
+	 * plus the 5-second close grace. Default 10.
 	 */
 	readonly handshakeTimeout?: number;
 	/** Seconds between two looks at the store during IDLE. Default 10; more than 0. */
