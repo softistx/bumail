@@ -56,6 +56,7 @@ them one by one.
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | published |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap) and [`@bumail/jmap`](../packages/jmap) | published |
+| TLS certificates | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives merged; the client next |
 | [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
@@ -409,7 +410,10 @@ together, in one process:
   (submission with STARTTLS);
 - IMAP on 993, and JMAP over HTTPS on 443;
 - the queue, delivering out, and the store;
-- TLS certificates, obtained and renewed through ACME;
+- TLS certificates, obtained and renewed through ACME (RFC 8555), as
+  Let's Encrypt issues them: [`@bumail/acme`](../packages/acme) has the
+  primitives — the certificate signing request, the signed requests,
+  the HTTP-01 answer on port 80 — and its client comes next;
 - a command, `bumail`, for domains, accounts, aliases and DKIM keys;
 - health checks and metrics.
 

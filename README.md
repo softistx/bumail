@@ -13,6 +13,7 @@ does, and which package does it.
 
 | package | what it is |
 | --- | --- |
+| [`@bumail/acme`](./packages/acme) | the primitives of an ACME client: a certificate signing request for DNS names, signed JWS requests, the JWK thumbprint and HTTP-01 answers, keys as PEM (merged, not yet on npm) |
 | [`@bumail/auth`](./packages/auth) | DKIM: verify every signature on a message and sign outbound mail (rsa-sha256, ed25519-sha256); SPF checking; DMARC and the `Authentication-Results` header |
 | [`@bumail/dns`](./packages/dns) | the DNS a mail server reads (MX, TXT, A, AAAA, PTR): on `node:dns`, a fixture for specs, a TTL cache |
 | [`@bumail/imap`](./packages/imap) | an IMAP4rev2 server that serves a store's mail to Thunderbird, Apple Mail and the rest, logging in only over TLS |
@@ -22,11 +23,13 @@ does, and which package does it.
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH; and, on `@bumail/smtp/client`, a client that sends it out to a smarthost or by MX |
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store, a `bun:sqlite` store on disk and a PostgreSQL store for several instances (the last merged, not yet on npm) |
 
-All eight are on npm. The server app that wires them together,
-[`@bumail/server`](./packages/server), is in progress and private until
-it serves mail: so far it reads and checks its configuration
-(`bumail check-config`). What comes — the rest of the server app, a blob
-store and a Docker image that runs it — in what order and why, is in
+All eight are on npm. `@bumail/acme`, the primitives of an ACME client,
+is merged, its first release to come. The server app that wires them
+together, [`@bumail/server`](./packages/server), is in progress and
+private until it serves mail: so far it reads and checks its
+configuration (`bumail check-config`). What comes — the rest of the
+server app, a blob store and a Docker image that runs it — in what order
+and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
 
 ## Development

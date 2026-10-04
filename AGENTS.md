@@ -19,6 +19,7 @@ below lists only what has landed.
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS; an OpenAPI 3.1 document of its routes, shipped as `@bumail/jmap/openapi.json` and kept in step with them by a spec | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
 | `@bumail/server` | the server app, **private** until it serves mail (`"private": true`, so neither changesets nor `scripts/publish.ts` touch it): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, and the `bumail` command (`check-config`; `serve` checks, then exits 3, not implemented yet) | none yet: it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
+| `@bumail/acme` | the primitives of an ACME client (RFC 8555) on Web Crypto: a PKCS #10 CSR for DNS names on its own DER writer, the flattened JWS (ES256, RS256), the JWK thumbprint, key authorizations and the HTTP-01 path, P-256 and RSA keys as PKCS #8 PEM | — |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
@@ -65,6 +66,9 @@ none of it names a private application.
 - **The RFC is the spec.** Every protocol package ships specs built on the
   RFC's own examples — the message, the header, the session transcript as
   printed in the RFC — and names the section each one comes from.
+  `@bumail/acme`'s specs also have `openssl` read what it writes; they
+  skip, saying so, without it on the PATH, except where
+  `BUMAIL_TEST_OPENSSL_REQUIRED` is set, as in CI's "CI" job.
 - **A store is a contract, with several answers.** What keeps state — the
   mailbox store, the outbound queue — defines its interface and ships a
   memory answer; `bun:sqlite` answers the same interface on disk. Whoever
@@ -127,6 +131,7 @@ store           (standalone)
 auth            → dns, mime
 imap            → store, mime
 queue           → smtp, mime (its specs use dns, as a devDependency)
+acme            (standalone)
 jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam and @alxia/openapi-routes as devDependencies)
 server          → its peers: the packages it wires, each added as a slice first imports it (none yet); a private app, never a peer of any package
 ```
@@ -280,6 +285,11 @@ Every PR goes into `develop`. Before merging:
   peers on another for a few dozen lines, and the two stores' tables
   differ. A fix to one is a fix to the other.
 
+- **A little DER and PEM**, in `@bumail/acme` (`src/der/write.ts`,
+  `pemBytes` in `src/encoding.ts`) and `@bumail/auth`
+  (`src/dkim/der.ts`, `pemBody` in `src/dkim/private-key.ts`): a length,
+  an element, a PEM body. Neither package peers on the other for a few
+  lines; a fix to one is checked against the other.
 - `packages/auth/src/dmarc/from-mailbox.ts` tokenizes a From value as
   `@bumail/mime`'s `headers/tokens.ts` does, but strictly: the mime
   parser is lenient by design (it leaves out what it cannot read), and
