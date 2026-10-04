@@ -2,15 +2,16 @@
 
 The directory says who the server serves: the **domains** it receives
 mail for, the **users** who log in and have a mailbox, and the
-**aliases** that deliver an address to users. `bumail domain`, `bumail
-user` and `bumail alias` manage it; the server reads it at every login
+**aliases** that deliver an address to users, and each domain's
+**DKIM key**. `bumail domain`, `bumail user`, `bumail alias` and
+`bumail dkim` manage it; the server reads it at every login
 and every recipient. When a command refuses something,
 [troubleshooting](troubleshooting.md#the-directory-commands) has an
 entry for each message.
 
 - [Where it is](#where-it-is)
 - [Addresses, and their case](#addresses-and-their-case)
-- [The commands](#the-commands): [`domain`](#bumail-domain), [`user`](#bumail-user), [`alias`](#bumail-alias), [exit codes](#exit-codes)
+- [The commands](#the-commands): [`domain`](#bumail-domain), [`user`](#bumail-user), [`alias`](#bumail-alias), [`dkim`](#bumail-dkim), [exit codes](#exit-codes)
 - [Passwords](#passwords)
 - [Logins](#logins): the verify cap, unknown users, the failure limiter
 - [Mailboxes in the store](#mailboxes-in-the-store), and removing a user
@@ -150,6 +151,36 @@ points to one or more users of this server — never to another alias,
 and never to an address elsewhere ([no forwarding](#no-forwarding)). To
 change its users, remove it and add it again.
 
+A user may send mail as an alias it is one of the users of: alice and
+bob may both send as `sales@example.com`.
+
+### `bumail dkim`
+
+```sh
+bumail dkim generate example.com
+# generated an RSA-2048 DKIM key for example.com, selector bumail; mail from example.com is signed with it from now on
+# publish this TXT record:
+#   name   bumail._domainkey.example.com
+#   value  v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA…
+# as a zone file line:
+#   bumail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0B…" "…"
+
+bumail dkim generate example.com --selector s2 --replace   # a new key, under a new selector
+bumail dkim show example.com          # the record again
+bumail dkim list
+# example.com  selector s2
+bumail dkim remove example.com
+# removed the DKIM key of example.com; its mail goes unsigned
+```
+
+One key per hosted domain, RSA-2048, kept in the directory's file (so
+0600, as the password hashes) and never printed: only its record is.
+The server signs mail From the domain with it from the next message.
+The selector is `bumail` unless `--selector` names another: DNS labels
+of letters, digits and hyphens. Removing a domain removes its key.
+[Running the server](serve.md#dkim-signing) has how to publish the
+record and change keys.
+
 ### Exit codes
 
 | code | when |
@@ -157,8 +188,8 @@ change its users, remove it and add it again.
 | 0 | done |
 | 1 | the configuration is invalid ([its problems](troubleshooting.md)) |
 | 2 | bad usage: an unknown command or option, an operand missing or too many, no way to read the password |
-| 4 | the directory refused: not an address or a domain, a password refused (too short, too long, typed differently twice, its file unreadable), a name already taken, not found, still in use |
-| 5 | the directory or the mail store cannot be opened or used; for `serve`, also a port it cannot bind, the certificate or the spool directory |
+| 4 | the directory refused: not an address or a domain, a password refused (too short, too long, typed differently twice, its file unreadable), a name already taken, not found, still in use, a DKIM selector that is no DNS name |
+| 5 | the directory or the mail store cannot be opened or used; for `serve`, also the queue, a port it cannot bind, the certificate or the spool directory |
 
 (3 is `serve`'s, for `tls.mode = "acme"`.) Errors go to standard error
 as `bumail: <message>`. Standard error also carries the password

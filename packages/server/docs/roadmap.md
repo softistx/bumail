@@ -28,15 +28,20 @@ npm yet.
   `p=quarantine` to Junk, or only recorded. Mail served over IMAP on 993
   (and 143 with STARTTLS, off by default), logins counted per client. A
   certificate from files; a clean stop on SIGTERM; a line of log per
-  listener and per message, never a secret.
+  listener and per message, never a secret. One client holds 10 SMTP
+  sessions at most, and the bare `<postmaster>` reaches a mailbox.
+- **Sending mail** (merged, not published): submission on 465 and 587,
+  logged in over TLS only, a user sending as itself or its aliases
+  alone. Mail for a hosted domain straight to its mailbox, the rest
+  through the queue on the data volume, by MX or the smarthost, retried
+  for days; a failure back to the sender as a DSN in its own mailbox.
+  DKIM-signed with a key per domain, made by `bumail dkim`, which
+  prints the record to publish.
 
 ## Next
 
 In this order, each its own step:
 
-- **Sending mail**: submission on 465 and 587, authenticated and over
-  TLS only, DKIM-signed (RSA-2048 keys, `bumail dkim`), through the queue
-  by MX or the smarthost.
 - **JMAP over HTTPS on 443, and a health check on loopback.**
 - **Certificates reloaded without a restart**, then **from ACME**
   (HTTP-01 on port 80, ECDSA P-256 keys), through a separate
@@ -45,9 +50,6 @@ In this order, each its own step:
   DKIM and DMARC, as a zone file or plain records.
 - **A Docker image**: the server, its ports and one volume for
   everything it keeps.
-- **A cap on SMTP sessions per client on port 25**, so one sending
-  address cannot hold every session nor fill the spool alone; it needs a
-  per-client limit, or a hook at connection, in `@bumail/smtp`.
 
 ## Later
 
@@ -58,6 +60,11 @@ In this order, each its own step:
   part-way through a message for several users answers the whole message
   `451`, and the users reached before it get it twice when it comes
   again.
+- **`postmaster@` every hosted domain** taken without a user or an
+  alias of that name, as RFC 5321 §4.5.1 asks, routed as the bare
+  `<postmaster>` is.
+- **Rate limits per user on submission**, so one stolen password cannot
+  send without bound before it is changed.
 - **Plus addressing** (`alice+news@example.com` delivered to
   `alice@example.com`), and changing an alias's users in place rather
   than removing and adding it.

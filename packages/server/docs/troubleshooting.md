@@ -46,6 +46,7 @@ directory commands' own refusals are under
 - [`hostname: must be a fully qualified domain name, such as mail.example.com`](#hostname-must-be-a-fully-qualified-domain-name-such-as-mailexamplecom)
 - [`data: must be an absolute path`](#data-must-be-an-absolute-path)
 - [`bind: must be an IPv4 or IPv6 address`](#bind-must-be-an-ipv4-or-ipv6-address)
+- [`postmaster: must be an e-mail address, such as postmaster@example.com`](#postmaster-must-be-an-e-mail-address-such-as-postmasterexamplecom)
 
 **Ports**
 
@@ -138,6 +139,12 @@ directory commands' own refusals are under
 - [`an alias needs at least one target`](#an-alias-needs-at-least-one-target)
 - [`… is not a user here: an alias points to local users only, never elsewhere`](#-is-not-a-user-here-an-alias-points-to-local-users-only-never-elsewhere)
 
+*DKIM keys*
+
+- [`the domain … has a DKIM key already; --replace makes a new one`](#the-domain--has-a-dkim-key-already---replace-makes-a-new-one)
+- [`the domain … has no DKIM key`](#the-domain--has-no-dkim-key), and `…; bumail dkim generate makes one`
+- [`the selector must be a DNS name: letters, digits, hyphens and dots`](#the-selector-must-be-a-dns-name-letters-digits-hyphens-and-dots)
+
 *Passwords*
 
 - [`the password must be at least 12 characters`](#the-password-must-be-at-least-12-characters)
@@ -172,6 +179,7 @@ directory commands' own refusals are under
 - [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
 - [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
 - [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
+- [`the queue cannot be opened (…)`](#the-queue-cannot-be-opened-)
 - [`bumail: the spool folder … is kept: …`](#bumail-the-spool-folder--is-kept-)
 - [`bumail: the spool folder … was removed while in use; made it again`](#bumail-the-spool-folder--was-removed-while-in-use-made-it-again)
 - [`550 5.1.1 User unknown`](#550-511-user-unknown)
@@ -185,11 +193,30 @@ directory commands' own refusals are under
 - [`451 4.3.0 Message not taken, try again later`](#451-430-message-not-taken-try-again-later)
 - [`451 4.3.0 Local error in processing`](#451-430-local-error-in-processing)
 - [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
-- [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`
-- [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `imaps:`, `imap:`
-- [`bumail: the mail store did not close cleanly: …`](#bumail-the-mail-store-did-not-close-cleanly-)
-- [`mx: … not spooled: …`](#mx--not-spooled-)
-- [`mx: … abandoned before …: the session ended`](#mx--abandoned-before--the-session-ended)
+- [`421 4.7.0 … Too many connections from your address, try later`](#421-470--too-many-connections-from-your-address-try-later)
+- [`550 5.1.1 No postmaster mailbox is configured here`](#550-511-no-postmaster-mailbox-is-configured-here)
+- [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`, `submissions:`, `submission:`
+- [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `submissions:`, `submission:`, `imaps:`, `imap:`
+- [`bumail: the mail store did not close cleanly: …`](#bumail-the-mail-store-did-not-close-cleanly-), and `the queue`
+- [`bumail: queue deliveries still under way are left to their leases`](#bumail-queue-deliveries-still-under-way-are-left-to-their-leases)
+- [`mx: … not spooled: …`](#mx--not-spooled-), and `submissions:`, `submission:`
+- [`mx: … abandoned before …: the session ended`](#mx--abandoned-before--the-session-ended), and `submissions:`, `submission:`
+
+**Sending** (the replies a user's mail client gets on 465 and 587; the log of the queue)
+
+- [`530 …`, `538 …`: AUTH and MAIL refused before TLS or a login](#530--538--auth-and-mail-refused-before-tls-or-a-login)
+- [`535 …`: the login refused](#535--the-login-refused)
+- [`553 5.7.1 Not authorized to send as <…>`](#553-571-not-authorized-to-send-as-)
+- [`550 5.7.1 The From field names an address that is not yours`](#550-571-the-from-field-names-an-address-that-is-not-yours)
+- [`550 5.6.0 The message needs exactly one From field`](#550-560-the-message-needs-exactly-one-from-field)
+- [`553 5.1.3 The address is not one this server can send to`](#553-513-the-address-is-not-one-this-server-can-send-to)
+- [`452 4.3.1 The queue is full, try again later`](#452-431-the-queue-is-full-try-again-later), `552 5.3.4 Message too big for the queue`, `452 4.5.3 Too many recipients`
+- [`submissions: … not queued: …`](#submissions--not-queued-), and `submission:`
+- [`submissions: … refused as sender <…>`](#submissions--refused-as-sender-), and `submission:`
+- [`submissions: … (unsigned)`](#submissions--unsigned), and `submission:`
+- [`outbound: … deferred until …: …`](#outbound--deferred-until--)
+- [`outbound: … failed: …`](#outbound--failed-), and `outbound: …: a failed DSN to <…> queued as …`
+- [`outbound: error …: …`](#outbound-error--)
 
 **Usage** (exit code 2)
 
@@ -380,6 +407,13 @@ address.
 
 **Fix**: `bind = "0.0.0.0"` (the default), `"::"`, or one of the
 machine's addresses.
+
+### `postmaster: must be an e-mail address, such as postmaster@example.com`
+
+`postmaster`, where the bare `RCPT TO:<postmaster>` goes, is not an
+address the directory could hold: a local part and a domain, with no
+quotes. Give a user or an alias, such as `postmaster@example.com`, or
+leave the key out for `postmaster@` the first hosted domain.
 
 ## Ports
 
@@ -912,6 +946,36 @@ it. See [no forwarding](directory.md#no-forwarding).
 **Fix**: add the target as a user first, or point the alias at a user.
 For another alias, list that alias's users instead.
 
+### DKIM keys
+
+#### `the domain … has a DKIM key already; --replace makes a new one`
+
+`bumail dkim generate` for a domain with a key. Mail from it is signed
+with that key already: `bumail dkim show <domain>` prints its record
+again. To change keys, make the new one under a new selector, so the
+old record can stay published while mail signed with it is still on
+its way:
+
+```sh
+bumail dkim generate example.com --selector s2 --replace
+```
+
+Publish the new record; mail is signed with the new key from now on.
+Remove the old record once a few days have passed.
+
+#### `the domain … has no DKIM key`
+
+`bumail dkim remove` (exit code 4), or `bumail dkim show` as `…; bumail
+dkim generate makes one`, for a hosted domain with no key. Mail from it
+goes unsigned; `bumail dkim generate <domain>` makes one.
+
+#### `the selector must be a DNS name: letters, digits, hyphens and dots`
+
+`--selector` names the record `<selector>._domainkey.<domain>`, so it is
+one or more DNS labels: ASCII letters (taken lowercase), digits and
+hyphens, not starting or ending with a hyphen, joined by dots. `s1`,
+`mail2`, `k.example` are fine; `my_key` is not.
+
 ### Passwords
 
 #### `the password must be at least 12 characters`
@@ -1171,6 +1235,16 @@ gone 5 minutes untouched, whichever machine wrote it. A folder with no
 made — is judged by the folder's own modification time instead, with
 the same 5 minutes.
 
+### `the queue cannot be opened (…)`
+
+`bumail serve`: the outbound queue at `queue.url` could not be opened:
+a `sqlite:` directory that cannot be created or written (a read-only
+`data`, a full disk, another owner), or a URL its store refused; the
+reason is the queue's, with any password masked. Exit code 5, with the
+directory and the mail store closed again. A PostgreSQL or Redis queue
+connects at its first use, so one that is down shows later, as
+[`outbound: error …`](#outbound-error--).
+
 ### `bumail: the spool folder … is kept: …`
 
 Logged at start, once per entry, when the sweep of `<data>/spool` met
@@ -1221,7 +1295,7 @@ What a sending server is told for a recipient in a domain this server
 does not host. That is the rule on port 25, with no exception: no AUTH
 is offered there, so no session can relay. If the domain should be
 yours, `bumail domain add` it. A user who wants to send elsewhere uses
-submission, in a later release.
+submission, on 465 or 587, logged in.
 
 ### `550 5.7.1 Rejected by the DMARC policy of …`
 
@@ -1266,9 +1340,10 @@ past it as it came. The budget is `inbound.spoolBytes`, 20 times
 `inbound.maxMessageSize` by default. It is a burst of large messages at
 once, or many sessions held open mid-DATA; the sending server tries
 again. The log says `deferred: the spool is full`. Raise
-`inbound.spoolBytes` if the disk has room. There is no limit per client
-yet, so one client can fill it with `inbound.maxConnections` sessions;
-lower `inbound.maxConnections` if that is a risk.
+`inbound.spoolBytes` if the disk has room. One client holds
+`inbound.maxConnectionsPerClient` sessions at most (10 by default). On
+465 and 587, a user's message waits in the same spool while it is
+signed, and gets the same reply.
 
 ### `552 5.3.4 Message header too large`
 
@@ -1306,14 +1381,38 @@ log has the reason, as [`mx: error in a session from
 this and closed, and its server tries again. Raise
 `inbound.maxConnections` if honest servers hit it.
 
+### `421 4.7.0 … Too many connections from your address, try later`
+
+One client — an IPv4 address, or an IPv6 /64 — already holds
+`inbound.maxConnectionsPerClient` sessions on port 25 (10 by default),
+or `submission.maxConnectionsPerClient` on 465 or 587; one more is told
+this and closed, before anything else. A sending server tries again.
+Raise the key if many honest clients share an address, such as users
+behind one NAT on submission.
+
+### `550 5.1.1 No postmaster mailbox is configured here`
+
+What a client is told for the bare `RCPT TO:<postmaster>` when no
+postmaster address resolves: `postmaster` is not set and the first
+hosted domain, by name, has no `postmaster@` user or alias, or
+`postmaster` names an address nobody here has. RFC 5321 §4.5.1 asks
+every server to take it. Give it somewhere to go:
+
+```sh
+bumail alias add postmaster@example.com alice@example.com
+```
+
+or set `postmaster = "alice@example.com"` at the top of the file.
+
 ### `imaps: login refused from …: …`
 
-In the log (`imap:` for port 143), for every IMAP login refused, with why: `password`,
+In the log (`imap:` for port 143, `submissions:` and `submission:` for
+465 and 587), for every login refused, with why: `password`,
 `unknown` (no such user), `disabled`, `blocked` (the failure limiter:
 10 failures within 15 minutes), `malformed` or `busy`. The client is
 told only `NO`, except on `busy`, where it gets `NO [UNAVAILABLE]
 Temporary authentication failure` and may try again soon. The password
-is never logged. See
+is never logged. An SMTP client gets `535` (`454` on `busy`). See
 [logins](directory.md#logins).
 
 ### `mx: error in a session from …: …`
@@ -1329,11 +1428,22 @@ store (`store.url`), the disk and the DNS.
 
 ### `bumail: the mail store did not close cleanly: …`
 
-In the log, during a stop: closing the mail store failed (a PostgreSQL
+In the log, during a stop (`the queue did not close cleanly` for the
+queue's store): closing the mail store failed (a PostgreSQL
 connection already gone, say), the reason with any password masked. The
 directory is closed anyway, and the server still exits 0. A SQLite
 store recovers its journal at the next start; nothing is lost that was
 answered `250`.
+
+### `bumail: queue deliveries still under way are left to their leases`
+
+In the log, during a stop: a delivery the queue had begun was still
+talking to another server 5 seconds after the SMTP sessions ended, or a
+second signal skipped the wait. The queue's store is closed anyway. The
+item keeps its lease, which lapses (10 minutes), and it is tried again
+then, by this server once restarted or by another sharing the queue: if
+the other server took the message just before the stop, it gets it
+twice. What the queue had claimed and not begun was given back at once.
 
 ### `mx: … not spooled: …`
 
@@ -1348,26 +1458,134 @@ ran out, the server stopped) while the message was being written for
 several users. The users before the one named have it; the sending
 server, never told `250`, sends it again, and they get it twice.
 
+## Sending
+
+What a user's mail client is told on 465 and 587, and what the queue
+logs as it delivers. See [sending mail](serve.md#sending-mail-on-465-and-587).
+
+### `530 …`, `538 …`: AUTH and MAIL refused before TLS or a login
+
+`@bumail/smtp`'s own replies on submission: `538 5.7.11` to AUTH on 587
+before STARTTLS — AUTH is neither offered nor taken in clear — and
+`530 5.7.0` to MAIL before a login. Set the client to "STARTTLS" on
+587, or "SSL/TLS" on 465, with "normal password" authentication.
+
+### `535 …`: the login refused
+
+A wrong address or password, a disabled user, or a client blocked by
+the failure limiter (10 failures within 15 minutes, its right password
+included); the log says which, as `submissions: login refused from …:
+…`. Three failures in a session and the server hangs up. The login is
+the user's address, in any case.
+
+### `553 5.7.1 Not authorized to send as <…>`
+
+MAIL FROM is not the logged-in user's address nor an alias it is one of
+the users of; the null sender `<>` is refused too. A user sends as
+itself: point the client's identity at the address it logs in with, or
+`bumail alias add` the address to that user. The log says
+`submissions: … refused as sender <…>`.
+
+### `550 5.7.1 The From field names an address that is not yours`
+
+The message's From names an address the user may not send as — the
+same rule as MAIL FROM — or one this server cannot read plainly: a
+quoted local part, an address in a display name or a comment that is
+not the user's, an `@` that belongs to no plain address. A reader must
+never be shown an author that was not checked. Write From as
+`Name <you@example.com>`.
+
+### `550 5.6.0 The message needs exactly one From field`
+
+The message has no From, or two (RFC 5322 §3.6). Every mail client
+writes one; a script writing its own message must too.
+
+### `553 5.1.3 The address is not one this server can send to`
+
+A recipient in another domain whose address SMTP cannot carry as
+written: a quoted local part, a control character, an address literal
+octet over 255. Check the address.
+
+### `452 4.3.1 The queue is full, try again later`
+
+The queue refused the message: full (`452 4.3.1`), too big for it
+(`552 5.3.4 Message too big for the queue`, past
+`submission.maxMessageSize` and the room kept for the signature), or
+with too many recipients (`452 4.5.3 Too many recipients`). The log says
+`submissions: … not queued: …`. A full queue clears as it delivers.
+
+### `submissions: … not queued: …`
+
+In the log (`submission:` on 587): the queue refused a message, with
+the queue's reason, its password masked; the client got one of the
+replies above or `451 4.3.0`, and sends it again. A store that is down
+(PostgreSQL, Redis) shows here first.
+
+### `submissions: … refused as sender <…>`
+
+In the log: the user named tried MAIL FROM another address, and got
+[`553 5.7.1`](#553-571-not-authorized-to-send-as-).
+
+### `submissions: … (unsigned)`
+
+In the log, after a message sent: it was sent without a DKIM signature,
+its From domain having no key. Mail from a domain with no DKIM key
+fails DMARC wherever SPF does not align, and lands in spam:
+
+```sh
+bumail dkim generate example.com
+```
+
+then publish the TXT record it prints.
+
+### `outbound: … deferred until …: …`
+
+In the log: a recipient's server, or the smarthost, answered `4xx`, or
+could not be reached, and the queue tries again at the time given:
+after 30 minutes, then 1, 2 and 4 hours, then every 4 hours, for 5
+days. The reason is what the other side said (`… 4.7.0 TLS with … failed`,
+`Could not connect to …`). A remote host often greylists the first
+attempt. Every message deferred: check that port 25 out is open from
+this host, or set a `[smarthost]`.
+
+### `outbound: … failed: …`
+
+In the log: a recipient's server answered `5xx` (`550 5.1.1` for an
+unknown user, say), or the queue gave up after 5 days. The sender gets
+a delivery status notification in its INBOX, from `<>`, with the reply
+and the original's header — `outbound: …: a failed DSN to <…> queued as
+…`, then its delivery. A DSN is never sent out of the server: it goes to
+the local sender's own mailbox, and nothing is sent about a DSN.
+
+### `outbound: error …: …`
+
+In the log: the queue itself failed — its store (a PostgreSQL or Redis
+down, a full disk), a lease lost to another worker, or a route
+`sendMail` refuses (`INVALID_OPTION`, such as a smarthost that sends
+credentials without TLS), which defers its recipients as `4.3.5` until
+fixed. The reason has the queue URL's password masked.
+
 ## Usage
 
 The command exits 2, with `ServerError`'s code `USAGE`, for:
 
 - `bumail: no command given; see bumail --help`
 - `bumail: unknown command …; see bumail --help` — the commands are
-  `serve`, `check-config`, `domain`, `user` and `alias`. A word that is
+  `serve`, `check-config`, `domain`, `user`, `alias` and `dkim`. A word that is
   not lowercase letters and hyphens is shown as `…`, in case it is a
   password; so is an unexpected argument.
 - `bumail: unknown option …; see bumail --help` — the options are
-  `--config`, `--password-stdin`, `--password-file`, `--purge`, `-h` or
+  `--config`, `--password-stdin`, `--password-file`, `--purge`,
+  `--selector`, `--replace`, `-h` or
   `--help`, and `-v` or `--version`. A short option is named by its
   first letter alone (`-p…`), and a long one without what follows its
   `=`, so neither repeats a password typed there.
 - `bumail: unexpected argument …; see bumail --help` — `serve` and
   `check-config` take no operand.
 - `bumail: --config needs a file; see bumail --help`, and the same for
-  `--password-file`.
+  `--password-file`; `--selector needs a selector`.
 - `bumail: --config is given twice; see bumail --help`, and the same for
-  `--password-file`.
+  `--password-file` and `--selector`.
 
 The directory commands add:
 
@@ -1382,8 +1600,9 @@ The directory commands add:
   password is never taken from the command line`, the extra operand
   being, most likely, a password: it is not repeated.
 - `bumail: … takes no --password-stdin; see bumail --help`, and the
-  same for `--password-file` and `--purge`: only `user add` and `user
-  passwd` read a password, only `user remove` purges.
+  same for `--password-file`, `--purge`, `--selector` and `--replace`:
+  only `user add` and `user passwd` read a password, only `user remove`
+  purges, only `dkim generate` takes a selector or replaces a key.
 - `bumail: --password-stdin and --password-file are both given; give one; see bumail --help`
 - `bumail: a password is never taken from the command line: use --password-stdin or --password-file, or type it at the prompt; see bumail --help`
   — an option starting with `-pass` or `--pass`, such as

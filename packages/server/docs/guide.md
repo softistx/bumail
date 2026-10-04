@@ -9,7 +9,7 @@ problem.
 - [Where the file is](#where-the-file-is)
 - [The environment](#the-environment)
 - [Checking a file](#checking-a-file)
-- [Top-level keys](#top-level-keys): `hostname`, `data`, `bind`
+- [Top-level keys](#top-level-keys): `hostname`, `postmaster`, `data`, `bind`
 - [`[ports]`](#ports)
 - [`[store]`, `[queue]`, `[directory]`](#store-queue-directory)
 - [`[tls]` and `[acme]`](#tls-and-acme)
@@ -92,12 +92,13 @@ exits 1. No problem repeats a URL or a secret.
 | 1 | the configuration has problems, or cannot be read |
 | 2 | bad usage: an unknown command or option |
 | 3 | `serve`: the configuration is valid, but asks for what arrives later (`tls.mode = "acme"`) |
-| 5 | `serve`: a port, the certificate, the spool, the directory or the store cannot be used |
+| 5 | `serve`: a port, the certificate, the spool, the directory, the store or the queue cannot be used |
 
 ## Top-level keys
 
 ```toml
 hostname = "mail.example.com"
+postmaster = "alice@example.com"
 data = "/data"
 bind = "0.0.0.0"
 ```
@@ -105,6 +106,7 @@ bind = "0.0.0.0"
 | key | default | |
 | --- | --- | --- |
 | `hostname` | required | the server's own name: its MX host, the name in its greeting, the name its certificate must hold. A fully qualified name, taken lowercase, a trailing dot dropped. `BUMAIL_HOSTNAME` overrides it |
+| `postmaster` | `postmaster@` the first hosted domain, by name | where the bare `RCPT TO:<postmaster>` (RFC 5321 §4.5.1) goes: an address the directory resolves, a user or an alias. Taken lowercase. When it does not resolve, that recipient is refused with `550 5.1.1` |
 | `data` | `/data` | an absolute directory, for everything the server keeps: the default stores below, and the ACME certificates |
 | `bind` | `0.0.0.0` | the IPv4 or IPv6 address every public listener binds to; `::` for both families where the host allows it |
 
@@ -112,8 +114,8 @@ bind = "0.0.0.0"
 
 Each listener's port, a whole number from 0 to 65535 (`25.5` is refused;
 TOML's `25.0` reads as 25); `0` turns it off. Two listeners never share
-a port. `bumail serve` runs `mx`, `imaps` and `imap` today, and logs the
-others as arriving later; [running the server](serve.md#the-listeners)
+a port. `bumail serve` runs `mx`, `submissions`, `submission`, `imaps`
+and `imap` today, and logs the others as arriving later; [running the server](serve.md#the-listeners)
 says what each does.
 
 | key | default | listener |
@@ -134,7 +136,7 @@ Each is a `url`, which says which store answers.
 | section | default | schemes |
 | --- | --- | --- |
 | `[store]`, the mail | `sqlite:<data>/mail` | `sqlite:`, `postgres:`, `postgresql:` |
-| `[queue]`, outbound mail | `sqlite:<data>/queue` | `sqlite:`, `postgres:`, `postgresql:`, `redis:`, `rediss:` |
+| `[queue]`, outbound mail, kept until delivered | `sqlite:<data>/queue` | `sqlite:`, `postgres:`, `postgresql:`, `redis:`, `rediss:` |
 | `[directory]`, domains, users and aliases | `sqlite:<data>/directory.sqlite` | `sqlite:` |
 
 ```toml
@@ -294,18 +296,29 @@ in [running the server](serve.md#inbound-checks-spf-dkim-dmarc).
 | `dmarc` | `"enforce"` | `"enforce"`: a message failing DMARC under `p=reject` is refused during the session, under `p=quarantine` it goes to Junk. `"mark"`: only recorded, in `Authentication-Results` |
 | `maxMessageSize` | 26214400 (25 MiB) | bytes, from 1 to 1073741824 |
 | `maxConnections` | 1000 | from 1 to 100000 |
+| `maxConnectionsPerClient` | 10 | sessions one client holds at once, from 1 to 100000: an IPv4 address, or an IPv6 address by its /64. One more is answered `421 4.7.0` and closed |
 | `spoolBytes` | 20 × `maxMessageSize` (500 MiB) | bytes the messages waiting to be checked may hold on disk at once; past it, `452 4.3.1`. At least `maxMessageSize`, at most 1099511627776 (1 TiB) |
 
 ## `[submission]`
 
 Mail from the server's own users, on `ports.submissions` and
-`ports.submission`, always authenticated, always over TLS.
+`ports.submission`, always authenticated, always over TLS. What it
+takes, and where it goes, is in [running the
+server](serve.md#sending-mail-on-465-and-587).
+
+```toml
+[submission]
+maxRecipients = 50
+maxConnectionsPerClient = 20   # users behind one NAT
+```
 
 | key | default | |
 | --- | --- | --- |
 | `maxMessageSize` | 26214400 (25 MiB) | bytes, from 1 to 1073741824 |
 | `maxRecipients` | 100 | per message, from 1 to 10000 |
 | `maxConnections` | 1000 | from 1 to 100000 |
+| `maxConnectionsPerClient` | 10 | sessions one client holds at once, from 1 to 100000, as `inbound`'s |
+| `handshakeTimeout` | 10 | seconds a client on `ports.submissions` has to complete its TLS handshake, from 1 to 300; past it, the socket is closed. A STARTTLS handshake on 587 is bounded by the session's idle time |
 
 ## `[jmap]`
 

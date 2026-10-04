@@ -37,8 +37,13 @@ No dates. Each entry says what someone running or embedding the server gets.
   `bumail serve` takes mail on 25 for the directory's addresses only
   (no AUTH there, so never a relay), checks SPF, DKIM and DMARC
   (enforced by default), delivers into the store, and serves it over
-  IMAP on 993, with a certificate from files. The steps that follow are
-  in [its roadmap](../packages/server/docs/roadmap.md).
+  IMAP on 993, with a certificate from files. **And it sends mail**:
+  submission on 465 and 587, logged in over TLS only, a user sending as
+  itself or its aliases; mail for a hosted domain straight to its
+  mailbox, the rest through `@bumail/queue` by MX or a smarthost, a
+  failure back to the sender as a DSN in its own mailbox; DKIM-signed
+  with a key per domain made by `bumail dkim`. The steps that follow
+  are in [its roadmap](../packages/server/docs/roadmap.md).
 
 ## Next
 
