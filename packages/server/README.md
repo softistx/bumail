@@ -9,14 +9,15 @@ it reads and checks its configuration (`bumail check-config`), manages
 its directory of domains, users, aliases and DKIM keys (`bumail domain`,
 `bumail user`, `bumail alias`, `bumail dkim`), **receives mail** for its users
 on port 25, **sends mail** for them from 465 and 587, DKIM-signed,
-through its queue, and serves it over IMAP on 993, with a certificate
-from files. JMAP and ACME come next; see the
+through its queue, and serves it over IMAP on 993 and over JMAP on 443,
+with a certificate from files, directly or behind Traefik, and answers a
+health check on loopback. ACME comes next; see the
 [roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md).
 
 **Bun only**, like every `@bumail/*` package: it runs on Bun 1.4.2 or
 later. It peers on the packages it wires: `@bumail/store`,
-`@bumail/smtp`, `@bumail/imap`, `@bumail/queue`, `@bumail/auth` and
-`@bumail/dns`.
+`@bumail/smtp`, `@bumail/imap`, `@bumail/jmap` (with `@alxia/core`),
+`@bumail/queue`, `@bumail/auth` and `@bumail/dns`.
 
 ## The configuration
 
@@ -36,7 +37,7 @@ submission = 587
 imaps = 993
 https = 443
 http = 80                  # ACME's HTTP-01 challenges
-health = 8080              # on loopback only
+health = 8080              # on loopback, GET /healthz
 
 [store]
 url = "sqlite:/data/mail"  # or postgres://…?sslmode=require
@@ -51,6 +52,12 @@ mode = "acme"              # the default, which check-config takes; serve exits 
 [acme]
 email = "postmaster@example.com"
 acceptTerms = true
+
+[jmap]                     # behind Traefik: mode = "proxy", origin and trusted
+origin = "https://mail.example.com"
+
+[proxyProtocol]            # off unless listed: PROXY protocol from TCP proxies
+trusted = ["172.18.0.0/16"]
 
 [smarthost]                # leave it out to deliver by MX
 host = "smtp.example.net"
@@ -107,6 +114,8 @@ bumail: mx listening on 0.0.0.0:25: SMTP from other servers: STARTTLS offered, n
 bumail: submissions listening on 0.0.0.0:465: submission over TLS from the first byte: AUTH required, then mail to anywhere
 bumail: submission listening on 0.0.0.0:587: submission with STARTTLS: AUTH only after TLS, then mail to anywhere
 bumail: imaps listening on 0.0.0.0:993: IMAP over TLS from the first byte
+bumail: https listening on 0.0.0.0:443: JMAP over HTTPS: Basic auth for the users of the directory
+bumail: health listening on 127.0.0.1:8080: health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503
 mx: 1kq2f… from 192.0.2.10 <joe@example.org> delivered to alice@example.com (spf=pass dkim=pass dmarc=pass)
 submissions: 7cd1a… from alice@example.com <alice@example.com> queued as 0f3e… for joe@example.org
 outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example.org
@@ -150,8 +159,18 @@ outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example
   5 more, what it claimed and did not begin given back, then the queue
   and the store closed. It exits 0.
 
-The other ports (443, 80, 8080) are logged as arriving later
-and bound to nothing. [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md)
+- **JMAP on 443** serves the same mailboxes over HTTPS, Basic auth for
+  the directory's users through the same failure limiter. Behind Traefik
+  (`jmap.mode = "proxy"`) it takes plain HTTP from the proxies listed in
+  `jmap.trusted`, and counts each client by `X-Forwarded-For`, read only
+  from them.
+- **`GET /healthz`** on 127.0.0.1:8080: 200 when every listener is up and
+  the directory and the store answer, 503 otherwise, with each part named.
+- **`[proxyProtocol]`** makes the SMTP and IMAP listeners read the
+  PROXY protocol from the proxies it lists.
+
+Port 80 (ACME's challenges) is logged as arriving later and bound to
+nothing. [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md)
 has every listener, the log and the stop in detail.
 
 ## The directory
@@ -292,7 +311,7 @@ be used 5.
 | `configPath(options?)` | the file `readConfig` reads: `path`, else `BUMAIL_CONFIG`, else `DEFAULT_CONFIG_PATH` |
 | `DEFAULT_CONFIG_PATH` | `/data/bumail.toml` |
 | `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`, `NOT_IMPLEMENTED`) and, for a configuration, its `problems` |
-| `serve(config, options?)` | runs the server: `mx`, `submissions`, `submission`, `imaps` and `imap` for the ports not 0, and the queue; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds`, `outbound` |
+| `serve(config, options?)` | runs the server: `mx`, `submissions`, `submission`, `imaps`, `imap`, `https` and `health` for the ports not 0, and the queue; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds`, `outbound` |
 | `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `OutboundOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`; the types around them; `OutboundOptions` is `mxPort`, `ca`, `pollInterval`, `send`, for a test |
 | `DEFAULT_DRAIN_SECONDS`, `ACME_LATER` | 10, the seconds a stop waits for SMTP sessions; what `serve` says of `tls.mode = "acme"` |
 | `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, cacheSeconds?, onUnlimited?, limiter? })`: `domains`, `users`, `aliases`, `dkim`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |
@@ -308,14 +327,14 @@ be used 5.
 | `directoryFile(url)` | the file of a `sqlite:` directory URL |
 | `addressOf(text)`, `domainOf(name)`, `Address`, `MAX_LOCAL_BYTES`, `MAX_ADDRESS_BYTES` | an address or a domain as the directory keeps it, or `undefined` |
 | `HASH_OPTIONS`, `MIN_PASSWORD_LENGTH`, `MAX_PASSWORD_BYTES`, `DEFAULT_MAX_VERIFIES`, `DEFAULT_MAX_QUEUED_VERIFIES` | the password rules and the verify cap |
-| `ServerConfig` and its sections' types | what `readConfig` answers: `PortsConfig`, `StoreConfig`, `QueueConfig`, `DirectoryConfig`, `TlsConfig`, `AcmeConfig`, `SmarthostConfig`, `SmarthostTls`, `RouteConfig`, `InboundConfig`, `SubmissionConfig`, `JmapConfig` |
+| `ServerConfig` and its sections' types | what `readConfig` answers: `PortsConfig`, `StoreConfig`, `QueueConfig`, `DirectoryConfig`, `TlsConfig`, `AcmeConfig`, `SmarthostConfig`, `SmarthostTls`, `RouteConfig`, `InboundConfig`, `SubmissionConfig`, `JmapConfig`, `HealthConfig`, `ProxyProtocolConfig` |
 | `ReadConfigOptions`, `Env`, `ConfigProblem`, `ServerErrorCode` | the types around them |
 
 ## Documentation
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/server/docs/README.md): the pages below, and when to read each.
 - [Guide](https://github.com/softistx/bumail/blob/develop/packages/server/docs/guide.md): every key of the configuration, its default, and what the environment overrides.
-- [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md): `bumail serve`, each listener, what port 25 takes and refuses, SPF, DKIM and DMARC, sending mail on 465 and 587, the queue, DKIM signing and `bumail dkim`, IMAP logins, the log and the stop.
+- [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md): `bumail serve`, each listener, what port 25 takes and refuses, SPF, DKIM and DMARC, sending mail on 465 and 587, the queue, DKIM signing and `bumail dkim`, IMAP logins, JMAP, running behind Traefik, the health check, the PROXY protocol, the log and the stop.
 - [The directory](https://github.com/softistx/bumail/blob/develop/packages/server/docs/directory.md): domains, users and aliases, every command with an example, passwords, logins and the failure limiter.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/server/docs/troubleshooting.md): every problem `check-config` reports, every refusal of the directory commands, every reason `serve` stops or refuses a message, every reply a mail client gets when sending, every line of the queue's log, and what to do about it.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md): what is coming, and what is not planned.

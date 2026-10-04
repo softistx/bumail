@@ -32,6 +32,10 @@ export interface ServerConfig {
 	readonly inbound: InboundConfig;
 	readonly submission: SubmissionConfig;
 	readonly jmap: JmapConfig;
+	/** The health check's address; its port is `ports.health`. */
+	readonly health: HealthConfig;
+	/** The PROXY protocol on the mail ports; `undefined`: off. */
+	readonly proxyProtocol: ProxyProtocolConfig | undefined;
 }
 
 /** Each listener's port; 0 turns it off. */
@@ -159,6 +163,31 @@ export interface SubmissionConfig {
 
 /** JMAP, on `ports.https`. */
 export interface JmapConfig {
-	/** The origin clients reach it at. Default `https://<hostname>`, with the port when it is neither 443 nor 0. */
+	/**
+	 * The origin clients reach it at, which the session's URLs start with.
+	 * Default `https://<hostname>`, with the port when it is neither 443
+	 * nor 0; required with `mode` `'proxy'`.
+	 */
 	readonly origin: string;
+	/**
+	 * `'https'`: TLS from files, on `ports.https`. `'proxy'`: plain HTTP
+	 * on `ports.https`, for a reverse proxy that ends TLS. Default `'https'`.
+	 */
+	readonly mode: 'https' | 'proxy';
+	/** The address it binds to. Default `bind`. */
+	readonly bind: string;
+	/** With `mode` `'proxy'`: the proxies, IP addresses and CIDRs, whose `X-Forwarded-*` headers count. `[]` otherwise. */
+	readonly trusted: readonly string[];
+}
+
+/** The health check, on `ports.health`. */
+export interface HealthConfig {
+	/** Default `127.0.0.1`. */
+	readonly bind: string;
+}
+
+/** The proxies whose PROXY protocol header the mail listeners read. */
+export interface ProxyProtocolConfig {
+	/** IP addresses and CIDRs, at least one. */
+	readonly trusted: readonly string[];
 }

@@ -16,6 +16,7 @@ function running(
 ) {
 	return stopper({
 		listeners: [],
+		up: new Set(),
 		inflight: new Set(),
 		storeCalls,
 		queue: { stop: queueStop } as unknown as Queue,

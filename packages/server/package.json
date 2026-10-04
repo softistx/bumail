@@ -46,6 +46,7 @@
 		]
 	},
 	"devDependencies": {
+		"@alxia/core": "^0.3.1",
 		"@bumail/auth": "workspace:^",
 		"@bumail/dns": "workspace:^",
 		"@bumail/imap": "workspace:^",
@@ -56,9 +57,11 @@
 		"@types/bun": "^1.4.2"
 	},
 	"peerDependencies": {
+		"@alxia/core": "^0.3.1",
 		"@bumail/auth": "workspace:^",
 		"@bumail/dns": "workspace:^",
 		"@bumail/imap": "workspace:^",
+		"@bumail/jmap": "workspace:^",
 		"@bumail/queue": "workspace:^",
 		"@bumail/smtp": "workspace:^",
 		"@bumail/store": "workspace:^",

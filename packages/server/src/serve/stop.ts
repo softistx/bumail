@@ -2,7 +2,7 @@ import type { Queue } from '@bumail/queue';
 import type { SmtpServer } from '@bumail/smtp';
 import type { Directory } from '../directory/directory';
 import type { OpenedStore } from '../store/open';
-import type { Listener } from './listeners';
+import type { Listener, ListenerName } from './listeners';
 import type { Log } from './log';
 import type { OpenedQueueStore } from './outbound';
 import type { Spool } from './spool';
@@ -13,6 +13,8 @@ export const SETTLE_MS = 5000;
 /** What a stop closes. */
 export interface Running {
 	readonly listeners: readonly Listener[];
+	/** The health check's view of the listeners: cleared as the stop begins. */
+	readonly up: Set<ListenerName>;
 	readonly inflight: ReadonlySet<Promise<unknown>>;
 	/** Store calls under way, IMAP's included. */
 	readonly storeCalls: ReadonlySet<Promise<unknown>>;
@@ -76,8 +78,9 @@ export function stopper(
 	return ({ force = false } = {}) => {
 		if (force) forced = true;
 		stopping ??= (async () => {
+			running.up.clear();
 			for (const { server, kind } of running.listeners)
-				server.stop(kind === 'imap');
+				server.stop(kind !== 'smtp');
 			let queueStopped = false;
 			void running.queue
 				.stop()

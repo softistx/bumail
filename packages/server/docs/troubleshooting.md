@@ -102,6 +102,20 @@ directory commands' own refusals are under
 **JMAP**
 
 - [`jmap.origin: must be an origin, with no path or query, such as https://mail.example.com`](#jmaporigin-must-be-an-origin-with-no-path-or-query-such-as-httpsmailexamplecom)
+- [`jmap.origin: is required with jmap.mode "proxy": the public URL clients reach, such as https://mail.example.com`](#jmaporigin-is-required-with-jmapmode-proxy-the-public-url-clients-reach-such-as-httpsmailexamplecom)
+- [`ports.https: is required with jmap.mode "proxy": the plain HTTP port the proxy reaches`](#portshttps-is-required-with-jmapmode-proxy-the-plain-http-port-the-proxy-reaches)
+- [`jmap.trusted: is required with jmap.mode "proxy": the addresses or CIDRs of the proxies`](#jmaptrusted-is-required-with-jmapmode-proxy-the-addresses-or-cidrs-of-the-proxies)
+- [`jmap.trusted: is only for jmap.mode "proxy"`](#jmaptrusted-is-only-for-jmapmode-proxy)
+- [`….bind: must be an IPv4 or IPv6 address`](#bind-must-be-an-ipv4-or-ipv6-address), for `jmap.bind` and `health.bind`
+
+**Proxies** (`jmap.trusted`, `proxyProtocol.trusted`)
+
+- [`….trusted: must list the addresses or CIDRs of the proxies, at least one`](#trusted-must-list-the-addresses-or-cidrs-of-the-proxies-at-least-one)
+- [`….trusted[…]: is neither an IP address nor a CIDR`](#trusted-is-neither-an-ip-address-nor-a-cidr)
+- [`….trusted[…]: has a prefix length out of range`](#trusted-has-a-prefix-length-out-of-range)
+- [`….trusted[…]: has a prefix length of 0, which trusts every peer`](#trusted-has-a-prefix-length-of-0-which-trusts-every-peer)
+- [`….trusted[…]: is not a string`](#trusted-is-not-a-string)
+- [`proxyProtocol.trusted: is required: the addresses or CIDRs of the proxies, or remove [proxyProtocol] to turn it off`](#proxyprotocoltrusted-is-required-the-addresses-or-cidrs-of-the-proxies-or-remove-proxyprotocol-to-turn-it-off)
 
 **The environment**
 
@@ -177,6 +191,7 @@ directory commands' own refusals are under
 
 - [`acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`](#acme-mode-arrives-in-a-later-slice-set-tlsmode--files-with-cert-and-key-for-now)
 - [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
+- [`behind a proxy, a client's address is known only on a TCP socket: bind to an IP address, not a unix socket`](#behind-a-proxy-a-clients-address-is-known-only-on-a-tcp-socket-bind-to-an-ip-address-not-a-unix-socket)
 - [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
 - [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
 - [`the queue cannot be opened (…)`](#the-queue-cannot-be-opened-)
@@ -196,7 +211,12 @@ directory commands' own refusals are under
 - [`421 4.7.0 … Too many connections from your address, try later`](#421-470--too-many-connections-from-your-address-try-later)
 - [`550 5.1.1 No postmaster mailbox is configured here`](#550-511-no-postmaster-mailbox-is-configured-here)
 - [`bumail: postmaster … is in …, a domain not hosted here; mail for <postmaster> is refused until it is`](#bumail-postmaster--is-in--a-domain-not-hosted-here-mail-for-postmaster-is-refused-until-it-is)
-- [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`, `submissions:`, `submission:`
+- [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`, `https:`, `submissions:`, `submission:`
+- [`https: error in a request from …: …`](#https-error-in-a-request-from--)
+- [`https: a request with no client address was refused`](#https-a-request-with-no-client-address-was-refused)
+- [`Basic authentication is refused on a clear connection: use HTTPS`](#basic-authentication-is-refused-on-a-clear-connection-use-https), the 403 of JMAP
+- [`https: login refused from …: blocked`, with the proxy's address](#https-login-refused-from--blocked-with-the-proxys-address)
+- [`health: unhealthy: …`](#health-unhealthy-), `health: healthy again`, and a 503 from `/healthz`
 - [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `submissions:`, `submission:`, `imaps:`, `imap:`
 - [`bumail: the mail store did not close cleanly: …`](#bumail-the-mail-store-did-not-close-cleanly-), and `the queue`
 - [`bumail: the queue did not stop cleanly: …`](#bumail-the-queue-did-not-stop-cleanly-)
@@ -408,10 +428,11 @@ certificate must name.
 ### `bind: must be an IPv4 or IPv6 address`
 
 **When**: a host name (`localhost`) or anything else that is not an
-address.
+address. The same message, as `jmap.bind: …` and `health.bind: …`, for
+the addresses JMAP and the health check bind to.
 
 **Fix**: `bind = "0.0.0.0"` (the default), `"::"`, or one of the
-machine's addresses.
+machine's addresses; `health.bind` is `127.0.0.1` by default.
 
 ### `postmaster: must be an e-mail address, such as postmaster@example.com`
 
@@ -746,6 +767,96 @@ of its own.
 ### `jmap.origin: must be an origin, with no path or query, such as https://mail.example.com`
 
 **Fix**: scheme, host and port only. JMAP's paths are its own.
+
+### `jmap.origin: is required with jmap.mode "proxy": the public URL clients reach, such as https://mail.example.com`
+
+**Why**: behind a proxy the server only sees the proxy's plain HTTP
+request, and takes the session's URLs (`apiUrl`, `downloadUrl`,
+`uploadUrl`) from nothing the request says: not the `Host`, not
+`X-Forwarded-Host`.
+
+**Fix**: the URL clients type, with the scheme and no path:
+
+```toml
+[jmap]
+mode = "proxy"
+origin = "https://mail.example.com"
+```
+
+### `ports.https: is required with jmap.mode "proxy": the plain HTTP port the proxy reaches`
+
+**Why**: `ports.https` defaults to 443, the public HTTPS port. Behind a
+proxy it is the plain HTTP port the proxy connects to, which the file
+must name, so one is never left on 443 by accident.
+
+**Fix**: `https = 8081` under `[ports]`, the port of the proxy's
+service. `https = 0` turns JMAP off, and with it this requirement.
+
+### `jmap.trusted: is required with jmap.mode "proxy": the addresses or CIDRs of the proxies`
+
+**Why**: `X-Forwarded-For` and `X-Forwarded-Proto` are believed only
+from a proxy you name; without the list every login would count against
+the proxy's own address, or against whatever a client wrote.
+
+**Fix**: the proxy's address, or its Docker network:
+`trusted = ["172.18.0.0/16"]`.
+
+### `jmap.trusted: is only for jmap.mode "proxy"`
+
+**When**: `trusted` is set with `mode = "https"`, the default, where the
+client is the TCP peer and no header is read.
+
+**Fix**: remove it, or set `mode = "proxy"`.
+
+## Proxies
+
+The list of `jmap.trusted` and `proxyProtocol.trusted`: IPv4 and IPv6
+addresses and CIDRs. A problem names the entry by its place, `[0]` the
+first, and never repeats it.
+
+### `….trusted: must list the addresses or CIDRs of the proxies, at least one`
+
+**When**: `trusted` is empty, or is not an array (`trusted =
+"10.0.0.5"`).
+
+**Fix**: `trusted = ["10.0.0.5", "172.18.0.0/16"]`.
+
+### `….trusted[…]: is neither an IP address nor a CIDR`
+
+**When**: an entry is a host name (`proxy.example.com`), a malformed
+address, an address with a zone (`fe80::1%eth0`: a zone names an
+interface of this host, not a peer), or has more than one `/`.
+
+**Fix**: the address the proxy connects from. A name could resolve to
+anyone, so none is taken.
+
+### `….trusted[…]: has a prefix length out of range`
+
+**When**: a prefix past 32 for IPv4 or 128 for IPv6, one that is not a
+number, or one below 96 for an IPv4-mapped address
+(`::ffff:10.0.0.0/8`).
+
+**Fix**: `10.0.0.0/8`, or `::ffff:10.0.0.0/104` for the same mapped.
+
+### `….trusted[…]: has a prefix length of 0, which trusts every peer`
+
+**When**: `0.0.0.0/0`, `::/0`. Every peer trusted is no proxy at all: any
+client could name any address it liked.
+
+**Fix**: the proxy's own network, as narrow as it goes.
+
+### `….trusted[…]: is not a string`
+
+**When**: an entry is a number, a boolean, a table.
+
+**Fix**: quote it: `"10.0.0.5"`.
+
+### `proxyProtocol.trusted: is required: the addresses or CIDRs of the proxies, or remove [proxyProtocol] to turn it off`
+
+**When**: `[proxyProtocol]` is in the file with no `trusted`.
+
+**Fix**: list the proxies, or remove the table: the PROXY protocol is
+off without it, and the mail ports see each client's own address.
 
 ## The environment
 
@@ -1210,8 +1321,9 @@ Remove `[acme]`, which `"files"` refuses.
 
 ### `… cannot listen on …:… (…)`
 
-`mx`, `imaps` or `imap` could not bind its port; the reason is Bun's.
-Exit code 5, with what was opened closed again.
+A listener (`mx`, `submissions`, `submission`, `imaps`, `imap`, `https`
+or `health`) could not bind its port; the reason is Bun's. Exit code 5,
+with what was opened closed again.
 
 - `Failed to listen at …: EADDRINUSE`: another process holds the port —
   another mail server, or a `bumail serve` already running. Stop it, or
@@ -1219,7 +1331,16 @@ Exit code 5, with what was opened closed again.
 - `EACCES`: ports under 1024 need privileges. Run as root in a
   container, or give Bun the capability:
   `setcap cap_net_bind_service=+ep "$(command -v bun)"`.
-- `EADDRNOTAVAIL`: `bind` is an address this host does not have.
+- `EADDRNOTAVAIL`: `bind` (`jmap.bind` for `https`, `health.bind` for
+  `health`) is an address this host does not have.
+
+### `behind a proxy, a client's address is known only on a TCP socket: bind to an IP address, not a unix socket`
+
+The reason of `https cannot listen on …` with `jmap.mode = "proxy"`:
+the listener has no client address to count logins by, so it would put
+every client in one bucket of the failure limiter, one guesser blocking
+all. `serve` refuses to start, exit code 5. Reached only from code
+(`check-config` takes an IP address as `jmap.bind`): bind to one.
 
 ### `tls.cert … cannot be read (…)`
 
@@ -1425,13 +1546,63 @@ bumail domain add example.com
 ### `imaps: login refused from …: …`
 
 In the log (`imap:` for port 143, `submissions:` and `submission:` for
-465 and 587), for every login refused, with why: `password`,
+465 and 587, `https:` for JMAP), for every login refused, with why: `password`,
 `unknown` (no such user), `disabled`, `blocked` (the failure limiter:
 10 failures within 15 minutes), `malformed` or `busy`. The client is
 told only `NO`, except on `busy`, where it gets `NO [UNAVAILABLE]
 Temporary authentication failure` and may try again soon. The password
-is never logged. An SMTP client gets `535` (`454` on `busy`). See
-[logins](directory.md#logins).
+is never logged. An SMTP client gets `535` (`454` on `busy`), a JMAP
+client a 401 (a 503 on `busy`). See [logins](directory.md#logins).
+
+### `https: error in a request from …: …`
+
+In the log: the store or the directory failed during a JMAP request, or
+the hook that checks the login threw or did not answer in 30 seconds.
+The client got a 503, or a `serverFail` for a method; the reason has any
+store password masked. Check the store (`store.url`) and the disk.
+
+### `https: a request with no client address was refused`
+
+In the log: a JMAP request reached the listener with no peer address
+(a unix socket). It is answered with a 500 and never counted in the
+limiter, whose one shared bucket would let one client block all. On a TCP
+port this does not happen; see [`behind a proxy, a client's address is
+known only on a TCP socket`](#behind-a-proxy-a-clients-address-is-known-only-on-a-tcp-socket-bind-to-an-ip-address-not-a-unix-socket).
+
+### `Basic authentication is refused on a clear connection: use HTTPS`
+
+The 403 of JMAP: Basic was sent over a connection the server does not
+take for TLS, and is refused before the password is read.
+
+- **Direct** (`jmap.mode = "https"`): the client used `http:` on the
+  HTTPS port, which Bun does not serve, or a test tool did. Use
+  `https:`.
+- **Behind a proxy**: the request did not come from a `jmap.trusted`
+  peer, or the proxy did not send `X-Forwarded-Proto: https`. Check that
+  the proxy's address is in `trusted` (the log shows nothing for the
+  403; look at the address Traefik connects from, on its network), and
+  that it ends TLS and sets the header, as Traefik does.
+
+### `https: login refused from …: blocked`, with the proxy's address
+
+Every login behind the proxy is `blocked` after a few failures, from an
+address that is Traefik's. The server counted the proxy, not the
+clients: the peer is not in `jmap.trusted` (so `X-Forwarded-For` was
+ignored), or the proxy sends no `X-Forwarded-For`. Put the proxy's
+address or network in `trusted`; the logged `<ip>` is then each
+client's.
+
+### `health: unhealthy: …`
+
+In the log, and as a 503 from `GET /healthz`: a part of the server is
+not well. `<parts>` lists, comma-separated, the listeners (`mx`,
+`submissions`, `submission`, `imaps`, `imap`, `https`) that are not up,
+`directory` when a lookup in the SQLite file failed, `store` when the
+mail store did not answer in 3 seconds or failed. `curl
+http://127.0.0.1:8080/healthz` shows each part. A store down is the
+usual one: check `store.url` and the database. The log says `health:
+healthy again` when it is 200 again; a failure is logged once, not at
+each look. The queue is not part of the check.
 
 ### `mx: error in a session from …: …`
 

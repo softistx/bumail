@@ -114,6 +114,7 @@ export function assemble(
 		spool: opened.spool,
 		log: opened.log,
 		inflight,
+		up: new Set(),
 		imaps,
 		...shared,
 		queue: outbound(opened, shared, options.outbound),

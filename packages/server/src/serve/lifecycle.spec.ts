@@ -57,11 +57,15 @@ describe('serve: starting', () => {
 			/^bumail: submission listening on 0\.0\.0\.0:\d+: submission with STARTTLS/,
 		);
 		expect(f.lines[4]).toMatch(/^bumail: imaps listening on 0\.0\.0\.0:\d+: /);
-		expect(f.lines.slice(5, 8)).toEqual([
-			'bumail: https (port 443) arrives in a later slice; not listening',
+		expect(f.lines[5]).toMatch(
+			/^bumail: https listening on 0\.0\.0\.0:\d+: JMAP over HTTPS: Basic auth for the users of the directory$/,
+		);
+		expect(f.lines[6]).toMatch(
+			/^bumail: health listening on 127\.0\.0\.1:\d+: health check, GET \/healthz: 200 when every listener is up and the directory and the store answer, else 503$/,
+		);
+		expect(f.lines[7]).toBe(
 			'bumail: http (port 80) arrives in a later slice; not listening',
-			'bumail: health (port 8080) arrives in a later slice; not listening',
-		]);
+		);
 		expect(f.lines.at(-1)).toBe('bumail: stopped');
 	});
 
@@ -289,6 +293,8 @@ describe('serve: stopping', () => {
 				`submissions = ${freePort()}`,
 				`submission = ${freePort()}`,
 				`imaps = ${freePort()}`,
+				`https = ${freePort()}`,
+				`health = ${freePort()}`,
 				'[smarthost]',
 				'host = "smtp.example.net"',
 				'username = "relay-user"',
@@ -307,12 +313,12 @@ describe('serve: stopping', () => {
 		let out = '';
 		const reader = proc.stdout.getReader();
 		const end = Date.now() + 10_000;
-		while (!out.includes('imaps listening') && Date.now() < end) {
+		while (!out.includes('health listening') && Date.now() < end) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			out += decoder.decode(value);
 		}
-		if (!out.includes('imaps listening')) {
+		if (!out.includes('health listening')) {
 			// It ended, or never got there: say why, from its standard error.
 			proc.kill('SIGKILL');
 			const err = await new Response(proc.stderr).text();
