@@ -73,6 +73,14 @@ and bounded. Each comes out once the store contract grows it.
 
 Merged, not yet published.
 
+- **`@alxia/core` 0.3.1** — the peer range moves from `^0.3.0` to
+  `^0.3.1`, whose `parseRange` answers a range of an empty file as RFC
+  9110 does: the server no longer works around it. Downloads answer as
+  before: a suffix range of an empty blob serves it whole, `bytes=0-` and
+  `bytes=-0` are a 416 with `bytes */0`.
+
+### 0.3.0
+
 - **An OpenAPI 3.1 document of the routes** — `@bumail/jmap/openapi.json`
   describes the session, the API's Request and Response envelopes with
   the RFC 8620 problems and method errors, the download with `Range`, the

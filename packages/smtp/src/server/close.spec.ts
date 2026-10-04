@@ -13,7 +13,12 @@ import { Client } from './client.fixtures';
 import { Connection } from './connection';
 import { createSmtpServer, type SmtpServer } from './server';
 import { mxOptions } from './session.fixtures';
-import { CLOSE_GRACE_MS, SocketTransport } from './transport';
+import {
+	CLOSE_GRACE_MS,
+	LINGER_MAX_MS,
+	LINGER_QUIET_MS,
+	SocketTransport,
+} from './transport';
 
 let server: SmtpServer | undefined;
 afterEach(() => {
@@ -98,16 +103,29 @@ async function hungUp(client: Client, reset: number): Promise<boolean> {
 }
 
 /**
- * When the server last read a byte and when it decided to hang up — the
- * moments the bounds below count from. Bun sweeps socket timeouts every
- * 4 seconds, so when an idle time of 1 s is up depends on where the sweeps
+ * When the server last read a byte, when it decided to hang up and when
+ * its socket closed — the moments the bounds below count from. Bun sweeps
+ * socket timeouts every 4 seconds, so when an idle time of 1 s is up depends on where the sweeps
  * fall, which no spec controls; what the server does once it is up does
  * not.
  */
-const events = { lastByte: 0, hangUps: [] as number[] };
+const events = {
+	lastByte: 0,
+	hangUps: [] as number[],
+	closes: [] as number[],
+};
 const { receive } = Connection.prototype;
-const { abort } = SocketTransport.prototype;
+const { abort, closed: transportClosed } = SocketTransport.prototype;
+/** Transports already closed: `stop(true)` calls `closed()` a second time. */
+const seenClosed = new WeakSet<SocketTransport>();
 beforeAll(() => {
+	SocketTransport.prototype.closed = function () {
+		if (!seenClosed.has(this)) {
+			seenClosed.add(this);
+			events.closes.push(performance.now());
+		}
+		transportClosed.call(this);
+	};
 	Connection.prototype.receive = function (chunk) {
 		events.lastByte = performance.now();
 		receive.call(this, chunk);
@@ -120,11 +138,44 @@ beforeAll(() => {
 afterAll(() => {
 	Connection.prototype.receive = receive;
 	SocketTransport.prototype.abort = abort;
+	SocketTransport.prototype.closed = transportClosed;
 });
 
 /**
+ * How soon after its decision the server's socket closes, as its `close`
+ * handler reports. Measured 30 runs each on macOS and on Linux
+ * (`oven/bun:1.4.2`), three copies at once beside 12 busy cores: a
+ * hang-up with replies queued, which resets, closed 0.1 to 12.1 ms after
+ * it; one lingering over a client gone quiet, 20.4 to 37.5 ms after; over
+ * a client still sending, 20.5 to 509.8 ms after, so 10 ms past
+ * `LINGER_MAX_MS` at most. Under load such a client can pause for 20 ms,
+ * and the linger half-closes then, before `LINGER_MAX_MS`: only the quiet
+ * time bounds it from below.
+ */
+const AT_ONCE_MS = 100;
+/** How long past `LINGER_MAX_MS` the socket may close, for CI. */
+const LATE_MS = 250;
+
+/**
+ * It lingered — never a half-close at once over unread input — then
+ * half-closed once the client went quiet, before it would have reset.
+ * A millisecond off the quiet time, for the timer's rounding.
+ */
+function closedWhenQuiet(ms: number): void {
+	expect(ms).toBeGreaterThanOrEqual(LINGER_QUIET_MS - 1);
+	expect(ms).toBeLessThan(LINGER_MAX_MS);
+}
+
+/** It lingered, and closed by `LINGER_MAX_MS`: quiet, or reset there. */
+function closedByMax(ms: number): void {
+	expect(ms).toBeGreaterThanOrEqual(LINGER_QUIET_MS - 1);
+	expect(ms).toBeLessThan(LINGER_MAX_MS + LATE_MS);
+}
+
+/**
  * The idle time is up for `clients` connections, and each is counted out at
- * once, not after `CLOSE_GRACE_MS`: their slots are free.
+ * once, not after `CLOSE_GRACE_MS`: their slots are free, and each socket
+ * closed within `AT_ONCE_MS` of its hang-up.
  */
 async function countedOut(clients: number): Promise<number> {
 	// Two sweeps after the last byte read at most, and a margin for CI.
@@ -135,6 +186,11 @@ async function countedOut(clients: number): Promise<number> {
 	expect(decided - events.lastByte).toBeLessThan(8_000 + 1_000);
 	expect(await within(1_000, () => server?.connections === 0)).toBe(true);
 	expect(performance.now() - decided).toBeLessThan(CLOSE_GRACE_MS);
+	// With replies queued, the hang-up resets: each socket closed at once.
+	for (let i = 0; i < clients; i++) {
+		const closed = events.closes[i] as number;
+		expect(closed - (events.hangUps[i] as number)).toBeLessThan(AT_ONCE_MS);
+	}
 	return decided;
 }
 
@@ -142,6 +198,7 @@ describe('a client that never reads is still disconnected', () => {
 	beforeEach(() => {
 		events.lastByte = 0;
 		events.hangUps = [];
+		events.closes = [];
 	});
 
 	test('idle timeout: the connection is counted out at once, and the socket closed', async () => {
@@ -243,12 +300,13 @@ describe('a hang-up while the server paused reading', () => {
 			sending.set(client, performance.now());
 			client.write(EHLOS);
 			expect(await within(1_000, closed)).toBe(true);
+			closedWhenQuiet(times.closed - times.decided);
 			expect(await hungUp(client, times.closed)).toBe(true);
 		});
 	});
 
 	test('completes at once, and a client that stopped sending reads the 421, then the end', async () => {
-		await pausedServer(async (port, closed) => {
+		await pausedServer(async (port, closed, times) => {
 			// node:net, whose pause leaves what the server sends in the kernel.
 			const client = connect({ host: '127.0.0.1', port });
 			try {
@@ -267,6 +325,7 @@ describe('a hang-up while the server paused reading', () => {
 				client.pause();
 				client.write('NOOP\r\n'.repeat(175_000));
 				expect(await within(1_000, closed)).toBe(true);
+				closedWhenQuiet(times.closed - times.decided);
 				client.resume();
 				expect(
 					await within(2_000, () => seen.ended || seen.failed !== undefined),
@@ -298,7 +357,7 @@ describe('a hang-up while the server paused reading', () => {
 				client.on('drain', send);
 				send();
 				expect(await within(2_000, closed)).toBe(true);
-				expect(times.closed - times.decided).toBeLessThan(1_000);
+				closedByMax(times.closed - times.decided);
 				expect(await within(1_000, () => text.includes('421 closing'))).toBe(
 					true,
 				);
@@ -336,12 +395,16 @@ describe('a hang-up the server decides while it paused reading', () => {
 			pause.call(this);
 		};
 		try {
+			events.hangUps = [];
+			events.closes = [];
 			client.write(`EHLO a\r\nMAIL FROM:<a@b.com>\r\n${pair.repeat(10_000)}`);
 			expect(await within(2_000, () => rcpts >= 5)).toBe(true);
 			expect(pauses).toBeGreaterThan(0);
 			const decided = performance.now();
 			expect(await within(1_000, () => server?.connections === 0)).toBe(true);
 			expect(performance.now() - decided).toBeLessThan(1_000);
+			// The flood comes every 20 ms: quiet, or reset at LINGER_MAX_MS.
+			closedByMax((events.closes[0] as number) - (events.hangUps[0] as number));
 			await Bun.sleep(200);
 			// Nothing pipelined behind the hang-up ran.
 			expect(rcpts).toBe(5);

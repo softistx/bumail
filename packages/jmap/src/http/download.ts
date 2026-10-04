@@ -74,13 +74,7 @@ export async function handleDownload(
 		'accept-ranges': 'bytes',
 	});
 	const range = request.headers.get('range');
-	const asked = range === null ? undefined : parseRange(range, blob.size);
-	// A suffix range of an empty blob is satisfiable (RFC 9110 §14.1.1), so
-	// not a 416, yet no 206 can describe zero bytes: §14.2 lets the server
-	// ignore it, and the empty blob is served whole. alxia's parseRange
-	// answers it as `bytes 0--1/0` until its next patch.
-	const parsed =
-		blob.size === 0 && typeof asked === 'object' ? undefined : asked;
+	const parsed = range === null ? undefined : parseRange(range, blob.size);
 	if (parsed === 'unsatisfiable') {
 		// An error, not the blob: never cached, with none of the blob's
 		// headers, and no body, so no Content-Type.

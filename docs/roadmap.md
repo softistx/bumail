@@ -18,26 +18,31 @@ No dates. Each entry says what someone running or embedding the server gets.
   0.1.0 (see Shipped). What remains: queryChanges, push via EventSource,
   then Identity and EmailSubmission through `@bumail/smtp/client`. Any JMAP
   client speaks it; bumail ships no client of its own.
+- **The server app, `@bumail/server`** — the packages wired into one
+  process, run as the `bumail` command: SMTP on 25 (MX), 465
+  (submission over implicit TLS) and 587 (submission with STARTTLS), IMAP
+  on 993, JMAP over HTTPS on 443, the queue delivering out, and
+  certificates obtained and renewed through ACME (HTTP-01 on port 80).
+  **Never an open relay** — mail for a domain it does not host is taken
+  only from an authenticated session — and **AUTH only after TLS**, for
+  SMTP, IMAP and JMAP alike. Domains, accounts, aliases and DKIM keys
+  managed by the command; a health check. It consumes alxia's published
+  packages, not a link to its working tree, so bumail's CI never depends
+  on another repository's checkout. In progress, and private until it
+  serves mail: its configuration — one TOML file, checked whole by
+  `bumail check-config`, the environment overriding URLs and secrets
+  only — is merged; the steps that follow are in
+  [its roadmap](../packages/server/docs/roadmap.md).
 
 ## Next
 
-- **The server app** — the packages wired into one process: SMTP on 25
-  (MX), 465 (submission over implicit TLS) and 587 (submission with
-  STARTTLS), IMAP on 993, JMAP over HTTPS on 443, the queue delivering
-  out, and certificates obtained and renewed through ACME. **Never an open
-  relay** — mail for a domain it does not host is taken only from an
-  authenticated session — and **AUTH only after TLS**, for SMTP, IMAP and
-  JMAP alike. An admin API for domains, accounts, aliases and DKIM keys;
-  health and metrics. It consumes alxia's published packages, not a link
-  to its working tree, so bumail's CI never depends on another
-  repository's checkout.
 - **`@bumail/acme`, the client** — on the primitives merged below: the
   directory, nonces, the account, an order, HTTP-01 challenges answered
   on port 80, finalize and the certificate chain, tested against Pebble,
   Let's Encrypt's test CA. The server app obtains and renews its
   certificates through it. DNS-01, and with it wildcard names, later.
 - **A Docker image, all in one** — the server app in one container: ports
-  25, 465, 587, 993 and 443, and one volume for the mail, the queue and
+  25, 465, 587, 993, 443 and 80, and one volume for the mail, the queue and
   the certificates. Its guide says what sending mail from a container
   takes: many cloud hosts and home connections block outbound port 25,
   and receiving servers distrust an address without reverse DNS (a PTR
@@ -65,7 +70,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   records (name, type, value, TTL) for a provider's API. Each record value
   comes from the package that reads it — `@bumail/auth` writes the SPF,
   DKIM and DMARC values it would itself accept — and `@bumail/dns` writes
-  the zone file. The admin API of the server app serves them per domain.
+  the zone file. The server app's `bumail dns` prints them per domain.
 - **`@bumail/smtp`, connection reuse** — several messages to one
   destination over one session, for the queue to deliver in batches.
 - **A blob store, apart from the mailbox store** — message bytes kept
@@ -106,28 +111,29 @@ No dates. Each entry says what someone running or embedding the server gets.
   RSA through Web Crypto on a DER writer of its own; the flattened JWS
   every ACME request is (ES256, RS256); the JWK thumbprint, key
   authorizations and the HTTP-01 path; keys written as PKCS #8 PEM that
-  Bun's TLS takes. Its own package, with no required peer, so a server can obtain
-  certificates with nothing else of bumail.
-- **`@bumail/store`, a PostgreSQL store**, as `@bumail/store/postgres` —
-  the store contract on PostgreSQL through Bun's own `Bun.sql`, so it
-  peers on no driver, as the queue's does, for a server that runs as
-  several instances sharing its mail. Every write locks its account's
-  row first, so modseqs and UIDs are given once each and in order from
-  any instance, and a client following the changes misses none. Message
-  bytes are kept in the database for now; the blob store, below, will
-  let them live on the disk or in S3. Held to the same contract specs as
-  the memory and `bun:sqlite` stores.
+  Bun's TLS takes. Its own package, with no required peer, so a server
+  can obtain certificates with nothing else of bumail.
 
 ### Published
 
+- **`@bumail/store`, a PostgreSQL store**, in store 0.4.0, as
+  `@bumail/store/postgres` — the store contract on PostgreSQL through
+  Bun's own `Bun.sql`, so it peers on no driver, as the queue's does, for
+  a server that runs as several instances sharing its mail. Every write
+  locks its account's row first, so modseqs and UIDs are given once each
+  and in order from any instance, and a client following the changes
+  misses none. Message bytes are kept in the database for now; the blob
+  store, under Next above, will let them live on the disk or in S3. Held
+  to the same contract specs as the memory and `bun:sqlite` stores.
 - **`@bumail/queue`, a Redis store**, in queue 0.3.0, as
   `@bumail/queue/redis` — the `QueueStore` contract on Redis through
   Bun's own `Bun.redis`, so several server instances, on several
-  machines, share one queue with no driver to install. Every operation that writes is one Lua script,
-  which Redis runs whole, so two instances never take the same item, and
-  a crashed instance's items are claimed again once their leases expire.
-  One Redis, or a primary with replicas, not Cluster; its durability is
-  Redis's, as the queue's guide spells out.
+  machines, share one queue with no driver to install. Every operation
+  that writes is one Lua script, which Redis runs whole, so two instances
+  never take the same item, and a crashed instance's items are claimed
+  again once their leases expire. One Redis, or a primary with replicas,
+  not Cluster; its durability is Redis's, as the queue's guide spells
+  out.
 - **`@bumail/queue`, a PostgreSQL store**, in queue 0.2.0, as
   `@bumail/queue/postgres` — the `QueueStore` contract on PostgreSQL
   through Bun's own `Bun.sql`, so several server instances, on several
@@ -166,7 +172,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   not exactly one mailbox) gets `permerror` with disposition `reject`.
   `formatAuthenticationResults` (RFC 8601) writes the three results as one
   field.
-- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.1.1 now) —
+- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.1.2 now) —
   IMAP4rev2 (RFC 9051) on `Bun.listen`, serving any `@bumail/store`:
   STARTTLS and implicit TLS, login only once encrypted, LIST with
   special-use (RFC 6154), SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE,
@@ -189,7 +195,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   keeps addresses for later. *Kept in the same package as the server, on its
   own subpath*: both share the grammar.
 - **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite`, in store
-  0.2.0 (0.3.0 now) — the same contract on disk, held to the same specs,
+  0.2.0 (0.4.0 now) — the same contract on disk, held to the same specs,
   with message bodies as blobs on disk addressed by their hash. One
   process per database, and every write flushed to disk before it is
   acknowledged.
@@ -211,12 +217,12 @@ No dates. Each entry says what someone running or embedding the server gets.
   Delivery goes through the `onData` hook — into `@bumail/store`, or
   wherever the app keeps mail — and the server **refuses to relay without
   AUTH** in every default.
-- **`@bumail/store`, its contract and memory store**, in store 0.1.0 (0.3.0 now) —
-  accounts, mailboxes with the IANA roles and a subscription, messages
-  with one id across mailboxes, a thread and a UID in each, flags, and the
-  changes since a modseq, for the account or one mailbox, behind one
-  interface, every call scoped to one account. It is where the SMTP
-  server's `onData` delivers.
+- **`@bumail/store`, its contract and memory store**, in store 0.1.0
+  (0.4.0 now) — accounts, mailboxes with the IANA roles and a
+  subscription, messages with one id across mailboxes, a thread and a UID
+  in each, flags, and the changes since a modseq, for the account or one
+  mailbox, behind one interface, every call scoped to one account. It is
+  where the SMTP server's `onData` delivers.
 - **`@bumail/dns`**, in dns 0.1.0 (0.1.1 now) — the DNS answers the other
   packages need (MX, TXT, A, AAAA, PTR) behind one small interface:
   `node:dns` in production, a fixture in specs, with a cache that honours

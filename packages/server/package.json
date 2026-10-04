@@ -1,15 +1,18 @@
 {
-	"name": "@bumail/jmap",
-	"version": "0.3.1",
-	"description": "A JMAP server (RFC 8620, RFC 8621) on alxia: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any @bumail/store",
+	"name": "@bumail/server",
+	"version": "0.0.0",
+	"private": true,
+	"description": "The bumail mail server: the @bumail/* packages wired into one process, configured by one TOML file, run as the bumail command",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
+	"bin": {
+		"bumail": "./dist/main.js"
+	},
 	"files": [
 		"dist",
 		"docs",
-		"openapi",
 		"README.md",
 		"package.json",
 		"LICENSE"
@@ -20,13 +23,12 @@
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
 		},
-		"./openapi.json": "./openapi/jmap.json",
 		"./package.json": "./package.json"
 	},
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/softistx/bumail.git",
-		"directory": "packages/jmap"
+		"directory": "packages/server"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org",
@@ -39,21 +41,14 @@
 	},
 	"bumail": {
 		"entrypoints": [
-			"src/index.ts"
+			"src/index.ts",
+			"src/main.ts"
 		]
 	},
 	"devDependencies": {
-		"@alxia/core": "^0.3.1",
-		"@alxia/openapi-routes": "^0.2.0",
-		"@bumail/mime": "workspace:^",
-		"@bumail/store": "workspace:^",
-		"@types/bun": "^1.4.2",
-		"jmap-jam": "^0.13.8"
+		"@types/bun": "^1.4.2"
 	},
 	"peerDependencies": {
-		"@alxia/core": "^0.3.1",
-		"@bumail/mime": "workspace:^",
-		"@bumail/store": "workspace:^",
 		"typescript": "^6.0.3 || ^7.0.0"
 	},
 	"peerDependenciesMeta": {
