@@ -1,4 +1,5 @@
 import { sendMail } from '@bumail/smtp/client';
+import { checkOwner } from '../../contract/checks';
 import { invalid } from '../../errors';
 import type { QueueOptions, Route, Sender } from '../options';
 import { type DsnSettings, dsnOf } from './dsn';
@@ -52,10 +53,7 @@ export function settingsOf(options: QueueOptions): Settings {
 	}
 	checkRoutes(options);
 	checkSessions(options);
-	const owner = options.owner ?? crypto.randomUUID();
-	if (typeof owner !== 'string' || owner === '') {
-		throw invalid('owner must be a non-empty string');
-	}
+	const owner = checkOwner(options.owner ?? crypto.randomUUID());
 	const clock = options.clock;
 	return {
 		options,

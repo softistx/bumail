@@ -1,11 +1,14 @@
 import { invalid } from '../errors';
+import { isStorable } from '../text';
 import type {
 	AttemptResult,
 	ClaimRequest,
+	Diagnostic,
 	NewQueueItem,
 	QueueItem,
 	QueueListOptions,
 	RecipientState,
+	RecipientUpdate,
 } from './types';
 
 /** What every store checks the same way, so each refuses the same input with the same error. */
@@ -19,12 +22,48 @@ export function checkTime(name: string, value: unknown): number {
 	return value;
 }
 
+/**
+ * Text a store keeps: refused, the same way by every store, when it holds
+ * a NUL or a lone surrogate, which PostgreSQL cannot keep and no UTF-8
+ * encode can carry.
+ */
+export function checkStorable(name: string, text: string): void {
+	if (!isStorable(text)) {
+		throw invalid(
+			`${name} holds a NUL or a lone surrogate, which a store cannot keep`,
+		);
+	}
+}
+
 /** A lease owner: a non-empty string. */
 export function checkOwner(owner: unknown): string {
 	if (typeof owner !== 'string' || owner === '') {
 		throw invalid('owner must be a non-empty string');
 	}
+	checkStorable('owner', owner);
 	return owner;
+}
+
+/** Every text of a recipient's outcome. */
+function checkUpdate(update: RecipientUpdate): void {
+	checkStorable('A recipient', update.address);
+	const reply = update.reply as Partial<Diagnostic> | undefined;
+	if (reply === undefined) return;
+	if (
+		typeof reply !== 'object' ||
+		reply === null ||
+		typeof reply.text !== 'string'
+	) {
+		throw invalid('A reply is an object with a text');
+	}
+	checkStorable('reply.text', reply.text);
+	for (const name of ['status', 'host'] as const) {
+		const value = reply[name];
+		if (value === undefined) continue;
+		if (typeof value !== 'string')
+			throw invalid(`reply.${name} must be a string`);
+		checkStorable(`reply.${name}`, value);
+	}
 }
 
 export function checkNewItem(item: NewQueueItem): void {
@@ -32,6 +71,7 @@ export function checkNewItem(item: NewQueueItem): void {
 		throw invalid('A new item is an object');
 	}
 	if (typeof item.from !== 'string') throw invalid('from must be a string');
+	checkStorable('from', item.from);
 	const to = item.to as unknown;
 	if (
 		!Array.isArray(to) ||
@@ -40,6 +80,7 @@ export function checkNewItem(item: NewQueueItem): void {
 	) {
 		throw invalid('to must be a non-empty array of addresses');
 	}
+	for (const address of to as string[]) checkStorable('A recipient', address);
 	if (!(item.message instanceof Uint8Array)) {
 		throw invalid('message must be a Uint8Array');
 	}
@@ -89,6 +130,7 @@ export function checkResult(result: AttemptResult): void {
 			'recipients must be an array of { address, status: delivered, deferred or failed }',
 		);
 	}
+	for (const update of result.recipients) checkUpdate(update);
 }
 
 /** The offset and limit of a list: integers, the limit 1 to 1000. */

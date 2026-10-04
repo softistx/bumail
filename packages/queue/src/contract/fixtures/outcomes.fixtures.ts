@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { AttemptResult } from '../types';
-import { entry, MINUTE, type StoreFactories, T0 } from './setup.fixtures';
+import {
+	entry,
+	MINUTE,
+	rejects,
+	type StoreFactories,
+	T0,
+} from './setup.fixtures';
 
 const lease = { leaseMs: 10 * MINUTE };
 
@@ -17,6 +23,7 @@ const result = (overrides: Partial<AttemptResult> = {}): AttemptResult => ({
 export function describeOutcomes(factories: StoreFactories): void {
 	describe('outcomes', () => {
 		recording(factories);
+		refusing(factories);
 		finality(factories);
 	});
 }
@@ -94,6 +101,58 @@ function recording({ create }: StoreFactories): void {
 		expect(await store.get(item.id)).toBeUndefined();
 		expect(await store.readMessage(item.id)).toBeUndefined();
 		expect(await store.count()).toBe(0);
+	});
+}
+
+function refusing({ create }: StoreFactories): void {
+	test('an outcome holding a NUL or a lone surrogate is refused, and the item stays as it was', async () => {
+		const store = await create();
+		const item = await store.add(entry());
+		await store.claim({ owner: 'w1', now: T0, ...lease });
+		const bad = [
+			{ code: 451, text: `${'a'.repeat(8)}\ud83d` },
+			{ code: 451, text: 'nul \u0000 here' },
+			{ code: 451, text: 'ok', host: 'mx\udc00.example.com' },
+			{ code: 451, status: '4.3.0\u0000', text: 'ok' },
+		];
+		for (const reply of bad) {
+			await rejects(
+				store.complete(
+					item.id,
+					'w1',
+					result({
+						recipients: [
+							{ address: 'joe@example.com', status: 'deferred', reply },
+						],
+					}),
+				),
+				'INVALID',
+			);
+		}
+		await rejects(
+			store.claim({ owner: 'w\ud800', now: T0, ...lease }),
+			'INVALID',
+		);
+		const stored = await store.get(item.id);
+		expect(stored?.attempts).toBe(0);
+		expect(stored?.lease?.owner).toBe('w1');
+		const done = await store.complete(
+			item.id,
+			'w1',
+			result({
+				recipients: [
+					{
+						address: 'joe@example.com',
+						status: 'deferred',
+						reply: { code: 451, text: 'Try later 😀' },
+					},
+				],
+			}),
+		);
+		expect(done?.recipients[0]?.reply?.text).toBe('Try later 😀');
+		expect((await store.get(item.id))?.recipients[0]?.reply?.text).toBe(
+			'Try later 😀',
+		);
 	});
 }
 

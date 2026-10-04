@@ -20,6 +20,7 @@ import type {
 	QueueListOptions,
 } from '../contract/types';
 import { QueueError } from '../errors';
+import { isStorable } from '../text';
 import { type Connection, connect, type Tables } from './connect';
 import type {
 	PostgresClient,
@@ -139,6 +140,7 @@ export class PostgresQueueStore implements QueueStore {
 	}
 
 	async get(id: string): Promise<QueueItem | undefined> {
+		if (!isStorable(id)) return undefined;
 		const [row] = await this.#rows<ItemRow>(this.#q.get, [id]);
 		return row ? itemOf(row) : undefined;
 	}
@@ -155,6 +157,7 @@ export class PostgresQueueStore implements QueueStore {
 	}
 
 	async readMessage(id: string): Promise<Uint8Array | undefined> {
+		if (!isStorable(id)) return undefined;
 		const [row] = await this.#rows<{ content: Uint8Array }>(this.#q.message, [
 			id,
 		]);
@@ -175,6 +178,7 @@ export class PostgresQueueStore implements QueueStore {
 	async renew(id: string, owner: string, expiresAt: number): Promise<boolean> {
 		checkOwner(owner);
 		checkTime('expiresAt', expiresAt);
+		if (!isStorable(id)) return false;
 		const rows = await this.#rows(this.#q.renew, [expiresAt, id, owner]);
 		return rows.length > 0;
 	}
@@ -186,6 +190,7 @@ export class PostgresQueueStore implements QueueStore {
 	): Promise<QueueItem | undefined> {
 		checkOwner(owner);
 		checkResult(result);
+		if (!isStorable(id)) return undefined;
 		const sql = await this.#sql();
 		const q = this.#q;
 		let done: QueueItem | undefined;
@@ -211,6 +216,7 @@ export class PostgresQueueStore implements QueueStore {
 
 	async reschedule(id: string, at: number, owner?: string): Promise<boolean> {
 		checkTime('at', at);
+		if (!isStorable(id)) return false;
 		if (owner === undefined) {
 			return (await this.#rows(this.#q.moveDue, [at, id])).length > 0;
 		}
@@ -219,6 +225,8 @@ export class PostgresQueueStore implements QueueStore {
 	}
 
 	async cancel(id: string): Promise<QueueItem | undefined> {
+		// An id PostgreSQL cannot hold is one no item has.
+		if (!isStorable(id)) return undefined;
 		const [row] = await this.#rows<ItemRow>(this.#q.drop, [id]);
 		return row ? itemOf(row) : undefined;
 	}

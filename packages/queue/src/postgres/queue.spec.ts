@@ -140,6 +140,35 @@ describePostgres('PostgresQueueStore under createQueue', (url) => {
 		expect(await store.count()).toBe(0);
 	});
 
+	test('a reply cut at an emoji is kept: the item moves on, and the accepted recipient gets the message once', async () => {
+		const store = create();
+		const later = reply(451, '4.3.0', `${'a'.repeat(508)}😀 and more`);
+		const { queue, clock, sender, events } = instance(store, 'w', (call) =>
+			accepted(call.options, { 'ann@example.org': later }),
+		);
+		const item = await queue.enqueue(MESSAGE, {
+			from: 'mary@example.net',
+			to: ['joe@example.com', 'ann@example.org'],
+		});
+		expect(await queue.deliverDue()).toBe(1);
+		expect(events.error).toEqual([]);
+		const kept = await store.get(item.id);
+		expect(kept?.attempts).toBe(1);
+		expect(kept?.lease).toBeUndefined();
+		expect(kept?.recipients.map((r) => r.status)).toEqual([
+			'delivered',
+			'deferred',
+		]);
+		expect(kept?.recipients[1]?.reply?.text).toBe(`${'a'.repeat(508)}...`);
+		// Past any lease: nothing comes back to send joe the message again.
+		clock.advance(29 * MINUTE);
+		expect(await queue.deliverDue()).toBe(0);
+		clock.advance(MINUTE);
+		expect(await queue.deliverDue()).toBe(1);
+		const toJoe = sender.calls.filter((c) => c.to.includes('joe@example.com'));
+		expect(toJoe).toHaveLength(1);
+	});
+
 	test('enqueue keeps its limits and checks on PostgreSQL: nothing refused is stored', async () => {
 		const store = create();
 		const { queue } = instance(store, 'w', undefined, {

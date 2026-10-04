@@ -78,7 +78,7 @@ function diagnosticOfError(
 	return {
 		status: `${temporary ? 4 : 5}.${detail}`,
 		text: cleanText(text, max),
-		...(host ? { host } : {}),
+		...(host ? { host: cleanText(host, 255) } : {}),
 	};
 }
 
