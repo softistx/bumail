@@ -52,6 +52,21 @@ function urlOf(value: string | URL): URL {
 	return url;
 }
 
+/** `text` with the password masked, as written in the URL and decoded, if it decodes. */
+function masked(text: string, raw: string): string {
+	let decoded = raw;
+	try {
+		decoded = decodeURIComponent(raw);
+	} catch {
+		// Not percent-encoding Bun reads either: the raw form is what it would repeat.
+	}
+	let out = text;
+	for (const password of [raw, decoded]) {
+		if (password !== '') out = out.replaceAll(password, '…');
+	}
+	return out;
+}
+
 /**
  * A client of the store's own for the URL. `Bun.SQL` refuses some
  * parameters at once (a `sslmode` it does not know): that is `INVALID`,
@@ -62,9 +77,9 @@ function clientFor(url: URL): PostgresClient {
 		return new Bun.SQL(url.href);
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error);
-		const password = decodeURIComponent(url.password);
-		const masked = password === '' ? reason : reason.replaceAll(password, '…');
-		throw invalid(`The URL in sql cannot be opened: ${masked}`);
+		throw invalid(
+			`The URL in sql cannot be opened: ${masked(reason, url.password)}`,
+		);
 	}
 }
 
