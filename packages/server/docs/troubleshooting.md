@@ -173,6 +173,7 @@ directory commands' own refusals are under
 - [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
 - [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
 - [`bumail: the spool folder … is kept: …`](#bumail-the-spool-folder--is-kept-)
+- [`bumail: the spool folder … was removed while in use; made it again`](#bumail-the-spool-folder--was-removed-while-in-use-made-it-again)
 - [`550 5.1.1 User unknown`](#550-511-user-unknown)
 - [`554 5.7.1 Relay access denied`](#554-571-relay-access-denied)
 - [`550 5.7.1 Rejected by the DMARC policy of …`](#550-571-rejected-by-the-dmarc-policy-of-)
@@ -1165,7 +1166,10 @@ created, cleared of what a stopped server left, or given this server's
 folder (`<pid>-<random>`, with its `owner` file): `data` is read-only,
 full, or owned by another user. Exit code 5. Give the server's user a
 writable `data`. A folder is removed only once its `owner` file has
-gone 5 minutes untouched, whichever machine wrote it.
+gone 5 minutes untouched, whichever machine wrote it. A folder with no
+`owner` file — one another server is still making, or one left half
+made — is judged by the folder's own modification time instead, with
+the same 5 minutes.
 
 ### `bumail: the spool folder … is kept: …`
 
@@ -1183,6 +1187,27 @@ starts anyway.
 **Fix**: remove the entry by hand, or give it to the server's user.
 Nothing in it was acknowledged to a sending server, which sends it
 again.
+
+### `bumail: the spool folder … was removed while in use; made it again`
+
+Logged by a running server when its own spool folder was gone: another
+server sharing `data` swept it, judging it left behind. That happens
+when this server's heartbeat stopped for more than 5 minutes — the
+process was paused or suspended (a stopped container, a laptop asleep,
+a debugger) — or when the machines' clocks, or the file server's,
+disagree by more than that. The server makes the folder again, with its
+`owner` file, at its next heartbeat or its next message, whichever comes
+first, and goes on taking mail; it logs this once each time.
+
+No message is lost to it. A message already spooled, or being written,
+is read back through the file the server holds open, so its checks and
+its delivery go on as if the folder were there. A message not yet begun
+finds the folder missing, and its write makes the folder again and is
+tried once more.
+
+**Fix**: if it recurs, keep the clocks within a minute of each other
+with NTP, and do not pause a server for minutes while others share its
+`data`.
 
 ### `550 5.1.1 User unknown`
 
@@ -1215,11 +1240,14 @@ SPF record: the fix is on their side. To take such mail meanwhile,
 
 The From domain's DMARC record, or an aligned check, could not be had:
 its DNS did not answer within the bound. Or DKIM did not finish within
-10 seconds while DMARC would otherwise refuse or quarantine the message:
-a signature that would have passed may be among those not checked. The
-log says `deferred: DMARC or DKIM did not finish`. The sending server
-tries again. Only with `inbound.dmarc = "enforce"`; with `"mark"` the message
-is delivered. Repeated for every domain: check this host's resolver.
+10 seconds, or could not read the message back from the spool (a failure
+of this server's disk, never of the message), while DMARC would
+otherwise refuse or quarantine the message: a signature that would have
+passed may be among those not checked. The log says `deferred: DMARC or
+DKIM did not finish`, with `dkim=temperror` in its results. The sending
+server tries again. Only with `inbound.dmarc = "enforce"`; with `"mark"`
+the message is delivered. Repeated for every domain: check this host's
+resolver.
 
 ### `550 5.7.1 The From field cannot be evaluated for DMARC: none, several, or not one mailbox`
 
@@ -1266,9 +1294,11 @@ line break (`550 5.6.11`); a lost connection gets no reply at all.
 ### `451 4.3.0 Local error in processing`
 
 What a sending server is told when the store or the directory failed
-during its session, or a check ran past the 60 seconds the SMTP server
-gives it. It tries again later. The log has the reason, as
-[`mx: error in a session from …`](#mx-error-in-a-session-from--).
+during its session, the message's spooled file could not be read back
+while it was delivered (a failure of this server's disk), or a check ran
+past the 60 seconds the SMTP server gives it. It tries again later. The
+log has the reason, as [`mx: error in a session from
+…`](#mx-error-in-a-session-from--).
 
 ### `421 4.3.2 … Too many connections, try later`
 
@@ -1288,12 +1318,14 @@ is never logged. See
 
 ### `mx: error in a session from …: …`
 
-In the log: the store or the directory failed during a session, or a
-message's checks and delivery ran past the 60 seconds the SMTP server
-gives its `onData` hook; the reason has any store password masked. The
-SMTP client got `451 4.3.0` and will try again; an IMAP client got
-`NO [UNAVAILABLE]`, or `NO [SERVERBUG]` for a failure the IMAP server
-did not expect. Check the store (`store.url`), the disk and the DNS.
+In the log: the store or the directory failed during a session, a
+message's spooled file could not be read back while it was delivered (an
+I/O error of the disk under `<data>/spool`), or a message's checks and
+delivery ran past the 60 seconds the SMTP server gives its `onData`
+hook; the reason has any store password masked. The SMTP client got `451
+4.3.0` and will try again; an IMAP client got `NO [UNAVAILABLE]`, or `NO
+[SERVERBUG]` for a failure the IMAP server did not expect. Check the
+store (`store.url`), the disk and the DNS.
 
 ### `bumail: the mail store did not close cleanly: …`
 

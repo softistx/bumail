@@ -168,7 +168,7 @@ export async function serve(
 ): Promise<RunningServer> {
 	const log = options.log ?? defaultLog;
 	const tls = readTls(config.tls);
-	const spool = Spool.open(config.data, config.inbound.spoolBytes);
+	const spool = Spool.open(config.data, config.inbound.spoolBytes, { log });
 	let directory: Directory;
 	let opened: OpenedStore;
 	try {

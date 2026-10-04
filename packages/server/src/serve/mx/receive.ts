@@ -77,17 +77,13 @@ async function check(
 		return NO_RECIPIENT;
 	}
 	const spf = (await session.data[SPF]) as SpfResult | undefined;
-	const verdict = await judge(
-		{ header, whole: () => Bun.file(spooled.file).stream() },
-		spf,
-		{
-			hostname: ctx.hostname,
-			resolver: ctx.resolver,
-			mode: ctx.inbound.dmarc,
-			// A bounce's SPF is its HELO name's.
-			spfIdentity: envelope.from === '' ? 'helo' : 'mailfrom',
-		},
-	);
+	const verdict = await judge({ header, whole: () => spooled.stream() }, spf, {
+		hostname: ctx.hostname,
+		resolver: ctx.resolver,
+		mode: ctx.inbound.dmarc,
+		// A bounce's SPF is its HELO name's.
+		spfIdentity: envelope.from === '' ? 'helo' : 'mailfrom',
+	});
 	if (verdict.action === 'reject') {
 		log(`mx: ${from} refused by DMARC (${summary(verdict)})`);
 		return verdict.dmarc.result === 'permerror'

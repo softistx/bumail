@@ -119,14 +119,14 @@ Received: from mx.example.org ([192.0.2.10])
 already had is removed, and so is every `Authentication-Results` but
 those plainly from another server (RFC 8601 §5): one is kept only when
 its authserv-id, after comments and folding and unquoted, is an ASCII
-host name (letters, digits, hyphens and dots), followed by nothing but
-a version number and `;`, and is neither `hostname` nor a domain the
+host name (letters, digits, hyphens and dots), followed by nothing but a
+version number and `;`, and is neither `hostname` nor a domain the
 directory hosts — an administrative domain often signs its results with
 its domain — compared in any case, without a trailing dot, as A-labels.
-A field with no authserv-id at all, as some large providers write
-them, is removed too: that is intended, as nothing in it says whose it
-is. `ARC-Authentication-Results` is another field, sealed by ARC
-(RFC 8617) and checked against that seal, so it is kept as is. Anything else — a control or
+A field with no authserv-id at all, as some large providers write them,
+is removed too: that is intended, as nothing in it says whose it is.
+`ARC-Authentication-Results` (RFC 8617) is another field: it is kept as
+is, and bumail does not check ARC. Anything else — a control or
 invisible character, a byte outside ASCII, a fullwidth or look-alike
 letter or dot, an empty id, a field that does not parse — is removed,
 since a reader might take it for your server's and a sender could
@@ -185,21 +185,21 @@ Each message is checked with `@bumail/auth`:
 | fails, `p=reject` | `550 5.7.1 Rejected by the DMARC policy of …` | INBOX |
 | a From it cannot evaluate (none, two, a group) | `550 5.7.1 The From field cannot be evaluated for DMARC: …` | INBOX |
 | `temperror`: the policy could not be looked up | `451 4.7.0 DMARC check failed, try again later` | INBOX |
-| fails, but DKIM did not finish within 10 s | `451 4.7.0 DMARC check failed, try again later` | INBOX |
+| fails, but DKIM did not finish within 10 s, or could not read the message back from the spool | `451 4.7.0 DMARC check failed, try again later` | INBOX |
 
 Either way, the result is written into `Authentication-Results`. SPF on
 its own never refuses a message: forwarding breaks it, and DMARC needs
 only one of SPF and DKIM.
 
 The DNS is the system's resolver, through a cache. Each query has 5
-seconds per try and 2 tries, so 10 seconds at worst. DKIM, SPF and
-DMARC are each cut off after 10 seconds, as `temperror`. SPF runs from
-MAIL FROM, while the message comes, so after the end of DATA the checks
-take 20 seconds at worst (DKIM, then DMARC), within the 60 seconds the
-SMTP server gives its hook. A DKIM cut off cannot pass, so under
-`enforce` a message DMARC would refuse or quarantine is deferred
-instead, as a signature that would have passed may be among those not
-checked.
+seconds per try and 2 tries, so 10 seconds at worst. DKIM, SPF and DMARC
+are each cut off after 10 seconds, as `temperror`. SPF runs from MAIL
+FROM, while the message comes, so after the end of DATA the checks take
+20 seconds at worst (DKIM, then DMARC), within the 60 seconds the SMTP
+server gives its hook. A DKIM cut off, or one that could not read the
+message back from the spool, cannot pass, so under `enforce` a message
+DMARC would refuse or quarantine is deferred instead, as a signature
+that would have passed may be among those not checked.
 
 ## Reading mail over IMAP
 
@@ -269,6 +269,7 @@ bumail: stopped
 | `bumail: <listener> listening on <address>:<port>: …` | at start, one per listener |
 | `bumail: <name> (port <n>) arrives in a later slice; not listening` | at start, for each later port not 0 |
 | `bumail: the spool folder <path> is kept: <reason>` | at start, for an entry under `<data>/spool` whose age cannot be read, or that cannot be removed |
+| `bumail: the spool folder <path> was removed while in use; made it again` | another server swept this one's spool folder (the process was paused past 5 minutes, or the clocks disagree): the next heartbeat, or the next message, made it again |
 | `mx: <id> from <ip> <sender> delivered to <users> (…)` | a message taken; `(Junk)` when quarantined |
 | `mx: <id> … refused by DMARC (…)` | `550 5.7.1`, with `inbound.dmarc = "enforce"` |
 | `mx: <id> … deferred: DMARC or DKIM did not finish (…)` | `451 4.7.0` |

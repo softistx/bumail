@@ -24,12 +24,12 @@ does, and which package does it.
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store, a `bun:sqlite` store on disk and a PostgreSQL store for several instances |
 
 All nine are on npm. The server app that wires them together,
-[`@bumail/server`](./packages/server), is in progress and private until
-it serves mail: so far it reads and checks its configuration
-(`bumail check-config`) and manages its domains, users and aliases
-(`bumail domain`, `user` and `alias`). What comes — the rest of the
-server app, a blob store and a Docker image that runs it — in what
-order and why, is in
+[`@bumail/server`](./packages/server), is private until it is complete:
+so far it reads and checks its configuration (`bumail check-config`),
+manages its domains, users and aliases (`bumail domain`, `user` and
+`alias`), and, with `bumail serve`, receives mail on port 25 and serves
+it over IMAP on 993. What comes — the rest of the server app, a blob
+store and a Docker image that runs it — in what order and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
 
 ## Development
