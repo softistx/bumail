@@ -75,20 +75,28 @@ function watched(source: ReadableStream<Uint8Array>): {
 	failed(): boolean;
 } {
 	let failed = false;
+	let cancelled = false;
 	let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 	const stream = new ReadableStream<Uint8Array>({
 		async pull(controller) {
 			reader ??= source.getReader();
+			let chunk: Awaited<ReturnType<typeof reader.read>>;
 			try {
-				const { done, value } = await reader.read();
-				if (done) controller.close();
-				else controller.enqueue(value);
+				chunk = await reader.read();
 			} catch (error) {
+				// Only a read that fails is the disk's failure; a reader
+				// that stopped early (an unsigned message) is not.
+				if (cancelled) return;
 				failed = true;
 				controller.error(error);
+				return;
 			}
+			if (cancelled) return;
+			if (chunk.done) controller.close();
+			else controller.enqueue(chunk.value);
 		},
 		async cancel(reason) {
+			cancelled = true;
 			await (reader ?? source).cancel(reason);
 		},
 	});
