@@ -430,11 +430,11 @@ What it does, in order:
    once, within one 10-second grace, and a `set` still pending then is
    removed once it lands. A `remove` that throws does not stop the
    others; its error is thrown when nothing else failed. When the flow
-   failed too, the cleanup error becomes the `cause` of the error thrown
-   only when that error has no cause of its own: it is kept for a
-   `TIMEOUT` from `timeoutMs` (`no certificate within … ms`), an
-   `ABORTED` or `the signal timed out` from your signal, and any other
-   `AcmeError` without a cause; it is lost for a hook's own error that is
+   failed too, the cleanup error goes in the `cause` of the error thrown:
+   it replaces the cause of a `TIMEOUT` from `timeoutMs` (`no certificate
+   within … ms`) or of an `ABORTED`/`the signal timed out` from your
+   signal, and becomes the cause of any other `AcmeError` without one; it
+   is lost for a hook's own error that is
    not an `AcmeError`, a `NETWORK_ERROR`, and a request's
    `…: no answer within … ms` `TIMEOUT`;
 6. waits for the order to be `ready` — one already `valid`, before any

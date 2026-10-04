@@ -72,6 +72,16 @@ describe('the problems of a configuration', () => {
 			['inbound.dmarc: must be "enforce" or "mark"'],
 		],
 		[
+			'a spool smaller than a message',
+			'[inbound]\nmaxMessageSize = 4000\nspoolBytes = 3999',
+			['inbound.spoolBytes: must be at least inbound.maxMessageSize (4000)'],
+		],
+		[
+			'a spool size that is not an integer',
+			'[inbound]\nspoolBytes = 1.5',
+			['inbound.spoolBytes: must be an integer from 1 to 1099511627776'],
+		],
+		[
 			'a size',
 			'[submission]\nmaxMessageSize = 0',
 			['submission.maxMessageSize: must be an integer from 1 to 1073741824'],

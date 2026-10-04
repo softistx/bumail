@@ -57,7 +57,7 @@ them one by one.
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | published |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap) and [`@bumail/jmap`](../packages/jmap) | published |
 | TLS certificates | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives published (0.1.0); the client merged |
-| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration, and its directory of domains, users and aliases |
+| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration, its directory of domains, users and aliases, and receiving mail on 25 and serving it over IMAP on 993 |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
 
@@ -423,10 +423,14 @@ password crosses the network in clear, over SMTP, IMAP or JMAP.
 
 **In bumail.** It is in progress, as
 [`@bumail/server`](../packages/server), built on alxia, whose
-`@alxia/core` is on npm. Private until it serves mail, it has so far
+`@alxia/core` is on npm. Private until it is complete, it has so far
 its configuration, one TOML file which `bumail check-config` checks
-whole, and its directory of domains, users and aliases, which
-`bumail domain`, `bumail user` and `bumail alias` manage. Then **a
+whole; its directory of domains, users and aliases, which
+`bumail domain`, `bumail user` and `bumail alias` manage; and it
+**receives mail**: `bumail serve` takes mail for the directory's
+addresses on port 25, with no AUTH there, checks SPF, DKIM and DMARC,
+delivers into the store, and serves it over IMAP on 993, with a
+certificate from files. Sending, JMAP and ACME come next. Then **a
 Docker image, all in one**: the server app with ports 25, 465, 587,
 993, 443 and 80, and one volume for the mail, the queue and the
 certificates. It holds the server only; any JMAP or IMAP client

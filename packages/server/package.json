@@ -46,6 +46,8 @@
 		]
 	},
 	"devDependencies": {
+		"@bumail/auth": "workspace:^",
+		"@bumail/dns": "workspace:^",
 		"@bumail/imap": "workspace:^",
 		"@bumail/jmap": "workspace:^",
 		"@bumail/smtp": "workspace:^",
@@ -53,6 +55,10 @@
 		"@types/bun": "^1.4.2"
 	},
 	"peerDependencies": {
+		"@bumail/auth": "workspace:^",
+		"@bumail/dns": "workspace:^",
+		"@bumail/imap": "workspace:^",
+		"@bumail/smtp": "workspace:^",
 		"@bumail/store": "workspace:^",
 		"typescript": "^6.0.3 || ^7.0.0"
 	},

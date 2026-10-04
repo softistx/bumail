@@ -29,12 +29,16 @@ No dates. Each entry says what someone running or embedding the server gets.
   managed by the command; a health check. It consumes alxia's published
   packages, not a link to its working tree, so bumail's CI never depends
   on another repository's checkout. In progress, and private until it
-  serves mail: its configuration — one TOML file, checked whole by
+  is complete: its configuration — one TOML file, checked whole by
   `bumail check-config`, the environment overriding URLs and secrets
   only — is merged, and so is its directory of domains, users and
   aliases (argon2id passwords, aliases to local users only), managed by
-  `bumail domain`, `user` and `alias`; the steps that follow are in
-  [its roadmap](../packages/server/docs/roadmap.md).
+  `bumail domain`, `user` and `alias`. **The server now receives mail**:
+  `bumail serve` takes mail on 25 for the directory's addresses only
+  (no AUTH there, so never a relay), checks SPF, DKIM and DMARC
+  (enforced by default), delivers into the store, and serves it over
+  IMAP on 993, with a certificate from files. The steps that follow are
+  in [its roadmap](../packages/server/docs/roadmap.md).
 
 ## Next
 
