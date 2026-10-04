@@ -17,8 +17,8 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **`@bumail/jmap`, the second slice** — the first slice is published in
   0.1.0 (see Shipped). What remains: queryChanges, push via EventSource,
   then Identity and EmailSubmission through `@bumail/smtp/client`, and
-  mailbox unread counts that follow RFC 8621 to the letter. It is what
-  bumail's own web client will speak.
+  mailbox unread counts that follow RFC 8621 to the letter. Any JMAP
+  client speaks it; bumail ships no client of its own.
 
 ## Next
 
@@ -51,11 +51,6 @@ No dates. Each entry says what someone running or embedding the server gets.
   record naming the server, whose name resolves back to it). Where port 25
   is closed, or no PTR can be set, the queue sends through a smarthost —
   a relay provider on 587 or 465 — instead.
-- **A web mail client on JMAP** — its own static package, built on our own
-  stack (alxia's typed client and `@nxgt/material`), bundled in the Docker
-  image and served by the server app, and turned off by an environment
-  variable for an operator who does not want it. Any other JMAP or IMAP
-  client keeps working.
 - **`@bumail/auth`, DMARC reports and ARC** — aggregate and failure
   reports to a domain's `rua=` and `ruf=` (RFC 7489 §7), and ARC
   (RFC 8617), so forwarded mail keeps its authentication. DKIM, SPF and

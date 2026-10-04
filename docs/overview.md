@@ -392,9 +392,8 @@ for quick resync, UIDPLUS (RFC 4315) and BINARY (RFC 3516).
 [alxia](https://github.com/softistx/alxia) app: alxia already provides the
 routing, validation and typed client. Its second slice adds
 `queryChanges`, push over EventSource, then sending through Identity and
-EmailSubmission. Next, bumail gets its own web mail client on JMAP, built
-on the same stack (alxia's typed client, `@nxgt/material`); any other JMAP
-or IMAP client keeps working.
+EmailSubmission. bumail is the server side only: any JMAP or IMAP client
+works with it, and it ships no client of its own.
 
 ## The server app
 
@@ -414,13 +413,10 @@ only from an authenticated session. And **AUTH only after TLS**: no
 password crosses the network in clear, over SMTP, IMAP or JMAP.
 
 **In bumail.** It is next, built on alxia, whose `@alxia/core` is on npm.
-Then:
-
-- **a Docker image, all in one**: the server app with ports 25, 465, 587,
-  993 and 443, and one volume for the mail, the queue and the
-  certificates;
-- **a web mail client on JMAP**: its own static package, bundled in the
-  image and served by the app, turned off by an environment variable.
+Then **a Docker image, all in one**: the server app with ports 25, 465,
+587, 993 and 443, and one volume for the mail, the queue and the
+certificates. It holds the server only; any JMAP or IMAP client connects
+to it.
 
 **Sending from a container.** Many cloud hosts and home connections block
 outbound port 25, and receiving servers distrust an address without
