@@ -173,7 +173,9 @@ process.on('SIGTERM', async () => {
 A claim is one `UPDATE … RETURNING` whose item a `SELECT … FOR UPDATE
 SKIP LOCKED` picks: two instances never take the same item, and none
 waits on one another is taking. An instance that crashes loses its items
-when their leases expire, as with `bun:sqlite`. No driver to install:
+when their leases expire, as with `bun:sqlite`. Every write runs at
+`READ COMMITTED`, so a client whose sessions default to `repeatable
+read` or `serializable` serves the queue too. No driver to install:
 `Bun.sql` is Bun's.
 
 ## Redis, for several machines
@@ -293,7 +295,7 @@ control character in it.
 | `QueueStore` | the contract a store answers: `add`, `get`, `list`, `count`, `readMessage`, `claim`, `renew`, `complete`, `reschedule`, `cancel` |
 | `QueueItem`, `RecipientState`, `RecipientStatus`, `FinalStatus`, `Diagnostic`, `Lease` | an item, and where each recipient stands |
 | `NewQueueItem`, `AddOptions`, `ClaimRequest`, `AttemptResult`, `RecipientUpdate`, `QueueListOptions` | what a store takes |
-| `QueueError`, `QueueErrorCode` | `INVALID`, `MESSAGE_TOO_BIG`, `TOO_MANY_RECIPIENTS`, `QUEUE_FULL`, `CLOSED`, `LEASE_LOST` |
+| `QueueError`, `QueueErrorCode` | `INVALID`, `MESSAGE_TOO_BIG`, `TOO_MANY_RECIPIENTS`, `QUEUE_FULL`, `CLOSED`, `LEASE_LOST`, `MESSAGE_UNREADABLE` |
 | `MemoryQueueStore` | from `@bumail/queue/memory` |
 | `SqliteQueueStore`, `SqliteQueueStoreOptions` | from `@bumail/queue/sqlite`: `SqliteQueueStore.open({ directory, busyTimeout? })`, `close()` |
 | `PostgresQueueStore`, `PostgresQueueStoreOptions`, `PostgresClient`, `PostgresQueryable` | from `@bumail/queue/postgres`: `PostgresQueueStore.open({ sql, tablePrefix? })`, `migrate()`, `close()`; `sql` a `Bun.SQL` client or a `postgres://` URL |

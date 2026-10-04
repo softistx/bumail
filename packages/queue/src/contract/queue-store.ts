@@ -25,7 +25,9 @@ export interface QueueStore {
 	/**
 	 * Adds an item, due at once, with every recipient `pending`. With
 	 * `maxItems`, refuses with `QUEUE_FULL` when the store holds that many
-	 * already, in the same step as the add.
+	 * already, in the same step as the add. The item is never claimable
+	 * before its message is readable: write the message first, or both in
+	 * one step — a claim that finds no message fails the item's recipients.
 	 */
 	add(item: NewQueueItem, options?: AddOptions): Promise<QueueItem>;
 
@@ -38,7 +40,11 @@ export interface QueueStore {
 	/** How many items the store holds. */
 	count(): Promise<number>;
 
-	/** The message of an item, or `undefined` once the item is gone. */
+	/**
+	 * The message of an item, or `undefined` once the item is gone. A
+	 * store that holds the item but has lost its message gives `undefined`
+	 * too: the queue then fails the item's pending recipients.
+	 */
 	readMessage(id: string): Promise<Uint8Array | undefined>;
 
 	/**

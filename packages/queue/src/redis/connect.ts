@@ -22,6 +22,8 @@ export interface Connection {
 	readonly client: RedisQueueClient;
 	readonly owned: boolean;
 	readonly keys: Keys;
+	/** The URL's password, so an error that repeats it is masked; `''` for a given client. */
+	readonly password: string;
 }
 
 const DEFAULT_PREFIX = 'bumail:queue:';
@@ -107,7 +109,13 @@ export function connect(options: RedisQueueStoreOptions): Connection {
 	}
 	if (client !== undefined) {
 		if (!isClient(client)) throw invalid(NEEDS);
-		return { client, owned: false, keys };
+		return { client, owned: false, keys, password: '' };
 	}
-	return { client: clientFor(urlOf(url)), owned: true, keys };
+	const parsed = urlOf(url);
+	return {
+		client: clientFor(parsed),
+		owned: true,
+		keys,
+		password: parsed.password,
+	};
 }
