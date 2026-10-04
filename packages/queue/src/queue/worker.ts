@@ -1,8 +1,15 @@
 import type { QueueItem } from '../contract/types';
 import { QueueError } from '../errors';
-import { deliverItem } from './deliver';
+import { deliverItem, type Lapse } from './deliver';
 import { KeyedLimiter, Limiter } from './limiter';
 import type { NotifyContext } from './notify';
+
+/** The lease on an item under delivery, as the worker renewing it knows it. */
+interface Lease {
+	/** Stops the renewals: the outcome is recorded. */
+	readonly stop: () => void;
+	readonly lapsed: (now: number) => Promise<Lapse | undefined>;
+}
 
 /**
  * Claims due items and delivers them, at most `concurrency` at once,
@@ -30,29 +37,51 @@ export class Worker {
 	}
 
 	/**
-	 * Renews the lease every third of it until the outcome is recorded. A
-	 * renewal that finds the lease taken says so once, and stops; one that
-	 * fails (the store busy, unreachable) says so, and the next one tries
-	 * again: the lease may still be held.
+	 * Renews the lease every third of it until the outcome is recorded, and
+	 * keeps what it learns for `lapsed`. A renewal that finds the lease taken
+	 * — the item still there, under another worker or none — says so once,
+	 * and stops; one that finds the item gone says nothing and stops: a
+	 * cancel, or another worker that finished it, which `deliverItem` tells
+	 * apart by the lease's expiry. One that fails (the store busy,
+	 * unreachable) says so, and the next one tries again: the lease may
+	 * still be held.
 	 */
-	#renewing(item: QueueItem): () => void {
+	#renewing(item: QueueItem): Lease {
 		const { settings, store, events } = this.#ctx;
 		let done = false;
+		/** The lease's last expiry this worker set: the claim's, then each renewal's. */
+		let expiresAt = item.lease?.expiresAt ?? settings.now() + settings.leaseMs;
+		/** A renewal found the item still there under another worker, or none. */
+		let taken = false;
+		/** The look a refused renewal takes at the item, awaited by `lapsed`. */
+		let looking: Promise<void> = Promise.resolve();
 		const stop = () => {
 			done = true;
 			clearInterval(timer);
 		};
+		const refused = async () => {
+			const kept = await store.get(item.id);
+			if (kept === undefined) return;
+			taken = true;
+			const error = new QueueError(
+				'LEASE_LOST',
+				`The lease on ${item.id} was lost while it was delivered`,
+			);
+			events.emit('error', { error, id: item.id });
+		};
 		const timer = setInterval(() => {
-			const expiresAt = settings.now() + settings.leaseMs;
-			store.renew(item.id, settings.owner, expiresAt).then(
+			const next = settings.now() + settings.leaseMs;
+			store.renew(item.id, settings.owner, next).then(
 				(held) => {
-					if (held || done) return;
+					if (done) return;
+					if (held) {
+						expiresAt = next;
+						return;
+					}
 					stop();
-					const error = new QueueError(
-						'LEASE_LOST',
-						`The lease on ${item.id} was lost while it was delivered`,
-					);
-					events.emit('error', { error, id: item.id });
+					looking = refused().catch((error: unknown) => {
+						events.emit('error', { error, id: item.id });
+					});
 				},
 				(error: unknown) => {
 					if (!done) events.emit('error', { error, id: item.id });
@@ -60,25 +89,33 @@ export class Worker {
 			);
 		}, settings.leaseMs / 3);
 		timer.unref?.();
-		return stop;
+		return {
+			stop,
+			lapsed: async (now) => {
+				await looking;
+				if (taken) return 'taken';
+				return expiresAt <= now ? 'expired' : undefined;
+			},
+		};
 	}
 
 	async #deliver(item: QueueItem): Promise<void> {
-		const stopRenewing = this.#renewing(item);
+		const lease = this.#renewing(item);
 		try {
 			await deliverItem(
 				{
 					...this.#ctx,
 					domains: this.#domains,
 					stopping: () => this.#stopping,
-					recorded: stopRenewing,
+					recorded: lease.stop,
+					leaseLapsed: lease.lapsed,
 				},
 				item,
 			);
 		} catch (error) {
 			this.#ctx.events.emit('error', { error, id: item.id });
 		} finally {
-			stopRenewing();
+			lease.stop();
 		}
 	}
 

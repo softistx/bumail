@@ -34,6 +34,8 @@ parts shown as … vary.
 
 - [`QueueError: The lease on … was lost before its outcome was recorded; another worker will try it again`](#queueerror-the-lease-on--was-lost-before-its-outcome-was-recorded-another-worker-will-try-it-again)
 - [`QueueError: The lease on … was lost while it was delivered`](#queueerror-the-lease-on--was-lost-while-it-was-delivered)
+- [`QueueError: The lease on … expired before its outcome was recorded, and the item is gone: lost to another worker that finished it, the message then sent twice, or cancelled`](#queueerror-the-lease-on--expired-before-its-outcome-was-recorded-and-the-item-is-gone-lost-to-another-worker-that-finished-it-the-message-then-sent-twice-or-cancelled)
+- [`QueueError: The lease on … was lost while it was delivered, and the worker that took it has finished it: the message may have been sent twice`](#queueerror-the-lease-on--was-lost-while-it-was-delivered-and-the-worker-that-took-it-has-finished-it-the-message-may-have-been-sent-twice)
 - [`SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`](#smtperror-sendmail--invalid_option-with-recipients-deferred-as-435)
 - [`SQLiteError: database is locked`, or another store error, during a delivery](#sqliteerror-database-is-locked-or-another-store-error-during-a-delivery)
 - [`PostgresError: …`, or a connection error, during a delivery](#postgreserror--or-a-connection-error-during-a-delivery)
@@ -63,6 +65,10 @@ parts shown as … vary.
 **A store's own checks** (a store of your own, called directly)
 
 - [`QueueError: … must be a finite number`, `owner must be a non-empty string`, and the others](#a-stores-own-checks)
+- [`QueueError: A reply is an object with a text`](#queueerror-a-reply-is-an-object-with-a-text)
+- [`QueueError: reply.status must be a string`](#queueerror-replystatus-must-be-a-string)
+- [`QueueError: reply.host must be a string`](#queueerror-replyhost-must-be-a-string)
+- [`QueueError: … holds a NUL or a lone surrogate, which a store cannot keep`](#queueerror--holds-a-nul-or-a-lone-surrogate-which-a-store-cannot-keep)
 
 **Delivery**
 
@@ -256,8 +262,41 @@ the process stalled longer than that, or the store could not be reached.
 
 ### `QueueError: The lease on … was lost while it was delivered`
 
-**Code:** `LEASE_LOST`. A renewal found the lease taken: the same cause as
-above, seen sooner.
+**Code:** `LEASE_LOST`. A renewal found the item under another worker:
+the same cause as above, seen sooner. A renewal that finds the item gone
+says nothing: the outcome, once the sessions end, tells a cancel from a
+lease lost (below).
+
+### `QueueError: The lease on … expired before its outcome was recorded, and the item is gone: lost to another worker that finished it, the message then sent twice, or cancelled`
+
+**Code:** `LEASE_LOST`.
+**When:** a delivery ran past its lease's expiry — no renewal reached the
+store in time — and, when it tried to record its outcome, the item was no
+longer in the store. No `delivered`, `deferred` or `failed` event and no
+DSN come from this attempt.
+**Why:** past its expiry, another worker may claim the item, deliver it
+and drop it; but a `cancel` drops it too, and the store keeps no record of
+which happened. The worker cannot tell them apart, so it says both rather
+than report outcomes nobody recorded. When another worker took it, the
+recipients both reached got the message twice; that worker's events tell
+what it delivered.
+**Fix:** as for the lease lost above: a longer `leaseMs`, or find what
+stalled the process — an event loop blocked, a store out of reach. A
+cancel under a lease that still held is told as before: its outcomes on
+the events, with no error and no DSN.
+
+### `QueueError: The lease on … was lost while it was delivered, and the worker that took it has finished it: the message may have been sent twice`
+
+**Code:** `LEASE_LOST`, after
+[`The lease on … was lost while it was delivered`](#queueerror-the-lease-on--was-lost-while-it-was-delivered).
+**When:** a renewal found the item under another worker, and that worker
+had finished and dropped it before this one recorded its outcome. No
+outcome event and no DSN come from this attempt.
+**Why:** that worker claimed the item once this one's lease had expired
+by its own clock: this worker stalled, or the instances' clocks disagree
+(an instance whose clock runs ahead sees leases expire early).
+**Fix:** a longer `leaseMs`, find what stalled the process, and keep the
+machines on NTP.
 
 ### `SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`
 
@@ -425,14 +464,69 @@ never gives it. Each message names what is wrong:
 - `QueueError: delayNotified must be true or false`
 - `QueueError: recipients must be an array of { address, status:
   delivered, deferred or failed }`
-- `QueueError: A reply is an object with a text`, `reply.status must be
-  a string`, `reply.host must be a string`
-- `QueueError: … holds a NUL or a lone surrogate, which a store cannot
-  keep` (`from`, `A recipient`, `owner`, `reply.text`, `reply.status`,
-  `reply.host`): every store refuses them, since PostgreSQL cannot keep
-  them; the queue's own replies never hold one
+- [`QueueError: A reply is an object with a text`](#queueerror-a-reply-is-an-object-with-a-text),
+  [`reply.status must be a string`](#queueerror-replystatus-must-be-a-string),
+  [`reply.host must be a string`](#queueerror-replyhost-must-be-a-string)
+- [`QueueError: … holds a NUL or a lone surrogate, which a store cannot
+  keep`](#queueerror--holds-a-nul-or-a-lone-surrogate-which-a-store-cannot-keep)
 
 A list's `offset` and `limit` are checked as under [Listing](#listing).
+
+### `QueueError: A reply is an object with a text`
+
+**Code:** `INVALID`.
+**When:** `complete` called directly with a recipient whose `reply` is
+not an object, or has no string `text`.
+**Why:** a reply is a `Diagnostic`, `{ code?, status?, text, host? }`:
+`text` is what a DSN and the events show, so every store needs it. The
+queue's own outcomes always have one.
+**Fix:** give the text, even for a reply with no code:
+
+```ts
+await store.complete(id, owner, {
+	...result,
+	recipients: [{ address, status: 'deferred', reply: { status: '4.4.1', text: 'No answer' } }],
+});
+```
+
+### `QueueError: reply.status must be a string`
+
+**Code:** `INVALID`.
+**When:** `complete` called directly with a `reply.status` that is
+neither left out nor a string — often the reply code given as a number.
+**Why:** `status` is the enhanced status code, `x.y.z` (RFC 3463), kept
+as text; the reply code goes in `code`.
+**Fix:** `reply: { code: 451, status: '4.3.0', text: 'Try later' }`, or
+leave `status` out.
+
+### `QueueError: reply.host must be a string`
+
+**Code:** `INVALID`.
+**When:** `complete` called directly with a `reply.host` that is neither
+left out nor a string, such as an address object from a socket.
+**Why:** `host` is the name or address the attempt was for, kept as text.
+**Fix:** give it as text — `host: 'mx1.example.com'` or
+`host: '192.0.2.1'` — or leave it out.
+
+### `QueueError: … holds a NUL or a lone surrogate, which a store cannot keep`
+
+**Code:** `INVALID`. The … is `from`, `A recipient`, `owner`,
+`reply.text`, `reply.status` or `reply.host`.
+**When:** `add`, `complete`, or any call that takes an `owner`, called
+directly with a text holding U+0000 or half of a surrogate pair — a string cut in the
+middle of an emoji, say. `createQueue` refuses such an `owner` the same
+way.
+**Why:** PostgreSQL cannot keep a NUL in text, and no UTF-8 encoding can
+carry a lone surrogate, so every store refuses them alike — whichever
+store you give it, the same text is kept or refused. The queue's own
+replies never hold one: it cuts a reply's text only between whole
+characters.
+**Fix:** drop the NULs and cut text on whole characters before you give
+it to the store:
+
+```ts
+const clean = text.replaceAll('\0', '').toWellFormed();
+```
 
 ## Delivery
 

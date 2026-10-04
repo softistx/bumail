@@ -67,6 +67,18 @@ Then:
 
 ### Unreleased — merged, not yet published
 
+- **A lease lost to an instance that finished the item is reported** —
+  an instance that stalled past its lease, while another claimed the
+  item, delivered it and dropped it, no longer takes the item's absence
+  for a cancel: it reports `LEASE_LOST` on the `error` event, tells no
+  outcome and sends no DSN, so the operator learns the message may have
+  gone out twice. With no record of who dropped an item, a lease that
+  expired is reported as lost or cancelled; a cancel under a lease that
+  still held is told as before, and no longer draws a `LEASE_LOST` from
+  a renewal that finds the item gone.
+
+### 0.2.0
+
 - **A PostgreSQL store**, `@bumail/queue/postgres`, on Bun's own
   `Bun.sql`, for instances of a server on several machines sharing one
   queue: `PostgresQueueStore.open({ sql })` takes a `Bun.SQL` client or a
