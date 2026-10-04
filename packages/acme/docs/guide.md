@@ -422,9 +422,9 @@ What it does, in order:
    authorization is `set`, then the challenge is answered;
 4. waits for every authorization to be `valid`;
 5. calls `remove` for every token `set` — **always**: on success, on a
-   failed validation, on a `set` that threw, on an abort or a timeout. A
-   `remove` that throws does not stop the others; its error is thrown
-   only when nothing else failed;
+   failed validation, on a `set` that threw or hung, on an abort or a
+   timeout. A `remove` that throws does not stop the others; its error is
+   thrown only when nothing else failed;
 6. waits for the order to be `ready`, finalizes it with the CSR, waits for
    it to be `valid`;
 7. downloads the chain.
@@ -549,10 +549,11 @@ to the operator before agreeing on their behalf.
 
 What the CA sends is read as untrusted:
 
-- **HTTPS only.** The directory URL, and every URL the CA gives — the
-  directory's, an order's, an authorization's, a challenge's, a
-  `Location` — must be `https:`, without credentials or a fragment, or the
-  answer is `BAD_RESPONSE`. `allowInsecure: true` lifts it, for a test CA
+- **HTTPS only.** Every URL you give — the directory URL, `kid`, a
+  method's `url` — must be `https:`, without credentials or a fragment,
+  or it is `INVALID_OPTION`; every URL the CA gives — the directory's,
+  an order's, an authorization's, a challenge's, a `Location` — likewise,
+  or the answer is `BAD_RESPONSE`. `allowInsecure: true` lifts it, for a test CA
   on plain HTTP; never use it against a real CA.
 - **No redirects.** A 3xx is `BAD_RESPONSE`: a redirect could lead a
   signed request off the URL it was signed for.
@@ -566,7 +567,10 @@ What the CA sends is read as untrusted:
   subproblems), as are nonces (512 characters) and text (a `detail` to
   1024 characters, one line in a message).
 - **Bounded time.** Every request has `requestTimeoutMs`, every wait and
-  `obtainCertificate` a `timeoutMs`, and every call a `signal`.
+  `obtainCertificate` a `timeoutMs`, and every call a `signal`. They
+  bound your hooks too: a `set` that never settles is left behind at the
+  time limit or the abort, and each `remove`, which runs even then, has
+  10 seconds.
 - **The account key stays private.** The client keeps it in a private
   field: `inspect` shows `AcmeClient {}`, `JSON.stringify` shows `{}`, and
   no message holds it. Only its public half leaves, in `newAccount`'s
@@ -588,7 +592,7 @@ document), `status` (the HTTP status) and `retryAfter` (seconds).
 | code | thrown for |
 | --- | --- |
 | `INVALID_NAME` | a name `createCsr` will not put in a request |
-| `INVALID_OPTION` | an option of the wrong type or out of range: no names, too many, a duplicate, a nonce or URL a JWS cannot carry, a payload that is not an object |
+| `INVALID_OPTION` | an option of the wrong type or out of range: no names, too many, a duplicate, a nonce or URL a JWS cannot carry, a URL that is not `https:`, a payload that is not an object |
 | `INVALID_KEY` | a key of another algorithm, an RSA key of another size than 2048, 3072 or 4096 bits or with an exponent other than 65537, a key of the wrong type (public for private), not extractable when it must be, or a PEM holding none |
 | `INVALID_TOKEN` | a challenge token that is not base64url, or longer than 1024 characters |
 | `NO_ACCOUNT` | a request that needs the account URL before `newAccount` gave one |
@@ -670,7 +674,7 @@ not write it:
   completes a verified handshake with (on a self-signed certificate the
   specs build with the same DER writer);
 - the DER writer's lengths, OIDs and integers, the edge cases of the
-  last included: a high bit set, leading zeros, zero, a 256-bit value.
+  last included: a high bit set, leading zeros, zero, a 256-bit value;
 - the client against a fake CA behind its `fetch`: the directory kept,
   nonces reused and fetched by a HEAD only when none is left, `badNonce`
   retried with the refusal's nonce and given up after 3, every signed

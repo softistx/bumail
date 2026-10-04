@@ -121,6 +121,7 @@ changes nothing; the others are about the CA's answer, or the way to it.
 - [`AcmeError: …: the signal timed out`](#acmeerror--the-signal-timed-out)
 - [`AcmeError: …: still … after … ms`](#acmeerror--still--after--ms)
 - [`AcmeError: obtainCertificate(): no certificate within … ms`](#acmeerror-obtaincertificate-no-certificate-within--ms)
+- [`AcmeError: obtainCertificate(): http01.remove(…) did not settle within 10000 ms`](#acmeerror-obtaincertificate-http01remove-did-not-settle-within-10000-ms)
 
 **ABORTED**
 
@@ -360,7 +361,7 @@ const nonce = response.headers.get('replay-nonce') ?? '';
 
 ### `AcmeError: signJws(): … must be an https: URL without white space, credentials or a fragment, not …`
 
-**When**: `url` or `kid` (the first `…` says which) is not an absolute `https:` URL, holds white space or a control character (a line end read with it), or carries credentials (`https://user:pw@…`) or a fragment (`#…`).
+**When**: `url` or `kid` (the first `…` says which) is not an absolute `https:` URL, is longer than 2048 characters, holds white space or a control character (a line end read with it), or carries credentials (`https://user:pw@…`) or a fragment (`#…`).
 
 **Why**: RFC 8555 §6.1 runs ACME over HTTPS only, `url` must be the exact URL posted to (§6.4), and `kid` is the account URL the server returned in `Location`.
 
@@ -803,8 +804,9 @@ await client.newAccount({ termsOfServiceAgreed: true }); // or new AcmeClient({ 
 **Fix**: act on the type; `error.problem.subproblems` names each identifier at fault.
 
 ```ts
-import { AcmeError } from '@bumail/acme';
+import { AcmeError, type AcmeClient } from '@bumail/acme';
 
+declare const client: AcmeClient; // its account made
 try {
 	await client.newOrder({ identifiers: [{ type: 'dns', value: 'example.com' }] });
 } catch (error) {
@@ -835,6 +837,9 @@ try {
 
 ```ts
 import { AcmeError } from '@bumail/acme';
+
+declare function obtain(): Promise<void>; // your call to obtainCertificate
+declare function scheduleRetry(ms: number): void; // your scheduler
 
 try {
 	await obtain();
@@ -873,7 +878,7 @@ try {
 
 ### `AcmeError: …: the CA's … has a missing or invalid "…"`
 
-**When**: an order, authorization or challenge misses a member RFC 8555 §7.1 requires, or has one of the wrong type: a `status` not among the RFC's, no `identifiers`, more than 1000 entries in a list.
+**When**: an order, authorization or challenge misses a member RFC 8555 §7.1 requires, or has one of the wrong type: a `status` not among the RFC's, no `identifiers`, an identifier longer than 256 characters, more than 1000 entries in a list, a challenge `token` that is not base64url.
 
 **Why**: the client reads the members it acts on, and trusts none it cannot check.
 
@@ -965,6 +970,14 @@ const client = new AcmeClient({
 **Why**: the CA was slow to validate or to issue, or could not reach port 80.
 
 **Fix**: read `error.cause`; check port 80 is reachable from the Internet for every name.
+
+### `AcmeError: obtainCertificate(): http01.remove(…) did not settle within 10000 ms`
+
+**When**: a `remove` hook neither returned nor threw within 10 seconds. Every other token was still removed; this error is thrown when nothing else failed, and the order is left `ready` (its authorizations stay valid for a while, so a new attempt reuses them).
+
+**Why**: `remove` runs even after the flow's time is up or its signal fired, so each call has a bound of its own, and a hook that hangs cannot hold `obtainCertificate`.
+
+**Fix**: make the hook settle — a file write, a store call with a time limit of its own. A token left served is harmless, but stale.
 
 ## ABORTED
 
