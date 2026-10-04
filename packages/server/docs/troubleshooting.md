@@ -334,8 +334,9 @@ SQLite only.
 
 ### `….url: sends credentials without TLS; use rediss:, or set insecure = true to send them in clear`
 
-**When**: a `redis:` URL with a password, to a host other than this
-machine.
+**When**: a `redis:` URL with credentials — a password, or a user
+alone (`redis://secret@host`), which Bun sends as a password — to a
+host other than this machine.
 
 **Why**: the password, and every message the queue holds, would cross
 the network in clear, for anyone on the path to read.

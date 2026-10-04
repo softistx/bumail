@@ -358,6 +358,16 @@ describe('more problems', () => {
 		);
 	});
 
+	test('a FIFO, read without waiting for a writer', async () => {
+		const { readConfig } = await import('./read');
+		const { tempDir } = await import('./config.fixtures');
+		const fifo = `${tempDir()}/bumail.toml`;
+		expect(Bun.spawnSync(['mkfifo', fifo]).exitCode).toBe(0);
+		await expect(readConfig({ path: fifo, env: {} })).rejects.toThrow(
+			`${fifo}:\n  (file): is not a regular file`,
+		);
+	});
+
 	test('a TOML reason masks what it quotes, double or single', async () => {
 		expect(await problemsOf('secret = 1\nsecret = 2\n')).toEqual([
 			"(file): is not TOML: Cannot redefine key '…'",

@@ -134,3 +134,65 @@ describe('Redis: insecure = true', () => {
 		]);
 	});
 });
+
+describe('Redis: credentials in the userinfo, in any form', () => {
+	test.each([
+		[
+			'a user alone, which Bun sends as a password',
+			'redis://s3cret@cache.internal',
+		],
+		['a colon encoded in the user', 'redis://user%3As3cret@cache.internal'],
+		['a user and a password', 'redis://user:s3cret@cache.internal'],
+	])('%s is refused in clear', async (_, url) => {
+		expect(await problems(`[queue]\nurl = "${url}"`)).toEqual([
+			`queue.url: ${REDIS_CLEAR}`,
+		]);
+	});
+});
+
+describe('the environment PostgreSQL reads is the one given', () => {
+	const PG_KEYS = ['PGSSLMODE', 'PGPASSWORD', 'PGHOST'] as const;
+
+	test('not the process’s, which is left as it was', async () => {
+		const before = PG_KEYS.map((key) => process.env[key]);
+		process.env['PGSSLMODE'] = 'require';
+		process.env['PGPASSWORD'] = 'from-the-process';
+		process.env['PGHOST'] = '127.0.0.1';
+		try {
+			expect(
+				await problems('[store]\nurl = "postgres://u:pw@db.internal/mail"'),
+			).toEqual([`store.url: ${PG_CLEAR}`]);
+			const config = await read('[store]\nurl = "postgres://db.internal/mail"');
+			expect(config.store.plaintext).toBe(false);
+			expect(process.env['PGSSLMODE']).toBe('require');
+			expect(process.env['PGPASSWORD']).toBe('from-the-process');
+		} finally {
+			PG_KEYS.forEach((key, i) => {
+				const was = before[i];
+				if (was === undefined) delete process.env[key];
+				else process.env[key] = was;
+			});
+		}
+	});
+
+	test('PGSSLMODE given turns TLS on, as Bun will', async () => {
+		const config = await read(
+			'[store]\nurl = "postgres://u:pw@db.internal/mail"',
+			{ PGSSLMODE: 'require' },
+		);
+		expect(config.store.plaintext).toBe(false);
+	});
+
+	test('PGHOST and PGPASSWORD given are where and what Bun sends', async () => {
+		expect(
+			await problems('[store]\nurl = "postgres:///mail"', {
+				PGHOST: 'db.internal',
+				PGPASSWORD: 'pw',
+			}),
+		).toEqual([`store.url: ${PG_CLEAR}`]);
+		expect(
+			(await read('[store]\nurl = "postgres:///mail"', { PGPASSWORD: 'pw' }))
+				.store.plaintext,
+		).toBe(false);
+	});
+});

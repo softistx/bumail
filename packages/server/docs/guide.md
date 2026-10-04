@@ -150,9 +150,14 @@ url = "rediss://cache.internal:6380"
 - PostgreSQL's TLS is decided as Bun will connect: from `sslmode`,
   `ssl`, `tls` and `PGSSLMODE` together, so `sslmode=require&ssl=false`
   is refused. A password in `PGPASSWORD`, which Bun sends when the URL
-  holds none, counts as credentials.
+  holds none, counts as credentials, and `PGHOST` names the host when
+  the URL does not.
 - Redis credentials go before the host (`rediss://:password@host`):
-  Bun ignores `?password=`, which is refused.
+  Bun ignores `?password=`, which is refused. A user alone
+  (`redis://secret@host`) counts as credentials, since Bun sends it as
+  a password. Bun's Redis client reads no password from the
+  environment, and `REDIS_URL` only when given no URL, which the server
+  never is.
 - A URL with a password is a secret: keep it out of the file, in
   `BUMAIL_STORE_URL_FILE` or `BUMAIL_QUEUE_URL_FILE`.
 
@@ -180,6 +185,8 @@ it, a compromised host, a misrouted link — reads the password, and with
 it every message the store or the queue holds; the mail itself crosses
 in clear too. `check-config` shows such a store as `postgres
 (plaintext)` or `redis (plaintext)`, so the choice stays visible.
+`insecure = true` covers the URL in effect, so a `redis:` URL set
+through `BUMAIL_STORE_URL` or `BUMAIL_QUEUE_URL` (or its `_FILE`) too.
 
 ## `[tls]` and `[acme]`
 

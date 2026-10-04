@@ -1,4 +1,5 @@
 import type { Checker } from './checker';
+import type { Env } from './env';
 import { isLoopback } from './names';
 import type { StoreUrlContext } from './urls';
 
@@ -31,8 +32,12 @@ export function refuseInsecure(
  * TLS is decided from what Bun will do, never from one parameter:
  * PostgreSQL's from `new Bun.SQL(url).options.sslMode`, which weighs
  * `sslmode`, `ssl`, `tls` and `PGSSLMODE` as the connection will, and its
- * password from Bun's options and `PGPASSWORD`, which Bun sends when the
- * URL holds none. Credentials to this machine may go in clear.
+ * password and host from the same options, `PGPASSWORD` and `PGHOST`
+ * included, all read from the given environment (`pgOptions`). A Redis
+ * URL's credentials are its userinfo, a user alone included; Bun's Redis
+ * client reads no password from the environment or the query, and
+ * `REDIS_URL` only when it is given no URL, which the server never does.
+ * Credentials to this machine may go in clear.
  */
 export function checkCredentials(
 	checker: Checker,
@@ -44,6 +49,42 @@ export function checkCredentials(
 	return url.protocol.startsWith('redis')
 		? redis(checker, url, path, context)
 		: postgres(checker, value, url, path, context);
+}
+
+/** The environment variables Bun's PostgreSQL client reads. */
+const PG_ENV =
+	/^(?:PG|POSTGRES_|DATABASE_URL$|TLS_DATABASE_URL$|TLS_POSTGRES_DATABASE_URL$)/;
+
+/**
+ * `new Bun.SQL(value).options`, as Bun would build them in an environment
+ * that is `env`. Bun reads `PGSSLMODE`, `PGHOST`, `PGPASSWORD` and the
+ * rest from `process.env` when it is constructed, so those keys of
+ * `process.env` are swapped for `env`'s around the constructor, which
+ * connects to nothing, and put back at once. When `env` is `process.env`,
+ * as when the server runs, nothing changes: the decision is the one the
+ * server's own client makes.
+ */
+function pgOptions(value: string, env: Env): PgOptions {
+	if (env === process.env) return new Bun.SQL(value).options as PgOptions;
+	const keys = new Set(
+		[...Object.keys(process.env), ...Object.keys(env)].filter((key) =>
+			PG_ENV.test(key),
+		),
+	);
+	const saved = new Map([...keys].map((key) => [key, process.env[key]]));
+	try {
+		for (const key of keys) {
+			const injected = env[key];
+			if (injected === undefined) delete process.env[key];
+			else process.env[key] = injected;
+		}
+		return new Bun.SQL(value).options as PgOptions;
+	} finally {
+		for (const [key, was] of saved) {
+			if (was === undefined) delete process.env[key];
+			else process.env[key] = was;
+		}
+	}
 }
 
 function postgres(
@@ -61,7 +102,7 @@ function postgres(
 	}
 	let options: PgOptions;
 	try {
-		options = new Bun.SQL(value).options as PgOptions;
+		options = pgOptions(value, context.env);
 	} catch {
 		// Bun's reason can repeat the URL's parameters: never shown.
 		checker.add(path, 'is not a PostgreSQL URL Bun.sql takes');
@@ -69,8 +110,7 @@ function postgres(
 	}
 	const password =
 		(typeof options.password === 'string' && options.password !== '') ||
-		url.password !== '' ||
-		Boolean(context.env['PGPASSWORD']);
+		url.password !== '';
 	const host =
 		typeof options.hostname === 'string' && options.hostname !== ''
 			? options.hostname
@@ -100,9 +140,10 @@ function redis(
 		);
 		return undefined;
 	}
+	// A lone `user@` is a password to Bun too: it sends `AUTH user ""`.
 	const inClear =
 		url.protocol === 'redis:' &&
-		url.password !== '' &&
+		(url.username !== '' || url.password !== '') &&
 		!isLoopback(url.hostname || 'localhost');
 	if (!inClear) {
 		refuseInsecure(checker, context);
