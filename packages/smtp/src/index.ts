@@ -13,6 +13,7 @@ export {
 	decodeLoginStep,
 	decodePlain,
 } from './protocol/sasl';
+export { clientKey } from './server/client-key';
 export type {
 	Envelope,
 	HookResult,

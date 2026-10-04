@@ -26,6 +26,7 @@ export interface Session {
 export interface Envelope {
 	/** `''` for the null reverse-path `<>`: a bounce. */
 	readonly from: string;
+	/** `local@domain` each; `'postmaster'`, with no domain, for `RCPT TO:<postmaster>`. */
 	readonly to: readonly string[];
 	/** The client asked for SMTPUTF8 (RFC 6531). */
 	readonly smtputf8: boolean;
@@ -75,7 +76,12 @@ export interface ReceivedMessage {
 export type HookResult = Reply | undefined | void;
 
 export interface SmtpHooks {
-	/** A client connected. */
+	/**
+	 * A client connected, and was let in by `maxConnections` and
+	 * `maxConnectionsPerClient`. A reply refuses it: the server sends it
+	 * instead of its greeting and closes. `session.remoteAddress` says who
+	 * it is; `clientKey` groups it as the limits do.
+	 */
 	onConnect?(session: Session): HookResult | Promise<HookResult>;
 	/** After the server's own checks of MAIL FROM. */
 	onMailFrom?(path: Path, session: Session): HookResult | Promise<HookResult>;
@@ -138,10 +144,28 @@ export interface SmtpServerOptions extends SmtpHooks {
 	readonly maxRecipients?: number;
 	/** Open connections at once. Default 1000. */
 	readonly maxConnections?: number;
+	/**
+	 * Open connections at once from one client, so one address cannot take
+	 * every `maxConnections` slot. A client is an IPv4 address, or an IPv6
+	 * address by its /64; an IPv4-mapped or NAT64 address counts as the
+	 * IPv4 address inside it (see `clientKey`). One more is answered
+	 * `421 4.7.0` and closed. A remote address that is not an IP address
+	 * is not limited by it. Default 10.
+	 */
+	readonly maxConnectionsPerClient?: number;
 	/** Commands that fail before the server hangs up. Default 10. */
 	readonly maxErrors?: number;
 	/** Idle time before the server hangs up, in seconds; any byte from the client starts it again. Default 300, RFC 5321 §4.5.3.2.7's. */
 	readonly timeout?: number;
+	/**
+	 * Seconds a client on implicit TLS has to complete its handshake, from
+	 * the TCP connection on; past it, the socket is closed without a word.
+	 * The socket holds its slot of `maxConnections` and
+	 * `maxConnectionsPerClient` meanwhile. Bun's socket timer ticks in steps
+	 * of about 4 s, so the close comes up to that much later. A STARTTLS
+	 * handshake is bounded by `timeout`. Default 10.
+	 */
+	readonly handshakeTimeout?: number;
 	/**
 	 * Seconds the server waits, once `onConnect` accepted, before its 220
 	 * greeting. A client that talks in that time is refused with `554`

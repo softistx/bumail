@@ -1,4 +1,4 @@
-import { type Path, parsePath } from './path';
+import { type Path, POSTMASTER, parsePath } from './path';
 
 /** A command line, split into its verb (upper case) and the rest. */
 export interface Command {
@@ -24,8 +24,10 @@ export interface PathCommand {
 
 /**
  * Parses the argument of `MAIL` or `RCPT`: `FROM:<path> params` (or `TO:`).
- * Tolerates a space after the colon, which many clients send. `undefined`
- * when the syntax is wrong.
+ * Tolerates a space after the colon, which many clients send. `TO:` also
+ * takes `<postmaster>` with no domain, in any case (RFC 5321 §4.1.1.3,
+ * §4.5.1), as a path whose `postmaster` is `true`. `undefined` when the
+ * syntax is wrong.
  */
 export function parsePathCommand(
 	argument: string,
@@ -35,7 +37,11 @@ export function parsePathCommand(
 		argument,
 	);
 	if (!match) return undefined;
-	const path = parsePath(match[1] as string, keyword === 'FROM');
+	const text = match[1] as string;
+	const path =
+		keyword === 'TO' && text.toLowerCase() === '<postmaster>'
+			? POSTMASTER
+			: parsePath(text, keyword === 'FROM');
 	if (!path) return undefined;
 	const parameters: Record<string, string> = {};
 	for (const item of (match[2] as string).trim().split(/\s+/)) {

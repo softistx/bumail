@@ -8,6 +8,7 @@ with the client, and the RFCs behind each behaviour.
 - [Options](#options)
 - [The session, and what each reply means](#the-session-and-what-each-reply-means)
 - [Hooks, and their order](#hooks-and-their-order)
+- [`RCPT TO:<postmaster>`](#rcpt-topostmaster)
 - [Session.data](#sessiondata)
 - [What onData receives](#what-ondata-receives)
 - [Delivering into @bumail/store](#delivering-into-bumailstore)
@@ -67,6 +68,8 @@ export interface SmtpServer {
 | `maxMessageSize` | `number` | 25 MiB | bytes; announced with SIZE |
 | `maxRecipients` | `number` | `100` | recipients per message |
 | `maxConnections` | `number` | `1000` | open connections at once |
+| `maxConnectionsPerClient` | `number` | `10` | open connections at once from one client: an IPv4 address, or an IPv6 /64; see [Limits](#limits) |
+| `handshakeTimeout` | `number` | `10` | seconds a client on implicit TLS has to complete its handshake, from the TCP connection on; past it, the socket is closed. See [TLS](#tls) |
 | `maxErrors` | `number` | `10` | failed commands before the server hangs up |
 | `timeout` | `number` | `300` | seconds since the client's last byte, or since the 220, before the server hangs up |
 | `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0`. At most 2 147 483, what a timer can wait |
@@ -166,7 +169,7 @@ Every reply the server sends of its own:
 | `250 <hostname> greets <name>` | EHLO or HELO accepted; either one also ends a transaction in progress |
 | `501 Syntax: EHLO hostname` / `501 Syntax: HELO hostname` | the EHLO or HELO argument is missing, or is not a domain or an address literal; no enhanced code before an EHLO was accepted, `501 5.5.4 Syntax: EHLO hostname` after one |
 | `250 2.1.0 OK` | MAIL FROM accepted |
-| `250 2.1.5 OK` | RCPT TO accepted |
+| `250 2.1.5 OK` | RCPT TO accepted; `RCPT TO:<postmaster>` with no domain is accepted without AUTH (see [below](#rcpt-topostmaster)) |
 | `354 End data with <CR><LF>.<CR><LF>` | DATA: send the message |
 | `250 2.0.0 OK queued as <id>` | the message was taken: `onData` read its content stream to the clean end and resolved without refusing |
 | `250 2.0.0 OK` | RSET (the transaction is forgotten) or NOOP |
@@ -193,6 +196,7 @@ Every reply the server sends of its own:
 | `500 5.5.2 Command unrecognized` | an unknown verb — EXPN, BDAT and the rest |
 | `500 5.5.6 Line too long` | a command line over 2048 bytes; the rest of it is skipped |
 | `421 4.3.2 <hostname> Too many connections, try later` | a connection past `maxConnections`, then the server hangs up |
+| `421 4.7.0 <hostname> Too many connections from your address, try later` | a connection past `maxConnectionsPerClient` from one client, then the server hangs up |
 | `421 4.4.2 <hostname> Idle too long, closing` | nothing for `timeout` seconds |
 | `421 4.7.0 <hostname> Too many errors, closing` | `maxErrors` failed commands |
 | `421 4.3.0 Local error, closing` | the server failed itself |
@@ -234,7 +238,7 @@ In the order a session meets them:
 
 | Hook | Runs | After the server checked | A refusal |
 | --- | --- | --- | --- |
-| `onConnect` | when a client connects, before the greeting | the connection count | replaces the greeting, at once even with `greetingDelay`; then the server hangs up. When `onConnect` accepts, a client that talked before the greeting is refused with `554` |
+| `onConnect` | when a client connects, before the greeting | the connection counts: `maxConnections`, then `maxConnectionsPerClient` | replaces the greeting, at once even with `greetingDelay`; then the server hangs up. When `onConnect` accepts, a client that talked before the greeting is refused with `554` |
 | `authenticate` | at AUTH | TLS, EHLO, no transaction in progress | see [Authentication](#authentication) |
 | `onMailFrom` | at each MAIL FROM | EHLO, AUTH in `submission`, syntax, parameters, SIZE, SMTPUTF8 | refuses the sender; the client may try another MAIL |
 | `onRcptTo` | at each RCPT TO | MAIL, syntax, SMTPUTF8, `maxRecipients`, **relaying** | refuses that recipient; the others stand |
@@ -285,12 +289,14 @@ await server.listen({ port: 25 });
 
 ```ts
 export interface Path {
-	/** `local@domain`; `''` for the null reverse-path `<>`: a bounce. */
+	/** `local@domain`; `''` for the null reverse-path `<>`: a bounce; `'postmaster'` for `RCPT TO:<postmaster>`. */
 	readonly address: string;
 	/** As sent: case is kept. */
 	readonly local: string;
-	/** Lower case. */
+	/** Lower case; `''` for `<>` and `<postmaster>`. */
 	readonly domain: string;
+	/** `true` for `RCPT TO:<postmaster>` with no domain; absent otherwise. */
+	readonly postmaster?: true;
 }
 ```
 
@@ -308,6 +314,49 @@ Unicode format characters (zero-width, bidi, BOM), U+2028/2029 and lone
 surrogates are refused anywhere in a path — the route, the local part
 quoted or not, the domain — even under SMTPUTF8. An IPv4 address literal
 takes octets up to 255: `[999.1.1.1]` is not one.
+
+## `RCPT TO:<postmaster>`
+
+RFC 5321 §4.5.1 says every server that delivers mail must take mail for
+`postmaster`, and §4.1.1.3 lets RCPT TO name it with no domain at all:
+`RCPT TO:<Postmaster>`. The server takes it, in any case, as the
+postmaster of this server, whatever domains it hosts:
+
+- it is not relaying, so it needs no AUTH, and `localDomains` is not asked;
+- `onRcptTo` is asked, as for any recipient, with the `Path`
+  `{ address: 'postmaster', local: 'postmaster', domain: '', postmaster: true }`,
+  so it can still refuse;
+- `envelope.to` lists it as `'postmaster'`, with no `@`, and the Received
+  field says `for <postmaster>` when it is the only recipient.
+
+`<postmaster@example.com>` is an ordinary path: it is checked against
+`localDomains` like any other, and has no `postmaster` field. A path the
+grammar would otherwise refuse stays refused: `<postmaster@>`,
+`<"postmaster">` and `MAIL FROM:<postmaster>` get `501 5.5.4`.
+
+Route it to a mailbox you keep: by `path.postmaster` in `onRcptTo`, by the
+bare `'postmaster'` in `onData`.
+
+```ts
+import { createSmtpServer, reply } from '@bumail/smtp';
+
+const mailboxes = new Set(['alice@example.com', 'postmaster@example.com']);
+const postmaster = 'postmaster@example.com';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	onRcptTo: (path) =>
+		path.postmaster || mailboxes.has(path.address.toLowerCase())
+			? undefined
+			: reply(550, '5.1.1', 'No such user here'),
+	async onData(message) {
+		const recipients = message.envelope.to.map((to) => (to === 'postmaster' ? postmaster : to));
+		const bytes = await new Response(message.content).bytes();
+		for (const to of recipients) await Bun.write(`spool/${to}/${message.id}.eml`, bytes);
+	},
+});
+```
 
 ## Session.data
 
@@ -396,6 +445,7 @@ export interface ReceivedMessage {
 export interface Envelope {
 	/** `''` for the null reverse-path `<>`: a bounce. */
 	readonly from: string;
+	/** `local@domain` each; `'postmaster'`, with no domain, for `RCPT TO:<postmaster>`. */
 	readonly to: readonly string[];
 	/** The client asked for SMTPUTF8 (RFC 6531). */
 	readonly smtputf8: boolean;
@@ -406,8 +456,9 @@ export interface Envelope {
 
 The **envelope** is what MAIL FROM and RCPT TO said — not the `From:` and
 `To:` of the message, which may differ (Bcc, mailing lists, forwarding).
-`to` holds only the recipients the server and `onRcptTo` accepted. Deliver
-to the envelope.
+`to` holds only the recipients the server and `onRcptTo` accepted, each
+`local@domain`, or `'postmaster'` for [`RCPT TO:<postmaster>`](#rcpt-topostmaster).
+Deliver to the envelope.
 
 The **content** is the message as the client sent it, with the leading dot
 of each stuffed line removed (RFC 5321 §4.5.2), the terminating `.` line
@@ -767,6 +818,22 @@ STARTTLS, in clear, are dropped and never answered. The STARTTLS replies:
 with `tls`, usually on 465. STARTTLS is not offered there — the connection
 is already secure — and AUTH is offered at once.
 
+On implicit TLS the server counts a socket from the TCP connection on, not
+from the end of its handshake: a socket that has not finished its handshake
+holds a slot of `maxConnections` and of `maxConnectionsPerClient`, and is
+closed, without a reply, `handshakeTimeout` seconds (default 10) after it
+connected, so clients that open TCP connections and never send a
+ClientHello cannot fill the server. A refusal by a limit, `onConnect`, the
+greeting and `greetingDelay` all wait for the handshake, so the client
+reads them over TLS and `session.secure` is already `true`. A handshake
+that fails is closed by Bun at once and counted out. A STARTTLS handshake
+is bounded by the idle `timeout`, the connection already counted.
+
+Bun 1.4.2 calls a TLS listener's `open` only once the handshake completed
+unless the listener has a `handshake` handler; with one, `open` comes at
+the TCP connection and the socket's timer runs during the handshake. The
+server sets one for that reason.
+
 An MX takes mail in clear as well as encrypted: senders on the Internet that
 cannot do TLS still deliver. Whether to refuse them is policy — check
 `session.secure` in a hook:
@@ -837,6 +904,8 @@ await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 
 | `maxMessageSize` | 25 MiB | `552 5.3.4` at MAIL when `SIZE=` says more; during DATA once the message is more — the content stream errors with `MESSAGE_TOO_BIG`, the rest is read and dropped, and the session goes on |
 | `maxRecipients` | 100, the least RFC 5321 §4.5.3.1.8 asks a server to take | `452 4.5.3` for each extra recipient (RFC 5321 §4.5.3.1.10); the client sends the rest in another transaction |
 | `maxConnections` | 1000 | `421 4.3.2` and the server hangs up, before the greeting and before `onConnect` |
+| `maxConnectionsPerClient` | 10 | `421 4.7.0 <hostname> Too many connections from your address, try later` and the server hangs up, before the greeting and before `onConnect` |
+| `handshakeTimeout` | 10 seconds, on implicit TLS; ticks of about 4 s, as `timeout` | the socket is closed without a reply: there is no TLS to write one on |
 | `maxErrors` | 10 | `421 4.7.0` and the server hangs up |
 | `timeout` | 300 seconds, RFC 5321 §4.5.3.2.7's, counted from the client's last byte, or from the 220; Bun's socket timer ticks in steps of about 4 s, so the hang-up comes up to that much later | `421 4.4.2` and the server hangs up |
 | `hookTimeout` | 60 seconds | `451 4.3.0` for that command; `onError` gets an `SmtpError` `HOOK_TIMEOUT` |
@@ -867,6 +936,50 @@ const server = createSmtpServer({
 });
 
 await server.listen({ port: 25 });
+```
+
+`maxConnectionsPerClient` keeps one host from taking every slot of
+`maxConnections`. A client is counted by `clientKey(session.remoteAddress)`:
+
+| Remote address | Counted as |
+| --- | --- |
+| `192.0.2.1` | `192.0.2.1` |
+| `::ffff:192.0.2.1`, `::ffff:c000:201` (IPv4-mapped, as a listener on `::` sees an IPv4 client) | `192.0.2.1` |
+| `64:ff9b::c000:201` (NAT64) | `192.0.2.1` |
+| `2001:db8:1:2::9`, `2001:db8:1:2:ffff::1` | `2001:db8:1:2::/64` |
+| `2001:db8::1`, `2001:0db8:0000::ffff` | `2001:db8:0:0::/64` |
+| anything else (a Unix socket) | not limited |
+
+An IPv6 key is always the first four groups in lower-case hex, without
+leading zeros, every group written out — zeros too — then `::/64`:
+`2001:db8::1` is `2001:db8:0:0::/64`, never `2001:db8::/64`. Write the
+keys you compare with it that way.
+
+An IPv6 host usually holds a whole /64, so counting each address apart
+would let it open as many connections as it likes. Every close frees the
+slot as it frees one of `maxConnections`: QUIT, the client hanging up, a
+socket error, the idle `timeout`, `maxErrors`, a refusal from `onConnect`,
+and `stop(true)`. The count lives in the server's memory, for that one
+server. For a policy of your own — a list, a per-network budget — use
+`onConnect` with `clientKey`:
+
+```ts
+import { clientKey, createSmtpServer, reply } from '@bumail/smtp';
+
+// As clientKey writes them: '2001:db8:0:0::/64', not '2001:db8::/64'.
+const blocked = new Set(['203.0.113.7', '2001:db8:0:0::/64', '2001:db8:dead:beef::/64']);
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	maxConnections: 500,
+	maxConnectionsPerClient: 5,
+	onConnect: (session) =>
+		blocked.has(clientKey(session.remoteAddress) ?? '') ? reply(554, '5.7.1', 'Go away') : undefined,
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
 ```
 
 Some limits are fixed: a command line is at most 2048 bytes (RFC 5321
@@ -1291,6 +1404,7 @@ a server of your own.
 
 ```ts
 import {
+	clientKey,
 	DataReader,
 	decodePlain,
 	formatReply,
@@ -1309,6 +1423,12 @@ parsePathCommand('FROM:<Smith@bar.com> SIZE=500000 BODY=8BITMIME', 'FROM');
 parsePath('<Joe.Bloggs@EXAMPLE.Org>', false)?.address; // 'Joe.Bloggs@example.org'
 parsePath('<>', true); // { address: '', local: '', domain: '' }: the null path, where allowed
 parsePath('<>', false); // undefined
+
+parsePathCommand('TO:<Postmaster>', 'TO')?.path;
+// { address: 'postmaster', local: 'postmaster', domain: '', postmaster: true }
+
+clientKey('::ffff:192.0.2.1'); // '192.0.2.1'
+clientKey('2001:db8:1:2::9'); // '2001:db8:1:2::/64'
 
 formatReply(reply(550, '5.7.1', ['a', 'b'])); // '550-5.7.1 a\r\n550 5.7.1 b\r\n'
 formatReply(reply(250, '2.0.0', 'OK'), false); // '250 OK\r\n': no enhanced status
@@ -1343,6 +1463,7 @@ console.log(chunk.done, reader.bareLineBreaks);
 | Behaviour | RFC |
 | --- | --- |
 | the session, commands, replies, paths, the Received field | RFC 5321 |
+| `RCPT TO:<postmaster>` with no domain | RFC 5321 §4.1.1.3, §4.5.1 |
 | SIZE | RFC 1870 |
 | PIPELINING | RFC 2920 |
 | 8BITMIME | RFC 6152 |

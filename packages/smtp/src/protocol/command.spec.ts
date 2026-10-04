@@ -46,4 +46,28 @@ describe('parsePathCommand', () => {
 		expect(parsePathCommand('FROM:a@b.c', 'FROM')).toBeUndefined();
 		expect(parsePathCommand('FROM:<a@b.c> =x', 'FROM')).toBeUndefined();
 	});
+
+	test('RCPT TO:<Postmaster> with no domain, in any case, with its parameters (RFC 5321 §4.1.1.3)', () => {
+		expect(parsePathCommand('TO:<Postmaster> FOO=bar', 'TO')).toEqual({
+			path: {
+				address: 'postmaster',
+				local: 'postmaster',
+				domain: '',
+				postmaster: true,
+			},
+			parameters: { FOO: 'bar' },
+		});
+		expect(parsePathCommand('TO: <POSTMASTER>', 'TO')?.path.postmaster).toBe(
+			true,
+		);
+	});
+
+	test('FROM:<postmaster> is no path, and <postmaster@domain> no special one', () => {
+		expect(parsePathCommand('FROM:<postmaster>', 'FROM')).toBeUndefined();
+		expect(parsePathCommand('TO:<postmaster@foo.com>', 'TO')?.path).toEqual({
+			address: 'postmaster@foo.com',
+			local: 'postmaster',
+			domain: 'foo.com',
+		});
+	});
 });

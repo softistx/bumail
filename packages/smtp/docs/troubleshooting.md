@@ -83,7 +83,9 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 
 - [`421 4.7.0 … Too many errors, closing`](#421-470--too-many-errors-closing)
 - [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
+- [`421 4.7.0 … Too many connections from your address, try later`](#421-470--too-many-connections-from-your-address-try-later)
 - [`421 4.4.2 … Idle too long, closing`](#421-442--idle-too-long-closing)
+- [On implicit TLS, the connection closes before any greeting](#on-implicit-tls-the-connection-closes-before-any-greeting)
 - [`554 … Talked before the greeting`](#554--talked-before-the-greeting)
 
 **Sending mail: options**
@@ -302,8 +304,9 @@ createSmtpServer({
 
 ### `SmtpError: createSmtpServer(): … must be a positive integer, not …`
 
-**When**: `maxMessageSize`, `maxRecipients`, `maxConnections`, `maxErrors`,
-`timeout` or `hookTimeout` is `0`, negative, a fraction, `NaN` or
+**When**: `maxMessageSize`, `maxRecipients`, `maxConnections`,
+`maxConnectionsPerClient`, `maxErrors`,
+`timeout`, `hookTimeout` or `handshakeTimeout` is `0`, negative, a fraction, `NaN` or
 `Infinity`.
 
 **Why**: each is a bound on what a client can make the server do, and none
@@ -1352,7 +1355,11 @@ such as an MTA sending to many recipients of which most are refused.
 to retry later.
 
 **Fix**, as the operator: raise `maxConnections`, or look for clients that
-hold connections open without `QUIT`. `server.connections` gives the
+hold connections open without `QUIT`. When one host takes many of them,
+lower [`maxConnectionsPerClient`](#421-470--too-many-connections-from-your-address-try-later)
+(default 10), so it is turned away before it fills the server. On
+implicit TLS, sockets still in their handshake count too, for
+`handshakeTimeout` seconds at most. `server.connections` gives the
 number open. A client that stopped reading holds its slot until its
 `timeout` at most: the server's own hang-ups — idle, too many errors, a
 refusal — never wait for it to read, and drop what it did not. In 0.1.0
@@ -1361,6 +1368,80 @@ such a close could wait forever, and enough of those clients filled
 active.
 
 **Fix**, as a client: retry later, and send `QUIT` when done.
+
+### `421 4.7.0 … Too many connections from your address, try later`
+
+**When**: on connecting, in place of the greeting, when the same client
+already holds `maxConnectionsPerClient` connections (10 by default). The
+server hangs up, before `onConnect`. A client is an IPv4 address, or an
+IPv6 address by its /64; an IPv4-mapped (`::ffff:192.0.2.1`) or NAT64
+(`64:ff9b::…`) address counts as the IPv4 address inside it.
+
+**Why**: without it one host could take every slot of `maxConnections`
+and keep every other sender out. An MTA opens a few connections to one
+MX at most, and retries a 421 later.
+
+**Fix**, as the operator: raise `maxConnectionsPerClient` for a known
+peer that needs more, such as your own relay sending in parallel, or for
+many users behind one address (a NAT, a /64 shared by a provider):
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	maxConnectionsPerClient: 50, // default 10
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+Check which client is counted with `clientKey(session.remoteAddress)` in
+`onConnect`. A slot is freed on every close — QUIT, the client hanging up,
+an error, the idle `timeout`, a refusal — so a count that stays at the
+limit means the client holds its connections open.
+
+**Fix**, as a client: send several messages over one connection, close it
+with `QUIT`, and retry later.
+
+### On implicit TLS, the connection closes before any greeting
+
+**When**: a client on an `implicitTls` port gets no `220` and the
+connection closes, with no reply, about `handshakeTimeout` seconds (10 by
+default, up to 4 s later as Bun's timer ticks) after it connected; or at
+once, when what it sent is not TLS.
+
+**Why**: it did not complete its TLS handshake in time — it speaks clear
+SMTP to a TLS port, waits for a greeting before its ClientHello, or never
+sends one. A socket in its handshake holds a slot of `maxConnections`
+and `maxConnectionsPerClient`, so the server bounds it. There is no TLS
+yet to write a reply on.
+
+**Fix**, as a client: start TLS at once on 465 (`secure: true` with
+`sendMail`), or use STARTTLS on 587 or 25. As the operator, for clients
+on slow links, raise the bound:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'smtp.example.com',
+	mode: 'submission',
+	implicitTls: true,
+	localDomains: ['example.com'],
+	tls: {
+		key: await Bun.file('/etc/ssl/smtp.example.com.key').text(),
+		cert: await Bun.file('/etc/ssl/smtp.example.com.crt').text(),
+	},
+	authenticate: ({ username, password }) => username === 'alice' && password === Bun.env['ALICE_PASSWORD'],
+	handshakeTimeout: 30, // default 10
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
 
 ### `421 4.4.2 … Idle too long, closing`
 

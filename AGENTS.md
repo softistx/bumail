@@ -305,6 +305,14 @@ Every PR goes into `develop`. Before merging:
   unterminated, a control character or a stray `)` is refused here — so
   a fix to the RFC 5322 grammar in one is checked against the other, not
   copied blindly.
+- `clientKey` — which client an address counts as: an IPv4 address, an
+  IPv6 /64, an IPv4-mapped or NAT64 address as its IPv4 address — is in
+  `packages/smtp/src/server/client-key.ts`, exported by `@bumail/smtp`
+  for `maxConnectionsPerClient`, and in
+  `packages/server/src/directory/limiter.ts`, for the failed-login
+  limiter. smtp is the lower layer, so the server's copy goes once the
+  server wires the per-client limit and imports smtp's; until then a fix
+  to one is a fix to the other.
 - `packages/smtp/src/client/mx.ts` copies `@bumail/dns`'s `isTemporary`
   (and reads a `DnsError` by its `name` and `code`): the client imports
   nothing of `@bumail/dns`, so a smarthost-only app never installs it.
@@ -411,6 +419,14 @@ Every PR goes into `develop`. Before merging:
     20 to 2 in 15, 16 to 96 KiB short, for a `node:tls` client reading
     slowly, in both copies. A full `shutdown()` there lost nothing in 15
     runs, and `write` gives no sign of that buffer;
+  - a TLS listener (implicit TLS) calls `open` only once the handshake
+    completed unless it has a `handshake` handler: without one, a socket
+    that never sends its ClientHello reaches no `open`, so no limit counts
+    it and no `socket.timeout` closes it (50 raw sockets held 12 s with a
+    1 s timeout). With a handshake handler, `open` comes at the TCP
+    connection and the socket timer runs during the handshake; smtp sets
+    one, counts the socket there and bounds the handshake by
+    `handshakeTimeout`;
   - Bun's `listener.stop(true)` no longer closes a socket STARTTLS moved
     to TLS, so each server's `stop(true)` also closes every connection it
     holds;
