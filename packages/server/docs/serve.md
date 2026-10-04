@@ -30,9 +30,14 @@ and stops at the first thing it cannot do:
    `key`, for now;
 2. creates its spool folder, `<data>/spool/<pid>-<random>`, where
    messages wait while they are checked, readable by the server alone,
-   with an `owner` file naming its process and machine; and removes what
-   a server no longer running on this machine left under `<data>/spool`
-   (a folder with no owner file, or one whose process is gone);
+   with an `owner` file naming its process and machine, written before
+   the folder takes its name; and removes what a server no longer
+   running on this machine left under `<data>/spool`: a folder whose
+   process is gone, or is this very process (a restart under the same
+   pid, as in a container), and a folder with no owner file older than a
+   minute. A folder another machine owns is kept, and logged:
+   `bumail: the spool folder … was left by host …; remove it if that
+   server is gone`;
 3. opens the directory and the mail store;
 4. binds each listener whose port is not 0.
 
@@ -106,11 +111,17 @@ Received: from mx.example.org ([192.0.2.10])
 
 `Return-Path` holds the envelope sender (`<>` for a bounce), as RFC 5321
 §4.4 asks of the server that delivers. Any `Return-Path` the message
-already had is removed, and so is any `Authentication-Results` whose
-authserv-id is `hostname` (in any case, quoted or not, after comments):
-a sender could otherwise write `dmarc=pass` in your server's name
-(RFC 8601 §5). `Authentication-Results` fields from other servers are
-kept. Every other field is kept byte for byte.
+already had is removed, and so is every `Authentication-Results` but
+those plainly from another server (RFC 8601 §5): one is kept only when
+its authserv-id, after comments and folding and unquoted, is an ASCII
+host name (letters, digits, hyphens and dots), followed by nothing but
+a version number and `;`, and is not `hostname` (compared in any case,
+without a trailing dot, as its A-label). Anything else — a control or
+invisible character, a byte outside ASCII, a fullwidth or look-alike
+letter or dot, an empty id, a field that does not parse — is removed,
+since a reader might take it for your server's and a sender could
+otherwise write `dmarc=pass` in its name. A field kept is kept byte for
+byte, as is every other field.
 
 **Where it goes.** INBOX, or Junk for a message DMARC quarantines. The
 user's account and its six mailboxes are created in the store if they
@@ -126,8 +137,8 @@ A message waits on disk, in the spool folder, while it is checked, and
 is removed once delivered or refused; memory holds 64 KiB of it at a
 time, and its header.
 
-**The spool's budget.** The spool holds 20 times
-`inbound.maxMessageSize` at most (500 MiB by default), every message
+**The spool's budget.** The spool holds `inbound.spoolBytes` at most,
+20 times `inbound.maxMessageSize` by default (500 MiB), every message
 waiting counted as it is written. While a message as large as allowed
 would not fit, MAIL FROM is answered `452 4.3.1 Insufficient system
 storage, try again later`; a message that runs past the budget as it
@@ -247,6 +258,7 @@ bumail: stopped
 | --- | --- |
 | `bumail: <listener> listening on <address>:<port>: …` | at start, one per listener |
 | `bumail: <name> (port <n>) arrives in a later slice; not listening` | at start, for each later port not 0 |
+| `bumail: the spool folder <path> was left by host <host>; remove it if that server is gone` | at start, for a folder under `<data>/spool` another machine owns |
 | `mx: <id> from <ip> <sender> delivered to <users> (…)` | a message taken; `(Junk)` when quarantined |
 | `mx: <id> … refused by DMARC (…)` | `550 5.7.1`, with `inbound.dmarc = "enforce"` |
 | `mx: <id> … deferred: DMARC or DKIM did not finish (…)` | `451 4.7.0` |
@@ -275,7 +287,6 @@ const server = await serve(config, {
 	log: (line) => console.log(line),
 	port: (listener, configured) => configured, // 0 binds a free port, for a test
 	drainSeconds: 10,
-	spoolBytes: 20 * config.inbound.maxMessageSize, // the default
 });
 server.listening; // [{ name: 'mx', hostname: '0.0.0.0', port: 25 }, { name: 'imaps', … }]
 

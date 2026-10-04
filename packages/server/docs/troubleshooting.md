@@ -38,6 +38,7 @@ directory commands' own refusals are under
 - [`…: must be true or false, not …`](#-must-be-true-or-false-not-)
 - [`…: must be an integer from … to …`](#-must-be-an-integer-from--to-)
 - [`…: must be "…" or "…"`](#-must-be--or-)
+- [`inbound.spoolBytes: must be at least inbound.maxMessageSize (…)`](#inboundspoolbytes-must-be-at-least-inboundmaxmessagesize-)
 
 **Top-level keys**
 
@@ -171,6 +172,7 @@ directory commands' own refusals are under
 - [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
 - [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
 - [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
+- [`bumail: the spool folder … was left by host …; remove it if that server is gone`](#bumail-the-spool-folder--was-left-by-host--remove-it-if-that-server-is-gone)
 - [`550 5.1.1 User unknown`](#550-511-user-unknown)
 - [`554 5.7.1 Relay access denied`](#554-571-relay-access-denied)
 - [`550 5.7.1 Rejected by the DMARC policy of …`](#550-571-rejected-by-the-dmarc-policy-of-)
@@ -324,6 +326,22 @@ off; sizes are bytes.
 `smarthost.tls: must be "required", "opportunistic" or "none"`.
 
 **Fix**: one of the choices listed, as a string.
+
+### `inbound.spoolBytes: must be at least inbound.maxMessageSize (…)`
+
+**When**: `inbound.spoolBytes`, what the messages waiting to be checked
+may hold on disk at once, is smaller than one message as large as
+allowed: no such message could ever be taken. The number in brackets is
+`inbound.maxMessageSize`.
+
+**Fix**: raise it, or leave it out for the default, 20 times
+`inbound.maxMessageSize`:
+
+```toml
+[inbound]
+maxMessageSize = 26214400
+spoolBytes = 524288000
+```
 
 ## Top-level keys
 
@@ -1149,6 +1167,19 @@ full, or owned by another user. Exit code 5. Give the server's user a
 writable `data`. A folder whose `owner` names another machine is never
 removed; delete it by hand once that server is gone for good.
 
+### `bumail: the spool folder … was left by host …; remove it if that server is gone`
+
+Logged at start, once per folder, when `<data>/spool` holds a folder
+whose `owner` file names another machine: `data` is shared, or was
+copied from another server. That folder is never removed, since this
+server cannot tell whether the other one still runs. The server starts
+anyway.
+
+**Fix**: if the server on that host is gone for good, stop this one and
+delete the folder; what it held was never acknowledged to a sending
+server, which sends it again. If both servers run, give each its own
+`data`.
+
 ### `550 5.1.1 User unknown`
 
 What a sending server is told for a recipient in a hosted domain that
@@ -1199,12 +1230,13 @@ what it cannot read (RFC 7489 §6.6.1). Only with `inbound.dmarc =
 What a sending server is told when the spool's budget is spent: at MAIL
 FROM, while a message as large as `inbound.maxMessageSize` would not
 fit besides those waiting, or at the end of DATA, when the message ran
-past it as it came. The budget is 20 times `inbound.maxMessageSize`. It
-is a burst of large messages at once, or many sessions held open
-mid-DATA; the sending server tries again. The log says `deferred: the
-spool is full`. There is no limit per client yet, so one client can
-fill it with `inbound.maxConnections` sessions; lower
-`inbound.maxConnections` if that is a risk.
+past it as it came. The budget is `inbound.spoolBytes`, 20 times
+`inbound.maxMessageSize` by default. It is a burst of large messages at
+once, or many sessions held open mid-DATA; the sending server tries
+again. The log says `deferred: the spool is full`. Raise
+`inbound.spoolBytes` if the disk has room. There is no limit per client
+yet, so one client can fill it with `inbound.maxConnections` sessions;
+lower `inbound.maxConnections` if that is a risk.
 
 ### `552 5.3.4 Message header too large`
 

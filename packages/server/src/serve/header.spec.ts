@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-	authservId,
-	claimsHost,
+	foreignAuthservId,
 	HeaderEndScanner,
 	headerEnd,
 	returnPath,
@@ -37,17 +36,101 @@ describe('splitFields', () => {
 	});
 });
 
-describe('authservId (RFC 8601 §2.2)', () => {
+describe('foreignAuthservId (RFC 8601 §2.2): an allow-list', () => {
 	test.each([
 		['Authentication-Results: example.com; none\r\n', 'example.com'],
 		['Authentication-Results:  Example.COM 1; spf=pass\r\n', 'example.com'],
 		['Authentication-Results: (c (nested)) example.com;\r\n', 'example.com'],
 		['Authentication-Results:\r\n example.com;\r\n', 'example.com'],
-		['Authentication-Results: "exa\\mple.com"; none\r\n', 'example.com'],
-		['Authentication-Results: ; none\r\n', ''],
-		['Authentication-Results: (unterminated\r\n', ''],
-	])('%j claims %j', (field, id) => {
-		expect(authservId(bytes(field))).toBe(id);
+		['Authentication-Results: "example.com"; none\r\n', 'example.com'],
+		['Authentication-Results: example.com. (c) 1 (d) ;\r\n', 'example.com'],
+	])('%j names %j', (field, id) => {
+		expect(foreignAuthservId(bytes(field))).toBe(id);
+	});
+
+	test.each([
+		['an empty id', 'Authentication-Results: ; none\r\n'],
+		['a comment never closed', 'Authentication-Results: (open\r\n'],
+		['no semicolon after it', 'Authentication-Results: example.com\r\n'],
+		[
+			'something after a version',
+			'Authentication-Results: example.com 1x;\r\n',
+		],
+		['an underscore', 'Authentication-Results: ex_ample.com;\r\n'],
+		['a quote never closed', 'Authentication-Results: "example.com;\r\n'],
+		['a bare LF', 'Authentication-Results:\n example.com;\r\n'],
+	])('%s is no foreign id', (_, field) => {
+		expect(foreignAuthservId(bytes(field))).toBeUndefined();
+	});
+});
+
+/** An `Authentication-Results` field with `id` as written, then `; dmarc=pass`. */
+function claim(id: string | Uint8Array): Uint8Array {
+	const head = bytes('Authentication-Results: ');
+	const tail = bytes('; dmarc=pass\r\n');
+	const middle = typeof id === 'string' ? bytes(id) : id;
+	const out = new Uint8Array(head.length + middle.length + tail.length);
+	out.set(head);
+	out.set(middle, head.length);
+	out.set(tail, head.length + middle.length);
+	return out;
+}
+
+describe('stripForged: anything a reader may take for the server goes', () => {
+	const host = 'mail.example.com';
+	test.each([
+		['NUL after', 'mail.example.com\u0000'],
+		['\\x01 after', 'mail.example.com\u0001'],
+		['DEL after', 'mail.example.com\u007f'],
+		['a slash', 'mail.example.com/x'],
+		['a comma', 'mail.example.com,x'],
+		['an equals sign', 'mail.example.com=x'],
+		['a zero-width space after', 'mail.example.com​'],
+		['a zero-width space inside', 'mail.exa​mple.com'],
+		['a soft hyphen after', 'mail.example.com­'],
+		['a soft hyphen inside', 'mail.exam­ple.com'],
+		['VT first', '\u000bmail.example.com'],
+		['FF first', '\u000cmail.example.com'],
+		['NBSP first', ' mail.example.com'],
+		['a BOM first', '﻿mail.example.com'],
+		['a fullwidth dot', 'mail．example.com'],
+		['an ideographic full stop', 'mail。example.com'],
+		['fullwidth letters', 'ｍａｉｌ.example.com'],
+		['a small roman numeral one thousand', 'mail.example.coⅿ'],
+		['a control character in another name', 'other\u0001.example'],
+		['a trailing dot', 'mail.example.com.'],
+		['another case', 'MAIL.Example.COM'],
+		['the hostname quoted', '"mail.example.com"'],
+		['the hostname itself', 'mail.example.com'],
+		['an empty id', ''],
+	])('%s', (_, id) => {
+		expect(stripForged(claim(id), host).removed).toBe(1);
+	});
+
+	test.each([
+		['0xFF', 0xff],
+		['0x80', 0x80],
+	])('a raw %s byte before the hostname', (_, byte) => {
+		const id = new Uint8Array([byte, ...bytes('mail.example.com')]);
+		expect(stripForged(claim(id), host).removed).toBe(1);
+	});
+
+	test('the U-label of a hostname given as its A-label', () => {
+		const field = claim('mail.bücher.example');
+		expect(stripForged(field, 'mail.xn--bcher-kva.example').removed).toBe(1);
+		// And the A-label, for a hostname given as its U-label.
+		const ascii = claim('mail.xn--bcher-kva.example');
+		expect(stripForged(ascii, 'mail.bücher.example').removed).toBe(1);
+	});
+
+	test("a foreign server's field is kept byte for byte", () => {
+		const field = bytes('Authentication-Results: mx.google.com; dkim=pass\r\n');
+		const { kept, removed } = stripForged(field, host);
+		expect(removed).toBe(0);
+		expect(kept).toEqual([field]);
+		for (const id of ['mail.example.community', 'relay.other.example 1']) {
+			expect(stripForged(claim(id), host).removed).toBe(0);
+		}
 	});
 });
 
@@ -66,48 +149,11 @@ describe('stripForged', () => {
 			].join('\r\n'),
 		);
 		const { kept, removed } = stripForged(header, 'mail.example.com');
-		// mail.example.com.evil.example goes too: erring towards removal costs nothing.
-		expect(removed).toBe(4);
+		// Another host's name, however it starts, is another server's.
+		expect(removed).toBe(3);
 		expect(text(kept)).toBe(
-			'Received: from a by b; now\r\nAuthentication-Results: mail.example.community; spf=pass\r\nFrom: <a@b>\r\n',
+			'Received: from a by b; now\r\nAuthentication-Results: mail.example.com.evil.example; spf=pass\r\nAuthentication-Results: mail.example.community; spf=pass\r\nFrom: <a@b>\r\n',
 		);
-	});
-});
-
-describe('claimsHost: an id a reader may take for the server', () => {
-	const host = 'mail.example.com';
-	test.each([
-		['NUL', 'mail.example.com\u0000'],
-		['\\x01', 'mail.example.com\u0001'],
-		['DEL', 'mail.example.com\u007f'],
-		['a slash', 'mail.example.com/x'],
-		['a comma', 'mail.example.com,x'],
-		['an equals sign', 'mail.example.com=x'],
-		['a zero-width space after', 'mail.example.com\u200b'],
-		['a zero-width space inside', 'mail.exa\u200bmple.com'],
-		['a soft hyphen after', 'mail.example.com\u00ad'],
-		['a soft hyphen inside', 'mail.exam\u00adple.com'],
-		['a control character anywhere', 'other\u0001.example'],
-		['a trailing dot', 'mail.example.com.'],
-		['the hostname itself', 'mail.example.com'],
-	])('%s is a claim', (_, id) => {
-		expect(claimsHost(id, host)).toBe(true);
-	});
-
-	test.each([
-		'mail.example.community',
-		'mail.example.co',
-		'relay.other.example',
-		'xmail.example.com',
-	])('%s is not', (id) => {
-		expect(claimsHost(id, host)).toBe(false);
-	});
-
-	test('a field whose id hides a control character is stripped', () => {
-		for (const id of ['mail.example.com\u0000', 'mail.example.com\u007f']) {
-			const header = bytes(`Authentication-Results: ${id}; dmarc=pass\r\n`);
-			expect(stripForged(header, host).removed).toBe(1);
-		}
 	});
 });
 

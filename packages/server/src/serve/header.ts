@@ -1,3 +1,5 @@
+import { domainToASCII } from 'node:url';
+
 /**
  * The header of a message on its way in, as bytes: split into its fields,
  * the fields that must not reach a reader taken out, and the server's own
@@ -96,121 +98,112 @@ export function fieldName(field: Uint8Array): string {
 	return decoder.decode(field.subarray(0, colon)).trim().toLowerCase();
 }
 
-/** Skips folding white space and comments (RFC 5322 §3.2.2) from `at`. */
+/**
+ * Skips CFWS (RFC 5322 §3.2.2) from `at` in a field read byte for byte:
+ * spaces, tabs, a CRLF that folds (a space or a tab after it), and
+ * comments, nested and with quoted pairs. `-1` for a comment never
+ * closed.
+ */
 function skipCfws(text: string, at: number): number {
 	let i = at;
 	for (;;) {
-		while (i < text.length && /[ \t\r\n]/.test(text[i] ?? '')) i++;
-		if (text[i] !== '(') return i;
-		let depth = 0;
-		for (; i < text.length; i++) {
-			const char = text[i];
-			if (char === '\\') i++;
-			else if (char === '(') depth++;
-			else if (char === ')' && --depth === 0) {
-				i++;
-				break;
+		const char = text[i];
+		if (char === ' ' || char === '\t') {
+			i++;
+		} else if (
+			text.startsWith('\r\n', i) &&
+			(text[i + 2] === ' ' || text[i + 2] === '\t')
+		) {
+			i += 3;
+		} else if (char === '(') {
+			let depth = 0;
+			for (; i < text.length; i++) {
+				const c = text[i];
+				if (c === '\\') i++;
+				else if (c === '(') depth++;
+				else if (c === ')' && --depth === 0) break;
 			}
+			if (depth > 0) return -1;
+			i++;
+		} else {
+			return i;
 		}
-		if (depth > 0) return text.length;
 	}
 }
 
+/** A host name in ASCII letters, digits and hyphens, a trailing dot allowed. */
+const HOST =
+	/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.?$/;
+
 /**
- * The authserv-id an `Authentication-Results` field claims (RFC 8601
- * §2.2), as written, lower case: a quoted-string unquoted, else all up
- * to white space, `;`, a comment or a quote — control characters and
- * any other byte kept, for `claimsHost` to judge; `''` when it has none.
+ * The authserv-id of an `Authentication-Results` field (RFC 8601 §2.2),
+ * lower case without a trailing dot, when it is a plain ASCII host name
+ * followed only by CFWS, an `authres-version`, and `;`; `undefined` for
+ * anything else — an empty id, a byte outside ASCII, a control
+ * character, any other character, a field that does not parse. Read
+ * byte for byte, so no decoding turns a stray byte into anything.
  */
-export function authservId(field: Uint8Array): string {
-	const text = decoder.decode(field);
+export function foreignAuthservId(field: Uint8Array): string | undefined {
+	const text = Buffer.from(field).toString('latin1');
 	const colon = text.indexOf(':');
-	if (colon === -1) return '';
+	if (colon === -1) return undefined;
 	let i = skipCfws(text, colon + 1);
+	if (i === -1) return undefined;
+	let id = '';
 	if (text[i] === '"') {
-		let id = '';
 		for (i++; i < text.length && text[i] !== '"'; i++) {
 			if (text[i] === '\\') i++;
 			id += text[i] ?? '';
 		}
-		return id.toLowerCase();
+		if (text[i] !== '"') return undefined;
+		i++;
+	} else {
+		const match = /^[^ \t\r\n;(]+/.exec(text.slice(i));
+		id = match?.[0] ?? '';
+		i += id.length;
 	}
-	const match = /^[^\s;()"]+/.exec(text.slice(i));
-	return (match?.[0] ?? '').toLowerCase();
+	if (!HOST.test(id)) return undefined;
+	const end = i;
+	i = skipCfws(text, i);
+	if (i === -1) return undefined;
+	// [CFWS authres-version]: digits, after CFWS only.
+	const version = /^[0-9]+/.exec(text.slice(i));
+	if (version !== null && i > end) {
+		i = skipCfws(text, i + version[0].length);
+		if (i === -1) return undefined;
+	}
+	if (text[i] !== ';') return undefined;
+	return id.toLowerCase().replace(/\.$/, '');
 }
 
-/** An RFC 2045 token: no space, no control character, none of `()<>@,;:\"/[]?=`. */
-const TOKEN = /^[!#$%&'*+\-.0-9A-Z^_`a-z{|}~]*/;
-/** Whether a reader shows the character as nothing: a soft hyphen, a zero-width one, a BOM. */
-function invisible(code: number): boolean {
-	return (
-		code === 0xad ||
-		code === 0x34f ||
-		code === 0x180e ||
-		(code >= 0x200b && code <= 0x200f) ||
-		(code >= 0x2060 && code <= 0x2064) ||
-		code === 0xfeff
-	);
-}
-
-/** Whether the text holds a C0 or C1 control character, or DEL. */
-function hasControl(text: string): boolean {
-	for (let i = 0; i < text.length; i++) {
-		const code = text.charCodeAt(i);
-		if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
-	}
-	return false;
-}
-
-/** The text without the characters a reader shows as nothing. */
-function visible(text: string): string {
-	let out = '';
-	for (const char of text) {
-		if (!invisible(char.codePointAt(0) ?? 0)) out += char;
-	}
-	return out;
-}
-
-/**
- * Whether an authserv-id, as `authservId` read it, may be taken by a
- * reader for `hostname` — erring towards yes, since removing another
- * server's field costs nothing: any control character; the id cut at
- * its first character that is no token character, or with invisible
- * characters left out, being `hostname` (a trailing dot aside); or
- * `hostname` followed by anything but a letter, a digit or a hyphen.
- */
-export function claimsHost(id: string, hostname: string): boolean {
-	const host = hostname.toLowerCase().replace(/\.$/, '');
-	if (hasControl(id)) return true;
-	for (const form of [id, visible(id)]) {
-		const token = (TOKEN.exec(form)?.[0] ?? '').replace(/\.$/, '');
-		if (token === host) return true;
-		if (form.startsWith(host) && !/^[a-z0-9-]/.test(form.slice(host.length))) {
-			return true;
-		}
-	}
-	return false;
+/** The server's name as an `Authentication-Results` names it: its A-label, lower case, no trailing dot. */
+export function authservIdOf(hostname: string): string {
+	return (domainToASCII(hostname) || hostname).toLowerCase().replace(/\.$/, '');
 }
 
 /**
  * The header's fields less those a sender could forge to fool a reader
- * here: every `Authentication-Results` whose authserv-id may be read as
- * `hostname` (RFC 8601 §5; `claimsHost`), and every `Return-Path`, which only the
- * delivering server writes (RFC 5321 §4.4). Answers what is kept, in
- * order, and how many fields were taken out.
+ * here, by an allow-list: an `Authentication-Results` is kept only when
+ * its authserv-id is a plain ASCII host name other than the server's
+ * own (`foreignAuthservId`, RFC 8601 §5) — anything else, in any form a
+ * reader might take for the server, is removed; and every `Return-Path`,
+ * which only the delivering server writes (RFC 5321 §4.4). Answers what
+ * is kept, in order, and how many fields were taken out.
  */
 export function stripForged(
 	header: Uint8Array,
 	hostname: string,
 ): { kept: Uint8Array[]; removed: number } {
+	const own = authservIdOf(hostname);
 	const kept: Uint8Array[] = [];
 	let removed = 0;
 	for (const field of splitFields(header)) {
 		const name = fieldName(field);
-		const forged =
-			name === 'return-path' ||
-			(name === 'authentication-results' &&
-				claimsHost(authservId(field), hostname));
+		let forged = name === 'return-path';
+		if (name === 'authentication-results') {
+			const id = foreignAuthservId(field);
+			forged = id === undefined || id === own;
+		}
 		if (forged) removed++;
 		else kept.push(field);
 	}

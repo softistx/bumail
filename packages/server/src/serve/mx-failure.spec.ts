@@ -38,7 +38,12 @@ test('a store that fails answers 451, and its log line masks the store password'
 		directory,
 		store,
 		resolver: fixtureResolver(RECORDS),
-		inbound: { dmarc: 'enforce', maxMessageSize: 1 << 20, maxConnections: 10 },
+		inbound: {
+			dmarc: 'enforce',
+			maxMessageSize: 1 << 20,
+			maxConnections: 10,
+			spoolBytes: 1 << 24,
+		},
 		tls: await selfSigned(['localhost']),
 		spool,
 		log: (line) => lines.push(line),

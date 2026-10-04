@@ -251,6 +251,9 @@ describe('mx: Authentication-Results', () => {
 			'Authentication-Results: mail.example.com\u200b; dmarc=pass',
 			'Authentication-Results: mail.example.com/x; dmarc=pass',
 			'Authentication-Results: mail.example.com\u00ad; dmarc=pass',
+			'Authentication-Results: \u00a0mail.example.com; dmarc=pass',
+			'Authentication-Results: mail\uff0eexample.com; dmarc=pass',
+			'Authentication-Results: mx.google.com; dkim=pass',
 			'Authentication-Results: relay.other.example; spf=pass smtp.mailfrom=x.example',
 			'Return-Path: <forged@bank.example>',
 			'',
@@ -267,7 +270,10 @@ describe('mx: Authentication-Results', () => {
 			'inbox',
 		);
 		const fields = mail.slice(0, mail.indexOf('\r\n\r\n'));
-		expect(fields.match(/^Authentication-Results:/gim)).toHaveLength(2);
+		expect(fields.match(/^Authentication-Results:/gim)).toHaveLength(3);
+		expect(fields).toContain(
+			'Authentication-Results: mx.google.com; dkim=pass\r\n',
+		);
 		expect(fields).toContain(
 			'Authentication-Results: relay.other.example; spf=pass smtp.mailfrom=x.example',
 		);

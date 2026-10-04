@@ -2,7 +2,9 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
 } from 'node:fs';
 import { open, rm } from 'node:fs/promises';
@@ -27,9 +29,6 @@ export interface Spooled {
 /** The file in each spool folder naming the server that owns it: `<pid> <hostname>`. */
 export const OWNER_FILE = 'owner';
 
-/** How many of `maxMessageSize` the spool holds at most, by default. */
-export const SPOOL_BUDGET_MESSAGES = 20;
-
 /** Whether a process of that id runs on this machine. */
 function alive(pid: number): boolean {
 	try {
@@ -41,22 +40,50 @@ function alive(pid: number): boolean {
 	}
 }
 
+/** Milliseconds a folder with no owner file is given before it is swept: one being created. */
+export const UNOWNED_GRACE_MS = 60_000;
+
+/** A spool folder another machine owns: never swept, logged at start. */
+export interface ForeignFolder {
+	readonly path: string;
+	readonly host: string;
+}
+
 /**
- * Whether the spool folder at `path` belongs to no running server: its
- * owner file is missing or unreadable, or names a process of this
- * machine that is gone. A folder owned from another machine is kept.
+ * What to do with the spool folder at `path`, found at start: `sweep`
+ * what no running server owns — no owner file (or a `.tmp` one, still
+ * being created) older than `UNOWNED_GRACE_MS`, or an owner on this
+ * machine whose process is gone or is this very one (a restart as pid 1
+ * in a container); `keep` a live server's, or a fresh one being made;
+ * `foreign` one another machine owns.
  */
-function abandoned(path: string, host: string): boolean {
-	let owner: string;
-	try {
-		owner = readFileSync(join(path, OWNER_FILE), 'utf8');
-	} catch {
-		return true;
+function judgeFolder(
+	path: string,
+	name: string,
+	self: { readonly pid: number; readonly host: string; readonly now: number },
+): 'sweep' | 'keep' | { readonly host: string } {
+	let owner: string | undefined;
+	if (!name.endsWith('.tmp')) {
+		try {
+			owner = readFileSync(join(path, OWNER_FILE), 'utf8');
+		} catch {
+			owner = undefined;
+		}
 	}
-	const [pid, from] = owner.trim().split(' ');
-	if (from !== host) return false;
+	if (owner === undefined) {
+		let age = Number.POSITIVE_INFINITY;
+		try {
+			age = self.now - statSync(path).mtimeMs;
+		} catch {
+			// Gone already, or unreadable: swept below, force ignoring a miss.
+		}
+		return age > UNOWNED_GRACE_MS ? 'sweep' : 'keep';
+	}
+	const [pid, from = ''] = owner.trim().split(' ');
+	if (from !== self.host) return { host: from };
 	const id = Number(pid);
-	return !Number.isInteger(id) || !alive(id);
+	if (!Number.isInteger(id) || id === self.pid || !alive(id)) return 'sweep';
+	return 'keep';
 }
 
 function concat(chunks: readonly Uint8Array[], length: number): Uint8Array {
@@ -78,30 +105,52 @@ function concat(chunks: readonly Uint8Array[], length: number): Uint8Array {
 export class Spool {
 	readonly dir: string;
 	readonly budget: number;
+	/** Folders another machine left under `<data>/spool`, kept. */
+	readonly foreign: readonly ForeignFolder[];
 	#used = 0;
 
-	private constructor(dir: string, budget: number) {
+	private constructor(
+		dir: string,
+		budget: number,
+		foreign: readonly ForeignFolder[],
+	) {
 		this.dir = dir;
 		this.budget = budget;
+		this.foreign = foreign;
 	}
 
 	/**
 	 * Opens this process's spool under `data`, removing first what a
 	 * server no longer running left there. `UNAVAILABLE` when it cannot.
 	 */
-	static open(data: string, budget: number, pid = process.pid): Spool {
+	static open(
+		data: string,
+		budget: number,
+		self: { readonly pid?: number; readonly now?: number } = {},
+	): Spool {
 		const root = join(data, 'spool');
 		const host = machineName();
-		const dir = join(root, `${pid}-${crypto.randomUUID().slice(0, 8)}`);
+		const pid = self.pid ?? process.pid;
+		const now = self.now ?? Date.now();
+		const name = `${pid}-${crypto.randomUUID().slice(0, 8)}`;
+		const dir = join(root, name);
+		const foreign: ForeignFolder[] = [];
 		try {
 			mkdirSync(root, { recursive: true, mode: 0o700 });
-			for (const name of readdirSync(root)) {
-				const path = join(root, name);
-				if (abandoned(path, host))
-					rmSync(path, { recursive: true, force: true });
+			for (const entry of readdirSync(root)) {
+				const path = join(root, entry);
+				const verdict = judgeFolder(path, entry, { pid, host, now });
+				if (verdict === 'sweep') rmSync(path, { recursive: true, force: true });
+				else if (verdict !== 'keep') foreign.push({ path, host: verdict.host });
 			}
-			mkdirSync(dir, { mode: 0o700 });
-			writeFileSync(join(dir, OWNER_FILE), `${pid} ${host}\n`, { mode: 0o600 });
+			// Made whole under another name, then renamed: a folder is never
+			// seen without its owner.
+			const making = join(root, `${name}.tmp`);
+			mkdirSync(making, { mode: 0o700 });
+			writeFileSync(join(making, OWNER_FILE), `${pid} ${host}\n`, {
+				mode: 0o600,
+			});
+			renameSync(making, dir);
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
 			throw new ServerError(
@@ -109,7 +158,7 @@ export class Spool {
 				`the spool directory ${root} cannot be used (${reason})`,
 			);
 		}
-		return new Spool(dir, budget);
+		return new Spool(dir, budget, foreign);
 	}
 
 	/** Removes the spool folder, with anything left in it: at the end of a stop. */
@@ -171,11 +220,16 @@ export class Spool {
 				scanner.add(value);
 			}
 		} catch (error) {
-			await handle.close();
+			await handle.close().catch(() => {});
 			await remove();
 			throw error;
 		}
-		await handle.close();
+		try {
+			await handle.close();
+		} catch (error) {
+			await remove();
+			throw error;
+		}
 		if (full) {
 			await remove();
 			return 'full';

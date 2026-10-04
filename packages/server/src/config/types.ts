@@ -127,6 +127,12 @@ export interface InboundConfig {
 	readonly maxMessageSize: number;
 	/** Default 1000. */
 	readonly maxConnections: number;
+	/**
+	 * Bytes the messages waiting to be checked may hold on disk at once;
+	 * past it, MAIL FROM and DATA answer `452 4.3.1`. At least
+	 * `maxMessageSize`. Default 20 times `maxMessageSize`.
+	 */
+	readonly spoolBytes: number;
 }
 
 /** Mail from the server's own users, on `ports.submissions` and `ports.submission`. */

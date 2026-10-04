@@ -15,7 +15,7 @@ import {
 	type Resources,
 } from './listeners';
 import type { Log } from './log';
-import { SPOOL_BUDGET_MESSAGES, Spool } from './spool';
+import { Spool } from './spool';
 import { closeResources, stopper } from './stop';
 import { readTls } from './tls';
 import { trackedStore } from './tracked';
@@ -48,12 +48,6 @@ export interface ServeOptions {
 	port?(listener: ListenerName, configured: number): number;
 	/** Seconds `stop` waits for SMTP sessions to end before hanging up on them. Default 10. */
 	readonly drainSeconds?: number;
-	/**
-	 * Bytes the spool holds at most, every message waiting counted; past
-	 * it, MAIL FROM and DATA answer `452 4.3.1`. Default 20 times
-	 * `inbound.maxMessageSize`.
-	 */
-	readonly spoolBytes?: number;
 }
 
 /** A listener bound. */
@@ -174,10 +168,7 @@ export async function serve(
 ): Promise<RunningServer> {
 	const log = options.log ?? defaultLog;
 	const tls = readTls(config.tls);
-	const spool = Spool.open(
-		config.data,
-		options.spoolBytes ?? SPOOL_BUDGET_MESSAGES * config.inbound.maxMessageSize,
-	);
+	const spool = Spool.open(config.data, config.inbound.spoolBytes);
 	let directory: Directory;
 	let opened: OpenedStore;
 	try {
@@ -218,6 +209,11 @@ export async function serve(
 		throw error;
 	}
 	logStart(config, bound.listening, log);
+	for (const { path, host } of spool.foreign) {
+		log(
+			`bumail: the spool folder ${path} was left by host ${host}; remove it if that server is gone`,
+		);
+	}
 
 	return {
 		listening: bound.listening,

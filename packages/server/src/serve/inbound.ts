@@ -70,9 +70,9 @@ async function dkimWithin(
 		const verified = verifyDkim(message, { resolver });
 		const first = await Promise.race([verified, late]);
 		if (first !== 'late') return { dkim: first, timedOut: false };
-		// What it still reads and looks up ends on its own, bounded by the DNS.
+		// What it still reads and looks up ends on its own, bounded by the
+		// DNS; the stream is verifyDkim's, locked to its reader.
 		void verified.catch(() => {});
-		await message.cancel().catch(() => {});
 		return { dkim: [DKIM_TIMED_OUT], timedOut: true };
 	} finally {
 		clearTimeout(timer);

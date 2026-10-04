@@ -185,9 +185,9 @@ describe('serve: stopping', () => {
 	});
 
 	test('answers 452 4.3.1 to MAIL FROM while the spool is full, and takes mail again after', async () => {
-		const f = await startServer('[inbound]\nmaxMessageSize = 4000', {
-			spoolBytes: 6000,
-		});
+		const f = await startServer(
+			'[inbound]\nmaxMessageSize = 4000\nspoolBytes = 6000',
+		);
 		const held = await LineClient.connect(f.port('mx'));
 		await held.reply();
 		await held.smtp('EHLO client.example');
@@ -214,6 +214,43 @@ describe('serve: stopping', () => {
 		);
 		expect(last).toStartWith('250 ');
 		await f.stop();
+	});
+
+	test('answers 452 4.3.1 at the end of DATA when the spool filled during it, and keeps nothing of it', async () => {
+		const f = await startServer(
+			'[inbound]\nmaxMessageSize = 4000\nspoolBytes = 6000',
+		);
+		// Both pass MAIL FROM while the spool is empty.
+		const first = await LineClient.connect(f.port('mx'));
+		const second = await LineClient.connect(f.port('mx'));
+		for (const client of [first, second]) {
+			await client.reply();
+			await client.smtp('EHLO client.example');
+			await client.smtp('MAIL FROM:<joe@pass.example>');
+			await client.smtp('RCPT TO:<alice@example.com>');
+			await client.smtp('DATA');
+		}
+		first.write(`X-Filler: ${'a'.repeat(3000)}\r\n`);
+		await Bun.sleep(200);
+		second.write(
+			`X-Filler: ${'b'.repeat(3000)}\r\n${message('joe@pass.example', 'no room')}\r\n.\r\n`,
+		);
+		expect(await second.reply()).toStartWith(
+			'452 4.3.1 Insufficient system storage',
+		);
+		first.write(`${message('joe@pass.example', 'first')}\r\n.\r\n`);
+		expect(await first.reply()).toStartWith('250 ');
+		for (const client of [first, second]) {
+			await client.smtp('QUIT');
+			client.end();
+		}
+		await f.stop();
+		const inbox = await mailOf(f.dir, 'alice@example.com', 'inbox');
+		expect(inbox).toHaveLength(1);
+		expect(inbox[0]).toContain('Subject: first');
+		expect(f.lines).toContainEqual(
+			expect.stringContaining('deferred: the spool is full'),
+		);
 	});
 
 	test('bumail serve stops on SIGTERM, exits 0, and logs no secret', async () => {

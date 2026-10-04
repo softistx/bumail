@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { tempDir } from '../config/config.fixtures';
@@ -29,16 +29,53 @@ describe('Spool.open', () => {
 		const gone = 2 ** 22 + 12345; // past any pid this machine hands out
 		folder(data, `${gone}-dead`, `${gone} ${hostname()}\n`);
 		folder(data, 'no-owner');
-		folder(data, '4242', undefined);
+		folder(data, 'half-made.tmp', `${process.ppid} ${hostname()}\n`);
 		folder(data, `${process.ppid}-live`, `${process.ppid} ${hostname()}\n`);
 		folder(data, '17-elsewhere', '17 another-machine\n');
-		const spool = Spool.open(data, 1000);
+		// A minute on: the folders with no owner are no longer being made.
+		const spool = Spool.open(data, 1000, { now: Date.now() + 61_000 });
 		expect(readdirSync(join(data, 'spool')).sort()).toEqual(
 			[
 				`${process.ppid}-live`,
 				'17-elsewhere',
 				spool.dir.split('/').at(-1) ?? '',
 			].sort(),
+		);
+		expect(spool.foreign).toEqual([
+			{ path: join(data, 'spool', '17-elsewhere'), host: 'another-machine' },
+		]);
+		spool.close();
+	});
+
+	test('keeps a folder with no owner for a minute: another server may be making it', () => {
+		const data = tempDir();
+		folder(data, 'no-owner');
+		folder(data, 'making.tmp');
+		const spool = Spool.open(data, 1000);
+		expect(readdirSync(join(data, 'spool'))).toContain('no-owner');
+		expect(readdirSync(join(data, 'spool'))).toContain('making.tmp');
+		spool.close();
+	});
+
+	test('sweeps a folder its own pid owns: a restart as the same pid, in a container', () => {
+		const data = tempDir();
+		folder(data, '1-before', `1 ${hostname()}\n`);
+		const spool = Spool.open(data, 1000, { pid: 1 });
+		expect(readdirSync(join(data, 'spool'))).toEqual([
+			spool.dir.split('/').at(-1) ?? '',
+		]);
+		expect(spool.dir.split('/').at(-1)).toStartWith('1-');
+		spool.close();
+	});
+
+	test('writes the owner file before the folder takes its name', () => {
+		const data = tempDir();
+		const spool = Spool.open(data, 1000);
+		expect(readdirSync(join(data, 'spool'))).toEqual([
+			spool.dir.split('/').at(-1) ?? '',
+		]);
+		expect(readFileSync(join(spool.dir, OWNER_FILE), 'utf8')).toBe(
+			`${process.pid} ${hostname()}\n`,
 		);
 		spool.close();
 	});

@@ -240,7 +240,7 @@ mail store, a port or a certificate that cannot be used 5.
 | `configPath(options?)` | the file `readConfig` reads: `path`, else `BUMAIL_CONFIG`, else `DEFAULT_CONFIG_PATH` |
 | `DEFAULT_CONFIG_PATH` | `/data/bumail.toml` |
 | `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`, `NOT_IMPLEMENTED`) and, for a configuration, its `problems` |
-| `serve(config, options?)` | runs the server: `mx`, `imaps` and `imap` for the ports not 0; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds`, `spoolBytes` (20 × `inbound.maxMessageSize`) |
+| `serve(config, options?)` | runs the server: `mx`, `imaps` and `imap` for the ports not 0; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds` |
 | `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`; the types around them |
 | `DEFAULT_DRAIN_SECONDS`, `ACME_LATER` | 10, the seconds a stop waits for SMTP sessions; what `serve` says of `tls.mode = "acme"` |
 | `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, cacheSeconds?, onUnlimited?, limiter? })`: `domains`, `users`, `aliases`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |

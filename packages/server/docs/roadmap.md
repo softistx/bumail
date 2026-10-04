@@ -23,7 +23,7 @@ npm yet.
   serve` takes mail on 25 for the directory's users and aliases, and
   for nothing else — no AUTH there, so never a relay — with STARTTLS
   offered. SPF, DKIM and DMARC on each message, recorded in
-  `Authentication-Results` (a forged one in the server's name removed);
+  `Authentication-Results` (any not plainly another server's removed);
   DMARC enforced by default, `p=reject` refused during the session and
   `p=quarantine` to Junk, or only recorded. Mail served over IMAP on 993
   (and 143 with STARTTLS, off by default), logins counted per client. A
@@ -45,6 +45,9 @@ In this order, each its own step:
   DKIM and DMARC, as a zone file or plain records.
 - **A Docker image**: the server, its ports and one volume for
   everything it keeps.
+- **A cap on SMTP sessions per client on port 25**, so one sending
+  address cannot hold every session nor fill the spool alone; it needs a
+  per-client limit, or a hook at connection, in `@bumail/smtp`.
 
 ## Later
 

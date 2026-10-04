@@ -294,6 +294,7 @@ in [running the server](serve.md#inbound-checks-spf-dkim-dmarc).
 | `dmarc` | `"enforce"` | `"enforce"`: a message failing DMARC under `p=reject` is refused during the session, under `p=quarantine` it goes to Junk. `"mark"`: only recorded, in `Authentication-Results` |
 | `maxMessageSize` | 26214400 (25 MiB) | bytes, from 1 to 1073741824 |
 | `maxConnections` | 1000 | from 1 to 100000 |
+| `spoolBytes` | 20 × `maxMessageSize` (500 MiB) | bytes the messages waiting to be checked may hold on disk at once; past it, `452 4.3.1`. At least `maxMessageSize`, at most 1099511627776 (1 TiB) |
 
 ## `[submission]`
 
