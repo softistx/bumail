@@ -28,21 +28,31 @@ describe('keyAuthorization (RFC 8555 §8.1)', () => {
 });
 
 describe('http01Path (RFC 8555 §8.3)', () => {
+	test('a token of 1024 characters is taken', () => {
+		expect(http01Path('a'.repeat(1024))).toEndWith('a'.repeat(1024));
+	});
+
 	test('/.well-known/acme-challenge/<token>', () => {
 		expect(http01Path(TOKEN)).toBe(`/.well-known/acme-challenge/${TOKEN}`);
 	});
 
-	test.each([[''], ['../etc/passwd'], ['a/b'], ['a b'], [42]])(
-		'%p is INVALID_TOKEN',
-		async (token) => {
-			const message = `http01Path(): a challenge token is a non-empty base64url string, not ${JSON.stringify(token)}`;
-			expect(() => http01Path(token as never)).toThrow(
-				new AcmeError('INVALID_TOKEN', message),
-			);
-			const { publicKey } = await generateKeyPair('P-256');
-			await expect(keyAuthorization(token as never, publicKey)).rejects.toThrow(
-				message.replace('http01Path()', 'keyAuthorization()'),
-			);
-		},
-	);
+	test.each([
+		['', '""'],
+		['../etc/passwd', '"../etc/passwd"'],
+		['a/b', '"a/b"'],
+		['a b', '"a b"'],
+		[42, 'number'],
+		[1n, 'bigint'],
+		[null, 'null'],
+		['a'.repeat(1025), `"${'a'.repeat(80)}…"`],
+	])('%p is INVALID_TOKEN', async (token, shown) => {
+		const message = `http01Path(): a challenge token is a non-empty base64url string of at most 1024 characters, not ${shown}`;
+		expect(() => http01Path(token as never)).toThrow(
+			new AcmeError('INVALID_TOKEN', message),
+		);
+		const { publicKey } = await generateKeyPair('P-256');
+		await expect(keyAuthorization(token as never, publicKey)).rejects.toThrow(
+			message.replace('http01Path()', 'keyAuthorization()'),
+		);
+	});
 });

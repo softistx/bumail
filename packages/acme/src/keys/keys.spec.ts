@@ -3,6 +3,7 @@ import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { connect } from 'node:tls';
 import { pem } from '../encoding';
 import { AcmeError } from '../errors';
+import { jwkThumbprint } from '../jws/jwk';
 import { OPENSSL, openssl } from '../openssl.fixtures';
 import { exportPrivateKeyPem, generateKeyPair, importKeyPairPem } from './keys';
 import { selfSignedCertificate } from './x509.fixtures';
@@ -57,6 +58,12 @@ describe('generateKeyPair', () => {
 			modulusLength: 2048,
 			hash: { name: 'SHA-256' },
 		});
+	});
+
+	test('a type it cannot show whole is named by its kind', async () => {
+		await expect(generateKeyPair(1n as never)).rejects.toThrow(
+			`generateKeyPair(): the type is 'P-256' or 'RSA-2048', not bigint`,
+		);
 	});
 
 	test('another type is INVALID_OPTION', async () => {
@@ -171,6 +178,17 @@ describe('exportPrivateKeyPem and importKeyPairPem refuse', () => {
 				extractable: 'yes' as never,
 			}),
 		).rejects.toThrow('importKeyPairPem(): extractable must be a boolean');
+		await expect(
+			importKeyPairPem(
+				await exportPrivateKeyPem(pairs['P-256'].privateKey),
+				null as never,
+			),
+		).rejects.toThrow(
+			new AcmeError(
+				'INVALID_OPTION',
+				'importKeyPairPem(): options must be an object',
+			),
+		);
 	});
 
 	test('an RSA key under 2048 bits', async () => {
@@ -185,7 +203,7 @@ describe('exportPrivateKeyPem and importKeyPairPem refuse', () => {
 			['sign', 'verify'],
 		);
 		await expect(exportPrivateKeyPem(small.privateKey)).rejects.toThrow(
-			'exportPrivateKeyPem(): the key is an RSA key of 1024 bits; at least 2048 are needed',
+			'exportPrivateKeyPem(): the key is an RSA key of 1024 bits; only 2048, 3072 and 4096 are supported',
 		);
 		const der = new Uint8Array(
 			await crypto.subtle.exportKey('pkcs8', small.privateKey),
@@ -193,8 +211,64 @@ describe('exportPrivateKeyPem and importKeyPairPem refuse', () => {
 		await expect(importKeyPairPem(pem('PRIVATE KEY', der))).rejects.toThrow(
 			new AcmeError(
 				'INVALID_KEY',
-				'importKeyPairPem(): the key is an RSA key of 1024 bits; at least 2048 are needed',
+				'importKeyPairPem(): the key is an RSA key of 1024 bits; only 2048, 3072 and 4096 are supported',
 			),
+		);
+	});
+});
+
+describe("RSA keys outside Let's Encrypt's policy", () => {
+	async function rsa(modulusLength: number, exponent: number[]) {
+		return await crypto.subtle.generateKey(
+			{
+				name: 'RSASSA-PKCS1-v1_5',
+				hash: 'SHA-256',
+				modulusLength,
+				publicExponent: Uint8Array.from(exponent),
+			},
+			true,
+			['sign', 'verify'],
+		);
+	}
+
+	test('3072 bits is taken, 2560 is not', async () => {
+		const taken = await rsa(3072, [1, 0, 1]);
+		expect(await exportPrivateKeyPem(taken.privateKey)).toStartWith(
+			'-----BEGIN PRIVATE KEY-----',
+		);
+		const odd = await rsa(2560, [1, 0, 1]);
+		await expect(exportPrivateKeyPem(odd.privateKey)).rejects.toThrow(
+			new AcmeError(
+				'INVALID_KEY',
+				'exportPrivateKeyPem(): the key is an RSA key of 2560 bits; only 2048, 3072 and 4096 are supported',
+			),
+		);
+	});
+
+	test('an exponent other than 65537 is refused, as a key and as a JWK', async () => {
+		const three = await rsa(2048, [3]);
+		await expect(exportPrivateKeyPem(three.privateKey)).rejects.toThrow(
+			new AcmeError(
+				'INVALID_KEY',
+				'exportPrivateKeyPem(): the key is an RSA key whose public exponent is not 65537',
+			),
+		);
+		const jwk = await crypto.subtle.exportKey('jwk', three.publicKey);
+		await expect(jwkThumbprint(jwk)).rejects.toThrow(
+			'jwkThumbprint(): the key is an RSA key whose public exponent is not 65537',
+		);
+	});
+
+	test('a zero-padded n is measured without its leading zeros', async () => {
+		const jwk = await crypto.subtle.exportKey(
+			'jwk',
+			pairs['RSA-2048'].publicKey,
+		);
+		const n = Buffer.from(jwk.n ?? '', 'base64url');
+		const padded = Buffer.concat([new Uint8Array(44), n]).toString('base64url');
+		// taken as 2048 bits, not refused as 2400; hashed as given (RFC 7638 §3.3)
+		expect(await jwkThumbprint({ ...jwk, n: padded })).toMatch(
+			/^[A-Za-z0-9_-]{43}$/,
 		);
 	});
 });

@@ -1,4 +1,4 @@
-import { base64url, isBase64url } from '../encoding';
+import { base64url, isBase64url, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import { type JwsAlgorithm, keyPairOf, SIGN_PARAMS } from '../keys/algorithm';
 import { jwkOf, type PublicJwk } from './jwk';
@@ -60,7 +60,7 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 	if (typeof nonce !== 'string' || !isBase64url(nonce)) {
 		throw new AcmeError(
 			'INVALID_OPTION',
-			`${where}: nonce must be the server's Replay-Nonce, a non-empty base64url string, not ${JSON.stringify(nonce)}`,
+			`${where}: nonce must be the server's Replay-Nonce, a non-empty base64url string, not ${shown(nonce)}`,
 		);
 	}
 	checkUrl(url, 'url');
@@ -69,15 +69,9 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 		payload !== undefined &&
 		(typeof payload !== 'object' || payload === null || Array.isArray(payload))
 	) {
-		const kind =
-			payload === null
-				? 'null'
-				: Array.isArray(payload)
-					? 'an array'
-					: typeof payload;
 		throw new AcmeError(
 			'INVALID_OPTION',
-			`${where}: payload must be an object or left out for POST-as-GET, not ${kind}`,
+			`${where}: payload must be an object or left out for POST-as-GET, not ${shown(payload)}`,
 		);
 	}
 	let json = '';
@@ -89,6 +83,12 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 				'INVALID_OPTION',
 				`${where}: payload cannot be written as JSON: ${(error as Error).message}`,
 				{ cause: error },
+			);
+		}
+		if (typeof json !== 'string' || !json.startsWith('{')) {
+			throw new AcmeError(
+				'INVALID_OPTION',
+				`${where}: payload does not write a JSON object; its toJSON() returns something else`,
 			);
 		}
 	}
@@ -118,14 +118,17 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 function checkUrl(value: unknown, name: string): void {
 	let parsed: URL | undefined;
 	try {
-		parsed = typeof value === 'string' ? new URL(value) : undefined;
+		parsed =
+			typeof value === 'string' && !/[\s\p{Cc}]/u.test(value)
+				? new URL(value)
+				: undefined;
 	} catch {
 		parsed = undefined;
 	}
-	if (parsed?.protocol !== 'https:') {
+	if (parsed?.protocol !== 'https:' || parsed.href !== value) {
 		throw new AcmeError(
 			'INVALID_OPTION',
-			`signJws(): ${name} must be an https: URL, not ${JSON.stringify(value)}`,
+			`signJws(): ${name} must be an https: URL as the server gave it, in its normal form, not ${shown(value)}`,
 		);
 	}
 }

@@ -24,11 +24,25 @@ export function pem(label: string, der: Uint8Array): string {
 /** The bytes of the first PEM block with that label, or undefined. */
 export function pemBytes(text: string, label: string): Uint8Array | undefined {
 	const match = new RegExp(
-		`-----BEGIN ${label}-----\\s*([A-Za-z0-9+/=\\s]*?)\\s*-----END ${label}-----`,
+		`-----BEGIN ${label}-----([^-]*)-----END ${label}-----`,
 	).exec(text);
 	const body = match?.[1]?.replace(/\s+/g, '');
 	if (!body || !/^[A-Za-z0-9+/]+={0,2}$/.test(body) || body.length % 4 !== 0) {
 		return undefined;
 	}
 	return new Uint8Array(Buffer.from(body, 'base64'));
+}
+
+/**
+ * A caller's value, as an error message shows it: a string quoted and cut
+ * to 80 characters, anything else by its kind only, so describing it never
+ * throws (a bigint, a cycle) nor repeats a large value.
+ */
+export function shown(value: unknown): string {
+	if (typeof value === 'string') {
+		return JSON.stringify(value.length > 80 ? `${value.slice(0, 80)}…` : value);
+	}
+	if (value === null) return 'null';
+	if (Array.isArray(value)) return 'an array';
+	return typeof value;
 }

@@ -19,7 +19,8 @@ export const MIN_RSA_BITS = 2048;
 
 /**
  * The JWS algorithm of a key, refusing any other with `INVALID_KEY`:
- * ECDSA on P-256, or RSASSA-PKCS1-v1_5 with SHA-256 of at least 2048 bits.
+ * ECDSA on P-256, or RSASSA-PKCS1-v1_5 with SHA-256 of 2048, 3072 or 4096 bits
+ * with the exponent 65537.
  * `where` names the caller and the argument, for the message.
  */
 export function algorithmOf(key: unknown, where: string): JwsAlgorithm {
@@ -36,18 +37,55 @@ export function algorithmOf(key: unknown, where: string): JwsAlgorithm {
 		algorithm.name === 'RSASSA-PKCS1-v1_5' &&
 		algorithm.hash?.name === 'SHA-256'
 	) {
-		if ((algorithm.modulusLength ?? 0) < MIN_RSA_BITS) {
-			throw new AcmeError(
-				'INVALID_KEY',
-				`${where} is an RSA key of ${algorithm.modulusLength} bits; at least ${MIN_RSA_BITS} are needed`,
-			);
-		}
+		checkRsa(
+			algorithm.modulusLength ?? 0,
+			algorithm.publicExponent ?? new Uint8Array(),
+			where,
+		);
 		return 'RS256';
 	}
 	throw new AcmeError(
 		'INVALID_KEY',
 		`${where} is ${describe(algorithm)}; only ECDSA P-256 and RSASSA-PKCS1-v1_5 with SHA-256 are supported`,
 	);
+}
+
+/** The modulus sizes Let's Encrypt takes. */
+export const RSA_BITS = [2048, 3072, 4096] as const;
+
+/**
+ * Refuses an RSA key a CA would: a modulus of a size other than 2048,
+ * 3072 or 4096 bits, or a public exponent other than 65537.
+ */
+export function checkRsa(
+	bits: number,
+	exponent: Uint8Array,
+	where: string,
+): void {
+	if (!(RSA_BITS as readonly number[]).includes(bits)) {
+		throw new AcmeError(
+			'INVALID_KEY',
+			`${where} is an RSA key of ${bits} bits; only 2048, 3072 and 4096 are supported`,
+		);
+	}
+	let start = 0;
+	while (start < exponent.length && exponent[start] === 0) start++;
+	const e = exponent.subarray(start);
+	if (e.length !== 3 || e[0] !== 1 || e[1] !== 0 || e[2] !== 1) {
+		throw new AcmeError(
+			'INVALID_KEY',
+			`${where} is an RSA key whose public exponent is not 65537`,
+		);
+	}
+}
+
+/** The length in bits of an unsigned big-endian integer, its leading zeros left out. */
+export function bitLength(bytes: Uint8Array): number {
+	let start = 0;
+	while (start < bytes.length && bytes[start] === 0) start++;
+	const first = bytes[start];
+	if (first === undefined) return 0;
+	return (bytes.length - start - 1) * 8 + (32 - Math.clz32(first));
 }
 
 function describe(

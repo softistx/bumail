@@ -37,8 +37,9 @@ const pem = await exportPrivateKeyPem(certificateKey.privateKey);
 const again = await importKeyPairPem(pem); // { publicKey, privateKey }, from the PEM alone
 ```
 
-ECDSA on P-256 and RSA of 2048 bits (RSASSA-PKCS1-v1_5, SHA-256) are the
-keys this package signs with. A generated private key is extractable, so
+ECDSA on P-256 and RSA (RSASSA-PKCS1-v1_5, SHA-256; 2048, 3072 or 4096
+bits, exponent 65537, Let's Encrypt's policy) are the keys this package
+signs with. A generated private key is extractable, so
 it can be written out; an imported one is not, unless
 `{ extractable: true }`.
 

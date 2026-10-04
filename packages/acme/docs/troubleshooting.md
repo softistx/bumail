@@ -1,7 +1,9 @@
 # Troubleshooting
 
 Each entry is headed by the message of the `AcmeError` thrown; its `code`
-is the group it is listed under. The parts shown as … vary. Every
+is the group it is listed under. The parts shown as … vary. A value you passed is shown quoted and cut to 80
+characters when it is a string, and by its kind (`number`, `bigint`,
+`null`, `an array`) otherwise. Every
 message starts with the function that threw it, except where the `…`
 at its start names the function and the argument, as
 `signJws(): keyPair.privateKey`. `keyAuthorization` throws
@@ -30,10 +32,12 @@ at its start names the function and the argument, as
 - [`AcmeError: createCsr(): "…" is given twice`](#acmeerror-createcsr--is-given-twice)
 - [`AcmeError: signJws(): options must be an object`](#acmeerror-signjws-options-must-be-an-object)
 - [`AcmeError: signJws(): nonce must be the server's Replay-Nonce, a non-empty base64url string, not …`](#acmeerror-signjws-nonce-must-be-the-servers-replay-nonce-a-non-empty-base64url-string-not-)
-- [`AcmeError: signJws(): … must be an https: URL, not …`](#acmeerror-signjws--must-be-an-https-url-not-)
+- [`AcmeError: signJws(): … must be an https: URL as the server gave it, in its normal form, not …`](#acmeerror-signjws--must-be-an-https-url-as-the-server-gave-it-in-its-normal-form-not-)
 - [`AcmeError: signJws(): payload must be an object or left out for POST-as-GET, not …`](#acmeerror-signjws-payload-must-be-an-object-or-left-out-for-post-as-get-not-)
 - [`AcmeError: signJws(): payload cannot be written as JSON: …`](#acmeerror-signjws-payload-cannot-be-written-as-json-)
+- [`AcmeError: signJws(): payload does not write a JSON object; its toJSON() returns something else`](#acmeerror-signjws-payload-does-not-write-a-json-object-its-tojson-returns-something-else)
 - [`AcmeError: generateKeyPair(): the type is 'P-256' or 'RSA-2048', not …`](#acmeerror-generatekeypair-the-type-is-p-256-or-rsa-2048-not-)
+- [`AcmeError: importKeyPairPem(): options must be an object`](#acmeerror-importkeypairpem-options-must-be-an-object)
 - [`AcmeError: importKeyPairPem(): extractable must be a boolean`](#acmeerror-importkeypairpem-extractable-must-be-a-boolean)
 
 **INVALID_KEY**
@@ -41,7 +45,8 @@ at its start names the function and the argument, as
 - [`AcmeError: … must be a CryptoKeyPair ({ publicKey, privateKey })`](#acmeerror--must-be-a-cryptokeypair--publickey-privatekey-)
 - [`AcmeError: … must be a CryptoKey`](#acmeerror--must-be-a-cryptokey)
 - [`AcmeError: … is …; only ECDSA P-256 and RSASSA-PKCS1-v1_5 with SHA-256 are supported`](#acmeerror--is--only-ecdsa-p-256-and-rsassa-pkcs1-v1_5-with-sha-256-are-supported)
-- [`AcmeError: … is an RSA key of … bits; at least 2048 are needed`](#acmeerror--is-an-rsa-key-of--bits-at-least-2048-are-needed)
+- [`AcmeError: … is an RSA key of … bits; only 2048, 3072 and 4096 are supported`](#acmeerror--is-an-rsa-key-of--bits-only-2048-3072-and-4096-are-supported)
+- [`AcmeError: … is an RSA key whose public exponent is not 65537`](#acmeerror--is-an-rsa-key-whose-public-exponent-is-not-65537)
 - [`AcmeError: … must be a … key, not a … one`](#acmeerror--must-be-a--key-not-a--one)
 - [`AcmeError: …'s public and private keys are not of the same algorithm`](#acmeerror-s-public-and-private-keys-are-not-of-the-same-algorithm)
 - [`AcmeError: exportPrivateKeyPem(): the key is not extractable; generate or import it with extractable: true`](#acmeerror-exportprivatekeypem-the-key-is-not-extractable-generate-or-import-it-with-extractable-true)
@@ -55,7 +60,7 @@ at its start names the function and the argument, as
 
 **INVALID_TOKEN**
 
-- [`AcmeError: …: a challenge token is a non-empty base64url string, not …`](#acmeerror--a-challenge-token-is-a-non-empty-base64url-string-not-)
+- [`AcmeError: …: a challenge token is a non-empty base64url string of at most 1024 characters, not …`](#acmeerror--a-challenge-token-is-a-non-empty-base64url-string-of-at-most-1024-characters-not-)
 
 ## INVALID_NAME
 
@@ -179,7 +184,7 @@ await createCsr({ names: [name.replace(/\.$/, '')], keyPair });
 
 ### `AcmeError: createCsr(): "…" ends in a numeric label, as an IP address does; only DNS names are supported`
 
-**When**: the last label is all digits: `192.0.2.1`.
+**When**: the last label is a number as a URL parser reads one: all digits (`192.0.2.1`), or hexadecimal (`127.0.0.0x1`, `mail.0xff`).
 
 **Why**: an IPv4 address is not a DNS name; a certificate for an address is an `iPAddress`, requested with another ACME identifier (RFC 8738), which this package does not make.
 
@@ -280,13 +285,13 @@ const response = await fetch(directory.newNonce, { method: 'HEAD' });
 const nonce = response.headers.get('replay-nonce') ?? '';
 ```
 
-### `AcmeError: signJws(): … must be an https: URL, not …`
+### `AcmeError: signJws(): … must be an https: URL as the server gave it, in its normal form, not …`
 
-**When**: `url` or `kid` (the first `…` says which) is not an absolute `https:` URL.
+**When**: `url` or `kid` (the first `…` says which) is not an absolute `https:` URL, holds white space or a control character (a line end read with it), or is not in the form `new URL(…).href` gives: an upper-case host, a bare origin without its `/`, a default port spelled out.
 
 **Why**: RFC 8555 §6.1 runs ACME over HTTPS only, `url` must be the exact URL posted to (§6.4), and `kid` is the account URL the server returned in `Location`.
 
-**Fix**: pass the URLs as the directory and the server gave them, whole.
+**Fix**: pass the URLs as the directory and the server gave them, whole and trimmed. What is signed is compared with the URL the server sees, so a URL that changes when parsed would sign one thing and post to another.
 
 ### `AcmeError: signJws(): payload must be an object or left out for POST-as-GET, not …`
 
@@ -307,6 +312,16 @@ and `cause` is its error.
 **Fix**: give numbers as numbers or strings, and build the payload from
 plain data.
 
+### `AcmeError: signJws(): payload does not write a JSON object; its toJSON() returns something else`
+
+**When**: the payload is an object with a `toJSON()` method that returns
+`undefined`, a string, a number or an array, as a class of your own can.
+
+**Why**: an ACME payload is a JSON object, and `JSON.stringify` writes
+what `toJSON()` returns.
+
+**Fix**: pass a plain object, or make `toJSON()` return one.
+
 ### `AcmeError: generateKeyPair(): the type is 'P-256' or 'RSA-2048', not …`
 
 **When**: `generateKeyPair` was given another type.
@@ -314,6 +329,14 @@ plain data.
 **Why**: those are the two keys this package signs with.
 
 **Fix**: use `'P-256'` (the default) unless something needs RSA.
+
+### `AcmeError: importKeyPairPem(): options must be an object`
+
+**When**: the second argument is `null`, or not an object.
+
+**Why**: it takes `{ extractable? }`.
+
+**Fix**: leave it out, or pass `{ extractable: true }`.
 
 ### `AcmeError: importKeyPairPem(): extractable must be a boolean`
 
@@ -355,13 +378,23 @@ const keyPair = await importKeyPairPem(await Bun.file('key.pem').text());
 
 **Fix**: generate the key with `generateKeyPair`, or import an RSA key with `{ name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }`.
 
-### `AcmeError: … is an RSA key of … bits; at least 2048 are needed`
+### `AcmeError: … is an RSA key of … bits; only 2048, 3072 and 4096 are supported`
 
-**When**: an RSA key is shorter than 2048 bits, as a `CryptoKey`, a PKCS #8 PEM, or a JWK given to `jwkThumbprint` or `keyAuthorization`.
+**When**: an RSA key's modulus is not 2048, 3072 or 4096 bits long (a JWK's `n` measured without leading zero bytes), as a `CryptoKey`, a PKCS #8 PEM, or a JWK given to `jwkThumbprint` or `keyAuthorization`.
 
-**Why**: CAs refuse a smaller key.
+**Why**: those are the sizes Let's Encrypt takes; a CA refuses a smaller key, and an odd size.
 
 **Fix**: generate a new one: `generateKeyPair('RSA-2048')`.
+
+### `AcmeError: … is an RSA key whose public exponent is not 65537`
+
+**When**: an RSA key's public exponent (`e`) is not 65537 (`AQAB`): a key
+made with `publicExponent: Uint8Array.of(3)`, or a JWK with another `e`.
+
+**Why**: Let's Encrypt takes 65537 only.
+
+**Fix**: generate the key with `generateKeyPair('RSA-2048')`, whose
+exponent is 65537.
 
 ### `AcmeError: … must be a … key, not a … one`
 
@@ -463,9 +496,9 @@ openssl pkcs8 -topk8 -nocrypt -in key.pem -out key.pk8.pem
 
 ## INVALID_TOKEN
 
-### `AcmeError: …: a challenge token is a non-empty base64url string, not …`
+### `AcmeError: …: a challenge token is a non-empty base64url string of at most 1024 characters, not …`
 
-**When**: `keyAuthorization` or `http01Path` was given a token that is empty or holds characters outside base64url: a `/`, a `.`, a space, `=`.
+**When**: `keyAuthorization` or `http01Path` was given a token that is empty, longer than 1024 characters, or holds characters outside base64url: a `/`, a `.`, a space, `=`.
 
 **Why**: RFC 8555 §8.1 makes a token base64url; anything else could turn the path into another one (`../`).
 

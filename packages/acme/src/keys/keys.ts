@@ -1,4 +1,4 @@
-import { pem, pemBytes } from '../encoding';
+import { pem, pemBytes, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import {
 	algorithmOf,
@@ -39,7 +39,7 @@ export async function generateKeyPair(
 	}
 	throw new AcmeError(
 		'INVALID_OPTION',
-		`generateKeyPair(): the type is 'P-256' or 'RSA-2048', not ${JSON.stringify(type)}`,
+		`generateKeyPair(): the type is 'P-256' or 'RSA-2048', not ${shown(type)}`,
 	);
 }
 
@@ -83,6 +83,12 @@ export async function importKeyPairPem(
 	const where = 'importKeyPairPem()';
 	if (typeof text !== 'string') {
 		throw new AcmeError('INVALID_KEY', `${where}: the PEM must be a string`);
+	}
+	if (typeof options !== 'object' || options === null) {
+		throw new AcmeError(
+			'INVALID_OPTION',
+			`${where}: options must be an object`,
+		);
 	}
 	const extractable = options.extractable ?? false;
 	if (typeof extractable !== 'boolean') {

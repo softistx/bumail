@@ -100,7 +100,7 @@ describe('jwkThumbprint (RFC 7638)', () => {
 			['sign', 'verify'],
 		);
 		const message =
-			'jwkThumbprint(): the key is an RSA key of 1024 bits; at least 2048 are needed';
+			'jwkThumbprint(): the key is an RSA key of 1024 bits; only 2048, 3072 and 4096 are supported';
 		await expect(jwkThumbprint(small.publicKey)).rejects.toThrow(message);
 		const jwk = await crypto.subtle.exportKey('jwk', small.publicKey);
 		await expect(jwkThumbprint(jwk)).rejects.toThrow(message);

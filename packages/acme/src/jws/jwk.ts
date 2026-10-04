@@ -1,6 +1,11 @@
 import { base64url } from '../encoding';
 import { AcmeError } from '../errors';
-import { algorithmOf, expectType, MIN_RSA_BITS } from '../keys/algorithm';
+import {
+	algorithmOf,
+	bitLength,
+	checkRsa,
+	expectType,
+} from '../keys/algorithm';
 
 /**
  * A public key as a JWK (RFC 7517) with its required members only, as the
@@ -50,14 +55,13 @@ function requiredMembers(jwk: JsonWebKey, where: string): PublicJwk {
 	}
 	if (jwk.kty === 'RSA') {
 		const n = text('n');
-		const bits = Buffer.from(n, 'base64url').length * 8;
-		if (bits < MIN_RSA_BITS) {
-			throw new AcmeError(
-				'INVALID_KEY',
-				`${where} is an RSA key of ${bits} bits; at least ${MIN_RSA_BITS} are needed`,
-			);
-		}
-		return { kty: 'RSA', n, e: text('e') };
+		const e = text('e');
+		checkRsa(
+			bitLength(new Uint8Array(Buffer.from(n, 'base64url'))),
+			new Uint8Array(Buffer.from(e, 'base64url')),
+			where,
+		);
+		return { kty: 'RSA', n, e };
 	}
 	throw new AcmeError(
 		'INVALID_KEY',

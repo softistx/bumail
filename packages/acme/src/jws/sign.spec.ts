@@ -137,16 +137,47 @@ describe('signJws (RFC 7515 flattened, RFC 8555 §6.2)', () => {
 		],
 		[
 			{ url: 'http://example.com/acme' },
-			'signJws(): url must be an https: URL, not "http://example.com/acme"',
+			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "http://example.com/acme"',
 		],
 		[
 			{ url: 'not a url' },
-			'signJws(): url must be an https: URL, not "not a url"',
+			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "not a url"',
 		],
-		[{ kid: 'acct/1' }, 'signJws(): kid must be an https: URL, not "acct/1"'],
+		[
+			{ kid: 'acct/1' },
+			'signJws(): kid must be an https: URL as the server gave it, in its normal form, not "acct/1"',
+		],
+		[
+			{ url: 'https://example.com/acme/new-order\n' },
+			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "https://example.com/acme/new-order\\n"',
+		],
+		[
+			{ url: 'https://EXAMPLE.com/acme/new-order' },
+			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "https://EXAMPLE.com/acme/new-order"',
+		],
+		[
+			{ url: 'https://example.com' },
+			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "https://example.com"',
+		],
+		[
+			{ url: 1n },
+			'signJws(): url must be an https: URL as the server gave it, in its normal form, not bigint',
+		],
+		[
+			{ nonce: 1n },
+			"signJws(): nonce must be the server's Replay-Nonce, a non-empty base64url string, not bigint",
+		],
+		[
+			{ nonce: `${'a'.repeat(100)}=` },
+			`signJws(): nonce must be the server's Replay-Nonce, a non-empty base64url string, not "${'a'.repeat(80)}…"`,
+		],
+		[
+			{ payload: 1n },
+			'signJws(): payload must be an object or left out for POST-as-GET, not bigint',
+		],
 		[
 			{ payload: 'text' },
-			'signJws(): payload must be an object or left out for POST-as-GET, not string',
+			'signJws(): payload must be an object or left out for POST-as-GET, not "text"',
 		],
 		[
 			{ payload: [] },
@@ -181,6 +212,22 @@ describe('signJws (RFC 7515 flattened, RFC 8555 §6.2)', () => {
 			expect((error as AcmeError).code).toBe('INVALID_OPTION');
 			expect((error as AcmeError).message).toStartWith(
 				'signJws(): payload cannot be written as JSON: ',
+			);
+		}
+	});
+
+	test('a payload whose toJSON() gives no JSON object is INVALID_OPTION', async () => {
+		for (const payload of [
+			{ toJSON: () => undefined },
+			{ toJSON: () => 'text' },
+		]) {
+			await expect(
+				signJws({ keyPair: p256, nonce: NONCE, url: NEW_ACCOUNT, payload }),
+			).rejects.toThrow(
+				new AcmeError(
+					'INVALID_OPTION',
+					'signJws(): payload does not write a JSON object; its toJSON() returns something else',
+				),
 			);
 		}
 	});

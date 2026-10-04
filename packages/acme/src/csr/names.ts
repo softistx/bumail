@@ -69,7 +69,7 @@ export function checkName(name: unknown): string {
 			`${quoted(name)} is a single label; a certificate name has at least two`,
 		);
 	}
-	if (/^\d+$/.test(labels[labels.length - 1] ?? '')) {
+	if (/^(\d+|0x[0-9a-f]*)$/.test(labels[labels.length - 1] ?? '')) {
 		throw invalid(
 			`${quoted(name)} ends in a numeric label, as an IP address does; only DNS names are supported`,
 		);

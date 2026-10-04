@@ -1,12 +1,19 @@
-import { isBase64url } from '../encoding';
+import { isBase64url, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import { jwkThumbprint } from '../jws/jwk';
 
+/** Far above the 43 characters of a 256-bit token, and short enough for any path. */
+const MAX_TOKEN_LENGTH = 1024;
+
 function checkToken(token: unknown, where: string): string {
-	if (typeof token !== 'string' || !isBase64url(token)) {
+	if (
+		typeof token !== 'string' ||
+		token.length > MAX_TOKEN_LENGTH ||
+		!isBase64url(token)
+	) {
 		throw new AcmeError(
 			'INVALID_TOKEN',
-			`${where}: a challenge token is a non-empty base64url string, not ${JSON.stringify(token)}`,
+			`${where}: a challenge token is a non-empty base64url string of at most ${MAX_TOKEN_LENGTH} characters, not ${shown(token)}`,
 		);
 	}
 	return token;

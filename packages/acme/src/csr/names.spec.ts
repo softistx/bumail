@@ -19,6 +19,7 @@ describe('checkName', () => {
 		expect(checkName('Mail.Example.COM')).toBe('mail.example.com');
 		expect(checkName('xn--bcher-kva.example')).toBe('xn--bcher-kva.example');
 		expect(checkName('a-b.c0.example')).toBe('a-b.c0.example');
+		expect(checkName('mail.0xg')).toBe('mail.0xg');
 		expect(checkName(`${'a'.repeat(63)}.example`)).toBe(
 			`${'a'.repeat(63)}.example`,
 		);
@@ -81,6 +82,14 @@ describe('checkName', () => {
 		[
 			'192.0.2.1',
 			'createCsr(): "192.0.2.1" ends in a numeric label, as an IP address does; only DNS names are supported',
+		],
+		[
+			'127.0.0.0x1',
+			'createCsr(): "127.0.0.0x1" ends in a numeric label, as an IP address does; only DNS names are supported',
+		],
+		[
+			'mail.0xff',
+			'createCsr(): "mail.0xff" ends in a numeric label, as an IP address does; only DNS names are supported',
 		],
 	])('%p is refused', (name, message) => {
 		refused(() => checkName(name), 'INVALID_NAME', message);

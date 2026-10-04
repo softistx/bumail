@@ -47,8 +47,8 @@ const certificateKey = await generateKeyPair('P-256'); // or 'RSA-2048' for old 
 | `'RSA-2048'` | RSASSA-PKCS1-v1_5, SHA-256, 2048 bits, exponent 65537 | `RS256` | `sha256WithRSAEncryption` (1.2.840.113549.1.1.11) |
 
 A key pair you make yourself with `crypto.subtle.generateKey` works too, as
-long as it is one of those two algorithms; an RSA key needs 2048 bits at
-least. Anything else — P-384, Ed25519, RSA-PSS — is `INVALID_KEY`.
+long as it is one of those two algorithms. An RSA key follows Let's
+Encrypt's policy: 2048, 3072 or 4096 bits, and the exponent 65537. Anything else — P-384, Ed25519, RSA-PSS — is `INVALID_KEY`.
 
 ### Keeping a key on disk
 
@@ -167,8 +167,9 @@ unless it is a DNS host name a public CA issues for:
 - **Letters, digits and inner hyphens**, labels of 1 to 63 characters, 253
   characters at most. An underscore is refused: no CA puts one in a
   certificate.
-- **Two labels at least**, the last one not all digits: `localhost` and
-  `192.0.2.1` are refused. A certificate for an IP address takes a
+- **Two labels at least**, the last one not a number (all digits, or
+  hexadecimal as `0xff`, which a URL parser reads as one): `localhost`,
+  `192.0.2.1` and `127.0.0.0x1` are refused. A certificate for an IP address takes a
   different identifier (RFC 8738).
 - **No wildcard.** `*.example.com` needs DNS-01, which comes later; HTTP-01
   can only prove a name it can fetch from.
@@ -192,7 +193,7 @@ Its protected header holds what RFC 8555 §6.2 requires, in this order:
 | --- | --- |
 | `alg` | `ES256` for a P-256 key, `RS256` for an RSA key |
 | `nonce` | the `nonce` you give: the last `Replay-Nonce` the server sent |
-| `url` | the `url` you give: exactly the URL the request is POSTed to, `https:` only |
+| `url` | the `url` you give: exactly the URL the request is POSTed to, `https:` only, in the form `new URL(url).href` gives |
 | `jwk` or `kid` | without a `kid`, the account's public key as a JWK (`newAccount`); with one, the account URL |
 
 ```ts
@@ -238,8 +239,22 @@ P-256, `{"e","kty","n"}` for RSA — base64url. Any other member (`alg`,
 ```ts
 import { jwkThumbprint } from '@bumail/acme';
 
-await jwkThumbprint({ kty: 'RSA', e: 'AQAB', n: '0vx7agoebGcQSuu…', alg: 'RS256', kid: '2011-04-29' });
-// RFC 7638 §3.1's key gives 'NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs'
+// RFC 7638 §3.1's key (RFC 7517 Appendix A.1); its kid is left out of the hash
+const jwk: JsonWebKey & { kid: string } = {
+	kty: 'RSA',
+	n:
+		'0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAt' +
+		'VT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn6' +
+		'4tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FD' +
+		'W2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n9' +
+		'1CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINH' +
+		'aQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw',
+	e: 'AQAB',
+	alg: 'RS256',
+	kid: '2011-04-29',
+};
+
+await jwkThumbprint(jwk); // 'NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs'
 ```
 
 The key authorization is the challenge's token, a dot and that thumbprint
@@ -271,8 +286,8 @@ Once the path answers, tell the CA by POSTing `payload: {}` to the
 challenge URL. Keep the path answering until the authorization is
 `valid`: the CA may fetch it more than once, from several places.
 
-A token is base64url (§8.1). One that is not — empty, or holding `/`,
-`.` or a space — is `INVALID_TOKEN`, so a token from a hostile server
+A token is base64url (§8.1). One that is not — empty, longer than 1024
+characters, or holding `/`, `.` or a space — is `INVALID_TOKEN`, so a token from a hostile server
 never becomes a path outside `/.well-known/acme-challenge/`.
 
 ## Errors
