@@ -15,8 +15,8 @@ from files. JMAP and ACME come next; see the
 
 **Bun only**, like every `@bumail/*` package: it runs on Bun 1.4.2 or
 later. It peers on the packages it wires: `@bumail/store`,
-`@bumail/smtp`, `@bumail/imap`, `@bumail/queue`, `@bumail/auth`,
-`@bumail/dns` and `@bumail/mime`.
+`@bumail/smtp`, `@bumail/imap`, `@bumail/queue`, `@bumail/auth` and
+`@bumail/dns`.
 
 ## The configuration
 

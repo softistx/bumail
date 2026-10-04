@@ -46,7 +46,13 @@ export interface AdapterOptions {
 /** What `busy` throws: each listener answers it as a temporary failure (454, `NO [UNAVAILABLE]`, 503). */
 export const BUSY_MESSAGE = 'too many logins under way; try again later';
 
-async function check(
+/**
+ * `directory.authenticate`, the refusal told to `onRefused`: the result
+ * of a login that went through, `undefined` for one refused; `busy`
+ * throws `UNAVAILABLE` (`BUSY_MESSAGE`). For a listener that keeps what
+ * the login answered, such as submission its user's version.
+ */
+export async function checkLogin(
 	directory: Authenticates,
 	login: string,
 	password: string,
@@ -67,8 +73,13 @@ export function smtpAuthenticate(
 	options: AdapterOptions = {},
 ): (credentials: LoginCredentials, session: ClientSession) => Promise<boolean> {
 	return async ({ username, password }, { remoteAddress }) =>
-		(await check(directory, username, password, remoteAddress, options)) !==
-		undefined;
+		(await checkLogin(
+			directory,
+			username,
+			password,
+			remoteAddress,
+			options,
+		)) !== undefined;
 }
 
 /**
@@ -85,7 +96,7 @@ export function imapAuthenticate(
 	session: ClientSession,
 ) => Promise<string | null> {
 	return async ({ username, password }, { remoteAddress }) => {
-		const result = await check(
+		const result = await checkLogin(
 			directory,
 			username,
 			password,
@@ -112,7 +123,7 @@ export function jmapAuthenticate(
 	return async (credentials, request) => {
 		if (credentials.scheme !== 'basic') return null;
 		const ip = ipOf(request);
-		const result = await check(
+		const result = await checkLogin(
 			directory,
 			credentials.username,
 			credentials.password,

@@ -22,6 +22,11 @@ export const FROM_NO_ADDRESS = reply(
 	'5.6.0',
 	'The From field must name your address',
 );
+export const ADDRESS_LITERAL = reply(
+	550,
+	'5.7.1',
+	'Mail to an address literal is not sent from here',
+);
 export const ADDRESS_UNSENDABLE = reply(
 	553,
 	'5.1.3',

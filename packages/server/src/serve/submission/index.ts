@@ -9,13 +9,14 @@ import {
 import { isMailbox } from '@bumail/smtp/client';
 import type { MailStore } from '@bumail/store';
 import type { SubmissionConfig } from '../../config/types';
-import { smtpAuthenticate } from '../../directory/adapters';
+import { checkLogin } from '../../directory/adapters';
+import type { AuthFailure } from '../../directory/authenticate';
 import type { Directory } from '../../directory/directory';
 import type { Log } from '../log';
 import { POSTMASTER_UNKNOWN, SPOOL_FULL, USER_UNKNOWN } from '../mx/replies';
 import { usersFor } from '../recipients';
 import type { Spool } from '../spool';
-import { ADDRESS_UNSENDABLE, senderNotYours } from './replies';
+import { ADDRESS_LITERAL, ADDRESS_UNSENDABLE, senderNotYours } from './replies';
 import { send, USER } from './send';
 import { LOGIN_VERSION, sendsAs, userOf } from './sender';
 
@@ -65,10 +66,10 @@ export function createSubmission(
 	name: 'submissions' | 'submission',
 ): SmtpServer {
 	const { directory, log, submission } = ctx;
-	const check = smtpAuthenticate(directory, {
-		onRefused: (reason, ip) =>
+	const refusals = {
+		onRefused: (reason: AuthFailure, ip: string) =>
 			log(`${name}: login refused from ${ip}: ${reason}`),
-	});
+	};
 	return createSmtpServer({
 		hostname: ctx.hostname,
 		mode: 'submission',
@@ -80,15 +81,19 @@ export function createSubmission(
 		maxConnections: submission.maxConnections,
 		maxConnectionsPerClient: submission.maxConnectionsPerClient,
 		handshakeTimeout: submission.handshakeTimeout,
-		async authenticate(credentials, session) {
-			const ok = await check(credentials, session);
-			// What the user is now: MAIL FROM checks it still is (`userOf`).
-			if (ok) {
-				session.data[LOGIN_VERSION] = directory.users.version(
-					credentials.username,
-				);
-			}
-			return ok;
+		async authenticate({ username, password }, session) {
+			const login = await checkLogin(
+				directory,
+				username,
+				password,
+				session.remoteAddress,
+				refusals,
+			);
+			// The version the password was checked against, not one read
+			// after: a new password committed during the verify must end
+			// this session too. MAIL FROM checks it still holds (`userOf`).
+			if (login !== undefined) session.data[LOGIN_VERSION] = login.version;
+			return login !== undefined;
 		},
 		onMailFrom(path, session) {
 			const user = userOf(directory, session.user, session.data[LOGIN_VERSION]);
@@ -121,7 +126,8 @@ export function createSubmission(
 
 /**
  * RCPT TO on submission: the bare `<postmaster>` and a hosted domain's
- * address must resolve here; any other must be one the queue can send
+ * address must resolve here; an address literal is refused; any other
+ * must be one the queue can send
  * to (`isMailbox`, which `sendMail` checks again), so the queue never
  * takes an address it would only bounce. `@bumail/smtp` parses paths as
  * `isMailbox` does today; the check keeps the two from drifting apart.
@@ -141,5 +147,9 @@ export function checkRecipient(
 			? USER_UNKNOWN
 			: undefined;
 	}
+	// An address literal names a host, not a domain: `carol@[127.0.0.1]`
+	// would have the queue connect wherever a user points it, this host's
+	// own services included.
+	if (path.domain.startsWith('[')) return ADDRESS_LITERAL;
 	return isMailbox(path.address) ? undefined : ADDRESS_UNSENDABLE;
 }

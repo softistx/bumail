@@ -213,12 +213,12 @@ directory commands' own refusals are under
 - [`550 5.6.0 The message needs exactly one From field`](#550-560-the-message-needs-exactly-one-from-field)
 - [`550 5.6.0 The From field must name your address`](#550-560-the-from-field-must-name-your-address)
 - [`553 5.1.3 The address is not one this server can send to`](#553-513-the-address-is-not-one-this-server-can-send-to)
+- [`550 5.7.1 Mail to an address literal is not sent from here`](#550-571-mail-to-an-address-literal-is-not-sent-from-here)
 - [`452 4.3.1 The queue is full, try again later`](#452-431-the-queue-is-full-try-again-later), `552 5.3.4 Message too big for the queue`, `452 4.5.3 Too many recipients`
 - [`submissions: … not queued: …`](#submissions--not-queued-), and `submission:`
 - [`submissions: … refused as sender <…>`](#submissions--refused-as-sender-), and `submission:`
 - [`submissions: … (unsigned)`](#submissions--unsigned), and `submission:`
 - [`submissions: … taken for nobody here any longer`](#submissions--taken-for-nobody-here-any-longer), and `submission:`
-- [`submissions: … queued as …, not cancelled: …; the retry may send it twice`](#submissions--queued-as--not-cancelled--the-retry-may-send-it-twice), and `submission:`
 - [`outbound: … deferred until …: …`](#outbound--deferred-until--)
 - [`outbound: … failed: …`](#outbound--failed-), and `outbound: …: a failed DSN to <…> queued as …`
 - [`outbound: error …: …`](#outbound-error--)
@@ -1525,9 +1525,10 @@ The message's From names an address the user may not send as — the
 same rule as MAIL FROM — or one this server cannot read plainly: a
 quoted local part, an address in a display name or a comment that is
 not the user's, an `@` that belongs to no plain address. A reader must
-never be shown an author that was not checked. Encoded-words are read
-decoded: `=?UTF-8?Q?ceo=40bank.example?= <you@example.com>` holds
-`ceo@bank.example` as a reader sees it, and is refused. Write From as
+never be shown an author that was not checked. An encoded-word is
+refused when it holds an `@` or decodes to one, in any charset, known
+or not: `=?UTF-8?Q?ceo=40bank.example?= <you@example.com>` shows a
+reader `ceo@bank.example`. Write From as
 `Name <you@example.com>`.
 
 ### `550 5.6.0 The message needs exactly one From field`
@@ -1546,8 +1547,15 @@ in From.
 ### `553 5.1.3 The address is not one this server can send to`
 
 A recipient in another domain whose address SMTP cannot carry as
-written: a quoted local part, a control character, an address literal
-octet over 255. Check the address.
+written: a local part over 64 characters, say. Check the address.
+
+### `550 5.7.1 Mail to an address literal is not sent from here`
+
+A recipient written with an address literal for its domain,
+`carol@[192.0.2.1]` or `carol@[IPv6:2001:db8::1]`: the queue would
+connect to whatever host a user names, this one's own services
+included, so submission refuses it at RCPT. Send to the domain's name
+instead.
 
 ### `452 4.3.1 The queue is full, try again later`
 
@@ -1587,17 +1595,6 @@ In the log (`submission:` on 587): a message was taken, but every local
 recipient it had at RCPT was removed from the directory before its end,
 and it had none in another domain, so it went nowhere. Nothing to do,
 unless the removal was a mistake.
-
-### `submissions: … queued as …, not cancelled: …; the retry may send it twice`
-
-In the log (`submission:` on 587): a local delivery failed, or the
-session ended, after the queue took the message for the other domains'
-recipients. The client was told to send it again, so the queued copy is
-cancelled first (`… queued as …, cancelled: it is not taken`); here the
-queue failed too, with its reason, and the other domains may get the
-message twice. It is the store and the queue failing together: see
-[`mx: error in a session from …`](#mx-error-in-a-session-from--) and
-[`outbound: error …`](#outbound-error--).
 
 ### `outbound: … deferred until …: …`
 

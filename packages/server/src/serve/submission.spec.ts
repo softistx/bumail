@@ -173,6 +173,13 @@ describe('submission: the sender', () => {
 		for (const from of [
 			'=?UTF-8?Q?ceo=40bank=2Eexample?= <alice@example.com>',
 			'=?UTF-8?B?Y2VvQGJhbmsuZXhhbXBsZQ==?= <alice@example.com>',
+			// An address hidden in an encoded-word, the one plainly seen another's.
+			'=?UTF-8?B?Y2VvQGJhbmsuZXhhbXBsZQ==?= =?UTF-8?B?<alice@example.com>?=',
+			// A charset this platform cannot decode: another reader may.
+			'=?cp65001?Q?ceo=40bank.example?= <alice@example.com>',
+			'=?UTF-7?Q?ceo=40bank.example?= <alice@example.com>',
+			'=?x-bogus?Q?ceo=40bank.example?= <alice@example.com>',
+			'=?x-bogus?B?Y2VvQGJhbmsuZXhhbXBsZQ==?= <alice@example.com>',
 			'Alice <alice@example.com> (bob@example.com)',
 		]) {
 			const { last } = await submit(
@@ -385,12 +392,13 @@ describe('submission: RCPT TO', () => {
 	test('refuses with 553 5.1.3 an address the queue could not send to', async () => {
 		const directory = await seededDirectory();
 		try {
+			const local = 'x'.repeat(65);
 			const answer = checkRecipient(
 				{ directory, postmaster: undefined },
 				{
-					address: 'bob@[192.0.2.300]',
-					local: 'bob',
-					domain: '[192.0.2.300]',
+					address: `${local}@elsewhere.example`,
+					local,
+					domain: 'elsewhere.example',
 				},
 			);
 			expect(answer?.code).toBe(553);
@@ -408,6 +416,24 @@ describe('submission: RCPT TO', () => {
 		} finally {
 			directory.close();
 		}
+	});
+});
+
+describe('submission: address literals', () => {
+	test('refuses RCPT to an address literal with 550 5.7.1', async () => {
+		const f = await start();
+		const client = await session(
+			f.port('submissions'),
+			true,
+			'alice@example.com',
+		);
+		await client.smtp('MAIL FROM:<alice@example.com>');
+		for (const to of ['carol@[127.0.0.1]', 'carol@[IPv6:::1]']) {
+			expect(await client.smtp(`RCPT TO:<${to}>`)).toStartWith(
+				'550 5.7.1 Mail to an address literal is not sent from here',
+			);
+		}
+		client.end();
 	});
 });
 

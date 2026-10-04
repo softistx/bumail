@@ -1,4 +1,3 @@
-import { decodeEncodedWords } from '@bumail/mime';
 import { addressOf } from '../../directory/address';
 import type { Directory } from '../../directory/directory';
 import { fieldName, splitFields } from '../header';
@@ -48,6 +47,45 @@ const ADDRESS = /[^\s<>()",;:@[\]\\]+@[^\s<>()",;:@[\]\\]+/gu;
 
 const decoder = new TextDecoder('utf-8', { fatal: false });
 
+/**
+ * Anything shaped like an encoded-word (RFC 2047): `=?charset?encoding?text?=`,
+ * in any charset and any encoding letter, as broadly as a reader might
+ * decode one.
+ */
+const ENCODED_WORD = /=\?[^?\s]*\?([^?\s]*)\?([^?\s]*)\?=/g;
+
+/** The bytes of an encoded-word's text, read as B (base64) or Q; `undefined` for another encoding. */
+function encodedBytes(encoding: string, text: string): Uint8Array | undefined {
+	if (encoding.toUpperCase() === 'B') return Buffer.from(text, 'base64');
+	if (encoding.toUpperCase() !== 'Q') return undefined;
+	const bytes: number[] = [];
+	for (let i = 0; i < text.length; i++) {
+		const hex = text.slice(i + 1, i + 3);
+		if (text[i] === '=' && /^[0-9A-Fa-f]{2}$/.test(hex)) {
+			bytes.push(Number.parseInt(hex, 16));
+			i += 2;
+		} else {
+			bytes.push(text.charCodeAt(i) & 0xff);
+		}
+	}
+	return Uint8Array.from(bytes);
+}
+
+/**
+ * Whether an encoded-word in `value` could show a reader an `@`: one
+ * holding a raw `@` (an address hidden inside it), or whose B or Q text
+ * holds the byte 0x40, whatever its charset says — a charset the
+ * platform does not know is shown raw by one reader and decoded by
+ * another, and UTF-16's `@` holds that byte too.
+ */
+function hidesAt(value: string): boolean {
+	for (const [word, encoding = '', text = ''] of value.matchAll(ENCODED_WORD)) {
+		if (word.slice(2).includes('@')) return true;
+		if (encodedBytes(encoding, text)?.includes(0x40)) return true;
+	}
+	return false;
+}
+
 /** Why a From field names no author this check can stand behind. */
 export type FromProblem = 'count' | 'unreadable' | 'none';
 
@@ -55,12 +93,12 @@ export type FromProblem = 'count' | 'unreadable' | 'none';
  * The addresses the From field of `header` names, read strictly:
  * `'count'` when the header has none, or several (RFC 5322 §3.6 asks for
  * one); `'none'` when it names no address at all (`undisclosed:;`).
- * Every `@` in the field, encoded-words (RFC 2047) decoded, must belong
- * to a plain address: a quoted local part, a domain literal, or an `@`
- * anywhere else gives `'unreadable'`, so a reader is never shown an
- * author this check did not see. A display name or a comment that holds
- * an address, `=?UTF-8?Q?ceo=40bank.example?=` included, is held to the
- * same rule as the address.
+ * Every `@` in the field must belong to a plain address: a quoted local
+ * part, a domain literal, an `@` anywhere else, or an encoded-word (RFC
+ * 2047) that holds or decodes to one gives `'unreadable'`, so a reader
+ * is never shown an author this check did not see. A display name or a
+ * comment that holds an address, `=?UTF-8?Q?ceo=40bank.example?=`
+ * included, is held to the same rule as the address.
  */
 export function fromAddresses(
 	header: Uint8Array,
@@ -70,10 +108,9 @@ export function fromAddresses(
 	if (field === undefined || fields.length > 1) return 'count';
 	const text = decoder.decode(field);
 	const value = text.slice(text.indexOf(':') + 1).replace(/\r\n/g, '');
-	// An address is never an encoded-word; a display name or a comment may
-	// be one, and a reader is shown it decoded.
+	if (hidesAt(value)) return 'unreadable';
 	const found = value.match(ADDRESS) ?? [];
-	const ats = decodeEncodedWords(value).split('@').length - 1;
+	const ats = value.split('@').length - 1;
 	if (found.length === 0 && ats === 0) return 'none';
 	if (found.length === 0 || ats !== found.length) return 'unreadable';
 	return found;

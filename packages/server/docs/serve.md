@@ -258,9 +258,11 @@ From is read strictly: every `@` in it must belong to a plain address,
 so a quoted local part (`<"bob"@example.com>`), or another address in
 a display name or a comment (`"bob@example.com" <alice@example.com>`),
 is refused, since a reader could be shown an author this check did not
-see. Encoded-words (RFC 2047) are read decoded, as a reader sees them:
-`=?UTF-8?Q?ceo=40bank.example?= <alice@example.com>` is refused like
-`"ceo@bank.example" <alice@example.com>`.
+see. An encoded-word (RFC 2047), in any charset, known or not, is
+refused when it holds an `@` or its bytes decode to one, as some reader
+may decode it: `=?UTF-8?Q?ceo=40bank.example?= <alice@example.com>` is
+refused like `"ceo@bank.example" <alice@example.com>`, and so is an
+address hidden inside an encoded-word.
 
 A session that logged in keeps its rights only while the user is
 unchanged: once it is removed, disabled (`bumail user disable`) or given
@@ -272,13 +274,18 @@ straight to the store, as the MX would: its INBOX, aliases expanded, a
 `Return-Path` on top; an unknown one is refused at RCPT with
 `550 5.1.1 User unknown`, and the bare `<postmaster>` goes to the
 postmaster address. Every other recipient goes into the
-[queue](#the-queue), once per message. Any `Authentication-Results`
+[queue](#the-queue), once per message; an address literal
+(`carol@[192.0.2.1]`) is refused at RCPT with
+`550 5.7.1 Mail to an address literal is not sent from here`, since it
+would have the queue connect to whatever host a user names, this one's
+own services included. Any `Authentication-Results`
 claiming the server's name or a hosted domain is removed first, as on
-port 25. The client is answered `250` only once the message is in the
-queue and in each local mailbox. Should a local delivery fail after the
-queue took the other recipients, the client is answered `451`, so it
-sends the message again, and the queued copy is cancelled first, so the
-other domains do not get it twice.
+port 25. The local mailboxes get the message first, the queue last,
+since a queued message may leave at once and cannot be taken back; the
+client is answered `250` only once both took it. Should a local
+delivery fail, or the queue refuse the message, the client is told to
+send it again: a local recipient that already has it may get a second
+copy, but no other domain ever does.
 
 **Limits.** `[submission]`: `maxMessageSize` (25 MiB) announced with
 SIZE, `maxRecipients` (100) per message, `maxConnections` (1000) at once,
@@ -462,11 +469,9 @@ bumail: stopped
 | `submissions: <id> from <user> <sender> delivered to <users>; queued as <item> for <recipients>` (`submission:` on 587) | a message sent: each part only when it has recipients, `(unsigned)` at the end when its From domain has no DKIM key |
 | `submissions: <id> from <user> <sender> taken for nobody here any longer` | a message taken whose every local recipient was removed between RCPT and the end of DATA, with none for another domain: nothing was delivered or queued |
 | `submissions: <user> from <ip> refused as sender <address>` | `553 5.7.1`: MAIL FROM another address |
-| `submissions: <id> … refused: it has no From field, or several`, `… refused: its From field names no address`, `… refused: its From field names another address` | `550 5.6.0`, `550 5.6.0`, `550 5.7.1`; a display name or a comment holding an address, encoded-words decoded, counts as another address |
+| `submissions: <id> … refused: it has no From field, or several`, `… refused: its From field names no address`, `… refused: its From field names another address` | `550 5.6.0`, `550 5.6.0`, `550 5.7.1`; a display name, a comment or an encoded-word holding an address counts as another address |
 | `submissions: <user> from <ip> refused as sender <address>`, after a login that went through | the user was removed, disabled or given a new password since the session logged in: it logs in again |
 | `submissions: <id> … not queued: …` | the queue refused the message: the client got `452`, `552` or `451` |
-| `submissions: <id> … queued as <item>, cancelled: it is not taken` | the store failed, or the session ended, after the queue took the other domains' recipients: the queued copy is taken back, since the client sends the message again |
-| `submissions: <id> … queued as <item>, not cancelled: …; the retry may send it twice` | the same, with the queue failing too: the other domains may get the message twice |
 | `outbound: <item> <sender> delivered to <recipient> by <host>` | a recipient's server, or the smarthost, took it; `by` the server's own name for a hosted domain, a DSN included |
 | `outbound: <item> to <recipient> deferred until <time>: …` | a `4xx` or a failure to reach it: tried again then |
 | `outbound: <item> to <recipient> failed: …` | a `5xx`, or given up on after 5 days |

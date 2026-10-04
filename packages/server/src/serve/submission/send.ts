@@ -36,12 +36,11 @@ function queueRefusal(error: QueueError): Reply | undefined {
 
 /**
  * A submitted message, spooled, checked, signed, then handed on: to the
- * queue for other domains' recipients first, then to the store for the
- * hosted domains'. A failure answers the client to send it again, so
- * what was handed on is taken back first: the queued item is cancelled
- * (best effort, logged when it cannot be, and a worker may have begun
- * on it already). A local recipient the store already took keeps the
- * message, as on the MX: the client's retry may bring it a second copy.
+ * store for the hosted domains' recipients first, then to the queue for
+ * the others, last, since a queued message may leave at once and cannot
+ * be taken back. A failure answers the client to send the message again:
+ * a local recipient the store already took keeps it, as on the MX, and
+ * the retry may bring it a second copy; nothing ever leaves twice.
  */
 export async function send(
 	ctx: SubmissionContext,
@@ -74,6 +73,20 @@ export async function send(
 	}
 }
 
+/** What a message is handed on as, once checked and signed. */
+interface Outgoing {
+	readonly ctx: SubmissionContext;
+	readonly name: string;
+	readonly message: ReceivedMessage;
+	readonly spooled: Spooled;
+	/** `<id> from <user> <<sender>>`, for the log. */
+	readonly from: string;
+	/** The header kept, forged fields removed. */
+	readonly kept: readonly Uint8Array[];
+	/** The `DKIM-Signature` field, if the From domain has a key. */
+	readonly signature: string | undefined;
+}
+
 async function handOn(
 	ctx: SubmissionContext,
 	name: string,
@@ -81,28 +94,65 @@ async function handOn(
 	session: Session,
 	spooled: Spooled,
 ): Promise<Reply | undefined> {
-	const { log, directory } = ctx;
 	const { envelope } = message;
 	const user = String(session.data[USER]);
 	const from = `${message.id} from ${user} <${envelope.from}>`;
-	const header = spooled.header;
+	const refusal = checkHeader(ctx, name, from, user, spooled);
+	if (refusal !== undefined) return refusal;
+	const out = await signed({ ctx, name, message, spooled, from });
+
+	const { directory } = ctx;
+	const local = envelope.to.filter(
+		(to) => to === POSTMASTER || directory.domains.has(envelopeDomain(to)),
+	);
+	const remote = envelope.to.filter((to) => !local.includes(to));
+	const users = usersOf(directory, local, ctx.postmaster);
+
+	const delivered = await deliverLocally(out, users);
+	if (delivered !== undefined) return delivered;
+	const queued = remote.length === 0 ? '' : await enqueue(out, remote);
+	if (typeof queued !== 'string') return queued.refusal;
+
+	const parts = [
+		...(users.length > 0 ? [`delivered to ${users.join(', ')}`] : []),
+		...(remote.length > 0
+			? [`queued as ${queued} for ${remote.join(', ')}`]
+			: []),
+	];
+	ctx.log(
+		`${name}: ${from} ${parts.join('; ') || 'taken for nobody here any longer'}${out.signature === undefined ? ' (unsigned)' : ''}`,
+	);
+	return undefined;
+}
+
+/** The refusal of a header too large, or of a From the user may not send as. */
+function checkHeader(
+	ctx: SubmissionContext,
+	name: string,
+	from: string,
+	user: string,
+	spooled: Spooled,
+): Reply | undefined {
+	const { header } = spooled;
 	if (header === undefined) {
-		log(`${name}: ${from} refused: its header is over 256 KiB`);
+		ctx.log(`${name}: ${from} refused: its header is over 256 KiB`);
 		return HEADER_TOO_LARGE;
 	}
-	const yours = fromIsYours(directory, user, header);
-	if (yours !== 'yes') {
-		log(`${name}: ${from} refused: ${FROM_PROBLEMS[yours]}`);
-		return yours === 'count'
-			? FROM_COUNT
-			: yours === 'none'
-				? FROM_NO_ADDRESS
-				: FROM_NOT_YOURS;
-	}
+	const yours = fromIsYours(ctx.directory, user, header);
+	if (yours === 'yes') return undefined;
+	ctx.log(`${name}: ${from} refused: ${FROM_PROBLEMS[yours]}`);
+	if (yours === 'count') return FROM_COUNT;
+	return yours === 'none' ? FROM_NO_ADDRESS : FROM_NOT_YOURS;
+}
 
-	// What a sender could forge to fool a reader here goes, as on the MX.
+/** The header with what a sender could forge removed, as on the MX, and its DKIM signature. */
+async function signed(
+	base: Omit<Outgoing, 'kept' | 'signature'>,
+): Promise<Outgoing> {
+	const { ctx, spooled } = base;
+	const header = spooled.header ?? new Uint8Array();
 	const { kept } = stripForged(header, ctx.hostname, (id) =>
-		directory.domains.has(id),
+		ctx.directory.domains.has(id),
 	);
 	const authors = fromAddresses(header);
 	const author = Array.isArray(authors) ? (authors[0] ?? '') : '';
@@ -110,74 +160,61 @@ async function handOn(
 		envelopeDomain(author),
 		spooledStream(joinHeader([], kept), spooled.stream(spooled.bodyStart)),
 	);
+	return { ...base, kept, signature };
+}
+
+/** Adds the message to each local user's INBOX, `Return-Path` on top; `NOT_TAKEN` once the session ended. */
+async function deliverLocally(
+	out: Outgoing,
+	users: readonly string[],
+): Promise<Reply | undefined> {
+	const { ctx, message, spooled, signature } = out;
 	const top = signature === undefined ? [] : [signature];
-
-	const local = envelope.to.filter(
-		(to) => to === POSTMASTER || directory.domains.has(envelopeDomain(to)),
+	const prefix = joinHeader(
+		[returnPath(message.envelope.from), ...top],
+		out.kept,
 	);
-	const remote = envelope.to.filter((to) => !local.includes(to));
-	const users = usersOf(directory, local, ctx.postmaster);
-
-	// The client sends it again: nothing is kept once it was refused meanwhile.
-	if (message.signal.aborted) return NOT_TAKEN;
-	let queued = '';
-	if (remote.length > 0) {
-		try {
-			const item = await ctx.queue.enqueue(
-				spooledStream(joinHeader(top, kept), spooled.stream(spooled.bodyStart)),
-				{ from: envelope.from, to: remote },
+	for (const to of users) {
+		if (message.signal.aborted) {
+			ctx.log(
+				`${out.name}: ${out.from} abandoned before ${to}: the session ended`,
 			);
-			queued = item.id;
-		} catch (error) {
-			const refusal =
-				error instanceof QueueError ? queueRefusal(error) : undefined;
-			log(`${name}: ${from} not queued: ${ctx.describe(error)}`);
-			return refusal ?? NOT_TAKEN;
+			return NOT_TAKEN;
 		}
+		await deliver(ctx, to, false, prefix, spooled);
 	}
-	const prefix = joinHeader([returnPath(envelope.from), ...top], kept);
-	try {
-		for (const to of users) {
-			if (message.signal.aborted) {
-				log(`${name}: ${from} abandoned before ${to}: the session ended`);
-				await cancel(ctx, name, from, queued);
-				return NOT_TAKEN;
-			}
-			await deliver(ctx, to, false, prefix, spooled);
-		}
-	} catch (error) {
-		await cancel(ctx, name, from, queued);
-		throw error;
-	}
-	const parts = [
-		...(users.length > 0 ? [`delivered to ${users.join(', ')}`] : []),
-		...(remote.length > 0
-			? [`queued as ${queued} for ${remote.join(', ')}`]
-			: []),
-	];
-	log(
-		`${name}: ${from} ${parts.join('; ') || 'taken for nobody here any longer'}${signature === undefined ? ' (unsigned)' : ''}`,
-	);
 	return undefined;
 }
 
 /**
- * Takes back the item `queued` (none when `''`), since the client is told
- * to send the message again: a failure here is logged, not thrown.
+ * Queues the message for `remote`, the last step: its item's id, or the
+ * reply to a refusal. Nothing is queued once the session ended, since the
+ * client sends the message again.
  */
-async function cancel(
-	ctx: SubmissionContext,
-	name: string,
-	from: string,
-	queued: string,
-): Promise<void> {
-	if (queued === '') return;
+async function enqueue(
+	out: Outgoing,
+	remote: readonly string[],
+): Promise<string | { readonly refusal: Reply }> {
+	const { ctx, message, spooled, signature } = out;
+	if (message.signal.aborted) {
+		ctx.log(`${out.name}: ${out.from} not queued: the session ended`);
+		return { refusal: NOT_TAKEN };
+	}
 	try {
-		await ctx.queue.cancel(queued);
-		ctx.log(`${name}: ${from} queued as ${queued}, cancelled: it is not taken`);
-	} catch (error) {
-		ctx.log(
-			`${name}: ${from} queued as ${queued}, not cancelled: ${ctx.describe(error)}; the retry may send it twice`,
+		const item = await ctx.queue.enqueue(
+			spooledStream(
+				joinHeader(signature === undefined ? [] : [signature], out.kept),
+				spooled.stream(spooled.bodyStart),
+			),
+			{ from: message.envelope.from, to: [...remote] },
 		);
+		return item.id;
+	} catch (error) {
+		ctx.log(`${out.name}: ${out.from} not queued: ${ctx.describe(error)}`);
+		return {
+			refusal:
+				(error instanceof QueueError ? queueRefusal(error) : undefined) ??
+				NOT_TAKEN,
+		};
 	}
 }
