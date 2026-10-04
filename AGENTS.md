@@ -424,21 +424,17 @@ Every PR goes into `develop`. Before merging:
     that never sends its ClientHello reaches no `open`, so no limit counts
     it and no `socket.timeout` closes it (50 raw sockets held 12 s with a
     1 s timeout). With a handshake handler, `open` comes at the TCP
-    connection and the socket timer runs during the handshake; smtp sets
-    one, counts the socket there and bounds the handshake by
-    `handshakeTimeout`;
+    connection and the socket timer runs during the handshake. imap's
+    listener held the same way 50 raw sockets 12 s with a 1 s
+    `loginTimeout`, a TLS client greeted past a `maxConnections` of 10.
+    Each server sets one, counts the socket there, bounds the handshake by
+    `handshakeTimeout` and holds its greeting, or its refusal, until the
+    handshake completes; with it, imap's 50 were counted, then closed
+    within 4 s of a 1 s `handshakeTimeout`. imap's `stop(true)` also
+    resets a socket still in its handshake;
   - Bun's `listener.stop(true)` no longer closes a socket STARTTLS moved
     to TLS, so each server's `stop(true)` also closes every connection it
     holds;
-  - imap's implicit-TLS listener, without a `handshake` handler, held 50
-    raw TCP sockets that never sent a ClientHello for 12 s with a 1 s
-    `loginTimeout`, counted by no `maxConnections` (a TLS client was
-    greeted past a limit of 10) and closed by no timer. With one, `open`
-    comes at the TCP connection: imap counts the socket there, bounds the
-    handshake by `handshakeTimeout`, holds the greeting and the BYE of a
-    full server until the handshake completes, and resets a socket still
-    in its handshake on `stop(true)`; the 50 were counted, then closed by
-    the server within 4 s of a 1 s `handshakeTimeout`;
   - a reset reaches the client's kernel, not always the client: one sent
     into the window a client closed by not reading can be dropped (RFC
     5961), and the client then learns of it at its next probe of the

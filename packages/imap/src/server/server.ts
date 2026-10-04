@@ -125,6 +125,68 @@ function transportOf(
 }
 
 /**
+ * The listener's own handlers: `open` counts a socket and greets it or turns
+ * it away, `handshake` lets implicit TLS start once encrypted, `close`
+ * frees its place. `handshaking` holds the sockets still in their
+ * handshake, for `stop(true)`.
+ */
+function listenerHandlers(
+	settings: Settings,
+	open: Set<Connection>,
+	handshaking: Set<Socket<SocketState>>,
+	secure: boolean,
+): Pick<SocketHandler<SocketState>, 'open' | 'handshake' | 'close'> {
+	return {
+		// With a `handshake` handler, Bun calls `open` on implicit TLS
+		// as soon as TCP connects; without one, only once the
+		// handshake completed, so a client that never sends its
+		// ClientHello would be counted by no limit and bounded by no
+		// timer.
+		open(socket) {
+			socket.data = { upgraded: false, handshaking: secure };
+			socket.timeout(secure ? settings.handshakeTimeout : settings.timeout);
+			const begin = (start: () => void) => {
+				if (!secure) return start();
+				handshaking.add(socket);
+				socket.data.start = start;
+			};
+			const transport = transportOf(socket, settings, secure);
+			if (open.size >= settings.maxConnections) {
+				// Through the transport: its end is bounded, on TLS too.
+				return begin(() => {
+					transport.write(TOO_MANY);
+					transport.end();
+				});
+			}
+			const connection = new Connection(settings, transport);
+			open.add(connection);
+			socket.data.connection = connection;
+			begin(() => void connection.open());
+		},
+		handshake(socket, success) {
+			const state = stateOf(socket);
+			if (!state?.handshaking) return;
+			handshaking.delete(socket);
+			// A failed handshake: Bun closes the socket, and `close` counts it out.
+			if (!success) return;
+			state.handshaking = false;
+			socket.timeout(settings.timeout);
+			const start = state.start;
+			delete state.start;
+			start?.();
+		},
+		close(socket) {
+			handshaking.delete(socket);
+			const state = stateOf(socket);
+			const connection = state?.connection;
+			if (connection) open.delete(connection);
+			state?.transport?.closed();
+			void connection?.close();
+		},
+	};
+}
+
+/**
  * An IMAP4rev2 server (RFC 9051) on `Bun.listen`, serving the mail of a
  * `MailStore`: STARTTLS (or implicit TLS on 993), LOGIN and AUTHENTICATE
  * PLAIN only once encrypted, then the mailboxes and messages of the
@@ -161,54 +223,7 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 					: {}),
 				socket: {
 					...handlers(settings),
-					// With a `handshake` handler, Bun calls `open` on implicit TLS
-					// as soon as TCP connects; without one, only once the
-					// handshake completed, so a client that never sends its
-					// ClientHello would be counted by no limit and bounded by no
-					// timer.
-					open(socket) {
-						socket.data = { upgraded: false, handshaking: secure };
-						socket.timeout(
-							secure ? settings.handshakeTimeout : settings.timeout,
-						);
-						const begin = (start: () => void) => {
-							if (!secure) return start();
-							handshaking.add(socket);
-							socket.data.start = start;
-						};
-						const transport = transportOf(socket, settings, secure);
-						if (open.size >= settings.maxConnections) {
-							// Through the transport: its end is bounded, on TLS too.
-							return begin(() => {
-								transport.write(TOO_MANY);
-								transport.end();
-							});
-						}
-						const connection = new Connection(settings, transport);
-						open.add(connection);
-						socket.data.connection = connection;
-						begin(() => void connection.open());
-					},
-					handshake(socket, success) {
-						const state = stateOf(socket);
-						if (!state?.handshaking) return;
-						handshaking.delete(socket);
-						// A failed handshake: Bun closes the socket, and `close` counts it out.
-						if (!success) return;
-						state.handshaking = false;
-						socket.timeout(settings.timeout);
-						const start = state.start;
-						delete state.start;
-						start?.();
-					},
-					close(socket) {
-						handshaking.delete(socket);
-						const state = stateOf(socket);
-						const connection = state?.connection;
-						if (connection) open.delete(connection);
-						state?.transport?.closed();
-						void connection?.close();
-					},
+					...listenerHandlers(settings, open, handshaking, secure),
 				},
 			});
 			return { port: listener.port, hostname: listener.hostname };
