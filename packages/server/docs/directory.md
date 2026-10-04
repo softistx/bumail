@@ -21,14 +21,15 @@ entry for each message.
 
 One SQLite file, `directory.url` in the configuration, by default
 `sqlite:<data>/directory.sqlite`. It is created on first use, readable
-by its owner only (0600),
-in WAL mode: the running server reads it while a `bumail` command
-writes it from another process, and a write waits up to 5 seconds for
-another.
+by its owner only (0600), in WAL mode: the running server reads it while
+a `bumail` command writes it from another process, and a write waits up
+to 5 seconds for another.
 
-Nothing is cached. Every login and every recipient reads the file, so a
-user added, disabled or given a new password counts from the next
-lookup, with no restart and no reload.
+Every login and every recipient reads the file, so a user added,
+disabled or given a new password counts from the next lookup, with no
+restart and no reload. Only a verified login is remembered, for a
+minute ([the cache](#logins)), and each use of it reads the user's
+version in the file, so that holds for it too.
 
 The file carries its schema version in a `schema` table. A server
 upgrades an older file when it opens it, in one transaction, and
@@ -173,9 +174,9 @@ what a command reports (`added the user …`, a listing).
 - **Unicode.** A password is hashed and verified in NFC, as RFC 8265's
   OpaqueString prepares one: `café` typed with a composed `é` or with
   `e` and a combining accent is one password.
-- **Length.** At least 12 characters (after NFC), at most 1024 bytes
-  of UTF-8, and no control character: no prompt types one, and a stray line break
-  from a file would be a password nobody could type.
+- **Length.** At least 12 characters (after NFC), at most 1024 bytes of
+  UTF-8, and no control character: no prompt types one, and a stray line
+  break from a file would be a password nobody could type.
 - **Secrecy.** No output and no error repeats a password: not an
   option's value, not a file's content, and not an operand or a
   command word that could be one. A refused address or domain is
@@ -205,10 +206,10 @@ what a command reports (`added the user …`, a listing).
    `cacheSeconds: 0` turns it off.
 4. **Logins under way.** One client has at most `maxPending` (5, and
    never more than `maxFailures`) logins being verified at once, and no
-   more than it has failures left before a block; past either, a login is `busy`, never `blocked`. So
-   guesses sent all at once get no more verified than guesses sent in
-   turn, and a client with the right password is never blocked for the
-   logins it has under way.
+   more than it has failures left before a block; past either, a login
+   is `busy`, never `blocked`. So guesses sent all at once get no more
+   verified than guesses sent in turn, and a client with the right
+   password is never blocked for the logins it has under way.
 5. **The verify.** At most **4** run at once; the others wait their
    turn, in order, up to 1000 waiting, past which a login is `busy`
    (the listener answers a temporary failure). Each verify holds
@@ -253,13 +254,16 @@ every listener:
   older than the window is forgotten.
 - **A success does not clear it**: an attacker who holds one account
   must not reset the count it guesses other accounts under.
-- **Memory is bounded**: at most `maxClients` (100 000) are
-  remembered; past it, the client below `maxFailures` whose last
-  failure is oldest is forgotten. A blocked client is never forgotten
-  to make room, so a spray from many addresses cannot reset an
-  attacker's count; with every client blocked, the newcomer is not
-  remembered. A restart forgets everything, and each server instance
-  counts its own.
+- **Memory is bounded**: at most `maxClients` (100 000) are remembered;
+  past it, the client below `maxFailures` whose last failure is oldest
+  is forgotten. A blocked client is forgotten only when every other one
+  is blocked too, and then the one whose block ends soonest. Each block
+  takes `maxFailures` verifies within the window, so at most the verify
+  rate times `windowSeconds` divided by `maxFailures` clients are
+  blocked at once (at 40 verifies a second, 900 s and 10 failures:
+  3600). Keep `maxClients` above that, and no spray from many addresses
+  can make room by forgetting an attacker's block. A restart forgets
+  everything, and each server instance counts its own.
 
 ## Mailboxes in the store
 
@@ -276,17 +280,19 @@ mailbox a role, and a second `Junk` would be refused.
   so, and still adds the user: the server creates the account and its
   mailboxes at the user's first login. A PostgreSQL store is open to
   both.
-- **Removing a user keeps its mail** — the recommended default. The
-  user can no longer log in and its mail is refused, but the account
-  stays in the store, so a removal by mistake loses nothing: adding the
-  address again finds the same account, with its mail. Add `--purge` to
-  delete the account, its mailboxes and its mail too. It disables the
-  user first, so no login creates the account again meanwhile, then
-  deletes the mail, then removes the user: a store that fails leaves
-  the user in place, disabled, and the same command can run again. With a SQLite
-  store, stop the server first, since `--purge` needs the store and
-  refuses (exit 5, nothing removed) while the server holds it. Purge
-  before giving an old address to someone else.
+- **Removing a user keeps its mail** — the recommended default. The user
+  can no longer log in and its mail is refused, but the account stays in
+  the store, so a removal by mistake loses nothing: adding the address
+  again finds the same account, with its mail. Add `--purge` to delete
+  the account, its mailboxes and its mail too. It disables the user
+  first, so no new login creates the account again meanwhile (a login
+  already under way may still create an empty one, which running the
+  command again deletes), then deletes the mail, then removes the user:
+  a store that fails leaves the user in place, disabled, and the same
+  command can run again. With a SQLite store, stop the server first,
+  since `--purge` needs the store and refuses (exit 5, nothing removed)
+  while the server holds it. Purge before giving an old address to
+  someone else.
 
 ## No forwarding
 

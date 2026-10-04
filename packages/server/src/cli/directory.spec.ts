@@ -1,9 +1,13 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SqliteMailStore } from '@bumail/store/sqlite';
 import { ACME, tempDir } from '../config/config.fixtures';
+import { readConfig } from '../config/read';
 import { Directory } from '../directory/directory';
+import { ServerError } from '../errors';
+import { parseArgs } from './args';
+import { manage } from './manage';
 
 const MAIN = join(import.meta.dir, '..', 'main.ts');
 const SECRET = 'correct horse battery staple';
@@ -307,6 +311,52 @@ describe('bumail user', () => {
 		expect((await it.bumail(['user', 'remove', 'bob@example.com'])).code).toBe(
 			4,
 		);
+	});
+});
+
+describe('bumail user remove --purge, when the store fails', () => {
+	test('leaves the user, disabled, and says to run it again', async () => {
+		const it = await seeded();
+		const deleteAccount = spyOn(
+			SqliteMailStore.prototype,
+			'deleteAccount',
+		).mockImplementation(() => Promise.reject(new Error('disk full')));
+		const lines: string[] = [];
+		try {
+			const config = await readConfig({ path: it.config, env: {} });
+			const args = parseArgs([
+				'user',
+				'remove',
+				'alice@example.com',
+				'--purge',
+			]);
+			if (args.kind !== 'manage') throw new Error('not a manage command');
+			const failed = await manage(args, config, {
+				out: (text) => lines.push(text),
+				terminal: {
+					stdin: async () => '',
+					isTTY: false,
+					prompt: async () => '',
+				},
+			}).catch((error: unknown) => error);
+			expect(deleteAccount).toHaveBeenCalled();
+			expect(failed).toBeInstanceOf(ServerError);
+			expect((failed as ServerError).code).toBe('UNAVAILABLE');
+			expect((failed as ServerError).message).toBe(
+				'the user alice@example.com is disabled, but its mail is not purged: the mail store failed (disk full); run the command again',
+			);
+		} finally {
+			deleteAccount.mockRestore();
+		}
+		expect(lines).toEqual([]);
+		const directory = it.directory();
+		try {
+			expect(directory.users.get('alice@example.com')).toMatchObject({
+				disabled: true,
+			});
+		} finally {
+			directory.close();
+		}
 	});
 });
 

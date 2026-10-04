@@ -129,30 +129,8 @@ const commands: Record<Manage['noun'], Handler> = {
 		} else if (verb === 'disable' || verb === 'enable') {
 			const user = directory.users.setDisabled(address, verb === 'disable');
 			out(`${verb}d the user ${user.address}\n`);
-		} else if (args.purge) {
-			const user = directory.users.checkRemovable(address);
-			await withStore(config, async ({ store }) => {
-				// Disabled first, so no login creates the account again while
-				// it goes; the mail next, so should the store fail, the user
-				// is still there, disabled, and the command can run again.
-				directory.users.setDisabled(user.address, true);
-				try {
-					await purgeAccount(store, user.address);
-				} catch (error) {
-					const reason = storeFailure(error, config.store).message;
-					throw new ServerError(
-						'UNAVAILABLE',
-						`the user ${user.address} is disabled, but its mail is not purged: ${reason}; run the command again`,
-					);
-				}
-				directory.users.remove(user.address);
-			});
-			out(`removed the user ${user.address} and its mail\n`);
 		} else {
-			const user = directory.users.remove(address);
-			out(
-				`removed the user ${user.address}; its mail is kept in the store (bumail user remove --purge deletes it)\n`,
-			);
+			await removeUser(address, args.purge === true, directory, config, out);
 		}
 	},
 
@@ -174,6 +152,45 @@ const commands: Record<Manage['noun'], Handler> = {
 		}
 	},
 };
+
+/**
+ * Removes a user; with `purge`, its account and mail in the store too.
+ * The user is disabled first, so no new login creates the account again
+ * while it goes (a login already under way may still create an empty
+ * one, which running the command again deletes); the mail next, so
+ * should the store fail, the user is still there, disabled, and the
+ * command can run again.
+ */
+async function removeUser(
+	address: string,
+	purge: boolean,
+	directory: Directory,
+	config: ServerConfig,
+	out: (text: string) => void,
+): Promise<void> {
+	if (!purge) {
+		const user = directory.users.remove(address);
+		out(
+			`removed the user ${user.address}; its mail is kept in the store (bumail user remove --purge deletes it)\n`,
+		);
+		return;
+	}
+	const user = directory.users.checkRemovable(address);
+	await withStore(config, async ({ store }) => {
+		directory.users.setDisabled(user.address, true);
+		try {
+			await purgeAccount(store, user.address);
+		} catch (error) {
+			const reason = storeFailure(error, config.store).message;
+			throw new ServerError(
+				'UNAVAILABLE',
+				`the user ${user.address} is disabled, but its mail is not purged: ${reason}; run the command again`,
+			);
+		}
+		directory.users.remove(user.address);
+	});
+	out(`removed the user ${user.address} and its mail\n`);
+}
 
 /**
  * Creates the new user's account in the mail store, with its mailboxes.

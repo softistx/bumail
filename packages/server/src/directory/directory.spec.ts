@@ -7,8 +7,9 @@ import { ServerError } from '../errors';
 import { directoryFile } from './database';
 import { Directory } from './directory';
 import { PASSWORD, seededDirectory } from './directory.fixtures';
+import { hashPassword } from './password';
+import { findRecord } from './records';
 import { MIGRATIONS } from './schema';
-import { findRecord } from './users';
 
 const opened: Directory[] = [];
 afterEach(() => {
@@ -47,6 +48,45 @@ describe('the file', () => {
 			).toEqual([{ version: MIGRATIONS.length }]);
 		} finally {
 			db.close();
+		}
+	});
+
+	test('migrates a version 1 file to 2, its users kept and given a version', async () => {
+		const file = join(tempDir(), 'directory.sqlite');
+		const v1 = new Database(file, { create: true, strict: true });
+		v1.exec(MIGRATIONS[0] ?? '');
+		v1.exec('CREATE TABLE schema (version INTEGER NOT NULL) STRICT');
+		v1.query('INSERT INTO schema (version) VALUES (1)').run();
+		v1.query('INSERT INTO domains (name, created) VALUES (?, ?)').run(
+			'example.com',
+			0,
+		);
+		v1.query(
+			'INSERT INTO users (address, domain, hash, disabled, created) VALUES (?, ?, ?, 0, 0)',
+		).run('alice@example.com', 'example.com', await hashPassword(PASSWORD));
+		v1.close();
+		const directory = keep(Directory.open({ file }));
+		expect(
+			(await directory.authenticate('alice@example.com', PASSWORD, '192.0.2.1'))
+				.ok,
+		).toBe(true);
+		const db = new Database(file, { readonly: true });
+		try {
+			expect(
+				db.query<{ version: number }, []>('SELECT version FROM schema').all(),
+			).toEqual([{ version: 2 }]);
+			expect(
+				db.query<{ version: number }, []>('SELECT version FROM users').all(),
+			).toEqual([{ version: 0 }]);
+		} finally {
+			db.close();
+		}
+		directory.users.setDisabled('alice@example.com', true);
+		const after = new Database(file, { readonly: true });
+		try {
+			expect(findRecord(after, 'alice@example.com')?.version).toBe(1);
+		} finally {
+			after.close();
 		}
 	});
 

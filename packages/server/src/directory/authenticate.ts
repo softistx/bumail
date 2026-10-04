@@ -8,7 +8,7 @@ import {
 	MAX_PASSWORD_BYTES,
 	normalizePassword,
 } from './password';
-import type { UserEntry, UserRecord } from './users';
+import type { UserEntry, UserRecord } from './records';
 
 /**
  * Why a login was refused, for the server's log; a client is told only

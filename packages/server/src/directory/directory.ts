@@ -9,7 +9,8 @@ import {
 import { openDatabase } from './database';
 import { Domains } from './domains';
 import type { FailureLimiter } from './limiter';
-import { findRecord, Users, userVersion } from './users';
+import { findRecord, userVersion } from './records';
+import { Users } from './users';
 
 export interface DirectoryOptions extends AuthenticatorOptions {
 	/** The SQLite file, created if need be: `directory.url` without its `sqlite:`. */
@@ -19,8 +20,10 @@ export interface DirectoryOptions extends AuthenticatorOptions {
 /**
  * Domains, users and aliases, in one SQLite file in WAL mode. Several
  * processes may open it at once — the server reads it, the `bumail`
- * command writes it — and every lookup reads the file, with no cache: a
- * change is seen by the next lookup, without a restart.
+ * command writes it — and every lookup reads the file: a change is seen
+ * by the next lookup, without a restart. Only a verified login is
+ * remembered (`cacheSeconds`), and each use of it rereads the user's
+ * version, so a change counts at the next login there too.
  */
 export class Directory {
 	readonly domains: Domains;

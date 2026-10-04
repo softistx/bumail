@@ -52,9 +52,9 @@ export {
 	DEFAULT_MAX_VERIFIES,
 } from './directory/gate';
 export {
+	type Begun,
 	clientKey,
 	FailureLimiter,
-	type Begun,
 	type FailureLimiterOptions,
 } from './directory/limiter';
 export {

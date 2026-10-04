@@ -1000,8 +1000,8 @@ then.
 #### `the user … is disabled, but its mail is not purged: …; run the command again`
 
 **When**: `user remove --purge` opened the store, disabled the user so
-no login could create its account again during the purge, and then the
-store failed deleting the account. The reason is the store's. Exits 5;
+no new login creates its account again during the purge (one already
+under way still may), and then the store failed deleting the account. The reason is the store's. Exits 5;
 the user is still there, disabled, and its mail may be partly deleted.
 
 **Fix**: fix the store, as the reason says, and run the same command

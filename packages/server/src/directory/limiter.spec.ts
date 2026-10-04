@@ -42,6 +42,11 @@ describe('clientKey', () => {
 	])('%p counts as %p', (ip, key) => {
 		expect(clientKey(ip)).toBe(key);
 	});
+
+	test('is undefined for no string at all', () => {
+		expect(clientKey(undefined)).toBeUndefined();
+		expect(clientKey(42 as unknown as string)).toBeUndefined();
+	});
 });
 
 describe('FailureLimiter', () => {
@@ -101,11 +106,23 @@ describe('FailureLimiter', () => {
 		expect(limiter.size).toBe(2);
 		expect(limiter.blocked('192.0.2.1')).toBe(true);
 		expect(limiter.blockedUntil('192.0.2.2')).toBeUndefined();
+	});
+
+	test('with every client blocked, forgets the one whose block ends soonest, keeping the newcomer', () => {
+		const { limiter, advance } = clocked({ maxFailures: 2, maxClients: 2 });
+		limiter.fail('192.0.2.1');
+		advance(1);
+		limiter.fail('192.0.2.2');
+		limiter.fail('192.0.2.2');
+		limiter.fail('192.0.2.1');
+		expect(limiter.blockedUntil('192.0.2.1')).toBeLessThan(
+			limiter.blockedUntil('192.0.2.2') ?? 0,
+		);
 		limiter.fail('192.0.2.3');
-		limiter.fail('192.0.2.4');
-		// Both remembered are blocked: the newcomer is not remembered.
 		expect(limiter.size).toBe(2);
-		expect(limiter.blocked('192.0.2.1')).toBe(true);
+		expect(limiter.blocked('192.0.2.1')).toBe(false);
+		expect(limiter.blocked('192.0.2.2')).toBe(true);
+		limiter.fail('192.0.2.3');
 		expect(limiter.blocked('192.0.2.3')).toBe(true);
 	});
 

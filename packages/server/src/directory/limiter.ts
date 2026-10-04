@@ -6,7 +6,7 @@ export interface FailureLimiterOptions {
 	readonly maxFailures?: number;
 	/** How long a failure counts, in seconds. Default 900 (15 minutes). */
 	readonly windowSeconds?: number;
-	/** Clients remembered at once; past it, the blocked are kept and the one below the limit whose last failure is oldest is forgotten. Default 100 000. */
+	/** Clients remembered at once; past it, the one below the limit whose last failure is oldest is forgotten, or with all blocked, the one whose block ends soonest. Default 100 000. */
 	readonly maxClients?: number;
 	/** Logins one client may have under way at once; past it, `busy`. At most `maxFailures`. Default 5. */
 	readonly maxPending?: number;
@@ -64,7 +64,8 @@ function ipv4Of(g: readonly number[]): string {
  * client the limiter can tell apart, so it is not limited, rather than
  * putting every such login in one bucket one guesser would block for all.
  */
-export function clientKey(ip: string): string | undefined {
+export function clientKey(ip: string | undefined): string | undefined {
+	if (typeof ip !== 'string') return undefined;
 	const address = ip.replace(/^\[|\]$/g, '').replace(/%.*$/, '');
 	if (isIP(address) === 4) return address;
 	if (isIP(address) !== 6) return undefined;
@@ -103,9 +104,11 @@ export type Begun = 'started' | 'blocked' | 'busy';
  *   account must not wipe the count it guesses others' under.
  * - It lives in memory: a restart forgets it, and each instance counts
  *   its own. At most `maxClients` are remembered, so a spray from many
- *   addresses costs a bounded amount of memory. A blocked client is
- *   never forgotten to make room: the one below the limit whose last
- *   failure is oldest is; with none, the newcomer is not remembered.
+ *   addresses costs a bounded amount of memory. To make room, the
+ *   client below the limit whose last failure is oldest is forgotten; a
+ *   blocked one only when every other is blocked, the one whose block
+ *   ends soonest. Keep `maxClients` above the verify rate times the
+ *   window divided by `maxFailures`, and a spray never reaches a block.
  * - A login whose client is not an IP address (`clientKey` answers
  *   `undefined`) is not limited at all.
  */
@@ -208,16 +211,27 @@ export class FailureLimiter {
 		}
 	}
 
-	/** Forgets the client below the limit whose last failure is oldest; with none, `newcomer`. */
+	/**
+	 * Forgets the client below the limit whose last failure is oldest;
+	 * with every other client blocked, the one whose block ends soonest.
+	 */
 	#evict(newcomer: string, now: number): void {
+		let soonest: string | undefined;
+		let soonestEnd = Number.POSITIVE_INFINITY;
 		for (const key of this.#failures.keys()) {
 			if (key === newcomer) continue;
-			if (this.#recent(key, now).length < this.maxFailures) {
+			const times = this.#recent(key, now);
+			if (times.length < this.maxFailures) {
 				this.#failures.delete(key);
 				return;
 			}
+			const end = times[times.length - this.maxFailures] ?? 0;
+			if (end < soonestEnd) {
+				soonest = key;
+				soonestEnd = end;
+			}
 		}
-		this.#failures.delete(newcomer);
+		this.#failures.delete(soonest ?? newcomer);
 	}
 
 	/** When `ip` is free again, in milliseconds of the clock; `undefined` when it is not blocked. */
