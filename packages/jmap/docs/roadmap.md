@@ -79,6 +79,10 @@ Merged, not yet published.
   `$Seen` keyword in any case, as some clients write it), and leave out
   an email that has `$draft`. `unreadThreads` counts the threads with an
   unread email in the mailbox.
+- **`@alxia/core` 0.3** — the peer range moves from `^0.2.1` to `^0.3.0`:
+  an app on `@alxia/core` 0.2 upgrades it, and every other `@alxia/*`
+  package, alongside this release. The server's routes and answers are
+  unchanged.
 
 ### 0.1.0
 
