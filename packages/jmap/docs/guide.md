@@ -201,13 +201,30 @@ item of `destroy` that is neither is `invalidArguments`.
 A store mailbox is a JMAP Mailbox. `name` is the store's name of one
 level, `parentId` its parent, `role` its role (`inbox`, `archive`,
 `drafts`, `sent`, `trash`, `junk`, `all`, `flagged`, `important`),
-`isSubscribed` its subscription. `totalEmails` and `unreadEmails` are the
-store's counts; `totalThreads` and `unreadThreads` are counted by listing
-the mailbox's messages, only when asked — `properties` left out (null)
-asks for them — and at most `maxQueryScan` emails for one call, all its
-mailboxes together: past it, a mailbox's `totalThreads` and
-`unreadThreads` are its `totalEmails` and `unreadEmails`, which is exact
-while threads are single emails. `sortOrder` is always 0, and
+`isSubscribed` its subscription. `totalEmails` is the store's count.
+The three other counts follow RFC 8621 §2:
+
+- **`unreadEmails`** counts the mailbox's emails that have neither
+  `$seen` nor `$draft`, however the store keeps them: the IMAP flag
+  (`\Seen`, `\Draft`) or a keyword an IMAP client stored beside it
+  (`$Seen`, `$SEEN`, `$Draft`), in any case. It is not the store's
+  `unseen`, which is IMAP's UNSEEN and looks for `\Seen` alone.
+- **`totalThreads`** counts the threads with at least one email in the
+  mailbox.
+- **`unreadThreads`** counts the threads with at least one email in the
+  mailbox that is unread, by the rule above — the RFC's simplest
+  definition: an unread email of the thread in another mailbox does not
+  make it unread here, and a thread whose only unread email is a draft is
+  not unread.
+
+They are counted in one pass over the mailbox's messages, only when one
+of them is asked — `properties` left out (null) asks for them all — and
+at most `maxQueryScan` emails for one call, all its mailboxes together.
+Past it, a mailbox's counts are the store's: `unreadEmails` is its
+`unseen`, and `totalThreads` and `unreadThreads` are its `totalEmails`
+and `unseen`, exact while threads are single emails and no email is a
+draft or keeps `$seen` only as a keyword.
+`sortOrder` is always 0, and
 `myRights` grants everything but `maySubmit`.
 
 `Mailbox/set`:
@@ -412,7 +429,7 @@ writer between that check and the call's own changes is not caught.
 | `maxReferenceItems` | 5000 | values of one back-reference | `invalidResultReference` |
 | `maxReferenceBytes` | 4 MiB | bytes of JSON all the back-references of a request resolve to | `invalidResultReference` |
 | `maxSizeResponse` | 64 MiB | bytes of JSON of one API response | 400 problem `limit` |
-| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` thread count reads | `tooLarge`; thread counts are email counts |
+| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` count reads | `tooLarge`; the store's counts |
 | `maxBodyValueBytes` | 1 MiB | one body value | cut, `isTruncated` |
 | `maxBodyValuesTotal` | 16 MiB | body values of one request | cut, `isTruncated` |
 | `maxSizeUpload` | 25 MiB | one upload | 413 problem `limit` |

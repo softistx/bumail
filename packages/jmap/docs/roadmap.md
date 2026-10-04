@@ -17,11 +17,6 @@ The second slice:
   the account's streams at once after a delivery.
 - **`Thread/changes`**, and threads that group replies by `In-Reply-To`
   and `References` as mail is delivered.
-- **Unread counts exactly as RFC 8621 §2 defines them** — a mailbox's
-  `unreadEmails` and `unreadThreads` will count an email as read whenever
-  it has `$seen`, however the store keeps it (the IMAP `\Seen` flag, or a
-  `$Seen` keyword as some clients write it), and will leave out an email
-  that has `$draft`, as the RFC asks.
 
 ## Next
 
@@ -53,9 +48,9 @@ and bounded. Each comes out once the store contract grows it.
   `maxQueryScan` emails and filters, sorts and searches them here,
   reading content for text conditions.
 - **Threads.** A thread id per message, but no thread index:
-  `Thread/get` reads the account's emails, and mailbox thread counts list
-  the mailbox. Messages are single threads unless the delivery passes a
-  `threadId`.
+  `Thread/get` reads the account's emails, and a mailbox's unread and
+  thread counts list the mailbox. Messages are single threads unless the
+  delivery passes a `threadId`.
 - **A blob store.** Uploads are held in memory for `uploadTtl`, per
   process, up to `uploadQuota` per account.
 - **`sortOrder`** on a mailbox, and a mailbox's `role` changing: always 0,
@@ -73,6 +68,17 @@ and bounded. Each comes out once the store contract grows it.
   first; each session has one account.
 
 ## Shipped
+
+### Unreleased
+
+Merged, not yet published.
+
+- **Unread counts exactly as RFC 8621 §2 defines them** — a mailbox's
+  `unreadEmails` and `unreadThreads` count an email as read whenever it
+  has `$seen`, however the store keeps it (the IMAP `\Seen` flag, or a
+  `$Seen` keyword in any case, as some clients write it), and leave out
+  an email that has `$draft`. `unreadThreads` counts the threads with an
+  unread email in the mailbox.
 
 ### 0.1.0
 
