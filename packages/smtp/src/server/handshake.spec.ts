@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { Socket } from 'bun';
 import { Client } from './client.fixtures';
+import { handlers } from './listener';
 import type { SmtpServerOptions } from './options';
-import { createSmtpServer, handlers, type SmtpServer } from './server';
+import { createSmtpServer, type SmtpServer } from './server';
 import { mxOptions } from './session.fixtures';
 import { settingsOf } from './settings';
 
@@ -35,13 +36,20 @@ async function start(overrides: Partial<SmtpServerOptions> = {}) {
 async function raw(
 	port: number,
 	garbage?: string,
-): Promise<{ socket: Socket<undefined>; closed: () => boolean }> {
+): Promise<{
+	socket: Socket<undefined>;
+	closed: () => boolean;
+	received: () => number;
+}> {
 	let closed = false;
+	let received = 0;
 	const socket = await Bun.connect({
 		hostname: '127.0.0.1',
 		port,
 		socket: {
-			data() {},
+			data(_, chunk) {
+				received += chunk.byteLength;
+			},
 			close() {
 				closed = true;
 			},
@@ -49,7 +57,7 @@ async function raw(
 	});
 	sockets.push(socket);
 	if (garbage !== undefined) socket.write(garbage);
-	return { socket, closed: () => closed };
+	return { socket, closed: () => closed, received: () => received };
 }
 
 async function tlsClient(port: number): Promise<string> {
@@ -121,6 +129,25 @@ describe('implicit TLS before the handshake', () => {
 		expect(bad.closed()).toBe(true);
 		expect(await counted(0)).toBe(0);
 		expect(await tlsClient(port)).toStartWith('220');
+	});
+
+	test('stop(true) with handshakes pending resets them: nothing written, nothing thrown', async () => {
+		const errors: unknown[] = [];
+		const port = await start({
+			onError: (error) => {
+				errors.push(error);
+			},
+		});
+		const pending = [await raw(port), await raw(port), await raw(port)];
+		expect(await counted(3)).toBe(3);
+		expect(() => server?.stop(true)).not.toThrow();
+		expect(await counted(0, 1)).toBe(0);
+		for (const socket of pending) {
+			for (let i = 0; i < 50 && !socket.closed(); i++) await Bun.sleep(20);
+			expect(socket.closed()).toBe(true);
+			expect(socket.received()).toBe(0);
+		}
+		expect(errors).toEqual([]);
 	});
 });
 

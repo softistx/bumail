@@ -47,6 +47,7 @@ fixed part of the text.
 - [`BAD Authentication cancelled`](troubleshooting/connections.md#bad-authentication-cancelled)
 - [`BAD TLS is already on`](troubleshooting/connections.md#bad-tls-is-already-on)
 - [`* BYE [UNAVAILABLE] Too many connections, try later`](troubleshooting/connections.md#-bye-unavailable-too-many-connections-try-later)
+- [On implicit TLS, the connection closes before any greeting](troubleshooting/connections.md#on-implicit-tls-the-connection-closes-before-any-greeting)
 - [`* BYE Idle for too long, closing`](troubleshooting/connections.md#-bye-idle-for-too-long-closing)
 - [`* BYE The selected mailbox was deleted, closing`](troubleshooting/connections.md#-bye-the-selected-mailbox-was-deleted-closing)
 - [`* BYE Internal error, closing`](troubleshooting/connections.md#-bye-internal-error-closing)

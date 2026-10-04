@@ -66,6 +66,12 @@ describe('createImapServer options', () => {
 		expect(refusal({ loginTimeout: 3_000_000 })).toContain(
 			'loginTimeout must be at most 2147483',
 		);
+		expect(refusal({ handshakeTimeout: 0 })).toBe(
+			'createImapServer(): handshakeTimeout must be a positive integer, not 0',
+		);
+		expect(refusal({ handshakeTimeout: 3_000_000 })).toContain(
+			'handshakeTimeout must be at most 2147483',
+		);
 		expect(refusal({ idleInterval: 0 })).toBe(
 			'createImapServer(): idleInterval must be a number of seconds, more than 0 and at most 2147483, not 0',
 		);
