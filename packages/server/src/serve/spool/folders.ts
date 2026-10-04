@@ -38,6 +38,11 @@ function codeOf(error: unknown): unknown {
 	return (error as { code?: unknown } | null)?.code;
 }
 
+/** Whether `error` says a file or folder is missing. */
+export function isMissing(error: unknown): boolean {
+	return codeOf(error) === 'ENOENT';
+}
+
 function reasonOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -52,12 +57,12 @@ function lastSeen(path: string): number | 'gone' {
 	try {
 		return statSync(join(path, OWNER_FILE)).mtimeMs;
 	} catch (error) {
-		if (codeOf(error) !== 'ENOENT') throw error;
+		if (!isMissing(error)) throw error;
 	}
 	try {
 		return statSync(path).mtimeMs;
 	} catch (error) {
-		if (codeOf(error) === 'ENOENT') return 'gone';
+		if (isMissing(error)) return 'gone';
 		throw error;
 	}
 }
@@ -105,11 +110,6 @@ export function makeFolder(root: string, name: string, owner: string): string {
 	writeFileSync(join(making, OWNER_FILE), owner, { mode: 0o600 });
 	renameSync(making, dir);
 	return dir;
-}
-
-/** Whether `error` says a file or folder is missing. */
-export function isMissing(error: unknown): boolean {
-	return codeOf(error) === 'ENOENT';
 }
 
 /**

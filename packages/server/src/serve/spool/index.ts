@@ -51,6 +51,7 @@ export class Spool {
 	/** Folders under `<data>/spool` the sweep had to leave, unable to judge or remove them. */
 	readonly kept: readonly KeptFolder[];
 	#used = 0;
+	#closed = false;
 	readonly #place: Place;
 	readonly #log: Log;
 	readonly #stopBeat: () => void;
@@ -77,9 +78,13 @@ export class Spool {
 	 * Makes the folder again after another server swept it — this one
 	 * stalled past `STALE_MS`, or the clocks disagree — so the messages
 	 * after it still have somewhere to wait; tells the log. A folder
-	 * still there only gets its owner file back.
+	 * still there only gets its owner file back. Once closed, it throws
+	 * instead: a write after `close` never brings the folder back.
 	 */
 	#remake(): void {
+		if (this.#closed) {
+			throw new Error(`the spool folder ${this.dir} is closed`);
+		}
 		const { root, name, owner } = this.#place;
 		if (existsSync(this.dir)) {
 			writeFileSync(join(this.dir, OWNER_FILE), owner, { mode: 0o600 });
@@ -120,6 +125,7 @@ export class Spool {
 
 	/** Stops the heartbeat and removes the spool folder, with anything left in it: at the end of a stop. */
 	close(): void {
+		this.#closed = true;
 		this.#stopBeat();
 		rmSync(this.dir, { recursive: true, force: true });
 	}

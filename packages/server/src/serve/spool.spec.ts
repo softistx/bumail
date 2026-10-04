@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+	chmodSync,
+	existsSync,
 	mkdirSync,
 	readdirSync,
 	readFileSync,
@@ -185,5 +187,82 @@ describe('a spool folder swept while in use', () => {
 		await spooled.remove();
 		a.close();
 		b.close();
+	});
+
+	test('a remake that fails rejects the write, and leaves the budget as it was', async () => {
+		const data = tempDir();
+		const lines: string[] = [];
+		const a = Spool.open(data, 1000, {
+			heartbeatMs: 60_000,
+			log: (line) => lines.push(line),
+		});
+		const b = Spool.open(data, 1000, { now: Date.now() + STALE });
+		// The spool directory read-only: the folder cannot be made again.
+		chmodSync(join(data, 'spool'), 0o500);
+		try {
+			await expect(
+				a.write('e', stream('A: 1\r\n\r\n', 'body')),
+			).rejects.toThrow('EACCES');
+		} finally {
+			chmodSync(join(data, 'spool'), 0o700);
+		}
+		expect(a.used).toBe(0);
+		expect(existsSync(a.dir)).toBe(false);
+		expect(lines).toEqual([]);
+		a.close();
+		b.close();
+	});
+
+	test('clears a .tmp an earlier remake left behind', async () => {
+		const data = tempDir();
+		const a = Spool.open(data, 1000, { heartbeatMs: 60_000 });
+		const b = Spool.open(data, 1000, { now: Date.now() + STALE });
+		const making = `${a.dir}.tmp`;
+		mkdirSync(making);
+		writeFileSync(join(making, 'half.eml'), 'half');
+		const spooled = await a.write('f', stream('A: 1\r\n\r\n', 'body'));
+		if (spooled === 'full') throw new Error('full');
+		expect(existsSync(making)).toBe(false);
+		expect(readdirSync(a.dir).sort()).toEqual(['f.eml', OWNER_FILE].sort());
+		await spooled.remove();
+		a.close();
+		b.close();
+	});
+
+	test('two writes at once after a sweep make the folder once, and log once', async () => {
+		const data = tempDir();
+		const lines: string[] = [];
+		const a = Spool.open(data, 1000, {
+			heartbeatMs: 60_000,
+			log: (line) => lines.push(line),
+		});
+		const b = Spool.open(data, 1000, { now: Date.now() + STALE });
+		const both = await Promise.all([
+			a.write('g', stream('A: 1\r\n\r\n', 'one')),
+			a.write('h', stream('A: 2\r\n\r\n', 'two')),
+		]);
+		expect(readdirSync(a.dir).sort()).toEqual(
+			['g.eml', 'h.eml', OWNER_FILE].sort(),
+		);
+		expect(lines).toEqual([remade(a.dir)]);
+		for (const spooled of both) {
+			if (spooled === 'full') throw new Error('full');
+			await spooled.remove();
+		}
+		a.close();
+		b.close();
+	});
+
+	test('a write after close never brings the folder back', async () => {
+		const data = tempDir();
+		const lines: string[] = [];
+		const a = Spool.open(data, 1000, { log: (line) => lines.push(line) });
+		a.close();
+		await expect(a.write('i', stream('A: 1\r\n\r\n', 'body'))).rejects.toThrow(
+			`the spool folder ${a.dir} is closed`,
+		);
+		expect(existsSync(a.dir)).toBe(false);
+		expect(a.used).toBe(0);
+		expect(lines).toEqual([]);
 	});
 });
