@@ -133,20 +133,22 @@ describe('the problems of a configuration', () => {
 		[
 			'Redis credentials in clear',
 			'[queue]\nurl = "redis://:pw@cache.internal:6379"',
-			['queue.url: sends credentials without TLS; use rediss:'],
+			[
+				'queue.url: sends credentials without TLS; use rediss:, or set insecure = true to send them in clear',
+			],
 		],
 		[
 			'PostgreSQL credentials in clear',
 			'[store]\nurl = "postgres://bumail:pw@db.internal/mail"',
 			[
-				'store.url: sends credentials without TLS; add sslmode=require (or verify-ca, verify-full)',
+				'store.url: sends credentials without TLS; add sslmode=require (or verify-ca, verify-full), or sslmode=disable to send them in clear',
 			],
 		],
 		[
 			'PostgreSQL with sslmode=prefer',
 			'[queue]\nurl = "postgres://bumail:pw@db.internal/mail?sslmode=prefer"',
 			[
-				'queue.url: sends credentials without TLS; add sslmode=require (or verify-ca, verify-full)',
+				'queue.url: sends credentials without TLS; add sslmode=require (or verify-ca, verify-full), or sslmode=disable to send them in clear',
 			],
 		],
 		[
@@ -301,5 +303,64 @@ describe('the problems of a configuration', () => {
 		expect(error.message).toMatch(
 			/^\/.*\/bumail\.toml:\n {2}relay: not an option: bumail never relays without AUTH\n {2}hostname: is required \(or set BUMAIL_HOSTNAME\)\n {2}ports\.mx: must be an integer from 0 to 65535\n {2}acme\.email: is required with tls\.mode "acme"\n {2}acme\.acceptTerms: must be true: the CA's terms of service, read and accepted$/,
 		);
+	});
+});
+
+describe('more problems', () => {
+	const toml = (fragment: string) =>
+		`hostname = "mail.example.com"\n${fragment}\n${ACME}`;
+
+	test.each([
+		['RELAY', 'RELAY = true', 'RELAY'],
+		[
+			'my_networks',
+			'[inbound]\nmy_networks = ["10.0.0.0/8"]',
+			'inbound.my_networks',
+		],
+		[
+			'trusted-networks',
+			'[submission]\ntrusted-networks = []',
+			'submission.trusted-networks',
+		],
+		['Relay as a route', '[routes]\nRelay = "mx"', 'routes.Relay'],
+	])('%s is a relay key too', async (_, fragment, path) => {
+		expect(await problemsOf(toml(fragment))).toEqual([
+			`${path}: not an option: bumail never relays without AUTH`,
+		]);
+	});
+
+	test('a port that is not a whole number', async () => {
+		expect(await problemsOf(toml('[ports]\nmx = 25.5'))).toEqual([
+			'ports.mx: must be an integer from 0 to 65535',
+		]);
+	});
+
+	test('two routes for one domain', async () => {
+		expect(
+			await problemsOf(
+				toml('[routes]\n"example.org" = "mx"\n"Example.ORG." = "mx"'),
+			),
+		).toEqual([
+			'routes."Example.ORG.": is the same domain as routes."example.org"',
+		]);
+	});
+
+	test('a configuration that is not a regular file, or too large', async () => {
+		const { readConfig } = await import('./read');
+		const { tempDir, writeConfig } = await import('./config.fixtures');
+		const dir = tempDir();
+		await expect(readConfig({ path: dir, env: {} })).rejects.toThrow(
+			`${dir}:\n  (file): is not a regular file`,
+		);
+		const large = writeConfig(`# ${'x'.repeat(1024 * 1024)}\n`);
+		await expect(readConfig({ path: large, env: {} })).rejects.toThrow(
+			`${large}:\n  (file): is larger than 1 MiB`,
+		);
+	});
+
+	test('a TOML reason masks what it quotes, double or single', async () => {
+		expect(await problemsOf('secret = 1\nsecret = 2\n')).toEqual([
+			"(file): is not TOML: Cannot redefine key '…'",
+		]);
 	});
 });

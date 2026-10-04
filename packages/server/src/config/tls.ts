@@ -67,6 +67,13 @@ export function checkTlsFiles(
 	const certificate = certificateOf(checker, files.cert, 'tls.cert');
 	const key = keyOf(checker, files.key, 'tls.key');
 	if (certificate === undefined) return;
+	const validFrom = new Date(certificate.validFrom);
+	if (validFrom.getTime() > now.getTime()) {
+		checker.add(
+			'tls.cert',
+			`is not valid until ${validFrom.toISOString().slice(0, 10)}`,
+		);
+	}
 	const validTo = new Date(certificate.validTo);
 	if (validTo.getTime() < now.getTime()) {
 		checker.add('tls.cert', `expired on ${validTo.toISOString().slice(0, 10)}`);

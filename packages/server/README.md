@@ -46,9 +46,7 @@ acceptTerms = true
 
 [smarthost]                # leave it out to deliver by MX
 host = "smtp.example.net"
-port = 465
-username = "bumail"
-passwordFile = "/run/secrets/smarthost"
+port = 465                 # with username, and passwordFile or BUMAIL_SMARTHOST_PASSWORD
 
 [inbound]
 dmarc = "enforce"          # p=reject refused, p=quarantine to Junk; or "mark"
@@ -81,6 +79,11 @@ bumail: ./bumail.toml:
 No problem repeats a URL or a secret: a URL is named by its scheme
 alone.
 
+Credentials to a store on another machine go over TLS, or not at all,
+unless you say otherwise in so many words: `sslmode=disable` in a
+PostgreSQL URL, `insecure = true` beside a `redis:` one. The summary
+then shows the store as `postgres (plaintext)`.
+
 ## From code
 
 ```ts
@@ -103,8 +106,9 @@ try {
 | --- | --- |
 | `bumail check-config` | check the configuration, print a summary; exits 0, or 1 |
 | `bumail serve` | check the configuration, then (for now) exit 3: not implemented yet |
-| `--config <file>` | the file; default `$BUMAIL_CONFIG`, then `/data/bumail.toml` |
-| `--help`, `--version` | |
+| `--config <file>`, `--config=<file>` | the file; default `$BUMAIL_CONFIG`, then `/data/bumail.toml` |
+| `-h`, `--help` | print the usage |
+| `-v`, `--version` | print the version |
 
 Bad usage exits 2.
 

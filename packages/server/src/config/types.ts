@@ -52,12 +52,16 @@ export interface PortsConfig {
 export interface StoreConfig {
 	/** Default `sqlite:<data>/mail`. */
 	readonly url: string;
+	/** `true`: it sends credentials in clear, as `sslmode=disable` or `insecure = true` chose. */
+	readonly plaintext: boolean;
 }
 
 /** The outbound queue, by URL: `sqlite:<directory>`, `postgres://…` or `redis://…`. */
 export interface QueueConfig {
 	/** Default `sqlite:<data>/queue`. */
 	readonly url: string;
+	/** `true`: it sends credentials in clear, as `sslmode=disable` or `insecure = true` chose. */
+	readonly plaintext: boolean;
 }
 
 /** Domains, users and aliases, by URL: `sqlite:<file>`. */

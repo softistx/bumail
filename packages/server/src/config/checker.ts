@@ -1,15 +1,23 @@
 import type { ConfigProblem } from '../errors';
-import { didYouMean } from './suggest';
+import { didYouMean, loose } from './suggest';
 
 /** A TOML table, as `Bun.TOML.parse` gives it. */
 export type Table = Readonly<Record<string, unknown>>;
 
-/** Keys refused wherever they appear: each would let mail through unauthenticated. */
-export const RELAY_KEYS: ReadonlySet<string> = new Set([
+/**
+ * Keys refused wherever they appear, each of which would let mail through
+ * unauthenticated; compared as `didYouMean` compares, so `RELAY` and
+ * `my_networks` are refused as such too.
+ */
+const RELAY_KEYS: ReadonlySet<string> = new Set([
 	'relay',
 	'mynetworks',
-	'trustedNetworks',
+	'trustednetworks',
 ]);
+
+export function isRelayKey(key: string): boolean {
+	return RELAY_KEYS.has(loose(key));
+}
 
 /** What a value is, in words, without ever repeating it. */
 export function describe(value: unknown): string {
@@ -77,7 +85,7 @@ export class Checker {
 
 	/** Refuses `key` at `path`, as a relay option or with the closest known key. */
 	unknown(path: string, key: string, known: readonly string[]): void {
-		if (RELAY_KEYS.has(key)) {
+		if (isRelayKey(key)) {
 			this.add(path, 'not an option: bumail never relays without AUTH');
 			return;
 		}

@@ -47,6 +47,9 @@ server runs.
 
 Each also comes as `*_FILE`, naming a file that holds the value, as
 Docker and Kubernetes mount secrets; one trailing line break is dropped.
+Every file read — the configuration, `tls.cert`, `tls.key`,
+`smarthost.passwordFile`, a `_FILE` — must be a regular file (a symbolic
+link to one is followed) of 1 MiB at most.
 Give a variable or its `_FILE`, not both. An empty variable counts as
 unset.
 
@@ -85,7 +88,7 @@ exits 1. No problem repeats a URL or a secret.
 
 | exit code | meaning |
 | --- | --- |
-| 0 | valid (`check-config`), or `--help`, `--version` |
+| 0 | valid (`check-config`), or `-h`/`--help`, `-v`/`--version` |
 | 1 | the configuration has problems, or cannot be read |
 | 2 | bad usage: an unknown command or option |
 | 3 | `serve`: the configuration is valid, but serving is not implemented yet |
@@ -106,7 +109,9 @@ bind = "0.0.0.0"
 
 ## `[ports]`
 
-Each listener's port; `0` turns it off. Two listeners never share a port.
+Each listener's port, a whole number from 0 to 65535 (`25.5` is refused;
+TOML's `25.0` reads as 25); `0` turns it off. Two listeners never share
+a port.
 
 | key | default | listener |
 | --- | --- | --- |
@@ -142,8 +147,39 @@ url = "rediss://cache.internal:6380"
   `rediss:` for Redis, `sslmode=require`, `verify-ca` or `verify-full`
   for PostgreSQL. Credentials to `localhost`, `127.0.0.1` or `::1` may
   go in clear.
+- PostgreSQL's TLS is decided as Bun will connect: from `sslmode`,
+  `ssl`, `tls` and `PGSSLMODE` together, so `sslmode=require&ssl=false`
+  is refused. A password in `PGPASSWORD`, which Bun sends when the URL
+  holds none, counts as credentials.
+- Redis credentials go before the host (`rediss://:password@host`):
+  Bun ignores `?password=`, which is refused.
 - A URL with a password is a secret: keep it out of the file, in
   `BUMAIL_STORE_URL_FILE` or `BUMAIL_QUEUE_URL_FILE`.
+
+### Credentials in clear, when you choose it
+
+Refusal is the default. Where the network between the server and its
+database is yours alone (a private Docker network, a host-only link),
+you can let the credentials cross it in clear, in so many words:
+
+```toml
+[store]
+url = "postgres://bumail:…@db:5432/mail?sslmode=disable"   # PostgreSQL: sslmode=disable, once
+
+[queue]
+url = "redis://:…@cache:6379"
+insecure = true                                           # Redis: insecure, in [store] or [queue]
+```
+
+| key | default | |
+| --- | --- | --- |
+| `store.insecure`, `queue.insecure` | `false` | `true` lets a `redis:` URL send its password to another host in clear. Refused anywhere it means nothing: with `rediss:`, without a password, on loopback, with SQLite or PostgreSQL |
+
+**The risk**: anyone who can read that network — another container on
+it, a compromised host, a misrouted link — reads the password, and with
+it every message the store or the queue holds; the mail itself crosses
+in clear too. `check-config` shows such a store as `postgres
+(plaintext)` or `redis (plaintext)`, so the choice stays visible.
 
 ## `[tls]` and `[acme]`
 
@@ -175,8 +211,8 @@ and `key` are refused there, and `[acme]` is refused with `"files"`.
 
 With `"files"`, `check-config` reads both files and checks that:
 
-- each is there and readable;
-- the certificate is PEM and has not expired;
+- each is a regular file, of 1 MiB at most, and readable;
+- the certificate is PEM, already valid and not expired;
 - it names `hostname`, in its subject alternative names or its CN
   (a wildcard counts);
 - the key is PEM, unencrypted, and is the certificate's own.
@@ -229,7 +265,8 @@ dots.
 "partner.example" = { host = "mx.partner.example", port = 25, tls = "required" }
 ```
 
-A route of its own takes `host`, `port`, `secure` and `tls`, as
+Two keys for one domain (`"example.org"` and `"Example.ORG."`) are
+refused. A route of its own takes `host`, `port`, `secure` and `tls`, as
 `[smarthost]` does, and no credentials.
 
 ## `[inbound]`
@@ -257,12 +294,12 @@ Mail from the server's own users, on `ports.submissions` and
 
 | key | default | |
 | --- | --- | --- |
-| `origin` | `https://<hostname>`, with `:<ports.https>` when it is not 443 | where clients reach JMAP: an `https:` origin, no path. Set it when a proxy in front serves another name or port |
+| `origin` | `https://<hostname>`, with `:<ports.https>` when it is neither 443 nor 0 | where clients reach JMAP: an `https:` origin, no path. Set it when a proxy in front serves another name or port |
 
 ## What is never an option
 
 `relay`, `mynetworks` and `trustedNetworks` are refused wherever they
-appear: `not an option: bumail never relays without AUTH`. Mail for a
+appear, in any case or spelling (`RELAY`, `my_networks`): `not an option: bumail never relays without AUTH`. Mail for a
 domain the server does not host is taken only from an authenticated
 session, on submission, over TLS; no address, network or setting
 changes that.

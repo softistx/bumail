@@ -1,9 +1,9 @@
-import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { invalidConfig } from '../errors';
 import { checkConfig } from './check';
 import { Checker, isTable } from './checker';
 import { type Env, readOverrides } from './env';
+import { readText } from './files';
 import type { ServerConfig } from './types';
 
 /** Where the configuration is read when neither `path` nor `BUMAIL_CONFIG` says. */
@@ -39,17 +39,8 @@ export async function readConfig(
 	const checker = new Checker();
 	const overrides = readOverrides(checker, env);
 
-	let text: string;
-	try {
-		text = await readFile(file, 'utf8');
-	} catch (error) {
-		const code = (error as { code?: unknown }).code;
-		checker.add(
-			'(file)',
-			`cannot be read (${typeof code === 'string' ? code : 'error'})`,
-		);
-		throw invalidConfig(file, checker.problems);
-	}
+	const text = readText(checker, file, '(file)');
+	if (text === undefined) throw invalidConfig(file, checker.problems);
 
 	let raw: unknown;
 	try {
@@ -63,14 +54,19 @@ export async function readConfig(
 		dir: dirname(resolve(file)),
 		overrides,
 		now: options.now ?? new Date(),
+		env,
 	});
 }
 
 /**
- * Bun's reason, with what it quotes masked: `Strings must be quoted:
- * "hunter2"` repeats the unquoted value, which may be a password.
+ * Bun's reason, with what it quotes masked, in double or single quotes:
+ * `Strings must be quoted: "hunter2"` repeats the unquoted value, which
+ * may be a password.
  */
 function tomlReason(error: unknown): string {
 	const message = error instanceof Error ? error.message : String(error);
-	return message.replace(/^TOML Parse error: /, '').replace(/"[^"]*"/g, '"…"');
+	return message
+		.replace(/^TOML Parse error: /, '')
+		.replace(/"[^"]*"/g, '"…"')
+		.replace(/'[^']*'/g, "'…'");
 }

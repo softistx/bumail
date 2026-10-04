@@ -66,6 +66,17 @@ describe('the bumail command', () => {
 		);
 	});
 
+	test('check-config marks a store that sends credentials in clear', async () => {
+		const path = writeConfig(
+			`${BASE}[store]\nurl = "postgres://u:pw@db.internal/mail?sslmode=disable"\n[queue]\nurl = "redis://:pw@cache.internal"\ninsecure = true\n`,
+		);
+		const { code, out } = await bumail(['check-config', '--config', path]);
+		expect(code).toBe(0);
+		expect(out).toContain('  store         postgres (plaintext)\n');
+		expect(out).toContain('  queue         redis (plaintext)\n');
+		expect(out).not.toContain('pw');
+	});
+
 	test('check-config lists every problem of a bad file and exits 1', async () => {
 		const path = writeConfig('relay = true\n');
 		const { code, out, err } = await bumail([

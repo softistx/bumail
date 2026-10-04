@@ -2,13 +2,14 @@ import { isIP } from 'node:net';
 import { invalidConfig } from '../errors';
 import { checkCertificates } from './certificates';
 import type { Checker, Table } from './checker';
+import { refuseInsecure } from './credentials';
 import { checkRoutes, checkSmarthost } from './delivery';
-import type { Overrides } from './env';
+import type { Env, Overrides } from './env';
 import { checkInbound, checkJmap, checkSubmission } from './limits';
 import { isDomainName } from './names';
 import { checkPorts } from './ports';
 import type { ServerConfig } from './types';
-import { checkStoreUrl } from './urls';
+import { type CheckedStoreUrl, checkStoreUrl } from './urls';
 
 const SECTIONS = [
 	'hostname',
@@ -34,6 +35,8 @@ export interface CheckContext {
 	readonly dir: string;
 	readonly overrides: Overrides;
 	readonly now: Date;
+	/** The environment, for what Bun's clients read of it (`PGPASSWORD`). */
+	readonly env: Env;
 }
 
 /**
@@ -58,21 +61,30 @@ export function checkConfig(
 	}
 	const ports = checkPorts(checker, root['ports']);
 
-	const store = checkUrlSection(checker, root, 'store', overrides.storeUrl, [
-		'sqlite',
-		'postgres',
-		'postgresql',
-	]);
-	const queue = checkUrlSection(checker, root, 'queue', overrides.queueUrl, [
-		'sqlite',
-		'postgres',
-		'postgresql',
-		'redis',
-		'rediss',
-	]);
-	const directory = checkUrlSection(checker, root, 'directory', undefined, [
-		'sqlite',
-	]);
+	const store = checkUrlSection(
+		checker,
+		root,
+		context.env,
+		'store',
+		overrides.storeUrl,
+		['sqlite', 'postgres', 'postgresql'],
+	);
+	const queue = checkUrlSection(
+		checker,
+		root,
+		context.env,
+		'queue',
+		overrides.queueUrl,
+		['sqlite', 'postgres', 'postgresql', 'redis', 'rediss'],
+	);
+	const directory = checkUrlSection(
+		checker,
+		root,
+		context.env,
+		'directory',
+		undefined,
+		['sqlite'],
+	);
 
 	const { tls, acme } = checkCertificates(checker, root['tls'], root['acme'], {
 		dir: context.dir,
@@ -100,9 +112,9 @@ export function checkConfig(
 		data,
 		bind: bindValue ?? '0.0.0.0',
 		ports,
-		store: { url: store ?? `sqlite:${data}/mail` },
-		queue: { url: queue ?? `sqlite:${data}/queue` },
-		directory: { url: directory ?? `sqlite:${data}/directory.sqlite` },
+		store: store ?? { url: `sqlite:${data}/mail`, plaintext: false },
+		queue: queue ?? { url: `sqlite:${data}/queue`, plaintext: false },
+		directory: { url: directory?.url ?? `sqlite:${data}/directory.sqlite` },
 		tls,
 		acme,
 		smarthost,
@@ -151,24 +163,43 @@ function checkData(checker: Checker, root: Table): string {
 	return value.length > 1 ? value.replace(/\/+$/, '') : value;
 }
 
-/** `[store]`, `[queue]` or `[directory]`: a `url` alone, the environment's winning. */
+/**
+ * `[store]`, `[queue]` or `[directory]`: a `url`, the environment's
+ * winning, and for the first two `insecure`, which lets a `redis:` URL
+ * send its credentials in clear.
+ */
 function checkUrlSection(
 	checker: Checker,
 	root: Table,
+	env: Env,
 	section: string,
 	override: Overrides['storeUrl'],
 	schemes: readonly string[],
-): string | undefined {
-	const table = checker.table(root[section], section, ['url']);
+): CheckedStoreUrl | undefined {
+	const keys = section === 'directory' ? ['url'] : ['url', 'insecure'];
+	const table = checker.table(root[section], section, keys);
 	const fromFile = checker.string(table, 'url', section);
+	const context = {
+		insecure:
+			section === 'directory'
+				? undefined
+				: checker.boolean(table, 'insecure', section),
+		insecurePath: `${section}.insecure`,
+		env,
+	};
 	if (override !== undefined) {
 		return checkStoreUrl(
 			checker,
 			override.value,
 			`${section}.url (${override.from})`,
 			schemes,
+			context,
 		);
 	}
-	if (fromFile === undefined) return undefined;
-	return checkStoreUrl(checker, fromFile, `${section}.url`, schemes);
+	if (fromFile === undefined) {
+		// The default is SQLite, where `insecure` means nothing.
+		refuseInsecure(checker, context);
+		return undefined;
+	}
+	return checkStoreUrl(checker, fromFile, `${section}.url`, schemes, context);
 }

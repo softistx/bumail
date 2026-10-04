@@ -1,8 +1,6 @@
 import type { Checker } from './checker';
-import { isLoopback } from './names';
-
-/** PostgreSQL's `sslmode` values that encrypt the connection. */
-const PG_TLS = new Set(['require', 'verify-ca', 'verify-full']);
+import { checkCredentials, refuseInsecure } from './credentials';
+import type { Env } from './env';
 
 /** `sqlite:, postgres: or postgresql:`. */
 function schemesOf(schemes: readonly string[]): string {
@@ -35,21 +33,39 @@ function parse(checker: Checker, value: string, path: string): URL | undefined {
 	return url;
 }
 
+/** What a store URL's check needs besides the URL. */
+export interface StoreUrlContext {
+	/** The section's `insecure` key: `true` lets a `redis:` URL send its credentials in clear. */
+	readonly insecure: boolean | undefined;
+	/** Where `insecure` is: `store.insecure`. */
+	readonly insecurePath: string;
+	/** The environment, whose `PGPASSWORD` Bun sends when the URL has none. */
+	readonly env: Env;
+}
+
+/** A store URL that passed, and whether it sends credentials in clear, as its operator chose. */
+export interface CheckedStoreUrl {
+	readonly url: string;
+	readonly plaintext: boolean;
+}
+
 /**
  * Checks a store's URL — `sqlite:<path>`, `postgres://…`, `redis://…` —
  * and answers it, or records a problem and answers `undefined`. A problem
  * names the scheme at most: never the URL, which can hold a password.
  *
- * Credentials sent to a host other than this machine need TLS: `rediss:`
- * for Redis, `sslmode=require` (or `verify-ca`, `verify-full`) for
- * PostgreSQL.
+ * Credentials sent to a host other than this machine need TLS
+ * (`checkCredentials`), unless the operator chose otherwise in so many
+ * words: `sslmode=disable` in a PostgreSQL URL, `insecure = true` beside
+ * a `redis:` one.
  */
 export function checkStoreUrl(
 	checker: Checker,
 	value: string,
 	path: string,
 	schemes: readonly string[],
-): string | undefined {
+	context: StoreUrlContext,
+): CheckedStoreUrl | undefined {
 	const url = parse(checker, value, path);
 	if (url === undefined) return undefined;
 	const scheme = url.protocol.slice(0, -1);
@@ -68,24 +84,11 @@ export function checkStoreUrl(
 			);
 			return undefined;
 		}
-		return value;
+		refuseInsecure(checker, context);
+		return { url: value, plaintext: false };
 	}
-	const credentials = url.username !== '' || url.password !== '';
-	if (credentials && !isLoopback(url.hostname || 'localhost')) {
-		if (scheme === 'redis') {
-			checker.add(path, 'sends credentials without TLS; use rediss:');
-			return undefined;
-		}
-		const sslmode = url.searchParams.get('sslmode');
-		if (scheme !== 'rediss' && (sslmode === null || !PG_TLS.has(sslmode))) {
-			checker.add(
-				path,
-				'sends credentials without TLS; add sslmode=require (or verify-ca, verify-full)',
-			);
-			return undefined;
-		}
-	}
-	return value;
+	const plaintext = checkCredentials(checker, value, url, path, context);
+	return plaintext === undefined ? undefined : { url: value, plaintext };
 }
 
 /**

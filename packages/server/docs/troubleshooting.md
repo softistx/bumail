@@ -23,6 +23,8 @@ The command exits 1 for these, and 2 for [bad usage](#usage).
 
 - [`(file): cannot be read (…)`](#file-cannot-be-read-)
 - [`(file): is not TOML: …`](#file-is-not-toml-)
+- [`…: is not a regular file`](#-is-not-a-regular-file)
+- [`…: is larger than 1 MiB`](#-is-larger-than-1-mib)
 
 **Any key**
 
@@ -47,13 +49,19 @@ The command exits 1 for these, and 2 for [bad usage](#usage).
 - [`ports.…: … is also ports.…`](#ports--is-also-ports)
 - [`ports.http: is 0, but tls.mode "acme" answers its HTTP-01 challenges there`](#portshttp-is-0-but-tlsmode-acme-answers-its-http-01-challenges-there)
 
-**Store, queue and directory URLs**
+**URLs**
 
-- [`….url: is not a URL`](#url-is-not-a-url)
+- [`…: is not a URL`](#-is-not-a-url)
 - [`….url: the scheme "…:" is not one of …`](#url-the-scheme--is-not-one-of-)
 - [`….url: must be sqlite: and an absolute path, such as sqlite:/data/mail`](#url-must-be-sqlite-and-an-absolute-path-such-as-sqlitedatamail)
-- [`….url: sends credentials without TLS; use rediss:`](#url-sends-credentials-without-tls-use-rediss)
-- [`….url: sends credentials without TLS; add sslmode=require (or verify-ca, verify-full)`](#url-sends-credentials-without-tls-add-sslmoderequire-or-verify-ca-verify-full)
+- [`….url: sends credentials without TLS; use rediss:, or set insecure = true to send them in clear`](#url-sends-credentials-without-tls-use-rediss-or-set-insecure--true-to-send-them-in-clear)
+- [`….url: sends credentials without TLS; add sslmode=require (or verify-ca, verify-full), or sslmode=disable to send them in clear`](#url-sends-credentials-without-tls-add-sslmoderequire-or-verify-ca-verify-full-or-sslmodedisable-to-send-them-in-clear)
+- [`….url: is not a PostgreSQL URL Bun.sql takes`](#url-is-not-a-postgresql-url-bunsql-takes)
+- [`….url: takes its credentials before the host (redis://:password@host); Bun ignores ?password=`](#url-takes-its-credentials-before-the-host-redispasswordhost-bun-ignores-password)
+- [`….insecure: is only for a redis: URL that sends credentials to another host`](#insecure-is-only-for-a-redis-url-that-sends-credentials-to-another-host)
+- [`….insecure: is only for a redis: URL; for PostgreSQL, write sslmode=disable in the URL`](#insecure-is-only-for-a-redis-url-for-postgresql-write-sslmodedisable-in-the-url)
+- [`…: the scheme "…:" is not https:`](#-the-scheme--is-not-https), for `acme.directory` and `jmap.origin`
+- [`…: must not hold credentials`](#-must-not-hold-credentials), for `acme.directory` and `jmap.origin`
 
 **TLS and ACME**
 
@@ -65,31 +73,30 @@ The command exits 1 for these, and 2 for [bad usage](#usage).
 - [`tls.cert: is not a PEM certificate`](#tlscert-is-not-a-pem-certificate)
 - [`tls.key: is not an unencrypted PEM private key`](#tlskey-is-not-an-unencrypted-pem-private-key)
 - [`tls.cert: expired on …`](#tlscert-expired-on-)
-- [`tls.cert: does not name … (it names …)`](#tlscert-does-not-name--it-names-)
+- [`tls.cert: is not valid until …`](#tlscert-is-not-valid-until-)
+- [`tls.cert: does not name …`](#tlscert-does-not-name-), with `(it names …)` when it names any
 - [`tls.key: is not the key of tls.cert`](#tlskey-is-not-the-key-of-tlscert)
 - [`acme.email: is required with tls.mode "acme"`](#acmeemail-is-required-with-tlsmode-acme)
 - [`acme.email: must be an e-mail address`](#acmeemail-must-be-an-e-mail-address)
 - [`acme.acceptTerms: must be true: the CA's terms of service, read and accepted`](#acmeacceptterms-must-be-true-the-cas-terms-of-service-read-and-accepted)
-- [`acme.directory: the scheme "…:" is not https:`](#-the-scheme--is-not-https)
 
 **Smarthost and routes**
 
 - [`….host: is required`](#host-is-required)
 - [`….host: must be a host name or an IP address`](#host-must-be-a-host-name-or-an-ip-address)
 - [`smarthost.username: needs a password or a passwordFile`](#smarthostusername-needs-a-password-or-a-passwordfile)
-- [`smarthost.password: needs a username`](#smarthostpassword-needs-a-username)
+- [`smarthost.password: needs a username`](#smarthostpassword-needs-a-username), or `BUMAIL_SMARTHOST_PASSWORD: needs a username`, or `BUMAIL_SMARTHOST_PASSWORD_FILE: needs a username`
 - [`smarthost.password: is given with passwordFile; give one of them`](#smarthostpassword-is-given-with-passwordfile-give-one-of-them)
 - [`smarthost.passwordFile: cannot be read (…)`](#smarthostpasswordfile-cannot-be-read-)
 - [`smarthost.passwordFile: names an empty file`](#smarthostpasswordfile-names-an-empty-file)
 - [`smarthost.tls: sends credentials without TLS; set tls = "required" or secure = true`](#smarthosttls-sends-credentials-without-tls-set-tls--required-or-secure--true)
 - [`routes.…: is not a domain name`](#routes-is-not-a-domain-name)
+- [`routes.…: is the same domain as routes.…`](#routes-is-the-same-domain-as-routes)
 - [`routes.…: is "smarthost", but there is no [smarthost]`](#routes-is-smarthost-but-there-is-no-smarthost)
 - [`routes.…: must be "mx", "smarthost" or a table with a host`](#routes-must-be-mx-smarthost-or-a-table-with-a-host)
 
 **JMAP**
 
-- [`jmap.origin: the scheme "…:" is not https:`](#-the-scheme--is-not-https)
-- [`jmap.origin: must not hold credentials`](#jmaporigin-must-not-hold-credentials)
 - [`jmap.origin: must be an origin, with no path or query, such as https://mail.example.com`](#jmaporigin-must-be-an-origin-with-no-path-or-query-such-as-httpsmailexamplecom)
 
 **The environment**
@@ -97,7 +104,7 @@ The command exits 1 for these, and 2 for [bad usage](#usage).
 - [`BUMAIL_…: is set with BUMAIL_…_FILE; set one of them`](#bumail_-is-set-with-bumail__file-set-one-of-them)
 - [`BUMAIL_…_FILE: cannot be read (…)`](#bumail__file-cannot-be-read-)
 - [`BUMAIL_…_FILE: names an empty file`](#bumail__file-names-an-empty-file)
-- [`BUMAIL_SMARTHOST_PASSWORD: is set, but there is no [smarthost]`](#bumail_smarthost_password-is-set-but-there-is-no-smarthost)
+- [`BUMAIL_SMARTHOST_PASSWORD…: is set, but there is no [smarthost]`](#bumail_smarthost_password-is-set-but-there-is-no-smarthost), as `BUMAIL_SMARTHOST_PASSWORD` or `BUMAIL_SMARTHOST_PASSWORD_FILE`
 
 **Usage** (exit code 2)
 
@@ -135,6 +142,22 @@ mail.example.com`, or a table header twice.
 hostname = "mail.example.com"
 ```
 
+### `…: is not a regular file`
+
+**When**: the configuration (`(file)`), `tls.cert`, `tls.key`,
+`smarthost.passwordFile` or a `BUMAIL_…_FILE` names a directory, a
+device or a pipe. It is checked before reading: a FIFO would never end.
+
+**Fix**: name the file itself. A symbolic link to a file is followed,
+as Kubernetes mounts its secrets.
+
+### `…: is larger than 1 MiB`
+
+**When**: one of those files is over 1 MiB, which no configuration,
+certificate chain, key or secret is.
+
+**Fix**: name the right file.
+
 ## Any key
 
 ### `…: unknown key; did you mean "…"?`
@@ -162,7 +185,8 @@ credentials.
 ### `…: not an option: bumail never relays without AUTH`
 
 **When**: a `relay`, `mynetworks` or `trustedNetworks` key, wherever it
-appears.
+appears, and in any case or spelling: `RELAY`, `my_networks`,
+`trusted-networks`.
 
 **Why**: these are how other servers let a network send anywhere
 without authenticating. bumail takes mail for a domain it does not host
@@ -202,6 +226,9 @@ named as such; the value itself is never repeated.
 **When**: a port, a size or a count out of its range, or not an integer:
 `ports.mx: must be an integer from 0 to 65535`,
 `submission.maxRecipients: must be an integer from 1 to 10000`.
+
+A fraction is refused (`mx = 25.5`); TOML's `25.0` reads as 25 and is
+taken.
 
 **Fix**: a whole number in the range. A port of 0 turns its listener
 off; sizes are bytes.
@@ -276,16 +303,17 @@ cert = "/etc/bumail/fullchain.pem"
 key = "/etc/bumail/privkey.pem"
 ```
 
-## Store, queue and directory URLs
+## URLs
 
-### `….url: is not a URL`
+### `…: is not a URL`
 
-**When**: `store.url`, `queue.url` or `directory.url` does not parse,
-or has no `//` or `/` after its scheme (`user:secret@host` is taken for
-no URL at all, so its first word is not repeated as a scheme).
+**When**: `store.url`, `queue.url`, `directory.url`, `acme.directory`
+or `jmap.origin` does not parse, or has no `/` after its scheme
+(`user:secret@host` is taken for no URL at all, so its first word is
+not repeated as a scheme).
 
 **Fix**: a full URL: `sqlite:/data/mail`, `postgres://host/db`,
-`rediss://host:6380`.
+`rediss://host:6380`, `https://mail.example.com`.
 
 ### `….url: the scheme "…:" is not one of …`
 
@@ -303,24 +331,73 @@ SQLite only.
 
 **Fix**: `sqlite:` then an absolute path: `sqlite:/data/mail`.
 
-### `….url: sends credentials without TLS; use rediss:`
+### `….url: sends credentials without TLS; use rediss:, or set insecure = true to send them in clear`
 
 **When**: a `redis:` URL with a password, to a host other than this
 machine.
 
-**Why**: the password would cross the network in clear.
+**Why**: the password, and every message the queue holds, would cross
+the network in clear, for anyone on the path to read.
 
 **Fix**: `rediss://:…@cache.internal:6380`, with TLS on the Redis
-server; or a Redis on loopback.
+server; or a Redis on loopback. Where the network between them is
+yours alone (a private Docker network, a host-only link) and you accept
+that risk, say so:
 
-### `….url: sends credentials without TLS; add sslmode=require (or verify-ca, verify-full)`
+```toml
+[queue]
+url = "redis://:…@cache:6379"   # better in BUMAIL_QUEUE_URL_FILE
+insecure = true
+```
 
-**When**: a `postgres:` URL with credentials, to a host other than this
-machine, without `sslmode=require`, `verify-ca` or `verify-full`
-(`prefer` does not count: it falls back to clear).
+`check-config` then shows the queue as `redis (plaintext)`.
+
+### `….url: sends credentials without TLS; add sslmode=require (or verify-ca, verify-full), or sslmode=disable to send them in clear`
+
+**When**: a `postgres:` URL with a password (in the URL, or in
+`PGPASSWORD`, which Bun sends when the URL has none), to a host other
+than this machine, that Bun would connect to without TLS. It is decided
+as Bun decides, from `sslmode`, `ssl`, `tls` and `PGSSLMODE` together:
+`sslmode=require&ssl=false` connects in clear, and is refused; `prefer`
+and `allow` fall back to clear, and are refused.
 
 **Fix**: append `?sslmode=verify-full` (or `require`), with TLS on the
-PostgreSQL server; or a PostgreSQL on loopback.
+PostgreSQL server, and nothing after it that turns TLS off; or a
+PostgreSQL on loopback. Where the network is yours alone and you accept
+that the password and the mail cross it in clear, write
+`sslmode=disable`, once: `check-config` then shows the store as
+`postgres (plaintext)`.
+
+### `….url: is not a PostgreSQL URL Bun.sql takes`
+
+**When**: Bun's PostgreSQL client refuses the URL, as for `sslmode`
+given twice or a value it does not know. Its reason is not shown: it
+can repeat the URL.
+
+**Fix**: one `sslmode`, one of `disable`, `allow`, `prefer`, `require`,
+`verify-ca`, `verify-full`. Try the URL with `new Bun.SQL(url)` to see
+Bun's reason.
+
+### `….url: takes its credentials before the host (redis://:password@host); Bun ignores ?password=`
+
+**When**: a Redis URL with `?password=` or `?username=`.
+
+**Why**: Bun's Redis client reads neither, and would connect without
+authenticating.
+
+**Fix**: `rediss://:password@host:6380`, or `rediss://user:password@host`.
+
+### `….insecure: is only for a redis: URL that sends credentials to another host`
+
+**When**: `insecure = true` beside a `rediss:` URL, a URL without a
+password, one on loopback, or SQLite (the default).
+
+**Fix**: remove it: nothing is sent in clear there.
+
+### `….insecure: is only for a redis: URL; for PostgreSQL, write sslmode=disable in the URL`
+
+**Fix**: remove `insecure`, and write `sslmode=disable` in the URL if
+the credentials are to go in clear.
 
 ## TLS and ACME
 
@@ -369,10 +446,20 @@ or it does not decode.
 
 **Fix**: renew it, or let ACME keep it current (`mode = "acme"`).
 
-### `tls.cert: does not name … (it names …)`
+### `tls.cert: is not valid until …`
+
+**When**: the certificate's validity starts after today: a clock that
+is wrong, or a certificate issued for later.
+
+**Fix**: check the machine's clock (and NTP), or use a certificate
+valid now.
+
+### `tls.cert: does not name …`
 
 **When**: neither the certificate's subject alternative names nor its CN
-match `hostname`; the names it holds follow. A wildcard
+match `hostname`. The names it holds follow, as
+`does not name mail.example.com (it names mx.example.org)`; with no
+DNS name and no CN, there is no parenthesis. A wildcard
 `*.example.com` matches `mail.example.com`.
 
 **Why**: a client checks that name, and refuses the connection, or
@@ -419,6 +506,13 @@ directory), then set `acceptTerms = true`.
 **Fix**: the `https:` URL. A local test CA (Pebble) serves its directory
 over HTTPS too.
 
+### `…: must not hold credentials`
+
+**When**: `acme.directory` or `jmap.origin` holds `user:password@`.
+
+**Fix**: remove it: an ACME account authenticates by its key, and JMAP
+clients log in with their own credentials.
+
 ## Smarthost and routes
 
 ### `….host: is required`
@@ -441,8 +535,10 @@ remove `username` for a smarthost that takes mail without credentials.
 
 ### `smarthost.password: needs a username`
 
-**When**: a password (from the file or `BUMAIL_SMARTHOST_PASSWORD`,
-whose name is then the path) with no `username`.
+**When**: a password with no `username`. A password from the
+environment names its variable instead:
+`BUMAIL_SMARTHOST_PASSWORD: needs a username`, or
+`BUMAIL_SMARTHOST_PASSWORD_FILE: needs a username`.
 
 **Fix**: add `username`.
 
@@ -479,6 +575,13 @@ default once a `username` is given).
 
 **Fix**: the recipient domain, quoted: `"example.org" = "mx"`.
 
+### `routes.…: is the same domain as routes.…`
+
+**When**: two keys name one domain once lowercased and without a
+trailing dot: `"example.org"` and `"Example.ORG."`.
+
+**Fix**: keep one route per domain.
+
 ### `routes.…: is "smarthost", but there is no [smarthost]`
 
 **Fix**: add `[smarthost]`, or route the domain by `"mx"` or to a host
@@ -497,10 +600,6 @@ of its own.
 ```
 
 ## JMAP
-
-### `jmap.origin: must not hold credentials`
-
-**Fix**: remove `user:password@`; clients log in with their own.
 
 ### `jmap.origin: must be an origin, with no path or query, such as https://mail.example.com`
 
@@ -526,7 +625,10 @@ Docker secret is not mounted.
 
 **Fix**: write the value in the file.
 
-### `BUMAIL_SMARTHOST_PASSWORD: is set, but there is no [smarthost]`
+### `BUMAIL_SMARTHOST_PASSWORD…: is set, but there is no [smarthost]`
+
+The path is `BUMAIL_SMARTHOST_PASSWORD` or
+`BUMAIL_SMARTHOST_PASSWORD_FILE`, whichever is set.
 
 **Why**: the environment sets the smarthost's password only; where to
 relay, and as whom, is in the file.
@@ -542,7 +644,7 @@ The command exits 2, with `ServerError`'s code `USAGE`, for:
 - `bumail: unknown command …; see bumail --help` — the commands are
   `serve` and `check-config`.
 - `bumail: unknown option …; see bumail --help` — the options are
-  `--config`, `--help` and `--version`.
+  `--config`, `-h` or `--help`, and `-v` or `--version`.
 - `bumail: unexpected argument …; see bumail --help` — one command at a
   time.
 - `bumail: --config needs a file; see bumail --help`

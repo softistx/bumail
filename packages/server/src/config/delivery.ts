@@ -1,8 +1,8 @@
 import {
 	type Checker,
+	isRelayKey,
 	isTable,
 	keyPath,
-	RELAY_KEYS,
 	type Table,
 } from './checker';
 import type { Overrides } from './env';
@@ -139,9 +139,10 @@ export function checkRoutes(
 	const table = checker.table(raw, 'routes', undefined);
 	const routes: Record<string, RouteConfig> = {};
 	if (table === undefined) return routes;
+	const seen = new Map<string, string>();
 	for (const [key, value] of Object.entries(table)) {
 		const path = keyPath('routes', key);
-		if (RELAY_KEYS.has(key)) {
+		if (isRelayKey(key)) {
 			checker.unknown(path, key, []);
 			continue;
 		}
@@ -150,6 +151,12 @@ export function checkRoutes(
 			checker.add(path, 'is not a domain name');
 			continue;
 		}
+		const first = seen.get(domain);
+		if (first !== undefined) {
+			checker.add(path, `is the same domain as ${first}`);
+			continue;
+		}
+		seen.set(domain, path);
 		const route = checkRoute(checker, value, path, smarthost);
 		if (route !== undefined) routes[domain] = route;
 	}

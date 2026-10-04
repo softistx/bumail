@@ -1,8 +1,12 @@
 import type { PortsConfig, ServerConfig } from '../config/types';
 
-/** A store's scheme, never its URL, which may hold a password. */
-function schemeOf(url: string): string {
-	return url.slice(0, url.indexOf(':'));
+/**
+ * A store's scheme, never its URL, which may hold a password; marked
+ * `(plaintext)` when it sends its credentials in clear, as chosen.
+ */
+function schemeOf(store: { url: string; plaintext?: boolean }): string {
+	const scheme = store.url.slice(0, store.url.indexOf(':'));
+	return store.plaintext === true ? `${scheme} (plaintext)` : scheme;
 }
 
 function listeners(ports: PortsConfig): string {
@@ -35,9 +39,9 @@ export function summary(config: ServerConfig): string {
 		['data', config.data],
 		['listening', `${config.bind}: ${listeners(config.ports)}`],
 		['tls', config.tls.mode],
-		['store', schemeOf(config.store.url)],
-		['queue', schemeOf(config.queue.url)],
-		['directory', schemeOf(config.directory.url)],
+		['store', schemeOf(config.store)],
+		['queue', schemeOf(config.queue)],
+		['directory', schemeOf(config.directory)],
 		['outbound', outbound(config)],
 		['inbound dmarc', config.inbound.dmarc],
 		['jmap', config.jmap.origin],

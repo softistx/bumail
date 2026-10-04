@@ -86,4 +86,33 @@ describe('tls.mode = "files"', () => {
 		const body = key.split('\n')[1] ?? '';
 		expect(problems.join('\n')).not.toContain(body.slice(0, 20));
 	});
+
+	test('refuses a certificate not valid yet', async () => {
+		const { cert, key } = await selfSigned(['mail.example.com'], {
+			notBefore: new Date('2040-01-01T00:00:00Z'),
+			notAfter: new Date('2041-01-01T00:00:00Z'),
+		});
+		expect(
+			await problemsOf(FILES, { files: { 'cert.pem': cert, 'key.pem': key } }),
+		).toEqual(['tls.cert: is not valid until 2040-01-01']);
+	});
+
+	test('refuses a certificate or key that is no regular file, or too large', async () => {
+		const big = `-----BEGIN CERTIFICATE-----\n${'A'.repeat(1024 * 1024)}\n`;
+		const path = writeConfig(FILES.replace('key = "key.pem"', 'key = "."'), {
+			'cert.pem': big,
+		});
+		await expect(readConfig({ path, env: {} })).rejects.toThrow(
+			'  tls.cert: is larger than 1 MiB\n  tls.key: is not a regular file',
+		);
+	});
+
+	test('names the CN when the certificate has no alternative names', async () => {
+		const { cert, key } = await selfSigned([]);
+		expect(
+			await problemsOf(FILES, { files: { 'cert.pem': cert, 'key.pem': key } }),
+		).toEqual([
+			'tls.cert: does not name mail.example.com (it names localhost)',
+		]);
+	});
 });

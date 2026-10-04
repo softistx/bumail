@@ -1,5 +1,5 @@
 /** A key compared loosely: case, `_` and `-` aside, so `max_message_size` finds `maxMessageSize`. */
-function loose(key: string): string {
+export function loose(key: string): string {
 	return key.toLowerCase().replace(/[-_]/g, '');
 }
 
