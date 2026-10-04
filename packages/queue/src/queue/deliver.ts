@@ -198,7 +198,8 @@ export async function deliverItem(
  * the events and sends the DSNs, the original returned when there is one.
  * With no `message` (the store lost it), the `MESSAGE_UNREADABLE` error
  * comes first of the events, and only once the failures are recorded: a
- * lease lost meanwhile, or a `complete` that throws, says nothing of them.
+ * lease lost meanwhile, or a `complete` that throws, says nothing of them,
+ * and an item cancelled meanwhile tells nothing at all.
  */
 async function record(
 	ctx: DeliveryContext,
@@ -219,7 +220,10 @@ async function record(
 			events.emit('error', { error: goneAfter(lapse, item.id), id: item.id });
 			return;
 		}
-		// Cancelled under a lease that held: what the sessions did still happened; no DSN.
+		// Cancelled under a lease that held, with no session for a lost
+		// message: nothing happened, and nothing was recorded, so nothing is told.
+		if (!message) return;
+		// Otherwise what the sessions did still happened; no DSN.
 		emitOutcomes(events, item, settled);
 		return;
 	}

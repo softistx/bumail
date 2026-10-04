@@ -329,8 +329,11 @@ machines on NTP.
 ### `QueueError: The message of … is unreadable: the store holds the item but not its message, so every pending recipient failed`
 
 **Code:** `MESSAGE_UNREADABLE`, with the item's `id`.
-**When:** a worker claimed an item, and the store gave no message for
-it while it still held the item.
+**When:** a worker claimed an item, the store gave no message for it
+while it still held the item, and the failures were then recorded: it
+comes after the record, before the `failed` events. With the lease lost
+before the record, only `LEASE_LOST` is told, and the next worker tells
+this; with the item cancelled meanwhile, nothing is.
 **Why:** the message is gone and the item is not: on Redis, its
 `<prefix>message:<id>` key evicted under a `maxmemory-policy` other than
 `noeviction`, or deleted; on any store, a message row or key removed by
@@ -751,10 +754,11 @@ your own keeps it.
 
 ### Every pending recipient fails with `5.3.0`, `Message unreadable: the queue store holds the item but not its message`
 
-**When:** the store held the item but gave no message for it: the
-`error` event says
+**When:** the store held the item but gave no message for it, and the
+failures were recorded: the `error` event says
 [`The message of … is unreadable`](#queueerror-the-message-of--is-unreadable-the-store-holds-the-item-but-not-its-message-so-every-pending-recipient-failed)
-for the same item.
+for the same item, just before these `failed` events. An item cancelled,
+or whose lease was lost, before the record tells no `5.3.0` failure.
 **Why:** no session can send a message that cannot be read, and an
 attempt left without an outcome would be claimed again at every lease,
 forever, keeping its `maxItems` place. Recipients already delivered keep

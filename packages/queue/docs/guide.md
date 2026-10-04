@@ -184,7 +184,9 @@ In that order: the record, the `error`, the `failed` events, the `dsn`
 event. Nothing is told before the record: when the lease was lost
 meanwhile, the attempt reports `LEASE_LOST` only, and the worker that
 holds the item next tells the failures; when `complete` throws, the
-`error` event gets that error alone. An item that is gone along with its
+`error` event gets that error alone; when the item was cancelled
+meanwhile, its lease still held, nothing is told at all — no session
+ran, and nothing was recorded. An item that is gone along with its
 message (cancelled, or finished by another worker) is left alone, as
 before.
 
@@ -349,9 +351,13 @@ off(); // stops listening
 Events about an outcome come once it is recorded, in this order: a
 `MESSAGE_UNREADABLE` error when the store lost the message, each
 recipient's `delivered`, `deferred` or `failed`, then the `dsn` events.
+An item cancelled while it was delivered, its lease still held, has
+what its sessions did told, with no DSN, though nothing is recorded;
+for a message the store lost, no session ran, and nothing is told.
 Other errors are told as they happen: a route `sendMail` refused during
-its session, and a lease lost or a store that failed in place of the
-outcome. A listener that throws is ignored. `reply.code` is absent
+its session, a lease lost or a store that failed in place of the
+outcome, and a DSN that could not be enqueued, during the `dsn` step.
+A listener that throws is ignored. `reply.code` is absent
 when no server answered: a connection error, a timeout, the DNS.
 
 ## Admin

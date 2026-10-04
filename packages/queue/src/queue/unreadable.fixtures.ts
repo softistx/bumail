@@ -1,53 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import type { CreateStore } from '../contract/fixtures/setup.fixtures';
 import type { QueueStore } from '../contract/queue-store';
-import type { AttemptResult, QueueItem } from '../contract/types';
-import { createQueue } from './queue';
 import {
-	accepted,
-	fakeClock,
-	fakeSender,
-	MESSAGE,
-	MINUTE,
-	NO_DNS,
-	recordEvents,
-	reply,
-	type Script,
-} from './queue.fixtures';
-
-/**
- * Takes an item's message out of `store`, as damage would — a Redis key
- * evicted or deleted, a row removed by hand — and leaves the item.
- */
-export type LoseMessage = (store: QueueStore, id: string) => Promise<void>;
-
-/**
- * `store` seen through a handle whose `readMessage` gives nothing for the
- * ids `lose` names: for a store no spec can damage from outside, as the
- * memory store.
- */
-export function hidingMessages(store: QueueStore): {
-	store: QueueStore;
-	lose: LoseMessage;
-} {
-	const lost = new Set<string>();
-	const seen = new Proxy(store, {
-		get(target, key) {
-			if (key === 'readMessage') {
-				return async (id: string) =>
-					lost.has(id) ? undefined : target.readMessage(id);
-			}
-			const value = Reflect.get(target, key, target);
-			return typeof value === 'function' ? value.bind(target) : value;
-		},
-	});
-	return {
-		store: seen,
-		lose: async (_store, id) => {
-			lost.add(id);
-		},
-	};
-}
+	completing,
+	hidingMessages,
+	instance,
+	type LoseMessage,
+} from './doubles.fixtures';
+import { accepted, MESSAGE, MINUTE, reply } from './queue.fixtures';
 
 const UNREADABLE =
 	'Message unreadable: the queue store holds the item but not its message';
@@ -57,27 +17,6 @@ const FROM_MARY = {
 	to: ['joe@example.com', 'ann@example.org'],
 };
 
-type Complete = (
-	target: QueueStore,
-	id: string,
-	owner: string,
-	result: AttemptResult,
-) => Promise<QueueItem | undefined>;
-
-/** `store` with its `complete` replaced, every other method its own. */
-function completing(store: QueueStore, complete: Complete): QueueStore {
-	return new Proxy(store, {
-		get(target, key) {
-			if (key === 'complete') {
-				return (id: string, owner: string, result: AttemptResult) =>
-					complete(target, id, owner, result);
-			}
-			const value = Reflect.get(target, key, target);
-			return typeof value === 'function' ? value.bind(target) : value;
-		},
-	});
-}
-
 /** A store, and how to lose a message of it. */
 interface Damageable {
 	readonly store: QueueStore;
@@ -85,23 +24,6 @@ interface Damageable {
 }
 
 type Open = () => Promise<Damageable>;
-
-/** A queue on `store`, one worker `w`, with room for one item. */
-function instance(store: QueueStore, script?: Script) {
-	const clock = fakeClock();
-	const sender = fakeSender(script);
-	const queue = createQueue({
-		store,
-		hostname: 'mail.example.net',
-		resolver: NO_DNS,
-		clock,
-		send: sender.send,
-		random: () => 0,
-		owner: 'w',
-		limits: { maxItems: 1 },
-	});
-	return { queue, clock, sender, events: recordEvents(queue) };
-}
 
 const unreadableError = (id: string) => ({
 	id,
@@ -136,6 +58,7 @@ export function describeUnreadableMessage(
 		toldOnceRecorded(open);
 		leaseLostAtRecord(open);
 		completeThrows(open);
+		cancelledAtRecord(open);
 	});
 }
 
@@ -280,5 +203,28 @@ function completeThrows(open: Open): void {
 		expect(events.failed).toEqual([]);
 		expect(events.dsn).toEqual([]);
 		expect(await store.get(item.id)).toBeDefined();
+	});
+}
+
+function cancelledAtRecord(open: Open): void {
+	test('an item cancelled before the failures are recorded, its lease still held, tells nothing', async () => {
+		const { store: base, lose } = await open();
+		const store = completing(base, async (target, id, owner, result) => {
+			await target.cancel(id);
+			return target.complete(id, owner, result);
+		});
+		const { queue, sender, events } = instance(store);
+		const item = await queue.enqueue(MESSAGE, FROM_MARY);
+		await lose(item.id);
+		expect(await queue.deliverDue()).toBe(1);
+		expect(events).toEqual({
+			delivered: [],
+			deferred: [],
+			failed: [],
+			dsn: [],
+			error: [],
+		});
+		expect(sender.calls).toEqual([]);
+		expect(await store.count()).toBe(0);
 	});
 }
