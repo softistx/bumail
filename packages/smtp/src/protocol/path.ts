@@ -1,11 +1,28 @@
 /** An envelope address, as `MAIL FROM` and `RCPT TO` give it. */
 export interface Path {
-	/** `local@domain`; `''` for the null reverse-path `<>`. */
+	/**
+	 * `local@domain`; `''` for the null reverse-path `<>`; `'postmaster'`
+	 * for `RCPT TO:<postmaster>`, which has no domain.
+	 */
 	readonly address: string;
 	readonly local: string;
-	/** Lower case. */
+	/** Lower case; `''` for `<>` and for `<postmaster>`. */
 	readonly domain: string;
+	/**
+	 * `true` for `RCPT TO:<postmaster>`, in any case, with no domain (RFC
+	 * 5321 §4.5.1): the postmaster of this server, whatever domains it
+	 * hosts. Absent for every other path, `<postmaster@domain>` included.
+	 */
+	readonly postmaster?: true;
 }
+
+/** The bare `<postmaster>` path `RCPT TO` takes (RFC 5321 §4.1.1.3, §4.5.1). */
+export const POSTMASTER: Path = Object.freeze({
+	address: 'postmaster',
+	local: 'postmaster',
+	domain: '',
+	postmaster: true,
+});
 
 const ATOM = /^[A-Za-z0-9!#$%&'*+\-/=?^_`{|}~\u0080-\u{10ffff}]+$/u;
 const LABEL =
