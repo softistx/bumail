@@ -1,5 +1,15 @@
 # @bumail/queue
 
+## 0.3.0
+
+### Minor Changes
+
+- [#45](https://github.com/softistx/bumail/pull/45) [`cd9345e`](https://github.com/softistx/bumail/commit/cd9345e22722337f9e26e1464df6d43cd7b952a1) Thanks [@SteveGT96](https://github.com/SteveGT96)! - Add `@bumail/queue/redis`: `RedisQueueStore`, the `QueueStore` contract on Redis through Bun's own `Bun.redis`, so instances of a server on several machines share one queue with no driver to install. `RedisQueueStore.open({ client | url, keyPrefix? })` takes a `Bun.RedisClient` (typed by its shape, `RedisQueueClient`, and never closed by the store) or a `redis://` URL, for which it opens a client of its own and closes it in `close()`. Every operation that writes — add (with `maxItems`), claim, renew, complete, reschedule, cancel — is one Lua script, run by `EVALSHA` and by `EVAL` when Redis lost it, so two instances never take the same item and a crashed instance's items are claimed again once their leases expire. The due items are in sorted sets, each item a hash and its message a string written byte for byte, every key under `keyPrefix` (`bumail:queue:` by default; no `{`, no glob character). One Redis, or a primary with replicas, not Redis Cluster; the guide spells out what its durability means (`appendfsync`, a failover losing acknowledged writes, `maxmemory-policy noeviction`) and the ACL a worker needs.
+
+### Patch Changes
+
+- [#43](https://github.com/softistx/bumail/pull/43) [`7991b38`](https://github.com/softistx/bumail/commit/7991b3827ff67d6ad6f0f7fe3026e0a3c247db66) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A worker that stalled past its lease, while another worker claimed the item, delivered it and dropped it, no longer reads the missing item as cancelled and emits `delivered` events for what it sent: it emits a `LEASE_LOST` error, no outcome event and no DSN, so the operator learns the message may have been sent twice. The store keeps no record of who dropped an item, so the error names both: lost to another worker that finished it, or cancelled — whether the lease's expiry passed, or a renewal had been refused while the item was still in the store, held by another worker or by none. When the instances' clocks are out of step, an item another worker takes and finishes between two renewals, before this worker's own clock passes the expiry, still reads as a cancel: keep the machines on NTP. An item cancelled under a lease that still held is told as before — its outcomes on the events, no error, no DSN — and a renewal that finds the item gone no longer reports `LEASE_LOST`.
+
 ## 0.2.0
 
 ### Minor Changes
