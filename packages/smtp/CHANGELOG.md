@@ -1,5 +1,11 @@
 # @bumail/smtp
 
+## 0.5.0
+
+### Minor Changes
+
+- [#67](https://github.com/softistx/bumail/pull/67) [`6a23c58`](https://github.com/softistx/bumail/commit/6a23c584e474171fe2513f568f7a262d566e50a4) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The server reads the PROXY protocol, versions 1 and 2, so it can sit behind a TCP proxy such as a Traefik TCP router with `proxyProtocol`. Off by default: `proxyProtocol: { trusted: [...] }` lists the proxies' IPv4 and IPv6 addresses and CIDRs (an IPv4-mapped peer matches as its IPv4 address). A trusted peer must send a valid header first, within `handshakeTimeout`, or it is closed without a word and nothing is reported; a v1 line is at most 107 bytes, v2 TLVs at most 2048 bytes, and TLVs are skipped. A v2 `PROXY` over TCP on IPv4 or IPv6 names the client; `LOCAL` (a health check), `UNSPEC`, UNIX and v1 `UNKNOWN` keep the peer's address. The client's address then reaches `session.remoteAddress`, `onConnect` and every hook, the Received field, and `maxConnectionsPerClient`, which counts it once the header named it: a socket awaiting its header holds no slot. A peer not listed is served as before, and a header it sends is bad input that never sets an address. On implicit TLS, the header comes before the ClientHello: with `proxyProtocol`, the port listens in clear and runs TLS through `node:tls` once the header is read, for every client. `ProxyProtocolOptions` is exported. On implicit TLS, with `proxyProtocol` or without, `listen()` now reads and checks the key and certificate before it binds: one it cannot read or use rejects with an `SmtpError` (`INVALID_OPTION`, `listen(): tls: { key, cert } cannot be used: …`, the file system or `node:tls` error as its `cause`) rather than Bun's own error, and a second `listen()` before the first resolved throws `ALREADY_LISTENING` instead of binding a second port. `stop()` before `listen()` resolved makes it reject with `STOPPED` and leave nothing listening. A `trusted` address with a zone (`fe80::1%eth0`), and a prefix of 0 (`0.0.0.0/0`, `::/0`), which would trust every peer, are refused with `INVALID_OPTION`. The Received field now writes an IPv6 client as the literal of RFC 5321 §4.1.3, `([IPv6:2001:db8::7])`, where it wrote the bare address: a change for anything that parses it.
+
 ## 0.4.0
 
 ### Minor Changes
