@@ -17,6 +17,7 @@ describe('tls.mode = "files"', () => {
 			mode: 'files',
 			cert: join(dir, 'cert.pem'),
 			key: join(dir, 'key.pem'),
+			pollSeconds: 30,
 		});
 		expect(config.acme).toBeUndefined();
 	});
@@ -113,6 +114,43 @@ describe('tls.mode = "files"', () => {
 			await problemsOf(FILES, { files: { 'cert.pem': cert, 'key.pem': key } }),
 		).toEqual([
 			'tls.cert: does not name mail.example.com (it names localhost)',
+		]);
+	});
+});
+
+describe('tls.pollSeconds', () => {
+	const WITH = (value: string) => `${FILES}pollSeconds = ${value}\n`;
+	const files = async () => {
+		const { cert, key } = await selfSigned(['mail.example.com']);
+		return { 'cert.pem': cert, 'key.pem': key };
+	};
+
+	test('is how often the files are looked at: 30 s by default, 0 for never', async () => {
+		for (const [value, expected] of [
+			['5', 5],
+			['0', 0],
+			['86400', 86400],
+		] as const) {
+			const path = writeConfig(WITH(value), await files());
+			expect((await readConfig({ path, env: {} })).tls).toMatchObject({
+				pollSeconds: expected,
+			});
+		}
+	});
+
+	test('is an integer from 0 to a day', async () => {
+		for (const value of ['-1', '86401', '1.5', '"30"']) {
+			expect(await problemsOf(WITH(value), { files: await files() })).toEqual([
+				'tls.pollSeconds: must be an integer from 0 to 86400',
+			]);
+		}
+	});
+
+	test('is for tls.mode "files" alone', async () => {
+		const acme =
+			'hostname = "mail.example.com"\n[tls]\npollSeconds = 30\n[acme]\nemail = "a@example.com"\nacceptTerms = true\n';
+		expect(await problemsOf(acme)).toEqual([
+			'tls.pollSeconds: is only for tls.mode "files"',
 		]);
 	});
 });

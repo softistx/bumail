@@ -1,4 +1,3 @@
-import type { SecureContext } from 'node:tls';
 import type { Socket, SocketHandler } from 'bun';
 import { clientKey } from './client-key';
 import { Connection } from './connection';
@@ -8,6 +7,7 @@ import { ProxiedTls } from './proxy/tls';
 import type { RawSocket } from './raw-socket';
 import type { Settings } from './settings';
 import type { Slots } from './slots';
+import type { TlsHolder } from './tls-context';
 
 /**
  * The listener's own handlers: `open` counts a socket and greets it or
@@ -28,7 +28,7 @@ export interface Listening {
 	readonly handshaking: Set<Socket<SocketState>>;
 	/** TLS from the first byte: implicit TLS. */
 	readonly secure: boolean;
-	readonly proxied?: SecureContext;
+	readonly proxied?: TlsHolder;
 }
 
 export function listenerHandlers(
@@ -153,16 +153,50 @@ function admit(
 function startTls(
 	listening: Listening,
 	socket: Socket<SocketState>,
-	context: SecureContext,
+	tls: TlsHolder,
 ): ProxiedTls {
 	const { settings } = listening;
 	socket.data.handshaking = true;
 	socket.timeout(settings.handshakeTimeout);
-	const tls = new ProxiedTls(socket as Socket<unknown>, context, {
+	const proxied = new ProxiedTls(socket as Socket<unknown>, tls.context, {
 		secure: () => handshake(listening, socket, true),
 		data: (bytes) => received(socket, settings, bytes),
 		drain: () => socket.data.transport?.drain(),
 	});
-	socket.data.tls = tls;
-	return tls;
+	socket.data.tls = proxied;
+	return proxied;
+}
+
+/**
+ * Implicit TLS without a proxy: the listener is clear and each socket is
+ * upgraded as it opens, with the pair in use then, so a pair `setTls`
+ * replaced applies to the next connection and not to the open ones. The
+ * encrypted socket has the handlers of a TLS listener's; the clear one
+ * only carries the TLS records, which the encrypted one reads.
+ */
+export function upgradingHandlers(
+	encrypted: SocketHandler<SocketState>,
+	settings: Settings,
+): SocketHandler<SocketState> {
+	const ignore = () => {};
+	return {
+		open(raw) {
+			const tls = settings.tls?.options;
+			if (!tls) return raw.terminate();
+			try {
+				raw.upgradeTLS<SocketState>({
+					tls: { key: tls.key, cert: tls.cert },
+					data: { upgraded: false },
+					socket: encrypted,
+				});
+			} catch {
+				raw.terminate();
+			}
+		},
+		data: ignore,
+		drain: ignore,
+		close: ignore,
+		error: ignore,
+		timeout: ignore,
+	};
 }

@@ -191,6 +191,11 @@ directory commands' own refusals are under
 
 - [`acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`](#acme-mode-arrives-in-a-later-slice-set-tlsmode--files-with-cert-and-key-for-now)
 - [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
+- [`tls: reloaded (…)`](#tls-reloaded-)
+- [`tls: reloaded (…); https keeps the old certificate until restart`](#tls-reloaded--https-keeps-the-old-certificate-until-restart)
+- [`tls: unchanged (…)`](#tls-unchanged-)
+- [`tls: not reloaded: …`](#tls-not-reloaded-)
+- [A renewed certificate is not served](#a-renewed-certificate-is-not-served)
 - [`behind a proxy, a client's address is known only on a TCP socket: bind to an IP address, not a unix socket`](#behind-a-proxy-a-clients-address-is-known-only-on-a-tcp-socket-bind-to-an-ip-address-not-a-unix-socket)
 - [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
 - [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
@@ -571,10 +576,10 @@ the credentials are to go in clear.
 
 ### `tls.…: is only for tls.mode "files"`
 
-**When**: `tls.cert` or `tls.key` without `mode = "files"`: the default
+**When**: `tls.cert`, `tls.key` or `tls.pollSeconds` without `mode = "files"`: the default
 mode is ACME, which makes its own.
 
-**Fix**: add `mode = "files"`, or remove `cert` and `key`.
+**Fix**: add `mode = "files"`, or remove `cert`, `key` and `pollSeconds`.
 
 ### `acme: is only for tls.mode "acme"`
 
@@ -1319,6 +1324,74 @@ key = "/etc/bumail/privkey.pem"
 ```
 
 Remove `[acme]`, which `"files"` refuses.
+
+### `tls: reloaded (…)`
+
+Not a problem: a renewed pair was found, valid, and every TLS listener
+switched to it (JMAP's too, unless `jmap.reloadTls = false`: see the next
+entry), for new connections. In brackets, the certificate's
+subject and its expiry. One line per change.
+
+### `tls: reloaded (…); https keeps the old certificate until restart`
+
+Not a problem, but not all of it: with `jmap.reloadTls = false`, the mail
+listeners took the renewed pair and JMAP's HTTPS did not, by choice. It
+serves the old certificate until the server restarts: restart it before
+that one expires. See
+[Renewing the certificate](serve.md#renewing-the-certificate), and
+`jmap.reloadTls` in the [guide](guide.md#jmap).
+
+### `tls: unchanged (…)`
+
+Not a problem: a `SIGHUP` found the files as the listeners already have
+them. If you expected a renewal, the files the server reads are not the
+renewed ones: see
+[A renewed certificate is not served](#a-renewed-certificate-is-not-served).
+
+### `tls: not reloaded: …`
+
+**When**: while `bumail serve` runs, the files of `tls.cert` and
+`tls.key` changed and the new pair cannot be used. The log gives the
+reason, once, after `tls: not reloaded: `:
+
+| reason | what it means |
+| --- | --- |
+| `tls.key is not the key of tls.cert` | one file was renewed and the other not yet — the usual look at a renewal under way, which the next look settles — or the key belongs to another certificate |
+| `tls.cert cannot be read (ENOENT)`, `tls.key cannot be read (…)` | a file is gone or not readable by the user the server runs as, as a swap is under way, or a mount is lost |
+| `tls.cert is not a PEM certificate`, `tls.key is not an unencrypted PEM private key` | not PEM, or an encrypted key |
+| `tls.cert expired on …`, `tls.cert is not valid until …` | the new certificate's dates |
+| `tls.cert does not name …` | it is for another host than `hostname` |
+| `<listener>: …` | a listener refused the pair, and the others were put back on the old one |
+| `<listener>: …; <other> left on the new pair, the rollback failed` | a listener refused the pair and putting `<other>` back on the old one failed too: it serves the new pair, the rest the old. Send `SIGHUP` once the cause is fixed, or restart |
+
+**Why**: the server takes a pair only when it is a valid one for
+`hostname` (see [Renewing the certificate](serve.md#renewing-the-certificate)),
+and never half of one.
+
+**Fix**: nothing, when the next look logs `tls: reloaded (…)`: the log
+says it once. Otherwise fix the files and send `SIGHUP` (`docker kill -s
+HUP <container>`) to look at once; a JMAP listener with
+`jmap.reloadTls = false` takes the new pair only at a restart. Until then **the old certificate keeps
+serving, and expires**: the log line is the only sign. To see what a
+listener serves now: `openssl s_client -connect mail.example.com:993
+</dev/null | openssl x509 -noout -subject -enddate`.
+
+### A renewed certificate is not served
+
+**When**: the files changed, the log says nothing and `openssl s_client`
+shows the old certificate.
+
+**Why**: either `tls.pollSeconds = 0` and no `SIGHUP` was sent, or the
+files the server reads are not the ones renewed: a relative path is
+read from the configuration file's directory, and a Docker bind mount
+of one file keeps the old inode when an editor or certbot replaces it
+(mount the folder instead). A connection already open keeps its TLS:
+test with a new one.
+
+**Fix**: `kill -HUP` the process (a `tls: unchanged (…)` line then says
+the files read are not new), and mount the folder holding the pair. JMAP
+alone still shows the old certificate with `jmap.reloadTls = false`: it
+takes the new one at the next start.
 
 ### `… cannot listen on …:… (…)`
 

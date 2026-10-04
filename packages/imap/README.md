@@ -109,6 +109,25 @@ sockets that connect and never send a ClientHello cannot fill the server:
 await createImapServer({ ...options, implicitTls: true, handshakeTimeout: 10 }).listen({ port: 993 });
 ```
 
+## Renew the certificate without a restart
+
+`setTls` takes a renewed key and certificate: the next STARTTLS upgrade or
+implicit TLS connection uses them, and the sessions already open keep the
+TLS they have. The pair is read and checked first; one that cannot be used
+rejects with `INVALID_OPTION` and the old pair stays in use.
+
+```ts
+// After certbot, Traefik or an ACME client wrote new files:
+await server.setTls({
+	key: Bun.file('/etc/ssl/imap.example.com.key'),
+	cert: Bun.file('/etc/ssl/imap.example.com.crt'),
+});
+```
+
+Call it on each server that holds the pair (143 and 993 are two). The
+[guide](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/guide.md#renewing-the-certificate-without-a-restart)
+says how it works on each kind of port.
+
 ## Behind a TCP proxy
 
 A TCP proxy, such as a Traefik TCP router or HAProxy, hides the client:
@@ -158,7 +177,7 @@ has the Traefik configuration and every case.
 | export | |
 | --- | --- |
 | `createImapServer(options)` | the server; throws an `ImapError` (`INVALID_OPTION`) on a bad option |
-| `ImapServer` | `listen({ port, hostname? })`, which resolves to the bound `{ port, hostname }` (once; again, even before the first resolved, throws `ALREADY_LISTENING`; on implicit TLS, a key or certificate it cannot read or use throws `INVALID_OPTION`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `notify(accountId)` to wake the account's IDLE sessions, `connections`, the number of open connections |
+| `ImapServer` | `listen({ port, hostname? })`, which resolves to the bound `{ port, hostname }` (once; again, even before the first resolved, throws `ALREADY_LISTENING`; on implicit TLS, a key or certificate it cannot read or use throws `INVALID_OPTION`), `setTls({ key, cert })` (a renewed pair for new STARTTLS upgrades and new implicit TLS connections; open sessions keep theirs; a pair that cannot be used throws `INVALID_OPTION` and the old one stays), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `notify(accountId)` to wake the account's IDLE sessions, `connections`, the number of open connections |
 | `ImapServerOptions` | `hostname`, `store`, `tls`, `implicitTls`, `authenticate`, the limits above, `proxyProtocol`, `onError` |
 | `ImapSession` | what `authenticate` and `onError` receive: `id`, `remoteAddress`, `secure`, `user`, `accountId`, and `data` for your own state |
 | `AuthResult` | what `authenticate` answers: an account id, or `null` / `undefined` to refuse |

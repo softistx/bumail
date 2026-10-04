@@ -15,6 +15,7 @@ behaviour.
 - [Delivering into @bumail/store](#delivering-into-bumailstore)
 - [Authentication](#authentication)
 - [TLS](#tls)
+  - [Renewing the certificate without a restart](#renewing-the-certificate-without-a-restart)
 - [Limits](#limits)
 - [Running behind a TCP proxy](#running-behind-a-tcp-proxy)
 - [Sending mail: the client](#sending-mail-the-client)
@@ -781,9 +782,10 @@ export interface TlsOptions {
 }
 ```
 
-`key` and `cert` are PEM, as `Bun.listen` takes them. Read them once, at
+`key` and `cert` are PEM, as `Bun.listen` takes them. Read them at
 start-up, with `Bun.file().text()`; a missing file then fails before the
-server listens, not at a client's first STARTTLS:
+server listens, not at a client's first STARTTLS. A renewed pair is
+applied with `setTls`, [below](#renewing-the-certificate-without-a-restart):
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';
@@ -840,10 +842,13 @@ reads them over TLS and `session.secure` is already `true`. A handshake
 that fails is closed by Bun at once and counted out. A STARTTLS handshake
 is bounded by the idle `timeout`, the connection already counted.
 
-Bun 1.4.2 calls a TLS listener's `open` only once the handshake completed
-unless the listener has a `handshake` handler; with one, `open` comes at
-the TCP connection and the socket's timer runs during the handshake. The
-server sets one for that reason.
+The listener of an implicit TLS port is a clear one, and each socket is
+upgraded to TLS (`socket.upgradeTLS`) as it opens, with the pair in use
+at that moment: that is what lets `setTls` apply to the next connection
+(see [below](#renewing-the-certificate-without-a-restart)). The upgraded
+socket calls `open` at the TCP connection, with the socket's timer
+running during the handshake, which is how a stuck handshake is counted
+and closed.
 
 Behind a TCP proxy that sends the PROXY protocol, implicit TLS starts after
 the proxy's header, and runs differently: see
@@ -911,6 +916,67 @@ await createSmtpServer(shared).listen({ port: 25 });
 await createSmtpServer(submission).listen({ port: 587 });
 await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 });
 ```
+
+### Renewing the certificate without a restart
+
+A certificate that is renewed — by certbot, by Traefik's dump, by an ACME
+client — should take effect without a restart, and without dropping the
+sessions open. `setTls({ key, cert })` does that:
+
+```ts
+const mx = createSmtpServer({ hostname: 'mx.example.com', localDomains: ['example.com'], tls, onData });
+await mx.listen({ port: 25 });
+
+// Later, once the files changed:
+await mx.setTls({
+	key: await Bun.file('/etc/ssl/mx.example.com.key').text(),
+	cert: await Bun.file('/etc/ssl/mx.example.com.crt').text(),
+});
+```
+
+- **What changes**: the next STARTTLS upgrade, and on implicit TLS the next
+  connection, use the new pair. A session already encrypted keeps the TLS
+  it has until it ends, and goes on working; a handshake that began
+  before the call may still finish on the old pair.
+- **It is checked first.** `setTls` reads both (a `Bun.file` included) and
+  makes a TLS context of them, as `listen()` does on implicit TLS. A pair
+  that cannot be read, is not PEM or is a key for another certificate
+  rejects with an `SmtpError`, `INVALID_OPTION`, message `setTls(): tls:
+  { key, cert } cannot be used: …`, the reason as its `cause`; the old
+  pair stays in use. It does not check that the certificate has not
+  expired or names the host: that is the caller's.
+- **One call per server.** The MX on 25, submission on 587 and the
+  implicit TLS server on 465 are three servers, each with its own
+  `setTls`. Call it on all of them with the same pair.
+- **Calls apply in order.** Two `setTls` in flight, the first reading
+  files, end on the second's pair: the later call wins. A key or
+  certificate that is empty is refused like any pair that cannot be used.
+- **Before `listen()` too**: the pair set is the one served. A server made
+  without `tls` has none to replace: `setTls` rejects with
+  `INVALID_OPTION`.
+- **A file read at `setTls`, not at each connection.** Passing a
+  `Bun.file` reads it once, when `setTls` runs: to take a later change,
+  call `setTls` again.
+
+How it works on each kind of port, measured on Bun 1.4.2:
+
+- **STARTTLS**: the options of `socket.upgradeTLS` are read for each
+  upgrade, so the server swaps the pair it keeps.
+- **Native implicit TLS**: a `Bun.listen` TLS listener keeps the TLS
+  context it was created with. `listener.reload()` takes handlers only,
+  and a `tls` given to it is ignored (a new connection still got the old
+  certificate). The port listens in clear instead, and every socket is
+  upgraded with `socket.upgradeTLS` as it opens, with the pair in use
+  then, which is the STARTTLS mechanism from the first byte. The
+  encrypted bytes also pass through the clear socket's handler, which
+  drops them.
+- **Implicit TLS behind `proxyProtocol`** already runs on `node:tls`: the
+  server swaps the secure context its new sockets are given.
+- **A second listener on the same port** was not used: `Bun.listen` takes
+  `reusePort`, so a new listener could bind beside the old one and the old
+  one stop, but both must have opted in from the start, and a
+  connection waiting to be accepted by the old one when it stops is reset.
+  Upgrading in `open` has neither cost.
 
 ## Limits
 

@@ -1,13 +1,16 @@
 import type { Socket, TCPSocketListener } from 'bun';
 import { ImapError } from '../errors';
-import { type Listening, listenerHandlers } from './admission';
+import {
+	type Listening,
+	listenerHandlers,
+	upgradingHandlers,
+} from './admission';
 import type { Connection } from './connection';
 import { handlers, type SocketState, stateOf } from './listener';
-import type { ImapServerOptions } from './options';
+import type { ImapServerOptions, TlsOptions } from './options';
 import { settingsOf } from './settings';
-import { tlsContext } from './tls-context';
 
-/** A key or certificate `listen` cannot use: `INVALID_OPTION`, the reason as its `cause`. */
+/** A key or certificate `listen` or `setTls` cannot use: `INVALID_OPTION`, the reason as its `cause`. */
 const invalidTls = (message: string, cause: unknown) =>
 	new ImapError('INVALID_OPTION', message, { cause });
 
@@ -16,7 +19,6 @@ const STOPPED = 'listen(): stop() was called before the server bound its port';
 
 /** Binds the port, once `listen`'s guard passed. */
 async function bind(
-	options: ImapServerOptions,
 	listening: Omit<Listening, 'proxied'>,
 	port: number,
 	hostname: string,
@@ -24,29 +26,32 @@ async function bind(
 ): Promise<TCPSocketListener<SocketState>> {
 	// Implicit TLS: the key and certificate are checked first, so one
 	// that cannot be used fails here alike, with a proxy or without.
-	const context =
-		listening.secure && options.tls
-			? await tlsContext(options.tls, invalidTls)
-			: undefined;
+	const { tls } = listening.settings;
+	if (listening.secure) await tls.load(invalidTls, 'listen()');
 	// `stop()` came while the key was being read: nothing is bound.
 	if (stopped()) {
 		throw new ImapError('STOPPED', STOPPED);
 	}
-	// Behind a proxy: a clear listener, TLS after the header.
-	const proxied = listening.settings.trusts ? context : undefined;
+	// Behind a proxy: a clear listener, TLS after the header. Without
+	// one, the listener is clear too, and every socket upgrades at once:
+	// the pair `setTls` replaced is read per connection, which a native
+	// TLS listener, bound to one context, cannot do.
+	const proxied =
+		listening.secure && listening.settings.trusts ? tls : undefined;
+	const full = {
+		...handlers(listening.settings),
+		...listenerHandlers({
+			...listening,
+			...(proxied ? { proxied } : {}),
+		}),
+	};
 	return Bun.listen<SocketState>({
 		hostname,
 		port,
-		...(listening.secure && !proxied
-			? { tls: { key: options.tls.key, cert: options.tls.cert } }
-			: {}),
-		socket: {
-			...handlers(listening.settings),
-			...listenerHandlers({
-				...listening,
-				...(proxied ? { proxied } : {}),
-			}),
-		},
+		socket:
+			listening.secure && !proxied
+				? upgradingHandlers(full, listening.settings)
+				: full,
 	});
 }
 
@@ -56,6 +61,13 @@ export interface ImapServer {
 		port: number;
 		hostname?: string;
 	}): Promise<{ port: number; hostname: string }>;
+	/**
+	 * Uses a renewed key and certificate from the next STARTTLS upgrade or
+	 * implicit TLS connection on; the sessions open keep the TLS they have.
+	 * The pair is read and checked first: one that cannot be used throws
+	 * `INVALID_OPTION` and leaves the one in use.
+	 */
+	setTls(tls: TlsOptions): Promise<void>;
 	/** Stops listening; `closeConnections` hangs up on every client too. */
 	stop(closeConnections?: boolean): void;
 	/**
@@ -94,6 +106,9 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 				if (connection.state.accountId === accountId) connection.wake?.();
 			}
 		},
+		async setTls(tls) {
+			await settings.tls.replace(tls, invalidTls, 'setTls()');
+		},
 		async listen({ port, hostname = '0.0.0.0' }) {
 			if (listener || starting) {
 				throw new ImapError(
@@ -108,7 +123,6 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 			stopRequested = false;
 			try {
 				const bound = await bind(
-					options,
 					{ settings, open, handshaking, secure },
 					port,
 					hostname,

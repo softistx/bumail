@@ -46,6 +46,10 @@ function problemOf(entry: unknown): string | undefined {
 		return undefined;
 	} catch (error) {
 		const message = error instanceof Error ? error.message : '';
-		return message.replace(/^[^:]*: "[^"]*" /, '');
+		// The exact prefix, entry included, which may hold a quote itself.
+		const prefix = `proxyProtocol.trusted: "${entry}" `;
+		return message.startsWith(prefix)
+			? message.slice(prefix.length)
+			: 'is neither an IP address nor a CIDR';
 	}
 }

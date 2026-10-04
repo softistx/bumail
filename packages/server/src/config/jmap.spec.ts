@@ -22,7 +22,17 @@ describe('[jmap]', () => {
 			mode: 'https',
 			bind: '0.0.0.0',
 			trusted: [],
+			reloadTls: true,
 		});
+	});
+
+	test('reloadTls is true unless set false, and must be a boolean', async () => {
+		expect(
+			(await read(`${BASE}\n[jmap]\nreloadTls = false`)).jmap.reloadTls,
+		).toBe(false);
+		expect(await problemsOf(`${BASE}\n[jmap]\nreloadTls = "no"`)).toEqual([
+			'jmap.reloadTls: must be true or false, not a string',
+		]);
 	});
 
 	test('takes a proxy: its mode, origin, address and proxies', async () => {
@@ -34,6 +44,7 @@ describe('[jmap]', () => {
 			mode: 'proxy',
 			bind: '10.1.2.3',
 			trusted: ['10.0.0.0/8', 'fd00::/8'],
+			reloadTls: true,
 		});
 		expect(ports.https).toBe(8081);
 	});
@@ -96,6 +107,29 @@ describe('trusted lists', () => {
 			'jmap.trusted[8]: is not a string',
 			'jmap.trusted[9]: has a prefix length out of range',
 		]);
+	});
+
+	test('with a quote in an entry: the problem names the right table and repeats none of the entry', async () => {
+		// The entries are a"b and x" y, as TOML writes them.
+		const list = String.raw`["a\"b", "x\" y"]`;
+		const entries = [
+			'jmap.trusted[0]: is neither an IP address nor a CIDR',
+			'jmap.trusted[1]: is neither an IP address nor a CIDR',
+		];
+		expect(await problemsOf(`${BASE}\n${jmap(list)}`)).toEqual(entries);
+		const proxy = await problemsOf(
+			`${BASE}\n[proxyProtocol]\ntrusted = ${list}`,
+		);
+		expect(proxy).toEqual(
+			entries.map((line) =>
+				line.replace('jmap.trusted', 'proxyProtocol.trusted'),
+			),
+		);
+		for (const problem of [...entries, ...proxy]) {
+			expect(problem).not.toContain('a"b');
+			expect(problem).not.toContain('x"');
+			expect(problem).not.toContain('y"');
+		}
 	});
 
 	test('refuse what smtp refuses at start, so serve never throws it', async () => {

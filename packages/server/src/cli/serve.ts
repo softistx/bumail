@@ -5,7 +5,8 @@ import type { Io } from './run';
 /**
  * `bumail serve`: runs the server until SIGTERM or SIGINT, then stops it
  * cleanly and answers 0. A second signal while it drains stops it at
- * once. The log goes to standard output.
+ * once. SIGHUP looks for a renewed certificate (`reloadTls`). The log goes
+ * to standard output.
  */
 export async function serveUntilSignal(
 	config: ServerConfig,
@@ -17,6 +18,11 @@ export async function serveUntilSignal(
 		await server.stop();
 		return 0;
 	}
+	const unreload =
+		io.reloads?.(() => {
+			log('bumail: SIGHUP, looking for a renewed certificate');
+			void server.reloadTls();
+		}) ?? (() => {});
 	let unsubscribe = () => {};
 	const signal = await new Promise<string>((resolve) => {
 		let first: string | undefined;
@@ -32,6 +38,7 @@ export async function serveUntilSignal(
 			}) ?? unsubscribe;
 	});
 	log(`bumail: ${signal}, stopping`);
+	unreload();
 	await server.stop();
 	unsubscribe();
 	return 0;

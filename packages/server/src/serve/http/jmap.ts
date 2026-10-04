@@ -96,6 +96,7 @@ export function createJmap(ctx: JmapContext): HttpListener {
 	});
 	return httpListener({
 		tls: proxied ? undefined : ctx.tls,
+		swappable: config.jmap.reloadTls,
 		check(hostname) {
 			if (proxied && isIP(hostname) === 0) throw new Error(NO_CLIENT_ADDRESS);
 		},

@@ -7,8 +7,6 @@ import { type OpenedStore, openStore } from '../store/open';
 import {
 	bindOf,
 	createListener,
-	descriptionOf,
-	LATER,
 	LISTENERS,
 	type Listener,
 	type ListenerName,
@@ -20,9 +18,10 @@ import {
 	type OutboundOptions,
 	openQueueStore,
 } from './outbound';
-import { envelopeDomain } from './recipients';
+import { watchCertificate } from './reload';
 import { assemble } from './resources';
 import { Spool } from './spool';
+import { logStart, warnPostmaster } from './start-log';
 import { closeResources, stopper } from './stop';
 import { readTls } from './tls';
 
@@ -66,6 +65,12 @@ export interface RunningServer {
 	 * answers the same promise.
 	 */
 	stop(options?: { readonly force?: boolean }): Promise<void>;
+	/**
+	 * Looks at `tls.cert` and `tls.key` now — as `bumail serve` does on
+	 * SIGHUP — and switches every TLS listener to a renewed pair, if there
+	 * is one; logs what it found. Resolves once it looked, whatever it found.
+	 */
+	reloadTls(): Promise<void>;
 }
 
 const defaultLog: Log = (line) => {
@@ -134,46 +139,6 @@ async function bindListeners(
 	return { started, listening };
 }
 
-/** The start's log: the server's name, one line per listener, one per port arriving later. */
-function logStart(
-	config: ServerConfig,
-	listening: readonly Listening[],
-	log: Log,
-): void {
-	log(`bumail: serving ${config.hostname}`);
-	for (const { name, hostname, port } of listening) {
-		log(
-			`bumail: ${name} listening on ${hostname}:${port}: ${descriptionOf(name, config)}`,
-		);
-	}
-	for (const name of LATER) {
-		const port = config.ports[name];
-		if (port !== 0) {
-			log(
-				`bumail: ${name} (port ${port}) arrives in a later slice; not listening`,
-			);
-		}
-	}
-}
-
-/**
- * Warns when `postmaster` is in a domain the server does not host: the
- * bare `<postmaster>` goes nowhere, and is refused, until it is.
- */
-function warnPostmaster(
-	config: ServerConfig,
-	directory: Directory,
-	log: Log,
-): void {
-	const { postmaster } = config;
-	if (postmaster === undefined) return;
-	const domain = envelopeDomain(postmaster);
-	if (directory.domains.has(domain)) return;
-	log(
-		`bumail: postmaster ${postmaster} is in ${domain}, a domain not hosted here; mail for <postmaster> is refused until it is`,
-	);
-}
-
 /**
  * Runs the server for `config`: reads the certificate (`tls.mode =
  * "files"`; `"acme"` is `NOT_IMPLEMENTED`), opens the spool, the
@@ -220,9 +185,11 @@ export async function serve(
 		log(`bumail: the spool folder ${path} is kept: ${reason}`);
 	}
 	warnPostmaster(config, directory, log);
+	const tlsWatch = watchCertificate(resources, bound.started);
 
 	return {
 		listening: bound.listening,
+		reloadTls: () => tlsWatch?.reload() ?? Promise.resolve(),
 		stop: stopper({
 			listeners: bound.started,
 			up: resources.up,
@@ -233,6 +200,7 @@ export async function serve(
 			queue,
 			queueStore,
 			spool,
+			tlsWatch,
 			log,
 			describe,
 			drainMs: (options.drainSeconds ?? DEFAULT_DRAIN_SECONDS) * 1000,

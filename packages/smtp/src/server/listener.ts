@@ -117,7 +117,7 @@ export function transportOf(
 		raw,
 		secure,
 		() => {
-			const tls = settings.options.tls;
+			const tls = settings.tls?.options;
 			const connection = socket.data.connection;
 			if (!tls || !connection) return;
 			socket.data.upgraded = true;

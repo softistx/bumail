@@ -40,9 +40,12 @@ export interface Fixture {
 /**
  * The TOML of a server in `dir`: certificate files, a SQLite store and
  * directory, `extra` after — its top-level keys, before its first
- * section, put on top.
+ * section, put on top, and its `pollSeconds = ` line in `[tls]`.
  */
 export function configToml(dir: string, extra = ''): string {
+	// `pollSeconds` is a key of [tls], whichever way `extra` is cut.
+	const poll = extra.match(/^pollSeconds = .*$/m)?.[0] ?? '';
+	extra = extra.replace(/^pollSeconds = .*\n?/m, '');
 	const section = extra.search(/^\[/m);
 	const top = section === -1 ? extra : extra.slice(0, section);
 	const rest = section === -1 ? '' : extra.slice(section);
@@ -58,6 +61,7 @@ export function configToml(dir: string, extra = ''): string {
 		'mode = "files"',
 		'cert = "cert.pem"',
 		'key = "key.pem"',
+		poll,
 		rest,
 	].join('\n');
 }

@@ -84,8 +84,8 @@ each in its own folder, and neither sweeps the other's while its
 heartbeat goes on — even two containers that both run as pid 1 under
 one hostname.
 
-The certificate is read once, at start: after renewing it, restart the
-server. Reloading it while running comes in a later release.
+The certificate is looked at again while the server runs: after renewing
+it, [nothing needs a restart](#renewing-the-certificate).
 
 ## The listeners
 
@@ -105,6 +105,9 @@ Every mail listener binds to `bind` (default `0.0.0.0`); JMAP to
 bound to nothing: its listener arrives in a later release, and the log
 says so at start. Leave it as it is, or set it to 0 to silence that
 line.
+
+A renewed certificate reaches all the TLS listeners without a restart:
+see [Renewing the certificate](#renewing-the-certificate).
 
 ## Receiving mail on 25
 
@@ -431,8 +434,8 @@ block it, its right password included. A Bearer token is refused with a
 is refused with a 403 before the password is read.
 
 By default (`jmap.mode = "https"`) it is HTTPS on `ports.https`, 443,
-with the certificate of `[tls]`, read once at start like the mail
-listeners'. The client the limiter counts is the TCP peer.
+with the certificate of `[tls]`, which a [renewal](#renewing-the-certificate)
+replaces like the mail listeners'. The client the limiter counts is the TCP peer.
 
 ```sh
 curl -u alice@example.com https://mail.example.com/.well-known/jmap
@@ -602,6 +605,69 @@ reaches `bumail` on. Port 587 is the same, with an entry point of its own.
 
 Whatever the proxy, the certificate is the server's, from `[tls]`.
 
+## Renewing the certificate
+
+A renewed certificate takes effect without a restart and without
+dropping an open session. `bumail serve` watches `tls.cert` and
+`tls.key` (`tls.mode = "files"`), and switches every TLS listener to the
+new pair: 25 and 587 for their STARTTLS, 465, 993 and 143, and JMAP's
+HTTPS on 443.
+
+- **Every `tls.pollSeconds`** (30 by default; 0 turns the polling off) it
+  reads both files and compares them with the pair in use. It compares
+  what the files hold, not their dates: Docker bind mounts and the
+  symlink swaps of certbot or a Traefik certificate dump often raise no
+  inotify event, and a `touch` that changed nothing reloads nothing. A
+  symbolic link is followed.
+- **On `SIGHUP`**, at once: `kill -HUP <pid>`, `docker kill -s HUP
+  <container>`, or a certbot deploy hook. It logs what it found even
+  when nothing changed.
+
+A pair is taken only when it is a valid one: both files read, the
+certificate PEM, in date and naming `hostname` (as `check-config`
+checks), and the key its own. A key written before its certificate is
+not applied half-way: the pair does not match yet, so the old one stays,
+and the next look takes the new one once both files are there. Every
+listener takes the pair, or none does: should one fail, those already
+switched go back to the old pair; if putting one back fails too, the
+line names it (`; <listener> left on the new pair, the rollback failed`).
+
+One line says the outcome, once per change, never per look:
+
+```text
+tls: reloaded (CN=mail.example.com, expires <date>)
+tls: not reloaded: tls.key is not the key of tls.cert
+```
+
+`tls: not reloaded: …` keeps the old pair, and says why: the same
+reasons `check-config` gives (`tls.cert expired on …`, `tls.cert does not
+name …`), each file's own name first, nothing of the key. The old pair
+keeps serving until it expires: watch the log, or the certificate's date.
+
+New connections get the new pair; a session already open keeps its TLS
+until it ends. How, per listener: `@bumail/smtp` and `@bumail/imap`
+take it with `setTls` (STARTTLS reads the pair for each upgrade, and
+implicit TLS is upgraded socket by socket). JMAP's HTTPS is a Bun
+server, which cannot swap its certificate, so a second one binds the
+same port (`reusePort`) with the new pair and the first finishes its
+requests. At most about 1 new handshake in 3 000 is reset in the swap;
+a client retries it.
+
+**A security consideration.** That swap needs the HTTPS port bound with
+`SO_REUSEPORT` for as long as the server runs, and a socket opened so
+lets any other process of the same user bind the port beside it and take
+a share of its connections. In a container, the network namespace is the
+container's own and nothing else runs there: the default is safe. On a
+host shared with other users' processes, set `jmap.reloadTls = false`:
+JMAP then binds alone, and the log says
+`tls: reloaded (…); https keeps the old certificate until restart`, so
+restart the server after a renewal. Behind a proxy (`jmap.mode =
+"proxy"`) JMAP is plain HTTP, never swapped and never shared, whatever
+`reloadTls` says. The mail ports never use `SO_REUSEPORT`.
+
+With `tls.mode = "acme"` (which `serve` does not take yet) the certificate
+will come from the server itself.
+
 ## Stopping
 
 `SIGTERM` (as `docker stop` sends) or `SIGINT` (Ctrl-C) stops the server
@@ -707,6 +773,12 @@ bumail: stopped
 | `outbound: error[ on <item>]: …` | the queue's store failed, a lease was lost, or a route cannot be used |
 | `imaps: error in a session from <ip>: …` (`imap:` on 143) | the store failed: the client got `NO [UNAVAILABLE]` |
 | `bumail: postmaster <address> is in <domain>, a domain not hosted here; mail for <postmaster> is refused until it is` | at start: `postmaster` names a domain the directory does not host (`bumail domain add`) |
+| `tls: reloaded (<subject>, expires <date>)` | a renewed pair was found, valid, and every TLS listener switched to it; its first certificate's subject and expiry |
+| `tls: reloaded (…); https keeps the old certificate until restart` | with `jmap.reloadTls = false`: the other listeners took the pair, JMAP did not |
+| `tls: not reloaded: <reason>; <listener> left on the new pair, the rollback failed` | a listener refused the pair and putting another back on the old one failed: it serves the new pair, the others the old |
+| `tls: not reloaded: <reason>` | a pair that changed cannot be taken — a file that cannot be read, not PEM, expired, naming another host, a key that is not the certificate's, or a listener that refused — and the old pair stays; once per distinct reason, or at each `SIGHUP` |
+| `tls: unchanged (<subject>, expires <date>)` | a `SIGHUP` found the files as the listeners already have them |
+| `bumail: SIGHUP, looking for a renewed certificate` | the signal; one of the three lines above follows |
 | `bumail: SIGTERM, stopping`, `bumail: stopped` | the stop |
 | `bumail: the mail store did not close cleanly: …`, `bumail: the queue did not close cleanly: …` | during the stop: a store's close failed; the directory is closed anyway, and it exits 0 |
 | `bumail: the queue did not stop cleanly: …` | during the stop: the queue's store failed as the queue gave back its claims; they lapse with their leases |
@@ -730,6 +802,7 @@ const server = await serve(config, {
 server.listening; // [{ name: 'mx', hostname: '0.0.0.0', port: 25 }, …, { name: 'https', … }, { name: 'health', hostname: '127.0.0.1', port: 8080 }]
 
 process.on('SIGTERM', () => void server.stop());
+process.on('SIGHUP', () => void server.reloadTls()); // look for a renewed certificate now
 ```
 
 `resolver` replaces the DNS, with any `Resolver` of `@bumail/dns` (a

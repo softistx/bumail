@@ -19,11 +19,9 @@ function namesOf(certificate: X509Certificate): string[] {
 
 function certificateOf(
 	checker: Checker,
-	file: string,
+	text: string,
 	path: string,
 ): X509Certificate | undefined {
-	const text = readText(checker, file, path);
-	if (text === undefined) return undefined;
 	if (text.includes(PEM_CERTIFICATE)) {
 		try {
 			return new X509Certificate(text);
@@ -37,11 +35,9 @@ function certificateOf(
 
 function keyOf(
 	checker: Checker,
-	file: string,
+	text: string,
 	path: string,
 ): KeyObject | undefined {
-	const text = readText(checker, file, path);
-	if (text === undefined) return undefined;
 	if (PEM_KEY.test(text)) {
 		try {
 			return createPrivateKey(text);
@@ -64,9 +60,34 @@ export function checkTlsFiles(
 	hostname: string | undefined,
 	now: Date,
 ): void {
-	const certificate = certificateOf(checker, files.cert, 'tls.cert');
-	const key = keyOf(checker, files.key, 'tls.key');
-	if (certificate === undefined) return;
+	const cert = readText(checker, files.cert, 'tls.cert');
+	const key = readText(checker, files.key, 'tls.key');
+	checkTlsPair(
+		checker,
+		{ cert: cert ?? '', key: key ?? '' },
+		{ cert: cert !== undefined, key: key !== undefined },
+		hostname,
+		now,
+	);
+}
+
+/**
+ * `checkTlsFiles` on text already read: a pair a running server may take.
+ * `read` says which of the two texts was read; the other has its problem
+ * recorded already. Answers the certificate when it parsed.
+ */
+export function checkTlsPair(
+	checker: Checker,
+	text: { readonly cert: string; readonly key: string },
+	read: { readonly cert: boolean; readonly key: boolean },
+	hostname: string | undefined,
+	now: Date,
+): X509Certificate | undefined {
+	const certificate = read.cert
+		? certificateOf(checker, text.cert, 'tls.cert')
+		: undefined;
+	const key = read.key ? keyOf(checker, text.key, 'tls.key') : undefined;
+	if (certificate === undefined) return undefined;
 	const validFrom = new Date(certificate.validFrom);
 	if (validFrom.getTime() > now.getTime()) {
 		checker.add(
@@ -89,6 +110,7 @@ export function checkTlsFiles(
 	if (key !== undefined && !matches(certificate, key)) {
 		checker.add('tls.key', 'is not the key of tls.cert');
 	}
+	return certificate;
 }
 
 /** Whether `key` is the certificate's; a key of another type is not. */

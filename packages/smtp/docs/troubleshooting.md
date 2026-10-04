@@ -32,6 +32,8 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: listen(): the server is already listening on …`](#smtperror-listen-the-server-is-already-listening-on-)
 - [`SmtpError: listen(): the server is already starting to listen`](#smtperror-listen-the-server-is-already-starting-to-listen)
 - [`SmtpError: listen(): tls: { key, cert } cannot be used: …`](#smtperror-listen-tls--key-cert--cannot-be-used-)
+- [`SmtpError: setTls(): tls: { key, cert } cannot be used: …`](#smtperror-settls-tls--key-cert--cannot-be-used-)
+- [`SmtpError: setTls(): the server was made without tls, so it has none to replace`](#smtperror-settls-the-server-was-made-without-tls-so-it-has-none-to-replace)
 - [`SmtpError: listen(): stop() was called before the server bound its port`](#smtperror-listen-stop-was-called-before-the-server-bound-its-port)
 
 **Relaying and authentication**
@@ -623,6 +625,50 @@ try {
 } catch (error) {
 	console.error(error, (error as Error).cause);
 }
+```
+
+### `SmtpError: setTls(): tls: { key, cert } cannot be used: …`
+
+**When**: `setTls` was given a renewed pair whose `key` or `cert` cannot
+be read — a `Bun.file` that does not exist, or one caught half-written —
+or is empty (`… the key is empty`, `… the cert is empty`), or is not a
+PEM key or certificate, or a key that is not the certificate's. Its `code` is `INVALID_OPTION`; the rest of the message,
+and its `cause`, are the reason from the file system or `node:tls`
+(`ENOENT: no such file or directory, open '…'`, `…PEM routines…`,
+`key values mismatch`). The pair in use stays, for new connections too.
+
+**Why**: `setTls` reads both and checks them as a TLS context before it
+swaps anything, so a bad pair never reaches a client.
+
+**Fix**: write both files before calling it — a renewal that writes the key
+first and the certificate after fails here, which is the right answer —
+and retry:
+
+```ts
+try {
+	await server.setTls({
+		key: Bun.file('/etc/bumail/tls/privkey.pem'),
+		cert: Bun.file('/etc/bumail/tls/fullchain.pem'),
+	});
+} catch (error) {
+	console.error(error, (error as Error).cause); // the old pair is still served
+}
+```
+
+### `SmtpError: setTls(): the server was made without tls, so it has none to replace`
+
+**When**: `setTls` on a server created without the `tls` option. Its `code`
+is `INVALID_OPTION`.
+
+**Why**: TLS is what turns on STARTTLS, AUTH and implicit TLS, and each
+changes what the server says: `setTls` replaces a pair, it does not turn
+TLS on.
+
+**Fix**: create the server with `tls`, the pair it starts with:
+
+```ts
+const server = createSmtpServer({ ...options, tls: { key, cert } });
+await server.setTls({ key: renewedKey, cert: renewedCert });
 ```
 
 ## Relaying and authentication

@@ -7,6 +7,12 @@ import { checkHttpsUrl } from './urls';
 /** Let's Encrypt's production directory (RFC 8555 §7.1.1). */
 export const LETS_ENCRYPT = 'https://acme-v02.api.letsencrypt.org/directory';
 
+/** Seconds between two looks at the certificate files, by default. */
+export const DEFAULT_POLL_SECONDS = 30;
+
+/** The longest wait between two looks: a day. */
+const MAX_POLL_SECONDS = 86_400;
+
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface CertificatesContext {
@@ -21,8 +27,10 @@ export interface CertificatesContext {
 /**
  * `[tls]` and `[acme]`. With `mode = "acme"`, the default, `[acme]` needs
  * an e-mail and `acceptTerms = true`, and `ports.http` must be on for
- * HTTP-01; `cert` and `key` are refused. With `mode = "files"`, both
- * files are checked (`checkTlsFiles`), and `[acme]` is refused.
+ * HTTP-01; `cert`, `key` and `pollSeconds` are refused. With `mode =
+ * "files"`, both files are checked (`checkTlsFiles`), `pollSeconds` is how
+ * often `serve` looks for a renewed pair (0: never), and `[acme]` is
+ * refused.
  */
 export function checkCertificates(
 	checker: Checker,
@@ -30,11 +38,17 @@ export function checkCertificates(
 	rawAcme: unknown,
 	context: CertificatesContext,
 ): { tls: TlsConfig; acme: AcmeConfig | undefined } {
-	const tls = checker.table(rawTls, 'tls', ['mode', 'cert', 'key']);
+	const tls = checker.table(rawTls, 'tls', [
+		'mode',
+		'cert',
+		'key',
+		'pollSeconds',
+	]);
 	const mode =
 		checker.oneOf(tls, 'mode', 'tls', ['acme', 'files'] as const) ?? 'acme';
 	const cert = checker.string(tls, 'cert', 'tls');
 	const key = checker.string(tls, 'key', 'tls');
+	const poll = checker.integer(tls, 'pollSeconds', 'tls', 0, MAX_POLL_SECONDS);
 
 	if (mode === 'files') {
 		if (rawAcme !== undefined)
@@ -47,7 +61,12 @@ export function checkCertificates(
 		}
 		if (cert === undefined || key === undefined) {
 			return {
-				tls: { mode, cert: cert ?? '', key: key ?? '' },
+				tls: {
+					mode,
+					cert: cert ?? '',
+					key: key ?? '',
+					pollSeconds: poll ?? DEFAULT_POLL_SECONDS,
+				},
 				acme: undefined,
 			};
 		}
@@ -56,12 +75,18 @@ export function checkCertificates(
 			key: fromDir(context.dir, key),
 		};
 		checkTlsFiles(checker, files, context.hostname, context.now);
-		return { tls: { mode, ...files }, acme: undefined };
+		return {
+			tls: { mode, ...files, pollSeconds: poll ?? DEFAULT_POLL_SECONDS },
+			acme: undefined,
+		};
 	}
 
 	if (cert !== undefined)
 		checker.add('tls.cert', 'is only for tls.mode "files"');
 	if (key !== undefined) checker.add('tls.key', 'is only for tls.mode "files"');
+	if (tls?.['pollSeconds'] !== undefined) {
+		checker.add('tls.pollSeconds', 'is only for tls.mode "files"');
+	}
 	if (context.ports.http === 0) {
 		checker.add(
 			'ports.http',
