@@ -1,0 +1,5 @@
+---
+"@bumail/smtp": minor
+---
+
+A connection limit per client, and `RCPT TO:<postmaster>`. `maxConnectionsPerClient` (default 10) bounds the connections one client holds at once, so one host cannot take every slot of `maxConnections`: a client is an IPv4 address, or an IPv6 address by its /64, and an IPv4-mapped or NAT64 address counts as the IPv4 address inside it. One more is answered `421 4.7.0 <hostname> Too many connections from your address, try later` and closed, before `onConnect`; every close frees its slot — QUIT, a hang-up, an error, the idle timeout, a refusal, `stop(true)`, after STARTTLS too. `clientKey(address)` is exported, to group clients the same way in `onConnect`. `RCPT TO:<postmaster>`, with no domain and in any case (RFC 5321 §4.1.1.3, §4.5.1), is now taken as this server's postmaster without AUTH and without asking `localDomains`: `onRcptTo` gets a `Path` with `postmaster: true`, `address` and `local` `'postmaster'` and `domain` `''`, and `envelope.to` lists it as `'postmaster'`, so an `onData` that splits recipients on `@` should route that one first. `<postmaster@domain>` is unchanged, an ordinary path.

@@ -1,9 +1,11 @@
 import type { Socket, SocketHandler, TCPSocketListener } from 'bun';
 import { SmtpError } from '../errors';
 import { reply } from '../protocol/reply';
+import { clientKey } from './client-key';
 import { Connection } from './connection';
 import type { SmtpServerOptions } from './options';
 import { type Settings, settingsOf } from './settings';
+import { Slots } from './slots';
 import { SocketTransport } from './transport';
 
 interface SocketState {
@@ -58,11 +60,28 @@ function handlers(settings: Settings): SocketHandler<SocketState> {
 	};
 }
 
+/** Writes one reply and hangs up, through a transport so the hang-up is bounded as every other is. */
+function turnAway(
+	socket: Socket<SocketState>,
+	secure: boolean,
+	line: string,
+): void {
+	const refused = new SocketTransport(
+		socket as Socket<unknown>,
+		secure,
+		() => {},
+	);
+	socket.data.transport = refused;
+	refused.write(line);
+	refused.end();
+}
+
 /** Wraps a socket; STARTTLS swaps it for the encrypted one. */
 function transportOf(
 	socket: Socket<SocketState>,
 	settings: Settings,
 	secure: boolean,
+	slots: Slots<Connection>,
 ): SocketTransport {
 	const transport = new SocketTransport(
 		socket as Socket<unknown>,
@@ -78,6 +97,7 @@ function transportOf(
 				socket: {
 					...handlers(settings),
 					close: (s) => {
+						slots.release(connection);
 						s.data.transport?.closed();
 						connection.close();
 					},
@@ -109,11 +129,11 @@ function transportOf(
 export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 	const settings = settingsOf(options);
 	let listener: TCPSocketListener<SocketState> | undefined;
-	const open = new Set<Connection>();
+	const slots = new Slots<Connection>();
 	const secure = options.implicitTls === true;
 	return {
 		get connections() {
-			return open.size;
+			return slots.size;
 		},
 		async listen({ port, hostname = '0.0.0.0' }) {
 			if (listener) {
@@ -133,31 +153,32 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 					open(socket) {
 						socket.data = { upgraded: false };
 						socket.timeout(settings.timeout);
-						if (open.size >= settings.maxConnections) {
-							// Through a transport, so this hang-up is bounded as every other is.
-							const refused = new SocketTransport(
-								socket as Socket<unknown>,
+						if (slots.size >= settings.maxConnections) {
+							return turnAway(
+								socket,
 								secure,
-								() => {},
-							);
-							socket.data.transport = refused;
-							refused.write(
 								`421 4.3.2 ${options.hostname} Too many connections, try later\r\n`,
 							);
-							refused.end();
-							return;
+						}
+						const key = clientKey(socket.remoteAddress);
+						if (slots.of(key) >= settings.maxConnectionsPerClient) {
+							return turnAway(
+								socket,
+								secure,
+								`421 4.7.0 ${options.hostname} Too many connections from your address, try later\r\n`,
+							);
 						}
 						const connection = new Connection(
 							settings,
-							transportOf(socket, settings, secure),
+							transportOf(socket, settings, secure, slots),
 						);
-						open.add(connection);
+						slots.take(connection, key);
 						socket.data.connection = connection;
 						void connection.open();
 					},
 					close(socket) {
 						const connection = socket.data.connection;
-						if (connection) open.delete(connection);
+						if (connection) slots.release(connection);
 						socket.data.transport?.closed();
 						socket.data.connection?.close();
 					},
@@ -172,7 +193,7 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 			// Bun's `stop(true)` closes the sockets the listener holds, and a
 			// socket STARTTLS moved to TLS is no longer one of them: hang up on
 			// every connection here, as a timeout does.
-			for (const connection of [...open]) connection.close();
+			for (const connection of slots.connections()) connection.close();
 		},
 	};
 }

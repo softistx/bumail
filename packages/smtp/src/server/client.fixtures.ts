@@ -11,10 +11,14 @@ export class Client {
 	received = '';
 	closed = false;
 
-	static async connect(port: number, secure = false): Promise<Client> {
+	static async connect(
+		port: number,
+		secure = false,
+		hostname = '127.0.0.1',
+	): Promise<Client> {
 		const client = new Client();
 		client.#socket = await Bun.connect({
-			hostname: '127.0.0.1',
+			hostname,
 			port,
 			...(secure
 				? { tls: { rejectUnauthorized: false, serverName: 'localhost' } }

@@ -8,6 +8,7 @@ export interface Settings {
 	readonly maxMessageSize: number;
 	readonly maxRecipients: number;
 	readonly maxConnections: number;
+	readonly maxConnectionsPerClient: number;
 	readonly maxErrors: number;
 	readonly timeout: number;
 	readonly hookTimeout: number;
@@ -120,6 +121,11 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 		),
 		maxRecipients: positive('maxRecipients', options.maxRecipients, 100),
 		maxConnections: positive('maxConnections', options.maxConnections, 1000),
+		maxConnectionsPerClient: positive(
+			'maxConnectionsPerClient',
+			options.maxConnectionsPerClient,
+			10,
+		),
 		maxErrors: positive('maxErrors', options.maxErrors, 10),
 		timeout,
 		hookTimeout: timer('hookTimeout', options.hookTimeout, 60),

@@ -305,6 +305,14 @@ Every PR goes into `develop`. Before merging:
   unterminated, a control character or a stray `)` is refused here — so
   a fix to the RFC 5322 grammar in one is checked against the other, not
   copied blindly.
+- `clientKey` — which client an address counts as: an IPv4 address, an
+  IPv6 /64, an IPv4-mapped or NAT64 address as its IPv4 address — is in
+  `packages/smtp/src/server/client-key.ts`, exported by `@bumail/smtp`
+  for `maxConnectionsPerClient`, and in
+  `packages/server/src/directory/limiter.ts`, for the failed-login
+  limiter. smtp is the lower layer, so the server's copy goes once the
+  server wires the per-client limit and imports smtp's; until then a fix
+  to one is a fix to the other.
 - `packages/smtp/src/client/mx.ts` copies `@bumail/dns`'s `isTemporary`
   (and reads a `DnsError` by its `name` and `code`): the client imports
   nothing of `@bumail/dns`, so a smarthost-only app never installs it.

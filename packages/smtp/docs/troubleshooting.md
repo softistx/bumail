@@ -83,6 +83,7 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 
 - [`421 4.7.0 … Too many errors, closing`](#421-470--too-many-errors-closing)
 - [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
+- [`421 4.7.0 … Too many connections from your address, try later`](#421-470--too-many-connections-from-your-address-try-later)
 - [`421 4.4.2 … Idle too long, closing`](#421-442--idle-too-long-closing)
 - [`554 … Talked before the greeting`](#554--talked-before-the-greeting)
 
@@ -302,7 +303,8 @@ createSmtpServer({
 
 ### `SmtpError: createSmtpServer(): … must be a positive integer, not …`
 
-**When**: `maxMessageSize`, `maxRecipients`, `maxConnections`, `maxErrors`,
+**When**: `maxMessageSize`, `maxRecipients`, `maxConnections`,
+`maxConnectionsPerClient`, `maxErrors`,
 `timeout` or `hookTimeout` is `0`, negative, a fraction, `NaN` or
 `Infinity`.
 
@@ -1361,6 +1363,43 @@ such a close could wait forever, and enough of those clients filled
 active.
 
 **Fix**, as a client: retry later, and send `QUIT` when done.
+
+### `421 4.7.0 … Too many connections from your address, try later`
+
+**When**: on connecting, in place of the greeting, when the same client
+already holds `maxConnectionsPerClient` connections (10 by default). The
+server hangs up, before `onConnect`. A client is an IPv4 address, or an
+IPv6 address by its /64; an IPv4-mapped (`::ffff:192.0.2.1`) or NAT64
+(`64:ff9b::…`) address counts as the IPv4 address inside it.
+
+**Why**: without it one host could take every slot of `maxConnections`
+and keep every other sender out. An MTA opens a few connections to one
+MX at most, and retries a 421 later.
+
+**Fix**, as the operator: raise `maxConnectionsPerClient` for a known
+peer that needs more, such as your own relay sending in parallel, or for
+many users behind one address (a NAT, a /64 shared by a provider):
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	maxConnectionsPerClient: 50, // default 10
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+Check which client is counted with `clientKey(session.remoteAddress)` in
+`onConnect`. A slot is freed on every close — QUIT, the client hanging up,
+an error, the idle `timeout`, a refusal — so a count that stays at the
+limit means the client holds its connections open.
+
+**Fix**, as a client: send several messages over one connection, close it
+with `QUIT`, and retry later.
 
 ### `421 4.4.2 … Idle too long, closing`
 

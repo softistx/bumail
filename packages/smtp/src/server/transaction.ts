@@ -96,7 +96,8 @@ export async function rcpt(
 		return connection.send(reply(452, '4.5.3', 'Too many recipients'));
 	}
 	// Never an open relay: a domain this server does not host takes AUTH.
-	if (state.user === undefined) {
+	// `<postmaster>` with no domain is this server's own (RFC 5321 §4.5.1).
+	if (state.user === undefined && path.postmaster !== true) {
 		const local = await connection.check('localDomains', () =>
 			settings.isLocal(path.domain),
 		);

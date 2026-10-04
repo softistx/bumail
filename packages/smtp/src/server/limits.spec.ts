@@ -101,6 +101,10 @@ describe('options', () => {
 			'createSmtpServer(): maxRecipients must be a positive integer, not 0',
 		],
 		[
+			{ maxConnectionsPerClient: 0 },
+			'createSmtpServer(): maxConnectionsPerClient must be a positive integer, not 0',
+		],
+		[
 			{ timeout: 1.5 },
 			'createSmtpServer(): timeout must be a positive integer, not 1.5',
 		],
