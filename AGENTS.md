@@ -18,6 +18,7 @@ below lists only what has landed.
 | `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite`, its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres` and its Redis store on `Bun.redis` as `@bumail/queue/redis` | `@bumail/smtp`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS; an OpenAPI 3.1 document of its routes, shipped as `@bumail/jmap/openapi.json` and kept in step with them by a spec | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
+| `@bumail/server` | the server app, **private** until it serves mail (`"private": true`, so neither changesets nor `scripts/publish.ts` touch it): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, and the `bumail` command (`check-config`; `serve` checks, then exits 3, not implemented yet) | none yet: it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
@@ -127,6 +128,7 @@ auth            → dns, mime
 imap            → store, mime
 queue           → smtp, mime (its specs use dns, as a devDependency)
 jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam and @alxia/openapi-routes as devDependencies)
+server          → its peers: the packages it wires, each added as a slice first imports it (none yet); a private app, never a peer of any package
 ```
 
 `examples/demo` is an app, not a package: a private workspace that wires

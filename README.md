@@ -22,8 +22,11 @@ does, and which package does it.
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH; and, on `@bumail/smtp/client`, a client that sends it out to a smarthost or by MX |
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store, a `bun:sqlite` store on disk and a PostgreSQL store for several instances (the last merged, not yet on npm) |
 
-All eight are on npm. What comes — a blob store, then a server app and a
-Docker image that runs it — in what order and why, is in
+All eight are on npm. The server app that wires them together,
+[`@bumail/server`](./packages/server), is in progress and private until
+it serves mail: so far it reads and checks its configuration
+(`bumail check-config`). What comes — the rest of the server app, a blob
+store and a Docker image that runs it — in what order and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
 
 ## Development

@@ -27,6 +27,17 @@ describe('undeclaredImports', () => {
 		).toEqual([['dist/index.js', '@bumail/store']]);
 	});
 
+	test('reads a bin past its #! line', () => {
+		expect(
+			undeclaredImports(smtp, [
+				[
+					'dist/main.js',
+					'#!/usr/bin/env bun\nimport { run } from "@bumail/store";\nawait run();',
+				],
+			]),
+		).toEqual([['dist/main.js', '@bumail/store']]);
+	});
+
 	test('passes the runtime, relative files, chunks and the package itself', () => {
 		expect(
 			undeclaredImports(smtp, [

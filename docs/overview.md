@@ -56,7 +56,7 @@ them one by one.
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | published |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap) and [`@bumail/jmap`](../packages/jmap) | published |
-| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | an app on alxia | next |
+| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
 
@@ -410,18 +410,21 @@ together, in one process:
 - IMAP on 993, and JMAP over HTTPS on 443;
 - the queue, delivering out, and the store;
 - TLS certificates, obtained and renewed through ACME;
-- an admin API for domains, accounts, aliases and DKIM keys;
+- a command, `bumail`, for domains, accounts, aliases and DKIM keys;
 - health checks and metrics.
 
 It is **never an open relay**: mail for a domain it does not host is taken
 only from an authenticated session. And **AUTH only after TLS**: no
 password crosses the network in clear, over SMTP, IMAP or JMAP.
 
-**In bumail.** It is next, built on alxia, whose `@alxia/core` is on npm.
-Then **a Docker image, all in one**: the server app with ports 25, 465,
-587, 993 and 443, and one volume for the mail, the queue and the
-certificates. It holds the server only; any JMAP or IMAP client connects
-to it.
+**In bumail.** It is in progress, as
+[`@bumail/server`](../packages/server), built on alxia, whose
+`@alxia/core` is on npm. Private until it serves mail, it reads and
+checks its configuration so far: one TOML file, which `bumail
+check-config` checks whole. Then **a Docker image, all in one**: the
+server app with ports 25, 465, 587, 993, 443 and 80, and one volume for
+the mail, the queue and the certificates. It holds the server only; any
+JMAP or IMAP client connects to it.
 
 **Sending from a container.** Many cloud hosts and home connections block
 outbound port 25, and receiving servers distrust an address without

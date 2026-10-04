@@ -38,8 +38,9 @@ function isRuntime(specifier: string): boolean {
  */
 function specifiersOf(rel: string, text: string): string[] {
 	if (rel.endsWith('.d.ts')) return declarationSpecifiers(text);
+	// A bin's `#!` line, which Bun's scanner refuses as a syntax error.
 	return new Bun.Transpiler({ loader: 'js' })
-		.scanImports(text)
+		.scanImports(text.replace(/^#!.*/, ''))
 		.map(({ path }) => path);
 }
 

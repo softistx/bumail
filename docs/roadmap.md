@@ -18,21 +18,26 @@ No dates. Each entry says what someone running or embedding the server gets.
   0.1.0 (see Shipped). What remains: queryChanges, push via EventSource,
   then Identity and EmailSubmission through `@bumail/smtp/client`. Any JMAP
   client speaks it; bumail ships no client of its own.
+- **The server app, `@bumail/server`** — the packages wired into one
+  process, run as the `bumail` command: SMTP on 25 (MX), 465
+  (submission over implicit TLS) and 587 (submission with STARTTLS), IMAP
+  on 993, JMAP over HTTPS on 443, the queue delivering out, and
+  certificates obtained and renewed through ACME (HTTP-01 on port 80).
+  **Never an open relay** — mail for a domain it does not host is taken
+  only from an authenticated session — and **AUTH only after TLS**, for
+  SMTP, IMAP and JMAP alike. Domains, accounts, aliases and DKIM keys
+  managed by the command; a health check. It consumes alxia's published
+  packages, not a link to its working tree, so bumail's CI never depends
+  on another repository's checkout. In progress, and private until it
+  serves mail: its configuration — one TOML file, checked whole by
+  `bumail check-config`, the environment overriding URLs and secrets
+  only — is merged; the steps that follow are in
+  [its roadmap](../packages/server/docs/roadmap.md).
 
 ## Next
 
-- **The server app** — the packages wired into one process: SMTP on 25
-  (MX), 465 (submission over implicit TLS) and 587 (submission with
-  STARTTLS), IMAP on 993, JMAP over HTTPS on 443, the queue delivering
-  out, and certificates obtained and renewed through ACME. **Never an open
-  relay** — mail for a domain it does not host is taken only from an
-  authenticated session — and **AUTH only after TLS**, for SMTP, IMAP and
-  JMAP alike. An admin API for domains, accounts, aliases and DKIM keys;
-  health and metrics. It consumes alxia's published packages, not a link
-  to its working tree, so bumail's CI never depends on another
-  repository's checkout.
 - **A Docker image, all in one** — the server app in one container: ports
-  25, 465, 587, 993 and 443, and one volume for the mail, the queue and
+  25, 465, 587, 993, 443 and 80, and one volume for the mail, the queue and
   the certificates. Its guide says what sending mail from a container
   takes: many cloud hosts and home connections block outbound port 25,
   and receiving servers distrust an address without reverse DNS (a PTR
@@ -60,7 +65,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   records (name, type, value, TTL) for a provider's API. Each record value
   comes from the package that reads it — `@bumail/auth` writes the SPF,
   DKIM and DMARC values it would itself accept — and `@bumail/dns` writes
-  the zone file. The admin API of the server app serves them per domain.
+  the zone file. The server app's `bumail dns` prints them per domain.
 - **`@bumail/smtp`, connection reuse** — several messages to one
   destination over one session, for the queue to deliver in batches.
 - **A blob store, apart from the mailbox store** — message bytes kept
