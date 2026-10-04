@@ -21,7 +21,7 @@ does, and which package does it.
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
 | [`@bumail/queue`](./packages/queue) | the outbound queue: each recipient's state, retries with back-off, delivery status notifications, leases for several workers, a memory, a `bun:sqlite`, a PostgreSQL and a Redis store |
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH; and, on `@bumail/smtp/client`, a client that sends it out to a smarthost or by MX |
-| [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store, a `bun:sqlite` store on disk and a PostgreSQL store for several instances (the last merged, not yet on npm) |
+| [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store, a `bun:sqlite` store on disk and a PostgreSQL store for several instances |
 
 All nine are on npm. The server app that wires them together,
 [`@bumail/server`](./packages/server), is in progress and private until
