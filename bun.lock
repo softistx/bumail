@@ -70,7 +70,7 @@
     },
     "packages/imap": {
       "name": "@bumail/imap",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "devDependencies": {
         "@bumail/mime": "workspace:^",
         "@bumail/store": "workspace:^",
@@ -121,7 +121,7 @@
     },
     "packages/queue": {
       "name": "@bumail/queue",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "devDependencies": {
         "@bumail/dns": "workspace:^",
         "@bumail/mime": "workspace:^",
@@ -166,7 +166,7 @@
     },
     "packages/smtp": {
       "name": "@bumail/smtp",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "devDependencies": {
         "@bumail/auth": "workspace:^",
         "@bumail/dns": "workspace:^",
