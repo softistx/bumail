@@ -1,6 +1,7 @@
 import type { MailStore } from '@bumail/store';
 import { ImapError } from '../errors';
 import type { ImapServerOptions } from './options';
+import { trustedPeers } from './proxy/trusted';
 
 /** The longest delay `setTimeout` takes, in whole seconds: past 2^31 − 1 ms it fires after 1 ms. */
 export const MAX_TIMER_SECONDS = Math.floor(2_147_483_647 / 1000);
@@ -34,6 +35,8 @@ export interface Settings {
 	readonly handshakeTimeout: number;
 	readonly idleInterval: number;
 	readonly hookTimeout: number;
+	/** With `proxyProtocol`: whether a peer is a proxy trusted to send a PROXY header. */
+	readonly trusts?: (peer: string) => boolean;
 }
 
 const invalid = (message: string) =>
@@ -148,5 +151,8 @@ export function settingsOf(options: ImapServerOptions): Settings {
 			60,
 			MAX_TIMER_SECONDS,
 		),
+		...(options.proxyProtocol === undefined
+			? {}
+			: { trusts: trustedPeers(options.proxyProtocol?.trusted, invalid) }),
 	};
 }

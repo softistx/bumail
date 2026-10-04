@@ -16,7 +16,7 @@ fixed part of the text.
 | Page | What it covers |
 | --- | --- |
 | [Configuration and onError](troubleshooting/configuration.md) | what `createImapServer` and `listen` throw, and the errors `onError` receives |
-| [Logging in, connections and IDLE](troubleshooting/connections.md) | LOGIN, AUTHENTICATE and STARTTLS, the `BYE`s that end a connection, the end of IDLE |
+| [Logging in, connections and IDLE](troubleshooting/connections.md) | LOGIN, AUTHENTICATE and STARTTLS, the `BYE`s that end a connection, a TCP proxy's PROXY header, the end of IDLE |
 | [Command syntax](troubleshooting/syntax.md) | the tag and the command name, the state, line and literal sizes, and the grammar every command shares |
 | [Mailboxes](troubleshooting/mailboxes.md) | mailbox names, SELECT, CREATE, DELETE, RENAME, STATUS and LIST |
 | [Messages](troubleshooting/messages.md) | APPEND, FETCH, STORE, SEARCH, COPY and MOVE, and a store call that fails |
@@ -31,6 +31,10 @@ fixed part of the text.
 - [`ImapError: createImapServer(): … must be at most …, not …`](troubleshooting/configuration.md#imaperror-createimapserver--must-be-at-most--not-)
 - [`ImapError: createImapServer(): timeout must be at least 1800 seconds (RFC 9051 §5.4), not …`](troubleshooting/configuration.md#imaperror-createimapserver-timeout-must-be-at-least-1800-seconds-rfc-9051-54-not-)
 - [`ImapError: createImapServer(): idleInterval must be a number of seconds, more than 0 and at most 2147483, not …`](troubleshooting/configuration.md#imaperror-createimapserver-idleinterval-must-be-a-number-of-seconds-more-than-0-and-at-most-2147483-not-)
+- [`ImapError: createImapServer(): proxyProtocol.trusted must list the addresses or CIDRs of the proxies, at least one`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted-must-list-the-addresses-or-cidrs-of-the-proxies-at-least-one)
+- [`ImapError: createImapServer(): proxyProtocol.trusted: "…" is neither an IP address nor a CIDR`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted--is-neither-an-ip-address-nor-a-cidr)
+- [`ImapError: createImapServer(): proxyProtocol.trusted: "…" has a prefix length out of range`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted--has-a-prefix-length-out-of-range)
+- [`ImapError: createImapServer(): proxyProtocol.trusted: … is not a string`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted--is-not-a-string)
 - [`ImapError: listen(): the server is already listening on …`](troubleshooting/configuration.md#imaperror-listen-the-server-is-already-listening-on-)
 - [`ImapError: authenticate did not settle within hookTimeout (… s)`](troubleshooting/configuration.md#imaperror-authenticate-did-not-settle-within-hooktimeout--s)
 - [`Error: authenticate answered the account "…", which the store does not have`](troubleshooting/configuration.md#error-authenticate-answered-the-account--which-the-store-does-not-have)
@@ -48,6 +52,10 @@ fixed part of the text.
 - [`BAD TLS is already on`](troubleshooting/connections.md#bad-tls-is-already-on)
 - [`* BYE [UNAVAILABLE] Too many connections, try later`](troubleshooting/connections.md#-bye-unavailable-too-many-connections-try-later)
 - [On implicit TLS, the connection closes before any greeting](troubleshooting/connections.md#on-implicit-tls-the-connection-closes-before-any-greeting)
+- [Connections through the proxy close at once, with no greeting](troubleshooting/connections.md#connections-through-the-proxy-close-at-once-with-no-greeting)
+- [A `PROXY BAD` answer, or a failed handshake on 993](troubleshooting/connections.md#a-proxy-bad-answer-or-a-failed-handshake-on-993)
+- [Every client shows the proxy's address](troubleshooting/connections.md#every-client-shows-the-proxys-address)
+- [Health checks from the proxy show its own address](troubleshooting/connections.md#health-checks-from-the-proxy-show-its-own-address)
 - [`* BYE Idle for too long, closing`](troubleshooting/connections.md#-bye-idle-for-too-long-closing)
 - [`* BYE The selected mailbox was deleted, closing`](troubleshooting/connections.md#-bye-the-selected-mailbox-was-deleted-closing)
 - [`* BYE Internal error, closing`](troubleshooting/connections.md#-bye-internal-error-closing)

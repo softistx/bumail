@@ -189,7 +189,7 @@ const server = createSmtpServer({
 	maxRecipients: 50, // per message; default 100 → 452 4.5.3
 	maxConnections: 200, // at once; default 1000 → 421 4.3.2
 	maxConnectionsPerClient: 5, // at once from one IPv4 address or IPv6 /64; default 10 → 421 4.7.0
-	handshakeTimeout: 10, // seconds to complete an implicit TLS handshake; default 10 → closed
+	handshakeTimeout: 10, // seconds to complete an implicit TLS handshake, or a proxy's PROXY header; default 10 → closed
 	maxErrors: 5, // failed commands before hanging up; default 10 → 421 4.7.0
 	timeout: 120, // idle seconds, from the client's last byte or the 220; default 300 → 421 4.4.2
 	hookTimeout: 20, // seconds a hook has to settle; default 60 → 451 4.3.0
@@ -203,6 +203,38 @@ const { port } = await server.listen({ port: 2525, hostname: '127.0.0.1' });
 console.log(`listening on ${port}, ${server.connections} open`);
 // later: server.stop(true) hangs up on every client too
 ```
+
+## Behind a TCP proxy
+
+Behind a TCP proxy such as a Traefik TCP router or HAProxy, every client
+has the proxy's address. `proxyProtocol` reads the PROXY protocol,
+versions 1 and 2, from the proxies it lists, so the server sees the
+client's address again: in `session.remoteAddress`, every hook, the
+Received field and `maxConnectionsPerClient`.
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	// The proxy's own address, or its network: never a range clients connect from.
+	proxyProtocol: { trusted: ['10.0.0.5'] },
+	onConnect: (session) => console.log('client', session.remoteAddress),
+	async onData(message) {
+		await Bun.write(`spool/${message.id}.eml`, await new Response(message.content).bytes());
+	},
+});
+
+await server.listen({ port: 25 });
+```
+
+A listed peer must send its header first, within `handshakeTimeout`
+(default 10 seconds), or it is reset without a word. A peer not listed is
+served as without the option, and a header it sends is just bad input.
+It works on 25 and 587 with STARTTLS, and on 465 with `implicitTls`. The
+[guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md#running-behind-a-tcp-proxy)
+has a Traefik configuration for all three.
 
 ## Send mail: to a smarthost, a submission server or Mailpit
 
@@ -344,6 +376,12 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
   `handshakeTimeout` (default 10 seconds) if the handshake has not
   completed; `onConnect` and the greeting come once it has. A STARTTLS
   handshake is bounded by `timeout`.
+- **A PROXY header is trusted only from the peers `proxyProtocol` lists.**
+  Any of them can claim any client address, so list the proxies' own
+  addresses only, never a range clients connect from. From anyone else,
+  the header never sets an address. A listed peer that sends no valid
+  header within `handshakeTimeout` is reset, and holds no slot of
+  `maxConnections` or `maxConnectionsPerClient` while it waits.
 - **Bounded memory.** The server holds 64 KiB of a client's input and of a
   message at most, and stops reading the client past that; replies to a
   client that reads slowly wait in the server, and none is lost while the
@@ -421,7 +459,8 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | --- | --- |
 | `createSmtpServer(options)` | the server; throws an `SmtpError` (`INVALID_OPTION`) on a bad option |
 | `SmtpServer` | `listen({ port, hostname? })` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `connections` |
-| `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits (`maxConnectionsPerClient` among them), `hookTimeout`, `handshakeTimeout`, `greetingDelay`, `onError`, and the hooks |
+| `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits (`maxConnectionsPerClient` among them), `hookTimeout`, `handshakeTimeout`, `greetingDelay`, `proxyProtocol`, `onError`, and the hooks |
+| `ProxyProtocolOptions` | `trusted`: the proxies' IPv4 and IPv6 addresses and CIDRs, the only peers whose PROXY header (v1 or v2) is read |
 | `SmtpError`, `SmtpErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and what a content stream or `onError` can get: `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `CONNECTION_LOST`, `HOOK_TIMEOUT`, `INVALID_HOOK_REPLY`, `MESSAGE_NOT_READ`; `sendMail`'s are listed below. `temporary`, `reply` and `rejected` are set for `sendMail`'s errors |
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |
 | `HookResult` | what a hook returns: `undefined` to accept, a `Reply` to refuse |
@@ -460,6 +499,6 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 These pages ship in the package, under `docs/`.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/README.md): the pages, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md): the session and every reply, hooks and their order, `Session.data`, what `onData` receives, TLS, sending mail with the client and trying it with Mailpit, the RFCs implemented and what is not.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md): the session and every reply, hooks and their order, `Session.data`, what `onData` receives, TLS, running behind a TCP proxy, sending mail with the client and trying it with Mailpit, the RFCs implemented and what is not.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/troubleshooting.md): every error, the replies a client reports, and every error `sendMail` rejects with.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/roadmap.md): what is coming, and what is not planned.

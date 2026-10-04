@@ -17,6 +17,7 @@ export { clientKey } from './server/client-key';
 export type {
 	Envelope,
 	HookResult,
+	ProxyProtocolOptions,
 	ReceivedMessage,
 	Session,
 	SmtpHooks,

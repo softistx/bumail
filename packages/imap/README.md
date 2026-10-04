@@ -83,7 +83,7 @@ authentication.
 | `maxLiteralSize` | 64 KiB | the largest literal of any other command |
 | `timeout` | 1800 s | idle seconds before the server hangs up; at least 1800 (RFC 9051 §5.4) |
 | `loginTimeout` | 60 s | from the greeting to logged in, however much the client sends |
-| `handshakeTimeout` | 10 s | on implicit TLS, from the TCP connection to the end of the TLS handshake; past it the socket is closed |
+| `handshakeTimeout` | 10 s | on implicit TLS, from the TCP connection to the end of the TLS handshake; with `proxyProtocol`, also for a trusted proxy's header; past it the socket is closed |
 | `idleInterval` | 10 s | between two looks at the store during IDLE |
 | `hookTimeout` | 60 s | for `authenticate` to settle |
 
@@ -109,6 +109,28 @@ sockets that connect and never send a ClientHello cannot fill the server:
 await createImapServer({ ...options, implicitTls: true, handshakeTimeout: 10 }).listen({ port: 993 });
 ```
 
+## Behind a TCP proxy
+
+A TCP proxy, such as a Traefik TCP router or HAProxy, hides the client:
+the server sees the proxy's address. With `proxyProtocol`, the proxies
+listed in `trusted` send a PROXY protocol header (version 1 or 2) first,
+and `session.remoteAddress`, for `authenticate` and `onError`, is the
+client's address again. Off by default.
+
+```ts
+// The proxy at 10.0.0.5 sends a PROXY header; anyone else is served as before.
+const proxyProtocol = { trusted: ['10.0.0.5'] };
+
+await createImapServer({ ...options, proxyProtocol }).listen({ port: 143 });
+await createImapServer({ ...options, implicitTls: true, proxyProtocol }).listen({ port: 993 });
+```
+
+A trusted proxy must send a valid header within `handshakeTimeout`, or
+its connection is reset without a word. The proxy passes TLS through:
+on 993 the server still holds the certificate. The
+[guide](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/guide.md#running-behind-a-tcp-proxy)
+has the Traefik configuration and every case.
+
 ## Traps
 
 - **LOGIN only after TLS.** On a clear connection the server advertises
@@ -127,6 +149,9 @@ await createImapServer({ ...options, implicitTls: true, handshakeTimeout: 10 }).
   says. A password longer than that goes through AUTHENTICATE PLAIN.
 - **MOVE into the selected mailbox is OK and changes nothing:** no
   `EXPUNGE`, the same UIDs.
+- **`trusted` lists the proxies, nothing else.** A peer listed there can
+  claim any client address. Never list a range clients connect from, nor
+  `0.0.0.0/0` on a public port: `trusted: ['10.0.0.5']`.
 
 ## API
 
@@ -134,19 +159,20 @@ await createImapServer({ ...options, implicitTls: true, handshakeTimeout: 10 }).
 | --- | --- |
 | `createImapServer(options)` | the server; throws an `ImapError` (`INVALID_OPTION`) on a bad option |
 | `ImapServer` | `listen({ port, hostname? })`, which resolves to the bound `{ port, hostname }` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `notify(accountId)` to wake the account's IDLE sessions, `connections`, the number of open connections |
-| `ImapServerOptions` | `hostname`, `store`, `tls`, `implicitTls`, `authenticate`, the limits above, `onError` |
+| `ImapServerOptions` | `hostname`, `store`, `tls`, `implicitTls`, `authenticate`, the limits above, `proxyProtocol`, `onError` |
 | `ImapSession` | what `authenticate` and `onError` receive: `id`, `remoteAddress`, `secure`, `user`, `accountId`, and `data` for your own state |
 | `AuthResult` | what `authenticate` answers: an account id, or `null` / `undefined` to refuse |
 | `Credentials` | what `authenticate` receives: `mechanism` (`LOGIN` or `PLAIN`), `username`, `password`, `authorizationId?` |
 | `TlsOptions` | `key` and `cert`, as `Bun.listen` takes them |
+| `ProxyProtocolOptions` | `trusted`: the IPv4 and IPv6 addresses and CIDRs of the proxies whose PROXY header is read |
 | `ImapError`, `ImapErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and `HOOK_TIMEOUT`, which `onError` gets |
 | `encodeUtf7(name)`, `decodeUtf7(name)` | mailbox names to and from modified UTF-7 (RFC 3501 §5.1.3), as IMAP4rev1 clients write them |
 
 ## Documentation
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/README.md): the pages, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/guide.md): the session, every command, how the store maps to IMAP, IDLE and `notify`, the RFCs followed and what is not.
-- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/troubleshooting.md): every error, and the responses a client reports, by their exact text, split into configuration, logging in, syntax, mailboxes and messages.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/guide.md): the session, every command, how the store maps to IMAP, IDLE and `notify`, running behind a TCP proxy, the RFCs followed and what is not.
+- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/troubleshooting.md): every error, and the responses a client reports, by their exact text, split into configuration, logging in and connections (a proxy's included), syntax, mailboxes and messages.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/imap/docs/roadmap.md): what is coming — CONDSTORE, QRESYNC, UIDPLUS, BINARY — and what is not planned.
 
 ## License

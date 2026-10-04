@@ -5,6 +5,7 @@ export type {
 	AuthResult,
 	ImapServerOptions,
 	ImapSession,
+	ProxyProtocolOptions,
 	TlsOptions,
 } from './server/options';
 export { createImapServer, type ImapServer } from './server/server';

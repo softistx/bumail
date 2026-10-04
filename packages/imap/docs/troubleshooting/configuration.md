@@ -76,6 +76,50 @@ that never log in, set `loginTimeout` instead.
 a fraction (`0.5`), but not 0. To have new mail arrive at once, call
 `server.notify(accountId)` rather than polling faster.
 
+## `ImapError: createImapServer(): proxyProtocol.trusted must list the addresses or CIDRs of the proxies, at least one`
+
+`proxyProtocol` was given without `trusted`, with an empty list, or with
+something other than an array. A list that trusts nobody would read no
+header at all. Name the proxies' own addresses, or leave `proxyProtocol`
+out to serve every peer directly:
+
+```ts
+proxyProtocol: { trusted: ['10.0.0.5'] },
+```
+
+## `ImapError: createImapServer(): proxyProtocol.trusted: "…" is neither an IP address nor a CIDR`
+
+An entry of `trusted` is an IPv4 or IPv6 address (`10.0.0.5`,
+`2001:db8::5`) or a CIDR (`10.0.0.0/24`, `2001:db8::/64`). A host name
+such as `proxy.internal`, a trailing slash (`10.0.0.0/`) or two prefixes
+(`10.0.0.0/8/8`) is refused: the list is compared with the peer's TCP
+address, and no name is looked up. Write the address the server sees the
+proxy connect from:
+
+```ts
+proxyProtocol: { trusted: ['10.0.0.5', '2001:db8::5'] },
+```
+
+## `ImapError: createImapServer(): proxyProtocol.trusted: "…" has a prefix length out of range`
+
+A prefix is 0 to 32 for IPv4 and 0 to 128 for IPv6. An IPv4-mapped
+network counts the 96 bits of its `::ffff:` part: `::ffff:10.0.0.0/8` is
+refused, `::ffff:10.0.0.0/104` is `10.0.0.0/8`. Write the IPv4 form, which
+an IPv4-mapped peer also matches:
+
+```ts
+proxyProtocol: { trusted: ['10.0.0.0/8'] },
+```
+
+## `ImapError: createImapServer(): proxyProtocol.trusted: … is not a string`
+
+Every entry of `trusted` is a string. A number, or a list nested in the
+list, is refused:
+
+```ts
+proxyProtocol: { trusted: ['10.0.0.5'] }, // not [10] nor [['10.0.0.5']]
+```
+
 ## `ImapError: listen(): the server is already listening on …`
 
 A server listens once. For 143 and 993, create two servers from the same

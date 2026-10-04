@@ -105,6 +105,12 @@ export interface TlsOptions {
 	readonly cert: string | Uint8Array | Bun.BunFile;
 }
 
+/** Where the PROXY protocol is read from: see `proxyProtocol`. */
+export interface ProxyProtocolOptions {
+	/** The proxies' addresses or CIDRs, IPv4 or IPv6: `['10.0.0.5', '172.16.0.0/12']`. */
+	readonly trusted: readonly string[];
+}
+
 export interface SmtpServerOptions extends SmtpHooks {
 	/** The server's own name, in its greeting, its EHLO reply and its Received fields. */
 	readonly hostname: string;
@@ -158,12 +164,27 @@ export interface SmtpServerOptions extends SmtpHooks {
 	/** Idle time before the server hangs up, in seconds; any byte from the client starts it again. Default 300, RFC 5321 §4.5.3.2.7's. */
 	readonly timeout?: number;
 	/**
+	 * Reads the PROXY protocol (versions 1 and 2) from the proxies listed in
+	 * `trusted` — IPv4 and IPv6 addresses and CIDRs — so the server sees
+	 * the client's address, not the proxy's: in `session.remoteAddress`,
+	 * `maxConnectionsPerClient`, `onConnect` and the Received field. A
+	 * trusted peer must send its header first, within `handshakeTimeout`,
+	 * or it is closed without a word; any other peer is served as without
+	 * this option, and a header it sends is just bad input. List only the
+	 * proxies' own addresses: any peer listed can claim any address. Off by
+	 * default.
+	 */
+	readonly proxyProtocol?: ProxyProtocolOptions;
+	/**
 	 * Seconds a client on implicit TLS has to complete its handshake, from
 	 * the TCP connection on; past it, the socket is closed without a word.
 	 * The socket holds its slot of `maxConnections` and
 	 * `maxConnectionsPerClient` meanwhile. Bun's socket timer ticks in steps
 	 * of about 4 s, so the close comes up to that much later. A STARTTLS
-	 * handshake is bounded by `timeout`. Default 10.
+	 * handshake is bounded by `timeout`. With `proxyProtocol`, it also bounds a
+	 * trusted proxy's PROXY header, from the TCP connection on, to the
+	 * millisecond; behind the header, implicit TLS has as long again.
+	 * Default 10.
 	 */
 	readonly handshakeTimeout?: number;
 	/**

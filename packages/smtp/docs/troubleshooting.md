@@ -24,6 +24,10 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: createSmtpServer(): hookTimeout must be at most 2147483 seconds, not …`](#smtperror-createsmtpserver-hooktimeout-must-be-at-most-2147483-seconds-not-)
 - [`SmtpError: createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not …`](#smtperror-createsmtpserver-greetingdelay-must-be-a-number-of-seconds-0-or-more-not-)
 - [`SmtpError: createSmtpServer(): greetingDelay (… s) must be shorter than timeout (… s), or every client times out before the greeting`](#smtperror-createsmtpserver-greetingdelay--s-must-be-shorter-than-timeout--s-or-every-client-times-out-before-the-greeting)
+- [`SmtpError: createSmtpServer(): proxyProtocol.trusted must list the addresses or CIDRs of the proxies, at least one`](#smtperror-createsmtpserver-proxyprotocoltrusted-must-list-the-addresses-or-cidrs-of-the-proxies-at-least-one)
+- [`SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" is neither an IP address nor a CIDR`](#smtperror-createsmtpserver-proxyprotocoltrusted--is-neither-an-ip-address-nor-a-cidr)
+- [`SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" has a prefix length out of range`](#smtperror-createsmtpserver-proxyprotocoltrusted--has-a-prefix-length-out-of-range)
+- [`SmtpError: createSmtpServer(): proxyProtocol.trusted: … is not a string`](#smtperror-createsmtpserver-proxyprotocoltrusted--is-not-a-string)
 - [`SmtpError: listen(): the server is already listening on …`](#smtperror-listen-the-server-is-already-listening-on-)
 
 **Relaying and authentication**
@@ -85,6 +89,10 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
 - [`421 4.7.0 … Too many connections from your address, try later`](#421-470--too-many-connections-from-your-address-try-later)
 - [On implicit TLS, the connection closes before any greeting](#on-implicit-tls-the-connection-closes-before-any-greeting)
+- [Connections through the proxy close at once, with no greeting](#connections-through-the-proxy-close-at-once-with-no-greeting)
+- [Every client through the proxy is refused with `554 … Talked before the greeting`](#every-client-through-the-proxy-is-refused-with-554--talked-before-the-greeting)
+- [Every client shows the proxy's address](#every-client-shows-the-proxys-address)
+- [Health checks from the proxy show its own address](#health-checks-from-the-proxy-show-its-own-address)
 - [`421 4.4.2 … Idle too long, closing`](#421-442--idle-too-long-closing)
 - [`554 … Talked before the greeting`](#554--talked-before-the-greeting)
 
@@ -403,6 +411,108 @@ createSmtpServer({
 	localDomains: ['example.com'],
 	greetingDelay: 6,
 	timeout: 300,
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+### `SmtpError: createSmtpServer(): proxyProtocol.trusted must list the addresses or CIDRs of the proxies, at least one`
+
+**When**: `proxyProtocol` is set without `trusted`, with an empty array, or
+with something that is not an array — a single string included.
+
+**Why**: `trusted` names the only peers whose PROXY header is read. Empty,
+it would trust nobody, which is no proxy at all; a server not behind a
+proxy leaves `proxyProtocol` out.
+
+**Fix**: list the proxy's own address, in an array:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	proxyProtocol: { trusted: ['10.0.0.5'] }, // not trusted: '10.0.0.5'
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+### `SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" is neither an IP address nor a CIDR`
+
+**When**: an entry of `trusted` is a host name (`traefik`), an address with
+a port (`10.0.0.5:25`), a malformed address, or holds more than one `/`.
+`…` is the entry.
+
+**Why**: the server matches the TCP address a connection comes from; it
+resolves no name, since a name could resolve to anything later.
+
+**Fix**: give the proxy's IP address, or its network as a CIDR. In a
+container network, give the proxy a fixed address and list that:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	proxyProtocol: { trusted: ['172.20.0.2', 'fd00:20::2'] },
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+### `SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" has a prefix length out of range`
+
+**When**: an entry's prefix is past 32 for IPv4 (`10.0.0.0/33`) or 128 for
+IPv6, is empty or not a number (`10.0.0.0/`, `10.0.0.0/8a`), or is below
+96 for an IPv4-mapped address (`::ffff:10.0.0.0/8`).
+
+**Why**: an IPv4-mapped entry is taken as its IPv4 address, and its
+prefix counts over the whole IPv6 address, the 96 bits of `::ffff:`
+first: `::ffff:10.0.0.0/104` is `10.0.0.0/8`.
+
+**Fix**: write an IPv4 network as IPv4; it matches mapped peers too:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	proxyProtocol: { trusted: ['10.0.0.0/24'] }, // matches ::ffff:10.0.0.5 as well
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+### `SmtpError: createSmtpServer(): proxyProtocol.trusted: … is not a string`
+
+**When**: an entry of `trusted` is not a string: a number, `null`,
+`undefined`, an object. `…` is the value.
+
+**Why**: each entry is an address or a CIDR, written as text.
+
+**Fix**: write each entry as a string, and filter out what is not set when
+the list comes from the environment:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const trusted = (Bun.env['SMTP_TRUSTED_PROXIES'] ?? '')
+	.split(',')
+	.map((entry) => entry.trim())
+	.filter((entry) => entry !== '');
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	...(trusted.length > 0 ? { proxyProtocol: { trusted } } : {}),
 	onData: async (message) => {
 		await new Response(message.content).bytes();
 	},
@@ -1443,6 +1553,133 @@ const server = createSmtpServer({
 });
 ```
 
+### Connections through the proxy close at once, with no greeting
+
+**When**: a client connecting through a TCP proxy gets no `220`, and the
+connection closes without a reply — at once, or `handshakeTimeout` seconds
+(10 by default) after it opened. `onConnect` is not called, `onError` is
+told nothing, and `connections` does not count the socket.
+
+**Why**: the server trusts the proxy (`proxyProtocol.trusted` lists it),
+so it waits for a PROXY header first, and resets a socket whose header is
+missing, late or not valid, writing nothing. Usually:
+
+- the proxy is not configured to send the header at all, so the client's
+  bytes, or nothing, come first;
+- it sends a version 1 line longer than 107 bytes, or a version 2 header
+  with more than 2048 bytes of TLVs;
+- something other than the proxy connects from a listed address, a health
+  checker that opens a bare TCP connection for instance.
+
+On an `implicitTls` port, the reverse also closes at once: the proxy sends
+a header to a server that does not trust it, and the header is not a TLS
+ClientHello, so the handshake fails.
+
+**Fix**: send the header from the proxy (with Traefik, `proxyProtocol:
+{ version: 2 }` on the TCP service), and list the proxy on the server. Both
+sides together, or neither:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	proxyProtocol: { trusted: ['10.0.0.5'] }, // the address the proxy connects from
+	handshakeTimeout: 10, // the header must arrive within it
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+The [guide](guide.md#with-traefik) has a Traefik configuration.
+
+### Every client through the proxy is refused with `554 … Talked before the greeting`
+
+**When**: on a clear port (25, 587), every connection through the proxy
+gets `554 … Talked before the greeting`, and the server sees every client
+with the proxy's address. When the header came after the greeting, the
+client gets replies to input it never sent instead: `500` to a version 1
+line starting `PROXY`, error replies to the binary of a version 2 header.
+
+**Why**: the proxy sends a PROXY header, but the server does not trust it:
+`proxyProtocol` is not set, or `trusted` does not list the address the
+proxy connects from. To a peer not listed, the header is the client's own
+input, sent before the greeting, and it never sets an address.
+
+**Fix**: list the proxy's address in `proxyProtocol.trusted`, as the
+address the server sees it connect from; see the next entry for how to
+find it.
+
+### Every client shows the proxy's address
+
+**When**: `session.remoteAddress`, the Received field and
+`maxConnectionsPerClient` see one address, the proxy's, for every client:
+one more client past `maxConnectionsPerClient` is refused with `421 4.7.0
+… Too many connections from your address, try later`.
+
+**Why**: the server is not reading a PROXY header from that peer. Either
+the proxy sends none — the server then serves its connections as any
+other's — or the server does not list it, and the header it sends is
+refused as bad input (the entry above). A common case is a proxy that
+connects from another address than the one listed: another container
+network, an IPv6 address, or a new address after a restart. An
+IPv4-mapped peer (`::ffff:172.20.0.2`) matches an IPv4 entry; it needs no
+entry of its own.
+
+**Fix**: log the peer the server sees, then list exactly that address —
+not the range clients come from:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	// Without proxyProtocol, every connection through the proxy shows its address.
+	onConnect: (session) => console.log('peer', session.remoteAddress),
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
+Then configure the proxy to send the header, and set
+`proxyProtocol: { trusted: ['<that address>'] }`.
+
+### Health checks from the proxy show its own address
+
+**When**: with `proxyProtocol` set and working, some connections still have
+the proxy's address in `session.remoteAddress`: they open and close
+without a transaction, at a steady pace.
+
+**Why**: by design. The proxy's own connections — health checks — come
+with a version 2 `LOCAL` header, which names no client, so the server
+keeps the peer's address, the proxy's. So do a v1 `PROXY UNKNOWN` and a
+v2 header with an UNSPEC or UNIX address, or over UDP.
+
+**Fix**: none needed. To keep them out of your logs or your policy, skip
+the proxy's address in `onConnect`:
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const proxies = ['10.0.0.5'];
+
+createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	proxyProtocol: { trusted: proxies },
+	onConnect: (session) => {
+		if (!proxies.includes(session.remoteAddress)) console.log('client', session.remoteAddress);
+	},
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+```
+
 ### `421 4.4.2 … Idle too long, closing`
 
 **When**: nothing came from the client for `timeout` seconds (300 by
@@ -1496,7 +1733,9 @@ client library does; a hand-written client or a test script may not.
 
 **Fix**, as the operator: if a legitimate sender is refused, lower
 `greetingDelay`, or leave it at `0`; a test client that writes at once
-needs it at `0`.
+needs it at `0`. If every client through a TCP proxy gets it, the proxy
+sends a PROXY header the server does not trust: see
+[that entry](#every-client-through-the-proxy-is-refused-with-554--talked-before-the-greeting).
 
 ## Sending mail: options
 

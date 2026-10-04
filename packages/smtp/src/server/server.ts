@@ -1,10 +1,24 @@
+import { createSecureContext, type SecureContext } from 'node:tls';
 import type { Socket, TCPSocketListener } from 'bun';
 import { SmtpError } from '../errors';
+import { listenerHandlers } from './admission';
 import type { Connection } from './connection';
-import { handlers, listenerHandlers, type SocketState } from './listener';
-import type { SmtpServerOptions } from './options';
+import { handlers, type SocketState } from './listener';
+import type { SmtpServerOptions, TlsOptions } from './options';
 import { settingsOf } from './settings';
 import { Slots } from './slots';
+
+/** The `node:tls` context implicit TLS behind a proxy runs on: `tls` read whole, files included. */
+async function proxyContext(tls: TlsOptions): Promise<SecureContext> {
+	const read = async (value: TlsOptions['key']) =>
+		typeof value === 'string'
+			? value
+			: Buffer.from(value instanceof Uint8Array ? value : await value.bytes());
+	return createSecureContext({
+		key: await read(tls.key),
+		cert: await read(tls.cert),
+	});
+}
 
 export interface SmtpServer {
 	/** Starts listening; resolves once the port is bound. Once only: a second call throws. */
@@ -44,15 +58,26 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 					`listen(): the server is already listening on ${listener.hostname}:${listener.port}`,
 				);
 			}
+			// Implicit TLS behind a proxy: a clear listener, TLS after the header.
+			const proxied =
+				secure && options.tls && settings.trusts
+					? await proxyContext(options.tls)
+					: undefined;
 			listener = Bun.listen<SocketState>({
 				hostname,
 				port,
-				...(secure && options.tls
+				...(secure && options.tls && !proxied
 					? { tls: { key: options.tls.key, cert: options.tls.cert } }
 					: {}),
 				socket: {
 					...handlers(settings),
-					...listenerHandlers(settings, slots, handshaking, secure),
+					...listenerHandlers({
+						settings,
+						slots,
+						handshaking,
+						secure,
+						...(proxied ? { proxied } : {}),
+					}),
 				},
 			});
 			return { port: listener.port, hostname: listener.hostname };

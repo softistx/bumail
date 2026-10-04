@@ -79,7 +79,7 @@ export class Client {
 		return this.answer(tag);
 	}
 
-	write(text: string): void {
+	write(text: string | Uint8Array): void {
 		this.#socket.write(text);
 	}
 

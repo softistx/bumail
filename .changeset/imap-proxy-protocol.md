@@ -1,0 +1,5 @@
+---
+"@bumail/imap": minor
+---
+
+The server reads the PROXY protocol, versions 1 and 2, so it can sit behind a TCP proxy such as a Traefik TCP router with `proxyProtocol`. Off by default: `proxyProtocol: { trusted: [...] }` lists the proxies' IPv4 and IPv6 addresses and CIDRs (an IPv4-mapped peer matches as its IPv4 address). A trusted peer must send a valid header first, within `handshakeTimeout`, or it is closed without a word and nothing is reported; a v1 line is at most 107 bytes, v2 TLVs at most 2048 bytes, and TLVs are skipped. A v2 `PROXY` over TCP on IPv4 or IPv6 names the client; `LOCAL` (a health check), `UNSPEC`, UNIX and v1 `UNKNOWN` keep the peer's address. The client's address then reaches `session.remoteAddress`, for `authenticate` and `onError`; a socket awaiting its header holds no slot of `maxConnections`. A peer not listed is served as before, and a header it sends is bad input that never sets an address. On implicit TLS, the header comes before the ClientHello: with `proxyProtocol`, the port listens in clear and runs TLS through `node:tls` once the header is read, for every client. `ProxyProtocolOptions` is exported.

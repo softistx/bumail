@@ -1,14 +1,23 @@
+import { createSecureContext, type SecureContext } from 'node:tls';
 import type { Socket, TCPSocketListener } from 'bun';
 import { ImapError } from '../errors';
+import { listenerHandlers } from './admission';
 import type { Connection } from './connection';
-import {
-	handlers,
-	listenerHandlers,
-	type SocketState,
-	stateOf,
-} from './listener';
-import type { ImapServerOptions } from './options';
+import { handlers, type SocketState, stateOf } from './listener';
+import type { ImapServerOptions, TlsOptions } from './options';
 import { settingsOf } from './settings';
+
+/** The `node:tls` context implicit TLS behind a proxy runs on: `tls` read whole, files included. */
+async function proxyContext(tls: TlsOptions): Promise<SecureContext> {
+	const read = async (value: TlsOptions['key']) =>
+		typeof value === 'string'
+			? value
+			: Buffer.from(value instanceof Uint8Array ? value : await value.bytes());
+	return createSecureContext({
+		key: await read(tls.key),
+		cert: await read(tls.cert),
+	});
+}
 
 export interface ImapServer {
 	/** Starts listening; resolves once the port is bound. Once only: a second call throws. */
@@ -57,15 +66,24 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 					`listen(): the server is already listening on ${listener.hostname}:${listener.port}`,
 				);
 			}
+			// Implicit TLS behind a proxy: a clear listener, TLS after the header.
+			const proxied =
+				secure && settings.trusts ? await proxyContext(options.tls) : undefined;
 			listener = Bun.listen<SocketState>({
 				hostname,
 				port,
-				...(secure
+				...(secure && !proxied
 					? { tls: { key: options.tls.key, cert: options.tls.cert } }
 					: {}),
 				socket: {
 					...handlers(settings),
-					...listenerHandlers(settings, open, handshaking, secure),
+					...listenerHandlers({
+						settings,
+						open,
+						handshaking,
+						secure,
+						...(proxied ? { proxied } : {}),
+					}),
 				},
 			});
 			return { port: listener.port, hostname: listener.hostname };

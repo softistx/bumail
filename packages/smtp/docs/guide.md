@@ -1,8 +1,9 @@
 # Guide
 
 How to run `@bumail/smtp` and what it does on the wire: the session and its
-replies, the hooks, what a delivered message looks like, TLS, sending mail
-with the client, and the RFCs behind each behaviour.
+replies, the hooks, what a delivered message looks like, TLS, running
+behind a TCP proxy, sending mail with the client, and the RFCs behind each
+behaviour.
 
 - [The smallest server](#the-smallest-server)
 - [Options](#options)
@@ -15,6 +16,7 @@ with the client, and the RFCs behind each behaviour.
 - [Authentication](#authentication)
 - [TLS](#tls)
 - [Limits](#limits)
+- [Running behind a TCP proxy](#running-behind-a-tcp-proxy)
 - [Sending mail: the client](#sending-mail-the-client)
 - [Protocol helpers](#protocol-helpers)
 - [The RFCs implemented](#the-rfcs-implemented)
@@ -69,7 +71,8 @@ export interface SmtpServer {
 | `maxRecipients` | `number` | `100` | recipients per message |
 | `maxConnections` | `number` | `1000` | open connections at once |
 | `maxConnectionsPerClient` | `number` | `10` | open connections at once from one client: an IPv4 address, or an IPv6 /64; see [Limits](#limits) |
-| `handshakeTimeout` | `number` | `10` | seconds a client on implicit TLS has to complete its handshake, from the TCP connection on; past it, the socket is closed. See [TLS](#tls) |
+| `handshakeTimeout` | `number` | `10` | seconds a client on implicit TLS has to complete its handshake, from the TCP connection on; past it, the socket is closed. See [TLS](#tls). With `proxyProtocol`, also the seconds a trusted proxy has to send its PROXY header; see [Running behind a TCP proxy](#running-behind-a-tcp-proxy) |
+| `proxyProtocol` | `{ trusted: string[] }` | none, off | reads the PROXY protocol, v1 and v2, from the peers `trusted` lists (IPv4 and IPv6 addresses and CIDRs), so the client's address replaces the proxy's; see [Running behind a TCP proxy](#running-behind-a-tcp-proxy) |
 | `maxErrors` | `number` | `10` | failed commands before the server hangs up |
 | `timeout` | `number` | `300` | seconds since the client's last byte, or since the 220, before the server hangs up |
 | `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0`. At most 2 147 483, what a timer can wait |
@@ -115,6 +118,10 @@ await server.listen({ port: 25 });
 | `createSmtpServer(): hookTimeout must be at most 2147483 seconds, not <value>` | `hookTimeout` past what `setTimeout` can wait (about 24.8 days) |
 | `createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not <value>` | `greetingDelay` negative, `NaN` or `Infinity` |
 | `createSmtpServer(): greetingDelay (<n> s) must be shorter than timeout (<n> s), or every client times out before the greeting` | `greetingDelay` as long as `timeout`, or longer |
+| `createSmtpServer(): proxyProtocol.trusted must list the addresses or CIDRs of the proxies, at least one` | `proxyProtocol` without `trusted`, with an empty one, or one that is not an array |
+| `createSmtpServer(): proxyProtocol.trusted: "<entry>" is neither an IP address nor a CIDR` | an entry that is a host name, a malformed address, or has more than one `/` |
+| `createSmtpServer(): proxyProtocol.trusted: "<entry>" has a prefix length out of range` | a prefix past 32 for IPv4 or 128 for IPv6, not a number, or below 96 for an IPv4-mapped address (`::ffff:10.0.0.0/8`) |
+| `createSmtpServer(): proxyProtocol.trusted: <value> is not a string` | an entry that is a number, `null`, an object |
 
 `listen` a second time throws an `SmtpError` with `code:
 'ALREADY_LISTENING'`: create another server for another port.
@@ -834,6 +841,10 @@ unless the listener has a `handshake` handler; with one, `open` comes at
 the TCP connection and the socket's timer runs during the handshake. The
 server sets one for that reason.
 
+Behind a TCP proxy that sends the PROXY protocol, implicit TLS starts after
+the proxy's header, and runs differently: see
+[Running behind a TCP proxy](#running-behind-a-tcp-proxy).
+
 An MX takes mail in clear as well as encrypted: senders on the Internet that
 cannot do TLS still deliver. Whether to refuse them is policy — check
 `session.secure` in a hook:
@@ -905,7 +916,7 @@ await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 
 | `maxRecipients` | 100, the least RFC 5321 §4.5.3.1.8 asks a server to take | `452 4.5.3` for each extra recipient (RFC 5321 §4.5.3.1.10); the client sends the rest in another transaction |
 | `maxConnections` | 1000 | `421 4.3.2` and the server hangs up, before the greeting and before `onConnect` |
 | `maxConnectionsPerClient` | 10 | `421 4.7.0 <hostname> Too many connections from your address, try later` and the server hangs up, before the greeting and before `onConnect` |
-| `handshakeTimeout` | 10 seconds, on implicit TLS; ticks of about 4 s, as `timeout` | the socket is closed without a reply: there is no TLS to write one on |
+| `handshakeTimeout` | 10 seconds, on implicit TLS; ticks of about 4 s, as `timeout`. For a trusted proxy's PROXY header, to the millisecond | the socket is closed without a reply: there is no TLS to write one on, and a proxy's socket has no client yet |
 | `maxErrors` | 10 | `421 4.7.0` and the server hangs up |
 | `timeout` | 300 seconds, RFC 5321 §4.5.3.2.7's, counted from the client's last byte, or from the 220; Bun's socket timer ticks in steps of about 4 s, so the hang-up comes up to that much later | `421 4.4.2` and the server hangs up |
 | `hookTimeout` | 60 seconds | `451 4.3.0` for that command; `onError` gets an `SmtpError` `HOOK_TIMEOUT` |
@@ -1025,7 +1036,9 @@ TLS buffer. So a `221` behind replies that are never read holds the slot
 Stop a server with `stop()`; `stop(true)` also hangs up on every client,
 those moved to TLS by STARTTLS included, as the idle timeout does; a
 socket still in its implicit TLS handshake is reset, with no 421, having
-no TLS to write one on. `connections` counts the clients currently connected:
+no TLS to write one on, and so is a socket still awaiting a proxy's PROXY
+header, nothing written and nothing passed to `onError`. `connections`
+counts the clients currently connected:
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';
@@ -1044,6 +1057,317 @@ process.on('SIGTERM', () => {
 	server.stop(true);
 });
 ```
+
+## Running behind a TCP proxy
+
+`proxyProtocol` lets the server sit behind a TCP proxy — a Traefik TCP
+router, HAProxy, a cloud load balancer — and still see each client's own
+address, as the proxy reports it with the PROXY protocol (HAProxy's
+`proxy-protocol.txt`, versions 1 and 2):
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	proxyProtocol: { trusted: ['10.0.0.5'] },
+	onConnect: (session) => console.log('client', session.remoteAddress), // the client's, not 10.0.0.5
+	async onData(message) {
+		await Bun.write(`spool/${message.id}.eml`, await new Response(message.content).bytes());
+	},
+});
+
+await server.listen({ port: 25 });
+```
+
+```ts
+export interface ProxyProtocolOptions {
+	/** The proxies' addresses or CIDRs, IPv4 or IPv6: `['10.0.0.5', '172.16.0.0/12']`. */
+	readonly trusted: readonly string[];
+}
+
+export interface SmtpServerOptions {
+	// …
+	readonly proxyProtocol?: ProxyProtocolOptions; // off by default
+	readonly handshakeTimeout?: number; // also bounds a trusted proxy's header; default 10
+}
+```
+
+- [Who is trusted](#who-is-trusted)
+- [The header, and `handshakeTimeout`](#the-header-and-handshaketimeout)
+- [Which address the client gets](#which-address-the-client-gets)
+- [STARTTLS on 25 and 587](#starttls-on-25-and-587)
+- [Implicit TLS on 465, behind a proxy](#implicit-tls-on-465-behind-a-proxy)
+- [With Traefik](#with-traefik)
+
+### Who is trusted
+
+`trusted` lists the peers whose header is read: IPv4 and IPv6 addresses,
+and CIDRs of either. A peer is the TCP address the connection comes from,
+the proxy's.
+
+| Entry | Trusts |
+| --- | --- |
+| `'10.0.0.5'`, `'2001:db8::5'` | that address alone |
+| `'172.20.0.0/16'`, `'2001:db8:1::/48'` | every address in the network |
+| `'::ffff:10.0.0.5'` | `10.0.0.5`: an IPv4-mapped entry is its IPv4 address |
+| `'::ffff:10.0.0.0/104'` | `10.0.0.0/8`: a mapped CIDR counts its prefix over the whole IPv6 address, so 96 and up |
+
+A peer reported IPv4-mapped (`::ffff:10.0.0.5`), as a listener on `::`
+sees an IPv4 client, matches as its IPv4 address, so `'10.0.0.5'` covers
+both. A zone suffix (`fe80::1%eth0`) is ignored. A bad entry throws an
+`SmtpError` (`INVALID_OPTION`) from `createSmtpServer`; the messages are in
+[Options](#options).
+
+**List the proxies' own addresses, and nothing else.** A trusted peer can
+claim any client address it likes, and every check that uses the address
+— `maxConnectionsPerClient`, your `onConnect` policy, the Received field —
+believes it. Never list a range clients connect from, and never
+`0.0.0.0/0` or `::/0` on a port the Internet reaches. A container network
+is safe to list only when nothing but the proxy reaches the server
+through it.
+
+A peer not listed is served exactly as without the option. A PROXY header
+it sends is just bad input and never sets an address: after the greeting,
+`PROXY …` is a command the server does not know (`500`); before it, the
+client talked first (`554 <hostname> Talked before the greeting`). On
+implicit TLS the header is not a ClientHello: the handshake fails and the
+socket is closed.
+
+### The header, and `handshakeTimeout`
+
+A trusted peer must send a valid header first, before any byte of the
+client's, and all of it within `handshakeTimeout` seconds (default 10) of
+the TCP connection. That bound is a timer of its own, to the millisecond,
+not Bun's socket timer with its 4-second ticks; a header trickled a byte at
+a time does not stretch it. Past it, or on a header that is not valid, the
+socket is reset:
+
+- nothing is written to it, not even a `421`;
+- `onConnect` is never called, and `onError` is told nothing;
+- the proxy's address is never taken for a client's.
+
+While it waits for its header, a socket holds no slot of `maxConnections`
+nor of `maxConnectionsPerClient`: it is counted, by the client's address,
+once the header named it. `stop(true)` resets the sockets still awaiting
+their header, writing nothing and calling no `onError`.
+
+What is read, and what is refused:
+
+| Header | Refused when |
+| --- | --- |
+| v1, `PROXY TCP4 …`, `PROXY TCP6 …`, `PROXY UNKNOWN …` | the line, CRLF included, is longer than 107 bytes; it does not end in CRLF; it holds a byte that is not printable ASCII; the protocol is none of the three; an address or a port is malformed, or of the other family than `TCP4` or `TCP6` says |
+| v2, the 12-byte signature, then version 2 | the TLVs (the extensions after the addresses) announce more than 2048 bytes — refused from the first 16 bytes, before any of it is waited for; a TLV runs past the end of the block; the command, family or transport is unknown; the address block is shorter than its family needs |
+
+TLVs are checked for their shape, then skipped: the server reads none,
+SSL and authority included.
+
+What the client sent in the same segment as the header, behind it, is the
+client's own. On a clear port that is bytes sent before the greeting, so
+the client is refused with `554 <hostname> Talked before the greeting`, as
+it would be without a proxy.
+
+### Which address the client gets
+
+| The proxy sends | `session.remoteAddress` is |
+| --- | --- |
+| v1 `PROXY TCP4` or `PROXY TCP6` | the source address |
+| v2 `PROXY`, over TCP (STREAM), IPv4 or IPv6 | the source address |
+| v2 `LOCAL`: the proxy's own connection, a health check | the peer's, the proxy's |
+| v2 `PROXY` with an UNSPEC or UNIX address, or over UDP (DGRAM) | the peer's |
+| v1 `PROXY UNKNOWN` | the peer's |
+
+An IPv6 source is written in RFC 5952's form — lower case, no leading
+zeros, the longest run of zeros as `::` — and an IPv4-mapped source as its
+plain IPv4 address: `::FFFF:C633:6407` reaches your code as
+`198.51.100.7`.
+
+That address is the client's everywhere the server uses one:
+`session.remoteAddress` in `onConnect`, in every hook, in `authenticate`
+and in `onError`; the Received field (`from client.example
+([198.51.100.7])`); and `maxConnectionsPerClient`, which counts it by
+`clientKey` as any other. So a policy written for a server without a proxy
+works unchanged behind one:
+
+```ts
+import { clientKey, createSmtpServer, reply } from '@bumail/smtp';
+
+const blocked = new Set(['203.0.113.7', '2001:db8:0:0::/64']);
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	proxyProtocol: { trusted: ['10.0.0.5', 'fd00::5'] },
+	maxConnectionsPerClient: 5, // per client behind the proxy, not for the proxy
+	onConnect: (session) =>
+		blocked.has(clientKey(session.remoteAddress) ?? '') ? reply(554, '5.7.1', 'Go away') : undefined,
+	onData: async (message) => {
+		await new Response(message.content).bytes();
+	},
+});
+
+await server.listen({ port: 25 });
+```
+
+### STARTTLS on 25 and 587
+
+Nothing changes for STARTTLS. The header is read before the greeting; the
+session then runs in clear, `STARTTLS` upgrades it as usual, and the
+client's address carries over to the encrypted session. The proxy passes
+the TLS records through untouched: it must not terminate TLS itself.
+
+### Implicit TLS on 465, behind a proxy
+
+On an `implicitTls` port the proxy's header comes first, then the client's
+ClientHello. A Bun TLS listener would take the header for a broken
+ClientHello, and Bun's `socket.upgradeTLS` reads only bytes that arrive
+after it is called, while a proxy often sends the ClientHello in the same
+TCP segment as the header (with Bun 1.4.2, the handshake then never
+completes).
+
+So with `proxyProtocol` and `implicitTls` together, the port listens in
+clear, and every connection's TLS runs through `node:tls` over the raw
+socket: after the header from a trusted proxy, from the first byte from
+anyone else. For you, it changes little:
+
+- `tls.key` and `tls.cert` still take a string, bytes or a `BunFile`; they
+  are read when `listen()` is called.
+- Behind the header, the TLS handshake has `handshakeTimeout` again, on
+  Bun's socket timer, as on implicit TLS without a proxy; meanwhile the
+  socket holds its slot, counted by the client's address.
+- A refusal by a limit, `onConnect`, the greeting and `greetingDelay` wait
+  for the handshake, so the client reads them over TLS and
+  `session.secure` is `true`.
+
+```ts
+import { createSmtpServer } from '@bumail/smtp';
+
+const server = createSmtpServer({
+	hostname: 'smtp.example.com',
+	mode: 'submission',
+	implicitTls: true,
+	localDomains: ['example.com'],
+	tls: {
+		key: Bun.file('/etc/ssl/smtp.example.com.key'),
+		cert: Bun.file('/etc/ssl/smtp.example.com.crt'),
+	},
+	proxyProtocol: { trusted: ['10.0.0.5'] },
+	authenticate: ({ username, password }) => username === 'alice' && password === Bun.env['ALICE_PASSWORD'],
+	async onData(message) {
+		await Bun.write(`queue/${message.id}.eml`, await new Response(message.content).bytes());
+	},
+});
+
+await server.listen({ port: 465 });
+```
+
+### With Traefik
+
+Traefik's TCP routers pass a connection through and, with
+`proxyProtocol.version` on the service, send a v2 header first. One entry
+point per port, in the static configuration:
+
+```yaml
+# traefik.yml
+entryPoints:
+  smtp:
+    address: ':25'
+  submission:
+    address: ':587'
+  submissions:
+    address: ':465'
+```
+
+Then, in the dynamic configuration, one router and one service each.
+``HostSNI(`*`)`` with no `tls` section matches every connection without
+terminating TLS, so STARTTLS on 25 and 587, and the TLS of 465, pass
+through to the server, which holds the certificate:
+
+```yaml
+# dynamic.yml
+tcp:
+  routers:
+    smtp:
+      entryPoints: [smtp]
+      rule: 'HostSNI(`*`)'
+      service: smtp
+    submission:
+      entryPoints: [submission]
+      rule: 'HostSNI(`*`)'
+      service: submission
+    submissions:
+      entryPoints: [submissions]
+      rule: 'HostSNI(`*`)'
+      service: submissions
+  services:
+    smtp:
+      loadBalancer:
+        proxyProtocol:
+          version: 2
+        servers:
+          - address: 'mail:25'
+    submission:
+      loadBalancer:
+        proxyProtocol:
+          version: 2
+        servers:
+          - address: 'mail:587'
+    submissions:
+      loadBalancer:
+        proxyProtocol:
+          version: 2
+        servers:
+          - address: 'mail:465'
+```
+
+Newer Traefik releases also take the version on a TCP `serversTransport`
+the service names; the header sent is the same.
+
+The matching servers, trusting Traefik's address on the network it shares
+with the mail server (`172.20.0.2` here; give the proxy a fixed address
+there):
+
+```ts
+import { createSmtpServer, type ReceivedMessage, type SmtpServerOptions } from '@bumail/smtp';
+
+const tls = {
+	key: await Bun.file('/etc/ssl/mail.example.com.key').text(),
+	cert: await Bun.file('/etc/ssl/mail.example.com.crt').text(),
+};
+const users = new Map([['alice', await Bun.password.hash('correct horse')]]);
+
+async function deliver(message: ReceivedMessage): Promise<void> {
+	await Bun.write(`spool/${message.id}.eml`, await new Response(message.content).bytes());
+}
+
+const shared = {
+	hostname: 'mail.example.com',
+	localDomains: ['example.com'],
+	tls,
+	// Traefik alone: never the network's whole range if anything else on it is not yours.
+	proxyProtocol: { trusted: ['172.20.0.2'] },
+	onData: deliver,
+} satisfies SmtpServerOptions;
+
+const submission = {
+	...shared,
+	mode: 'submission',
+	async authenticate({ username, password }) {
+		const hash = users.get(username);
+		return hash !== undefined && (await Bun.password.verify(password, hash));
+	},
+} satisfies SmtpServerOptions;
+
+await createSmtpServer(shared).listen({ port: 25 });
+await createSmtpServer(submission).listen({ port: 587 });
+await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 });
+```
+
+Traefik's health checks, and any connection it opens on its own, come as
+v2 `LOCAL`: they keep the proxy's address, by design. A client that
+reaches the server without Traefik, on another network, is a peer not
+listed and is served as such.
 
 ## Sending mail: the client
 
@@ -1472,6 +1796,7 @@ console.log(chunk.done, reader.bareLineBreaks);
 | ENHANCEDSTATUSCODES and the codes themselves | RFC 2034, RFC 3463 |
 | STARTTLS | RFC 3207 |
 | implicit TLS | RFC 8314 |
+| the PROXY protocol, v1 and v2 | not an RFC: HAProxy's `proxy-protocol.txt` |
 | AUTH | RFC 4954 |
 | SASL PLAIN | RFC 4616 |
 | submission mode | RFC 6409 |
