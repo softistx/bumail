@@ -41,6 +41,33 @@ for (const level of ['repeatable read', 'serializable']) {
 			expect(await a.count()).toBe(40);
 		});
 
+		test('an outcome racing a renewal of the same lease, from two connections: neither fails', async () => {
+			const a = create();
+			const b = share(a);
+			await Promise.all([a.migrate(), b.migrate()]);
+			for (let round = 0; round < 30; round++) {
+				const added = await a.add(entry({ to: [`r${round}@example.com`] }));
+				const now = T0 + round;
+				const item = await a.claim({ owner: 'w', now, leaseMs: MINUTE });
+				expect(item?.id).toBe(added.id);
+				const [renewed, done] = await Promise.all([
+					b.renew(added.id, 'w', now + 2 * MINUTE),
+					a.complete(added.id, 'w', {
+						now,
+						recipients: [
+							{ address: `r${round}@example.com`, status: 'delivered' },
+						],
+						nextAttemptAt: now,
+						attempts: 1,
+						delayNotified: false,
+					}),
+				]);
+				expect(typeof renewed).toBe('boolean');
+				expect(done?.id).toBe(added.id);
+			}
+			expect(await a.count()).toBe(0);
+		});
+
 		test('claims, renewals, completes and reschedules racing on two instances: each item once, no failure', async () => {
 			const a = create();
 			const b = share(a);
