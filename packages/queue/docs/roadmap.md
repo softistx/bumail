@@ -7,7 +7,7 @@ only number on it.
 ## Now
 
 Nothing in progress: the Redis store, first under Next, is the next one
-taken. The PostgreSQL store is merged (see Shipped).
+taken. The PostgreSQL store shipped in 0.2.0 (see Shipped).
 
 ## Next
 
@@ -66,6 +66,19 @@ Then:
 ## Shipped
 
 ### Unreleased — merged, not yet published
+
+- **A lease lost to an instance that finished the item is reported** —
+  an instance that stalled past its lease, while another claimed the
+  item, delivered it and dropped it, no longer takes the item's absence
+  for a cancel: it reports `LEASE_LOST` on the `error` event, tells no
+  outcome and sends no DSN, so the operator learns the message may have
+  gone out twice. With no record of who dropped an item, a lease that
+  expired, or a renewal refused while the item was still there, is
+  reported as lost or cancelled; a cancel under a lease that
+  still held is told as before, and no longer draws a `LEASE_LOST` from
+  a renewal that finds the item gone.
+
+### 0.2.0
 
 - **A PostgreSQL store**, `@bumail/queue/postgres`, on Bun's own
   `Bun.sql`, for instances of a server on several machines sharing one

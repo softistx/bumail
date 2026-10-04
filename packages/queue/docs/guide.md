@@ -254,9 +254,17 @@ queue.start();
   stops them.
 - **A crashed worker** loses its items when their leases expire: another
   worker claims them then. A worker whose lease was taken meanwhile
-  records nothing, and says so on the `error` event (`LEASE_LOST`). An
-  item cancelled while it was delivered still has its outcomes told by
-  the events, with no DSN and no error.
+  records nothing, and says so on the `error` event (`LEASE_LOST`) — also
+  when that worker has since finished the item and dropped it, the
+  message then sent twice. An item cancelled while it was delivered, its
+  lease still holding, has its outcomes told by the events, with no DSN
+  and no error. Once the lease's expiry has passed, a worker cannot tell
+  a cancel from an item another worker finished: it reports `LEASE_LOST`,
+  lost or cancelled, and tells no outcome. One gap remains when the
+  instances' clocks are out of step: an instance whose clock runs ahead
+  can take the item while this worker's clock says the lease holds, and
+  if it finishes the item between two renewals, the attempt reads as a
+  cancel. Keep the machines on NTP.
 - **`stop()`** claims nothing more, lets every session under way end and
   records its outcome, and gives back what was claimed but not started —
   due at once, no attempt counted — so another worker can take it.

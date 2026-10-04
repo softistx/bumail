@@ -1,6 +1,6 @@
 import type { QueueItem } from '../contract/types';
-import { QueueError } from '../errors';
 import { deliverItem } from './deliver';
+import { type LeaseState, lapsed, leaseOf, renew, settled } from './lease';
 import { KeyedLimiter, Limiter } from './limiter';
 import type { NotifyContext } from './notify';
 
@@ -29,56 +29,40 @@ export class Worker {
 		this.#domains = new KeyedLimiter(ctx.settings.perDomain);
 	}
 
-	/**
-	 * Renews the lease every third of it until the outcome is recorded. A
-	 * renewal that finds the lease taken says so once, and stops; one that
-	 * fails (the store busy, unreachable) says so, and the next one tries
-	 * again: the lease may still be held.
-	 */
-	#renewing(item: QueueItem): () => void {
-		const { settings, store, events } = this.#ctx;
-		let done = false;
-		const stop = () => {
-			done = true;
+	/** Renews the lease every third of it until the outcome is recorded, or a renewal ends them. */
+	#renewing(lease: LeaseState): () => void {
+		const timer = setInterval(() => {
+			void renew(this.#ctx, lease).then((more) => {
+				if (!more) clearInterval(timer);
+			});
+		}, this.#ctx.settings.leaseMs / 3);
+		timer.unref?.();
+		return () => {
+			lease.done = true;
 			clearInterval(timer);
 		};
-		const timer = setInterval(() => {
-			const expiresAt = settings.now() + settings.leaseMs;
-			store.renew(item.id, settings.owner, expiresAt).then(
-				(held) => {
-					if (held || done) return;
-					stop();
-					const error = new QueueError(
-						'LEASE_LOST',
-						`The lease on ${item.id} was lost while it was delivered`,
-					);
-					events.emit('error', { error, id: item.id });
-				},
-				(error: unknown) => {
-					if (!done) events.emit('error', { error, id: item.id });
-				},
-			);
-		}, settings.leaseMs / 3);
-		timer.unref?.();
-		return stop;
 	}
 
 	async #deliver(item: QueueItem): Promise<void> {
-		const stopRenewing = this.#renewing(item);
+		const lease = leaseOf(this.#ctx, item);
+		const stop = this.#renewing(lease);
 		try {
 			await deliverItem(
 				{
 					...this.#ctx,
 					domains: this.#domains,
 					stopping: () => this.#stopping,
-					recorded: stopRenewing,
+					recorded: stop,
+					leaseLapsed: (now) => lapsed(lease, now),
 				},
 				item,
 			);
 		} catch (error) {
 			this.#ctx.events.emit('error', { error, id: item.id });
 		} finally {
-			stopRenewing();
+			stop();
+			// A refused renewal's look at the item ends with the delivery.
+			await settled(lease);
 		}
 	}
 

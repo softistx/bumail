@@ -3,6 +3,7 @@ import type { QueueItem, RecipientUpdate } from '../contract/types';
 import { QueueError } from '../errors';
 import { domainOf } from './envelope';
 import type { Events } from './events';
+import type { Lapse } from './lease';
 import type { KeyedLimiter } from './limiter';
 import { type NotifyContext, notify } from './notify';
 import { isRouteError, outcomesOf, outcomesOfError } from './outcome';
@@ -16,7 +17,27 @@ export interface DeliveryContext extends NotifyContext {
 	readonly stopping: () => boolean;
 	/** The outcome is recorded: the lease needs no more renewal. */
 	readonly recorded: () => void;
+	/**
+	 * Whether the lease could have passed to another worker by `now`: a
+	 * renewal found it taken, or its last expiry is past. `undefined` while
+	 * it surely held.
+	 */
+	readonly leaseLapsed: (now: number) => Promise<Lapse | undefined>;
 }
+
+/**
+ * Said when the item is gone at `complete` and the lease had lapsed. With
+ * no record of who removed it, neither case can tell another worker that
+ * finished it from a cancel, so each names both; either way what this
+ * worker sent may have been sent again, and it reports no outcome.
+ */
+const goneAfter = (lapse: Lapse, id: string): QueueError =>
+	new QueueError(
+		'LEASE_LOST',
+		lapse === 'taken'
+			? `The lease on ${id} was lost while it was delivered, and the item is gone: finished by the worker that took it, the message then sent twice, or cancelled`
+			: `The lease on ${id} expired before its outcome was recorded, and the item is gone: lost to another worker that finished it, the message then sent twice, or cancelled`,
+	);
 
 /** The recipients still to deliver, by domain. */
 function groupsOf(item: QueueItem): Map<string, string[]> {
@@ -144,7 +165,13 @@ export async function deliverItem(
 	const after = await store.complete(item.id, settings.owner, settled.result);
 	ctx.recorded();
 	if (!after && (await store.get(item.id)) === undefined) {
-		// Cancelled meanwhile: what the sessions did still happened; no DSN.
+		const lapse = await ctx.leaseLapsed(now);
+		if (lapse) {
+			// Lost or cancelled: no outcome told, as when the item is still there.
+			events.emit('error', { error: goneAfter(lapse, item.id), id: item.id });
+			return;
+		}
+		// Cancelled under a lease that held: what the sessions did still happened; no DSN.
 		emitOutcomes(events, item, settled);
 		return;
 	}
