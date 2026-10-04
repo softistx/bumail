@@ -15,7 +15,8 @@ let warned = false;
 
 /**
  * `describe` with the URL when there is one; otherwise one skipped test
- * that says how to run them, and a warning, once per process.
+ * that says how to run them, and a warning, once per process — or, with
+ * `BUMAIL_TEST_POSTGRES_REQUIRED` set, an error.
  */
 export function describePostgres(
 	name: string,
@@ -24,6 +25,12 @@ export function describePostgres(
 	if (POSTGRES_URL) {
 		describe(name, () => body(POSTGRES_URL));
 		return;
+	}
+	// CI's job sets it, so a lost URL fails there rather than skip unseen.
+	if (process.env['BUMAIL_TEST_POSTGRES_REQUIRED']) {
+		throw new Error(
+			`BUMAIL_TEST_POSTGRES_REQUIRED is set but BUMAIL_TEST_POSTGRES_URL is not: the PostgreSQL specs cannot run`,
+		);
 	}
 	if (!warned) console.warn(`PostgreSQL specs skipped: ${SKIPPED}`);
 	warned = true;

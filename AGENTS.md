@@ -74,7 +74,9 @@ none of it names a private application.
   `dist`. A store on a server database (`@bumail/queue/postgres`) runs
   them against the PostgreSQL that `BUMAIL_TEST_POSTGRES_URL` names —
   `bun run postgres:test` starts one in Docker, and CI's "CI" job runs
-  one as a service — and they are skipped, saying so, without it.
+  one as a service — and they are skipped, saying so, without it, except
+  where `BUMAIL_TEST_POSTGRES_REQUIRED` is set, as in that job: there
+  they fail. "Newest peers" runs none, on purpose.
 - **The network is injected.** DNS and sockets reach a package through an
   option, so a spec never leaves the machine: a spec that needs MX, TXT or a
   peer server gets one from a fixture, never from the Internet.
