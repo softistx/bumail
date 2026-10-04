@@ -1,6 +1,7 @@
 import { base64url, isArray, isBase64url, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import { type JwsAlgorithm, keyPairOf, SIGN_PARAMS } from '../keys/algorithm';
+import { isRequestUrl } from '../url';
 import { jwkOf, type PublicJwk } from './jwk';
 
 /** Options of `signJws`. */
@@ -48,6 +49,18 @@ export type ProtectedHeader = {
  * without padding.
  */
 export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
+	return await sign(options, false);
+}
+
+/**
+ * `signJws`, taking `http:` URLs too when `allowHttp` is set: what
+ * `AcmeClient`'s `allowInsecure` signs with, for a test CA served over
+ * plain HTTP. Not exported from the package.
+ */
+export async function sign(
+	options: JwsOptions,
+	allowHttp: boolean,
+): Promise<FlattenedJws> {
 	const where = 'signJws()';
 	if (typeof options !== 'object' || options === null) {
 		throw new AcmeError(
@@ -63,8 +76,8 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 			`${where}: nonce must be the server's Replay-Nonce, a non-empty base64url string, not ${shown(nonce)}`,
 		);
 	}
-	checkUrl(url, 'url');
-	if (kid !== undefined) checkUrl(kid, 'kid');
+	checkUrl(url, 'url', allowHttp);
+	if (kid !== undefined) checkUrl(kid, 'kid', allowHttp);
 	if (
 		payload !== undefined &&
 		(typeof payload !== 'object' || payload === null || isArray(payload))
@@ -115,22 +128,8 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 	};
 }
 
-function checkUrl(value: unknown, name: string): void {
-	let parsed: URL | undefined;
-	try {
-		parsed =
-			typeof value === 'string' && !/[\s\p{Cc}]/u.test(value)
-				? new URL(value)
-				: undefined;
-	} catch {
-		parsed = undefined;
-	}
-	if (
-		parsed?.protocol !== 'https:' ||
-		parsed.username !== '' ||
-		parsed.password !== '' ||
-		(value as string).includes('#')
-	) {
+function checkUrl(value: unknown, name: string, allowHttp: boolean): void {
+	if (!isRequestUrl(value, allowHttp)) {
 		throw new AcmeError(
 			'INVALID_OPTION',
 			`signJws(): ${name} must be an https: URL without white space, credentials or a fragment, not ${shown(value)}`,

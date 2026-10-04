@@ -1,7 +1,42 @@
 export { http01Path, keyAuthorization } from './challenge/http01';
+export {
+	type Http01Responder,
+	http01Responder,
+} from './challenge/responder';
+export { AcmeClient } from './client/client';
+export {
+	type ObtainCertificateOptions,
+	type ObtainedCertificate,
+	obtainCertificate,
+} from './client/obtain';
+export type {
+	AcmeClientOptions,
+	AcmeRequestOptions,
+	AcmeWaitOptions,
+	NewAccountOptions,
+	NewOrderOptions,
+} from './client/options';
+export type { Http01Hooks } from './client/tokens';
+export type {
+	AcmeAuthorization,
+	AcmeAuthorizationStatus,
+	AcmeChallenge,
+	AcmeChallengeStatus,
+	AcmeDirectory,
+	AcmeDirectoryMeta,
+	AcmeFetch,
+	AcmeIdentifier,
+	AcmeOrder,
+	AcmeOrderStatus,
+	AcmeProblem,
+} from './client/types';
 export { type Csr, type CsrOptions, createCsr } from './csr/csr';
 export { MAX_NAMES } from './csr/names';
-export { AcmeError, type AcmeErrorCode } from './errors';
+export {
+	AcmeError,
+	type AcmeErrorCode,
+	type AcmeErrorOptions,
+} from './errors';
 export { jwkThumbprint, type PublicJwk, publicJwk } from './jws/jwk';
 export {
 	type FlattenedJws,

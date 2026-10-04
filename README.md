@@ -13,7 +13,7 @@ does, and which package does it.
 
 | package | what it is |
 | --- | --- |
-| [`@bumail/acme`](./packages/acme) | the primitives of an ACME client: a certificate signing request for DNS names, signed JWS requests, the JWK thumbprint and HTTP-01 answers, keys as PEM |
+| [`@bumail/acme`](./packages/acme) | an ACME client: certificates from Let's Encrypt or any ACME CA over HTTP-01, with its primitives — a certificate signing request for DNS names, signed JWS requests, the JWK thumbprint, keys as PEM |
 | [`@bumail/auth`](./packages/auth) | DKIM: verify every signature on a message and sign outbound mail (rsa-sha256, ed25519-sha256); SPF checking; DMARC and the `Authentication-Results` header |
 | [`@bumail/dns`](./packages/dns) | the DNS a mail server reads (MX, TXT, A, AAAA, PTR): on `node:dns`, a fixture for specs, a TTL cache |
 | [`@bumail/imap`](./packages/imap) | an IMAP4rev2 server that serves a store's mail to Thunderbird, Apple Mail and the rest, logging in only over TLS |
@@ -44,17 +44,21 @@ bun run verify:artifacts # pack, install and import every package
 ```
 
 The specs of `@bumail/queue/postgres` and `@bumail/store/postgres` need
-a PostgreSQL, and those of `@bumail/queue/redis` a Redis; each is
+a PostgreSQL, those of `@bumail/queue/redis` a Redis, and those of
+`@bumail/acme`'s client Pebble, Let's Encrypt's test CA; each is
 skipped, saying so, without one.
 `bun run postgres:test` starts `postgres:17` in Docker, `bun run
-redis:test` starts `redis:7`, and each prints the line to export:
+redis:test` starts `redis:7`, `bun run pebble:test` starts Pebble, and
+each prints the line to export:
 
 ```sh
 eval "$(bun run --silent postgres:test)"   # sets BUMAIL_TEST_POSTGRES_URL
 eval "$(bun run --silent redis:test)"      # sets BUMAIL_TEST_REDIS_URL
+eval "$(bun run --silent pebble:test)"     # sets BUMAIL_TEST_PEBBLE_URL and _CA
 bun run test
 bun run postgres:test stop                  # removes the container
 bun run redis:test stop
+bun run pebble:test stop
 ```
 
 How the repository is laid out and the rules every package keeps are in
