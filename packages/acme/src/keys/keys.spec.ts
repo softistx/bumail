@@ -333,6 +333,40 @@ describe('RSA keys of odd sizes, measured by their modulus', () => {
 	}
 });
 
+describe('a pair whose halves differ in size', () => {
+	test('a 2048-bit public key with a 1024-bit private key is refused', async () => {
+		const small = await crypto.subtle.generateKey(
+			{
+				name: 'RSASSA-PKCS1-v1_5',
+				hash: 'SHA-256',
+				modulusLength: 1024,
+				publicExponent: Uint8Array.of(1, 0, 1),
+			},
+			false,
+			['sign', 'verify'],
+		);
+		const keyPair = {
+			publicKey: pairs['RSA-2048'].publicKey,
+			privateKey: small.privateKey,
+		};
+		const size =
+			'is an RSA key of 1024 bits; only 2048, 3072 and 4096 are supported';
+		await expect(
+			signJws({
+				keyPair,
+				nonce: 'oFvnlFP1wIhRlYS2jTaXbA',
+				url: 'https://example.com/acme/order/1',
+				kid: 'https://example.com/acme/acct/1',
+			}),
+		).rejects.toThrow(
+			new AcmeError('INVALID_KEY', `signJws(): keyPair.privateKey ${size}`),
+		);
+		await expect(
+			createCsr({ names: ['example.com'], keyPair }),
+		).rejects.toThrow(`createCsr(): keyPair.privateKey ${size}`);
+	});
+});
+
 describe.skipIf(!OPENSSL)('exportPrivateKeyPem, read by openssl', () => {
 	for (const [type, keyPair] of Object.entries(pairs)) {
 		test(`${type}: openssl pkey reads it, and its public key is ours`, async () => {

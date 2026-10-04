@@ -87,8 +87,11 @@ export function bitLength(bytes: Uint8Array): number {
  * Refuses an RSA key outside Let's Encrypt's policy, measuring its modulus
  * from the key's JWK `n`: Web Crypto's `modulusLength` is a byte count
  * times 8 in Bun, so a 2047-bit key reads as 2048 and a 2049-bit one as
- * 2056. A key that cannot be exported (a public key imported as not
- * extractable) falls back to `modulusLength`. Other keys pass.
+ * 2056. A key that cannot be exported (a private key imported as not
+ * extractable, as `importKeyPairPem` does by default) falls back to
+ * `modulusLength`, and is measured to the byte only: `keyPairOf` checks
+ * both halves of a pair, so the public key, always exportable when Web
+ * Crypto made it, is measured exactly. Other keys pass.
  */
 export async function checkRsaKey(
 	key: CryptoKey,
@@ -162,5 +165,6 @@ export async function keyPairOf(
 		);
 	}
 	await checkRsaKey(pair.publicKey as CryptoKey, `${where}.publicKey`);
+	await checkRsaKey(pair.privateKey as CryptoKey, `${where}.privateKey`);
 	return algorithm;
 }
