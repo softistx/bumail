@@ -44,12 +44,28 @@ const NEEDS_SQL =
 	'A PostgreSQL queue store needs sql: a Bun.SQL client or a postgres:// URL';
 
 /** A `postgres://` or `postgresql://` URL; never echoed, since it may hold a password. */
-function urlOf(value: string | URL): string {
+function urlOf(value: string | URL): URL {
 	const url = URL.parse(String(value));
 	if (url === null || !['postgres:', 'postgresql:'].includes(url.protocol)) {
 		throw invalid(NEEDS_SQL);
 	}
-	return url.href;
+	return url;
+}
+
+/**
+ * A client of the store's own for the URL. `Bun.SQL` refuses some
+ * parameters at once (a `sslmode` it does not know): that is `INVALID`,
+ * its reason kept and the password, should it be repeated, masked.
+ */
+function clientFor(url: URL): PostgresClient {
+	try {
+		return new Bun.SQL(url.href);
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		const password = decodeURIComponent(url.password);
+		const masked = password === '' ? reason : reason.replaceAll(password, '…');
+		throw invalid(`The URL in sql cannot be opened: ${masked}`);
+	}
 }
 
 const isClient = (value: unknown): value is PostgresClient =>
@@ -81,6 +97,5 @@ export function connect(options: PostgresQueueStoreOptions): Connection {
 	if (typeof given !== 'string' && !(given instanceof URL)) {
 		throw invalid(NEEDS_SQL);
 	}
-	const client = new Bun.SQL(urlOf(given)) as unknown as PostgresClient;
-	return { client, owned: true, tables };
+	return { client: clientFor(urlOf(given)), owned: true, tables };
 }

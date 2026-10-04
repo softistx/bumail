@@ -26,6 +26,19 @@ describe('PostgresQueueStore.open', () => {
 		).toThrow(needs);
 	});
 
+	test('a URL Bun.SQL refuses is INVALID, the password never repeated', () => {
+		const open = () =>
+			PostgresQueueStore.open({
+				sql: 'postgres://bumail:secret@127.0.0.1:1/queue?sslmode=bogus',
+			});
+		expect(open).toThrow(
+			"The URL in sql cannot be opened: The argument 'sslmode' must be one of",
+		);
+		expect(open).toThrow(expect.objectContaining({ code: 'INVALID' }));
+		expect(open).not.toThrow('secret');
+		expect(open).not.toThrow('127.0.0.1');
+	});
+
 	test('refuses a Bun.SQL client for another database', () => {
 		const sqlite = new Bun.SQL(':memory:', { adapter: 'sqlite' });
 		expect(() => PostgresQueueStore.open({ sql: fits(sqlite) })).toThrow(
