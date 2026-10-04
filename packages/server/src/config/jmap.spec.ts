@@ -22,7 +22,17 @@ describe('[jmap]', () => {
 			mode: 'https',
 			bind: '0.0.0.0',
 			trusted: [],
+			reloadTls: true,
 		});
+	});
+
+	test('reloadTls is true unless set false, and must be a boolean', async () => {
+		expect(
+			(await read(`${BASE}\n[jmap]\nreloadTls = false`)).jmap.reloadTls,
+		).toBe(false);
+		expect(await problemsOf(`${BASE}\n[jmap]\nreloadTls = "no"`)).toEqual([
+			'jmap.reloadTls: must be true or false, not a string',
+		]);
 	});
 
 	test('takes a proxy: its mode, origin, address and proxies', async () => {
@@ -34,6 +44,7 @@ describe('[jmap]', () => {
 			mode: 'proxy',
 			bind: '10.1.2.3',
 			trusted: ['10.0.0.0/8', 'fd00::/8'],
+			reloadTls: true,
 		});
 		expect(ports.https).toBe(8081);
 	});

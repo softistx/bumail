@@ -948,6 +948,9 @@ await mx.setTls({
 - **One call per server.** The MX on 25, submission on 587 and the
   implicit TLS server on 465 are three servers, each with its own
   `setTls`. Call it on all of them with the same pair.
+- **Calls apply in order.** Two `setTls` in flight, the first reading
+  files, end on the second's pair: the later call wins. A key or
+  certificate that is empty is refused like any pair that cannot be used.
 - **Before `listen()` too**: the pair set is the one served. A server made
   without `tls` has none to replace: `setTls` rejects with
   `INVALID_OPTION`.

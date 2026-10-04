@@ -180,6 +180,14 @@ export interface JmapConfig {
 	readonly bind: string;
 	/** With `mode` `'proxy'`: the proxies, IP addresses and CIDRs, whose `X-Forwarded-*` headers count. `[]` otherwise. */
 	readonly trusted: readonly string[];
+	/**
+	 * With `mode` `'https'`: whether a renewed certificate reaches JMAP
+	 * while it runs. Default `true`; it needs the port opened shareable
+	 * (`SO_REUSEPORT`) for good, which on a host shared with other users
+	 * lets one of them bind it too. `false`: not shared, the new
+	 * certificate counts at the next start. Moot with `'proxy'`.
+	 */
+	readonly reloadTls: boolean;
 }
 
 /** The health check, on `ports.health`. */

@@ -35,6 +35,10 @@ export async function readTls(
 	try {
 		const key = await read(tls.key);
 		const cert = await read(tls.cert);
+		// A pair of nothing would be taken, and reset every connection after.
+		if (key.length === 0 || cert.length === 0) {
+			throw new Error(`the ${key.length === 0 ? 'key' : 'cert'} is empty`);
+		}
 		return { key, cert, context: createSecureContext({ key, cert }) };
 	} catch (cause) {
 		const reason = cause instanceof Error ? cause.message : String(cause);
@@ -53,6 +57,8 @@ export async function readTls(
  */
 export class TlsHolder {
 	#current: ReadTls | undefined;
+	/** The last `replace`: the next one waits for it, so the later call wins. */
+	#tail: Promise<unknown> = Promise.resolve();
 	readonly #given: TlsPair;
 
 	constructor(given: TlsPair) {
@@ -81,12 +87,20 @@ export class TlsHolder {
 		return this.#current.context;
 	}
 
-	/** Checks `tls`, then uses it from the next connection on. */
-	async replace(
+	/**
+	 * Checks `tls`, then uses it from the next connection on. Calls apply in
+	 * the order they were made, however long each read takes; one that fails
+	 * does not hold the next.
+	 */
+	replace(
 		tls: TlsPair,
 		fail: (message: string, cause: unknown) => Error,
 		caller: string,
 	): Promise<void> {
-		this.#current = await readTls(tls, fail, caller);
+		const run = this.#tail.then(async () => {
+			this.#current = await readTls(tls, fail, caller);
+		});
+		this.#tail = run.catch(() => {});
+		return run;
 	}
 }

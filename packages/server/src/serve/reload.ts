@@ -1,6 +1,7 @@
 import { Checker } from '../config/checker';
 import { readText } from '../config/files';
 import { checkTlsPair } from '../config/tls';
+import type { ServerConfig } from '../config/types';
 import type { Listener, Resources } from './listeners';
 import type { Log } from './log';
 import type { TlsFiles } from './tls';
@@ -32,6 +33,8 @@ export interface WatchOptions {
 	/** The pair the listeners started with. */
 	readonly applied: TlsFiles;
 	readonly targets: readonly TlsTarget[];
+	/** Names of TLS listeners that keep the old pair until a restart, said in the log. */
+	readonly held?: readonly string[];
 	readonly log: Log;
 	/** A failure's text, any secret in it masked. */
 	describe(error: unknown): string;
@@ -77,6 +80,8 @@ class CertificateWatch implements TlsWatch {
 	/** The reason of the last failure logged: a look that finds it again is quiet. */
 	#failed: string | undefined;
 	#queue: Promise<void> = Promise.resolve();
+	/** An explicit look waiting behind the one under way: a SIGHUP meanwhile joins it. */
+	#waiting: { promise: Promise<void>; explicit: boolean } | undefined;
 	#stopped = false;
 
 	constructor(options: WatchOptions) {
@@ -101,12 +106,25 @@ class CertificateWatch implements TlsWatch {
 
 	#run(explicit: boolean): Promise<void> {
 		if (this.#stopped) return this.#queue;
-		this.#queue = this.#queue
-			.then(() => this.#look(explicit))
-			.catch((error: unknown) =>
-				this.#refuse(this.#options.describe(error), explicit),
+		// A look already waiting its turn will read the files as they are
+		// when it runs: this one joins it, and it says what it found.
+		if (this.#waiting) {
+			this.#waiting.explicit ||= explicit;
+			return this.#waiting.promise;
+		}
+		const waiting = {
+			explicit,
+			promise: Promise.resolve(),
+		};
+		waiting.promise = this.#queue.then(() => {
+			this.#waiting = undefined;
+			return this.#look(waiting.explicit).catch((error: unknown) =>
+				this.#refuse(this.#options.describe(error), waiting.explicit),
 			);
-		return this.#queue;
+		});
+		this.#waiting = waiting;
+		this.#queue = waiting.promise;
+		return waiting.promise;
 	}
 
 	#refuse(reason: string, explicit: boolean): void {
@@ -150,7 +168,12 @@ class CertificateWatch implements TlsWatch {
 		if (failure !== undefined) return this.#refuse(failure, explicit);
 		this.#applied = next;
 		this.#failed = undefined;
-		log(`tls: reloaded (${named})`);
+		const held = this.#options.held ?? [];
+		const keeps =
+			held.length === 0
+				? ''
+				: `; ${held.join(', ')} keeps the old certificate until restart`;
+		log(`tls: reloaded (${named})${keeps}`);
 	}
 
 	/** `pair` on every listener, or the reason one refused, the others back on the old pair. */
@@ -161,13 +184,28 @@ class CertificateWatch implements TlsWatch {
 				await target.setTls(pair);
 				done.push(target);
 			} catch (error) {
-				for (const back of done)
-					await back.setTls(this.#applied).catch(() => {});
-				return `${target.name}: ${this.#options.describe(error)}`;
+				const stuck: string[] = [];
+				for (const back of done) {
+					await back.setTls(this.#applied).catch(() => stuck.push(back.name));
+				}
+				const left =
+					stuck.length === 0
+						? ''
+						: `; ${stuck.join(', ')} left on the new pair, the rollback failed`;
+				return `${target.name}: ${this.#options.describe(error)}${left}`;
 			}
 		}
 		return undefined;
 	}
+}
+
+/** The TLS listeners that cannot take a renewed pair while running. */
+function heldOf(config: ServerConfig): string[] {
+	const held =
+		config.ports.https !== 0 &&
+		config.jmap.mode === 'https' &&
+		!config.jmap.reloadTls;
+	return held ? ['https'] : [];
 }
 
 /** Watches the certificate files for a renewed pair, when `tls.mode` is `"files"`. */
@@ -182,6 +220,7 @@ export function watchCertificate(
 		hostname: config.hostname,
 		applied: tls,
 		targets: targetsOf(started),
+		held: heldOf(config),
 		log: (line) => log(line),
 		describe,
 	});

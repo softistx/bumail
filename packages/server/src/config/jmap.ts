@@ -26,7 +26,9 @@ function checkBind(
  * `mode`, `"https"` (default) or `"proxy"`; `bind`, an address (default
  * `bind`). With `"proxy"`, `origin` and `trusted` are required, and
  * `ports.https` must be set: the port the proxy reaches. `trusted` is
- * refused with `"https"`.
+ * refused with `"https"`. `reloadTls` (default `true`) lets a renewed
+ * certificate reach JMAP's HTTPS while it runs, at the price of a port
+ * other processes of the same user can share.
  */
 export function checkJmap(
 	checker: Checker,
@@ -44,6 +46,7 @@ export function checkJmap(
 		'mode',
 		'bind',
 		'trusted',
+		'reloadTls',
 	]);
 	const mode = checker.oneOf(table, 'mode', 'jmap', ['https', 'proxy']);
 	const proxied = mode === 'proxy';
@@ -81,7 +84,9 @@ export function checkJmap(
 		checker.add('jmap.trusted', 'is only for jmap.mode "proxy"');
 	}
 	const trusted = checkTrusted(checker, table, 'trusted', 'jmap');
+	const reloadTls = checker.boolean(table, 'reloadTls', 'jmap');
 	return {
+		reloadTls: reloadTls ?? true,
 		origin,
 		mode: mode ?? 'https',
 		bind: checkBind(checker, table, 'jmap', context.bind),

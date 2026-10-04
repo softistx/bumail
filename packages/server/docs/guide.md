@@ -372,6 +372,7 @@ bind = "0.0.0.0"
 | `origin` | `https://<hostname>`, with `:<ports.https>` when it is neither 443 nor 0. **Required** with `"proxy"` | the public URL clients reach JMAP at: an `https:` origin, no path. The session's `apiUrl`, `downloadUrl` and `uploadUrl` start with it. It is configuration, never taken from the request's `Host` or `X-Forwarded-Host` |
 | `trusted` | required with `"proxy"`; refused with `"https"` | the proxies: IPv4 and IPv6 addresses and CIDRs, at least one (`["10.0.0.5", "172.18.0.0/16", "fd00::/8"]`). The rules are `@bumail/smtp`'s: a `0` prefix, a host name, a zone or an IPv4-mapped prefix below 96 is refused, an IPv4-mapped entry is its IPv4 address, and a network of one family never matches the other |
 | `bind` | `bind` | the address JMAP binds to: an IPv4 or IPv6 address. Behind a proxy, never a unix socket |
+| `reloadTls` | `true` | with `"https"`: whether a renewed certificate reaches JMAP while it runs. It needs the port opened shareable (`SO_REUSEPORT`), which on a host shared with other users lets another process of the same user bind it too: `false` binds it alone, and JMAP takes the new certificate at the next start. Moot with `"proxy"`, which is plain HTTP |
 
 `ports.https` must be set explicitly with `"proxy"`: its default, 443,
 is the public HTTPS port, not where a proxy connects. `0` turns JMAP

@@ -119,6 +119,20 @@ describe('serve: a renewed certificate', () => {
 		}
 	});
 
+	test('with jmap.reloadTls = false, JMAP keeps the old certificate and the log says so', async () => {
+		fixture = await startServer(`${PORTS}[jmap]\nreloadTls = false`);
+		const first = await served('https');
+		const renewed = await selfSigned(NAMES);
+		await Bun.write(join(fixture.dir, 'cert.pem'), renewed.cert);
+		await Bun.write(join(fixture.dir, 'key.pem'), renewed.key);
+		await fixture.server.reloadTls();
+		expect(fixture.lines.at(-1)).toEndWith(
+			'; https keeps the old certificate until restart',
+		);
+		expect(await served('https')).toBe(first);
+		expect(await served('imaps')).toBe(fingerprintOf(renewed.cert));
+	});
+
 	test('with pollSeconds = 0 only reloadTls() looks', async () => {
 		fixture = await startServer(`pollSeconds = 0\n${PORTS}`);
 		const renewed = await selfSigned(NAMES);

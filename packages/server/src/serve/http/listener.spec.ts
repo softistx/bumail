@@ -102,6 +102,26 @@ describe('setTls', () => {
 		expect(listener.pending).toBe(0);
 	});
 
+	test('swappable: false binds alone, with no setTls: another bind of the port fails', async () => {
+		const first = await selfSigned(['first.example']);
+		const listener = httpListener({
+			tls: first,
+			swappable: false,
+			fetch: () => new Response('ok'),
+		});
+		const { port } = await listener.listen({ port: 0, hostname: '127.0.0.1' });
+		expect(listener.setTls).toBeUndefined();
+		expect(() =>
+			Bun.serve({
+				port,
+				hostname: '127.0.0.1',
+				reusePort: true,
+				fetch: () => new Response('intruder'),
+			}),
+		).toThrow();
+		listener.stop(true);
+	});
+
 	test('is there only on a listener that has TLS', () => {
 		expect(
 			httpListener({ fetch: () => new Response('') }).setTls,

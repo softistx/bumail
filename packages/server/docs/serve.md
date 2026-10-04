@@ -652,6 +652,18 @@ same port (`reusePort`) with the new pair and the first finishes its
 requests. At most about 1 new handshake in 3 000 is reset in the swap;
 a client retries it.
 
+**A security consideration.** That swap needs the HTTPS port bound with
+`SO_REUSEPORT` for as long as the server runs, and a socket opened so
+lets any other process of the same user bind the port beside it and take
+a share of its connections. In a container, the network namespace is the
+container's own and nothing else runs there: the default is safe. On a
+host shared with other users' processes, set `jmap.reloadTls = false`:
+JMAP then binds alone, and the log says
+`tls: reloaded (…); https keeps the old certificate until restart`, so
+restart the server after a renewal. Behind a proxy (`jmap.mode =
+"proxy"`) JMAP is plain HTTP, never swapped and never shared, whatever
+`reloadTls` says. The mail ports never use `SO_REUSEPORT`.
+
 With `tls.mode = "acme"` (which `serve` does not take yet) the certificate
 will come from the server itself.
 
@@ -761,6 +773,7 @@ bumail: stopped
 | `imaps: error in a session from <ip>: …` (`imap:` on 143) | the store failed: the client got `NO [UNAVAILABLE]` |
 | `bumail: postmaster <address> is in <domain>, a domain not hosted here; mail for <postmaster> is refused until it is` | at start: `postmaster` names a domain the directory does not host (`bumail domain add`) |
 | `tls: reloaded (<subject>, expires <date>)` | a renewed pair was found, valid, and every TLS listener switched to it; its first certificate's subject and expiry |
+| `tls: reloaded (…); https keeps the old certificate until restart` | with `jmap.reloadTls = false`: the other listeners took the pair, JMAP did not |
 | `tls: not reloaded: <reason>` | a pair that changed cannot be taken — a file that cannot be read, not PEM, expired, naming another host, a key that is not the certificate's, or a listener that refused — and the old pair stays; once per distinct reason, or at each `SIGHUP` |
 | `tls: unchanged (<subject>, expires <date>)` | a `SIGHUP` found the files as the listeners already have them |
 | `bumail: SIGHUP, looking for a renewed certificate` | the signal; one of the three lines above follows |

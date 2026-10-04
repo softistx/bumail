@@ -15,7 +15,14 @@ afterEach(() => {
 
 /** Files on disk, a watch over them and fake listeners that record the pairs they were given. */
 async function setup(
-	options: { pollSeconds?: number; failing?: string; now?: () => Date } = {},
+	options: {
+		pollSeconds?: number;
+		failing?: string;
+		/** A listener whose rollback fails too. */
+		stubborn?: string;
+		held?: string[];
+		now?: () => Date;
+	} = {},
 ) {
 	const dir = tempDir();
 	const files = { cert: join(dir, 'cert.pem'), key: join(dir, 'key.pem') };
@@ -30,6 +37,9 @@ async function setup(
 			if (name === options.failing && tls.cert !== first.cert) {
 				throw new Error('cannot bind');
 			}
+			if (name === options.stubborn && given[name]?.length) {
+				throw new Error('stuck');
+			}
 			given[name]?.push(tls);
 		},
 	}));
@@ -38,6 +48,7 @@ async function setup(
 		hostname: 'mail.example.com',
 		applied: first,
 		targets,
+		...(options.held ? { held: options.held } : {}),
 		log: (line) => lines.push(line),
 		describe: (error) => (error as Error).message,
 		...(options.now ? { now: options.now } : {}),
@@ -118,6 +129,33 @@ describe('watchTls', () => {
 		expect(s.given['a']).toEqual([renewed, s.first]);
 		expect(s.given['b']).toEqual([]);
 		expect(s.lines).toEqual(['tls: not reloaded: b: cannot bind']);
+	});
+
+	test('a rollback that fails names the listener left on the new pair', async () => {
+		const s = await setup({ failing: 'b', stubborn: 'a' });
+		await s.write(await selfSigned(NAMES));
+		await s.watch.reload();
+		expect(s.lines).toEqual([
+			'tls: not reloaded: b: cannot bind; a left on the new pair, the rollback failed',
+		]);
+	});
+
+	test('a listener that keeps the old pair until a restart is named in the log line', async () => {
+		const s = await setup({ held: ['https'] });
+		await s.write(await selfSigned(NAMES));
+		await s.watch.reload();
+		expect(s.lines[0]).toEndWith(
+			'; https keeps the old certificate until restart',
+		);
+	});
+
+	test('SIGHUPs arriving while a look waits join it: one look, one line', async () => {
+		const s = await setup();
+		await s.write(await selfSigned(NAMES));
+		const looks = [s.watch.reload(), s.watch.reload(), s.watch.reload()];
+		await Promise.all(looks);
+		expect(s.lines).toHaveLength(1);
+		expect(s.given['a']).toHaveLength(1);
 	});
 
 	test('files that did not change say nothing when polled, and "unchanged" on a SIGHUP', async () => {

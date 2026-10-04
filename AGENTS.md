@@ -622,9 +622,25 @@ Every PR goes into `develop`. Before merging:
     old server finishes the requests it has, a request under way
     included. It is used for JMAP's HTTPS alone (`httpListener`'s
     `setTls`), since `Bun.serve` offers nothing else, and never for the mail
-    ports, where upgrading in `open` has no such loss;
+    ports, where upgrading in `open` has no such loss. **It is a
+    security consideration**: the port stays opened shareable for the
+    process's life, so another process of the same user can bind it and
+    take connections. `jmap.reloadTls = false` (default `true`) binds
+    JMAP alone and leaves the certificate to the next start, said in the
+    log line; in a container, whose network namespace is its own, the
+    default is safe; on a shared host, set it false. `jmap.mode =
+    "proxy"` is plain HTTP, has no TLS to swap and never sets
+    `reusePort`;
   - the cost of upgrading in `open`: the clear socket's `data` handler
-    still gets every TLS record, and drops it.
+    still gets every TLS record, and drops it; and the handshakes are
+    slower, about 30% on 1 000 concurrent ones, probably the context built
+    from the PEM for each connection (a rerun here, on a busy machine,
+    was too noisy to confirm the figure). `upgradeTLS` takes no prebuilt
+    context: given `node:tls`'s `SecureContext` it throws `The
+    "secureContext" argument must be of type SecureContext`;
+  - `setTls` calls run in the order made (`TlsHolder` chains them), so
+    the later call wins however slowly the earlier reads; an empty key
+    or certificate is refused like any pair that cannot be used.
 
   `@bumail/server` (`src/serve/reload.ts`) is the caller: it reads
   `tls.cert` and `tls.key` as `check-config` does (`checkTlsPair`), every

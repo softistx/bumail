@@ -24,6 +24,13 @@ export interface HttpListener {
 export interface HttpOptions {
 	/** TLS from files; without it, plain HTTP. */
 	readonly tls?: TlsFiles | undefined;
+	/**
+	 * With `tls`: whether `setTls` can replace the certificate while it
+	 * runs. It binds with `reusePort`, so another process of the same user
+	 * can bind the port beside it: `false` (default `true`) binds it alone,
+	 * and a new certificate counts at the next start.
+	 */
+	readonly swappable?: boolean;
 	/** Answers a request; `server.requestIP(request)` is the peer. */
 	fetch(
 		request: Request,
@@ -44,7 +51,9 @@ export function httpListener(options: HttpOptions): HttpListener {
 			port,
 			hostname,
 			// Only a server with TLS is ever replaced: it shares its port.
-			...(tls === undefined ? {} : { tls, reusePort: true }),
+			...(tls === undefined
+				? {}
+				: { tls, ...(options.swappable === false ? {} : { reusePort: true }) }),
 			fetch: options.fetch,
 			error: () => new Response('server error', { status: 500 }),
 		});
@@ -67,7 +76,7 @@ export function httpListener(options: HttpOptions): HttpListener {
 				hostname: server.hostname ?? hostname,
 			};
 		},
-		...(options.tls === undefined
+		...(options.tls === undefined || options.swappable === false
 			? {}
 			: {
 					async setTls(tls: TlsFiles) {

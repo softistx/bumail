@@ -13,8 +13,8 @@ export const ACME_LATER =
 	'acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now';
 
 /**
- * Reads `tls.cert` and `tls.key` once, at start: a changed certificate
- * counts at the next start. `tls.mode = "acme"` is `NOT_IMPLEMENTED`;
+ * Reads `tls.cert` and `tls.key` at start; `watchTls` (`reload.ts`) reads
+ * them again for a renewed pair. `tls.mode = "acme"` is `NOT_IMPLEMENTED`;
  * a file gone since the configuration was checked, `UNAVAILABLE`. Never
  * repeats the key.
  */

@@ -134,6 +134,40 @@ describe.each(variants)('setTls: $name', (variant) => {
 	});
 });
 
+describe('setTls, two calls', () => {
+	test('a pair with an empty key or certificate is refused, the old one kept', async () => {
+		const { server, open } = await start(variants[1] as Variant);
+		for (const bad of [
+			{ key: first.key, cert: '' },
+			{ key: '', cert: renewed.cert },
+			{ key: first.key, cert: new Uint8Array() },
+		]) {
+			const error = await server.setTls(bad).catch((cause) => cause);
+			expect(error).toMatchObject({ code: 'INVALID_OPTION' });
+			expect(error.message).toContain('is empty');
+			expect((await open()).fingerprint).toBe(FIRST);
+		}
+	});
+
+	test('the later call wins, though the earlier one reads slower', async () => {
+		const { server, open } = await start(variants[1] as Variant);
+		const big = Bun.file(new URL('./fixtures/renewed.key', import.meta.url));
+		// The first call reads files, the second only text, and finishes first.
+		const slow = server.setTls({
+			key: big,
+			cert: fixture('renewed.crt'),
+		});
+		const fast = server.setTls(first);
+		await Promise.all([slow, fast]);
+		expect((await open()).fingerprint).toBe(FIRST);
+		await server.setTls(renewed);
+		const again = server.setTls({ key: big, cert: fixture('renewed.crt') });
+		const last = server.setTls(renewed);
+		await Promise.all([again, last]);
+		expect((await open()).fingerprint).toBe(RENEWED);
+	});
+});
+
 describe('setTls', () => {
 	test('before listen(): the pair set is the one served', async () => {
 		server = createSmtpServer(mxOptions({ tls: first, implicitTls: true }));

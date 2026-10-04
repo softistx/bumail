@@ -291,6 +291,9 @@ await imaps.setTls({
   expired or names the host: that is the caller's.
 - **One call per server.** 143 and 993 are two servers, each with its own
   `setTls`; call it on both with the same pair.
+- **Calls apply in order.** Two `setTls` in flight, the first reading
+  files, end on the second's pair: the later call wins. A key or
+  certificate that is empty is refused like any pair that cannot be used.
 - **Before `listen()` too**: the pair set is the one served.
 - **A file read at `setTls`, not at each connection.** Passing a
   `Bun.file` reads it once, when `setTls` runs: to take a later change,
