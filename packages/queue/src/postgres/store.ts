@@ -23,6 +23,7 @@ import { QueueError } from '../errors';
 import { masked } from '../masked';
 import { isStorable } from '../text';
 import { type Connection, connect, type Tables } from './connect';
+import { READ_COMMITTED } from './isolation';
 import type {
 	PostgresClient,
 	PostgresQueryable,
@@ -108,6 +109,20 @@ export class PostgresQueueStore implements QueueStore {
 		return rowsOf<T>((await this.#sql()).unsafe(query, values));
 	}
 
+	/** `fn` in a transaction at READ COMMITTED: every write goes through here. */
+	async #write<T>(fn: (tx: PostgresQueryable) => Promise<T>): Promise<T> {
+		const sql = await this.#sql();
+		return (await sql.begin(async (tx: PostgresQueryable) => {
+			await tx.unsafe(READ_COMMITTED);
+			return fn(tx);
+		})) as T;
+	}
+
+	/** One statement that writes, at READ COMMITTED; its rows. */
+	#written<T>(query: string, values: unknown[] = []): Promise<T[]> {
+		return this.#write((tx) => rowsOf<T>(tx.unsafe(query, values)));
+	}
+
 	async add(item: NewQueueItem, options: AddOptions = {}): Promise<QueueItem> {
 		checkNewItem(item);
 		const max = checkMaxItems(options.maxItems);
@@ -120,14 +135,13 @@ export class PostgresQueueStore implements QueueStore {
 			added.createdAt,
 			item.message,
 		];
-		const sql = await this.#sql();
 		const q = this.#q;
 		if (max === undefined) {
-			await sql.unsafe(q.insert, values);
+			await this.#written(q.insert, values);
 			return added;
 		}
 		// Adds that count wait on one lock, so two never both take the last place.
-		await sql.begin(async (tx: PostgresQueryable) => {
+		await this.#write(async (tx) => {
 			await tx.unsafe(q.lockAdds);
 			const [row] = await rowsOf<{ n: number }>(tx.unsafe(q.count));
 			const n = row?.n ?? 0;
@@ -170,7 +184,7 @@ export class PostgresQueueStore implements QueueStore {
 	async claim(request: ClaimRequest): Promise<QueueItem | undefined> {
 		checkClaim(request);
 		const { owner, now, leaseMs } = request;
-		const [row] = await this.#rows<ItemRow>(this.#q.claim, [
+		const [row] = await this.#written<ItemRow>(this.#q.claim, [
 			owner,
 			now,
 			now + leaseMs,
@@ -182,7 +196,7 @@ export class PostgresQueueStore implements QueueStore {
 		checkOwner(owner);
 		checkTime('expiresAt', expiresAt);
 		if (!isStorable(id)) return false;
-		const rows = await this.#rows(this.#q.renew, [expiresAt, id, owner]);
+		const rows = await this.#written(this.#q.renew, [expiresAt, id, owner]);
 		return rows.length > 0;
 	}
 
@@ -194,10 +208,9 @@ export class PostgresQueueStore implements QueueStore {
 		checkOwner(owner);
 		checkResult(result);
 		if (!isStorable(id)) return undefined;
-		const sql = await this.#sql();
 		const q = this.#q;
 		let done: QueueItem | undefined;
-		await sql.begin(async (tx: PostgresQueryable) => {
+		await this.#write(async (tx) => {
 			const [row] = await rowsOf<ItemRow>(tx.unsafe(q.held, [id, owner]));
 			if (!row) return;
 			const item = applyAttempt(itemOf(row), result);
@@ -221,16 +234,16 @@ export class PostgresQueueStore implements QueueStore {
 		checkTime('at', at);
 		if (!isStorable(id)) return false;
 		if (owner === undefined) {
-			return (await this.#rows(this.#q.moveDue, [at, id])).length > 0;
+			return (await this.#written(this.#q.moveDue, [at, id])).length > 0;
 		}
 		checkOwner(owner);
-		return (await this.#rows(this.#q.giveBack, [at, id, owner])).length > 0;
+		return (await this.#written(this.#q.giveBack, [at, id, owner])).length > 0;
 	}
 
 	async cancel(id: string): Promise<QueueItem | undefined> {
 		// An id PostgreSQL cannot hold is one no item has.
 		if (!isStorable(id)) return undefined;
-		const [row] = await this.#rows<ItemRow>(this.#q.drop, [id]);
+		const [row] = await this.#written<ItemRow>(this.#q.drop, [id]);
 		return row ? itemOf(row) : undefined;
 	}
 }
