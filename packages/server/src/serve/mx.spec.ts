@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
+import { importDkimPrivateKey, signDkim } from '@bumail/auth';
+import { fixtureResolver } from '@bumail/dns';
+import { Directory } from '../directory/directory';
 import {
 	type Fixture,
 	LineClient,
 	mailOf,
 	message,
+	RECORDS,
 	sendMail,
 	startServer,
 } from './serve.fixtures';
@@ -263,5 +268,102 @@ describe('mx: Authentication-Results', () => {
 		expect(fields).not.toContain('a comment');
 		expect(fields.match(/^Return-Path:/gim)).toHaveLength(1);
 		expect(fields).toStartWith('Return-Path: <joe@pass.example>\r\n');
+	});
+});
+
+describe('mx: refusals during DATA', () => {
+	test('a header over 256 KiB is refused with 552', async () => {
+		const f = await start();
+		const long = `X-Filler: ${'a'.repeat(900)}\r\n`.repeat(300);
+		const { last } = await sendMail(
+			f.port('mx'),
+			{ from: 'joe@pass.example', to: ['alice@example.com'] },
+			message('joe@pass.example', 'long header', long),
+		);
+		expect(last).toStartWith('552 5.3.4 Message header too large');
+	});
+
+	test('enforce: a message with no From, or two, is refused as DMARC cannot read it', async () => {
+		const f = await start();
+		const noFrom = 'To: <alice@example.com>\r\nSubject: none\r\n\r\nHi.\r\n';
+		const twoFrom = message(
+			'joe@pass.example',
+			'two authors',
+			'From: <ceo@bank.example>\r\n',
+		);
+		for (const text of [noFrom, twoFrom]) {
+			const { last } = await sendMail(
+				f.port('mx'),
+				{ from: 'joe@pass.example', to: ['alice@example.com'] },
+				text,
+			);
+			expect(last).toStartWith(
+				'550 5.7.1 The From field cannot be evaluated for DMARC',
+			);
+		}
+	});
+
+	test('an alias removed between RCPT and the end of DATA leaves no recipient', async () => {
+		const f = await start();
+		const client = await LineClient.connect(f.port('mx'));
+		await client.reply();
+		await client.smtp('EHLO client.example');
+		await client.smtp('MAIL FROM:<joe@pass.example>');
+		expect(await client.smtp('RCPT TO:<sales@example.com>')).toStartWith('250');
+		const directory = Directory.open({ file: join(f.dir, 'directory.sqlite') });
+		directory.aliases.remove('sales@example.com');
+		directory.close();
+		await client.smtp('DATA');
+		const body = message('joe@pass.example', 'gone');
+		expect(await client.smtp(`${body}\r\n.`)).toStartWith(
+			'550 5.1.1 No recipient of this message is here any longer',
+		);
+		client.end();
+	});
+});
+
+describe('mx: DKIM', () => {
+	test('a signature aligned with From passes DMARC even when SPF fails', async () => {
+		const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
+			'sign',
+			'verify',
+		])) as CryptoKeyPair;
+		const raw = new Uint8Array(
+			await crypto.subtle.exportKey('raw', pair.publicKey),
+		);
+		const pkcs8 = Buffer.from(
+			await crypto.subtle.exportKey('pkcs8', pair.privateKey),
+		).toString('base64');
+		const pem = `-----BEGIN PRIVATE KEY-----\n${pkcs8}\n-----END PRIVATE KEY-----\n`;
+		const privateKey = await importDkimPrivateKey(pem);
+		fixture = await startServer('', {
+			resolver: fixtureResolver({
+				...RECORDS,
+				'sel._domainkey.reject.example': {
+					txt: [`v=DKIM1; k=ed25519; p=${Buffer.from(raw).toString('base64')}`],
+				},
+			}),
+		});
+		const f = fixture;
+		const text = message('joe@reject.example', 'signed');
+		const signature = await signDkim(text, {
+			domain: 'reject.example',
+			selector: 'sel',
+			privateKey,
+		});
+		const { last } = await sendMail(
+			f.port('mx'),
+			{ from: 'joe@reject.example', to: ['alice@example.com'] },
+			signature + text,
+		);
+		expect(last).toStartWith('250 ');
+		const [mail = ''] = await mailOf(
+			await stopped(f),
+			'alice@example.com',
+			'inbox',
+		);
+		expect(mail).toContain('dkim=pass');
+		expect(mail).toContain('dmarc=pass');
+		expect(mail).toContain('spf=fail');
 	});
 });

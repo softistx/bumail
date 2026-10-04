@@ -2,12 +2,12 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ServerError } from '../errors';
-import { headerEnd, MAX_HEADER_BYTES } from './header';
+import { HeaderEndScanner, MAX_HEADER_BYTES } from './header';
 
 /**
- * A message on its way in, on disk rather than in memory: `<data>/spool`,
- * one file per message, readable by the server alone, removed once it is
- * delivered or refused.
+ * A message on its way in, on disk rather than in memory: one file per
+ * message under `<data>/spool/<pid>`, readable by the server alone,
+ * removed once it is delivered or refused.
  */
 export interface Spooled {
 	readonly file: string;
@@ -21,19 +21,39 @@ export interface Spooled {
 	remove(): Promise<void>;
 }
 
-/** The spool directory under `data`, created private, emptied of what a stopped server left. */
-export function openSpool(data: string): string {
-	const dir = join(data, 'spool');
+/** Whether a process of that id runs on this machine. */
+function alive(pid: number): boolean {
 	try {
-		mkdirSync(dir, { recursive: true, mode: 0o700 });
-		for (const name of readdirSync(dir)) {
-			if (name.endsWith('.eml')) rmSync(join(dir, name), { force: true });
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		// EPERM: it runs, as another user.
+		return (error as { code?: unknown }).code === 'EPERM';
+	}
+}
+
+/**
+ * This process's spool directory, `<data>/spool/<pid>`, created private
+ * and empty. What a server no longer running left there is removed; a
+ * server still running on the same `data` keeps its own.
+ */
+export function openSpool(data: string, pid = process.pid): string {
+	const root = join(data, 'spool');
+	const dir = join(root, String(pid));
+	try {
+		mkdirSync(root, { recursive: true, mode: 0o700 });
+		for (const name of readdirSync(root)) {
+			const owner = Number(name);
+			const stale =
+				name === String(pid) || !Number.isInteger(owner) || !alive(owner);
+			if (stale) rmSync(join(root, name), { recursive: true, force: true });
 		}
+		mkdirSync(dir, { mode: 0o700 });
 	} catch (error) {
 		const reason = error instanceof Error ? error.message : String(error);
 		throw new ServerError(
 			'UNAVAILABLE',
-			`the spool directory ${dir} cannot be used (${reason})`,
+			`the spool directory ${root} cannot be used (${reason})`,
 		);
 	}
 	return dir;
@@ -51,8 +71,9 @@ function concat(chunks: readonly Uint8Array[], length: number): Uint8Array {
 
 /**
  * Reads `content` to its end into a new file of `dir` named after `id`,
- * keeping the header aside as it goes by. What the stream throws — the
- * SMTP server's refusal of the message — is thrown, the file removed.
+ * keeping the header aside as it goes by, each byte scanned once. What
+ * the stream throws — the SMTP server's refusal of the message — is
+ * thrown, the file removed.
  */
 export async function spool(
 	dir: string,
@@ -62,28 +83,17 @@ export async function spool(
 	const file = join(dir, `${id.replace(/[^A-Za-z0-9_-]/g, '_')}.eml`);
 	const handle = await open(file, 'wx', 0o600);
 	const remove = () => rm(file, { force: true });
+	const scanner = new HeaderEndScanner();
 	const head: Uint8Array[] = [];
-	let headLength = 0;
-	let end = -1;
-	let overlong = false;
-	let size = 0;
 	try {
 		const reader = content.getReader();
 		for (;;) {
 			const { done, value } = await reader.read();
 			if (done) break;
 			await handle.write(value);
-			if (end === -1 && !overlong) {
-				head.push(value);
-				const before = headLength;
-				headLength += value.length;
-				const bytes = concat(head, headLength);
-				head.splice(0, head.length, bytes);
-				const found = headerEnd(bytes, Math.max(0, before - 3));
-				if (found !== -1) end = found;
-				else if (headLength > MAX_HEADER_BYTES) overlong = true;
-			}
-			size += value.length;
+			const looking = scanner.end === -1;
+			if (looking && scanner.length <= MAX_HEADER_BYTES) head.push(value);
+			scanner.add(value);
 		}
 	} catch (error) {
 		await handle.close();
@@ -91,13 +101,14 @@ export async function spool(
 		throw error;
 	}
 	await handle.close();
-	const all = head[0] ?? new Uint8Array(0);
+	const size = scanner.length;
 	// No blank line: the whole message is header.
-	const bodyStart = overlong ? 0 : end === -1 ? size : end;
-	const header = overlong ? undefined : all.subarray(0, bodyStart);
-	if (header !== undefined && header.length > MAX_HEADER_BYTES) {
+	const bodyStart = scanner.end === -1 ? size : scanner.end;
+	if (bodyStart > MAX_HEADER_BYTES) {
 		return { file, size, header: undefined, bodyStart: 0, remove };
 	}
+	const kept = head.reduce((sum, chunk) => sum + chunk.length, 0);
+	const header = concat(head, kept).subarray(0, bodyStart);
 	return { file, size, header, bodyStart, remove };
 }
 

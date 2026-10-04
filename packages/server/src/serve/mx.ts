@@ -54,6 +54,12 @@ export const DMARC_DEFERRED = reply(
 );
 const NOT_TAKEN = reply(451, '4.3.0', 'Message not taken, try again later');
 
+export const FROM_UNREADABLE = reply(
+	550,
+	'5.7.1',
+	'The From field cannot be evaluated for DMARC: none, several, or not one mailbox',
+);
+
 export function dmarcRejected(domain: string): Reply {
 	return reply(
 		550,
@@ -129,9 +135,15 @@ async function receive(
 	let spooled: Spooled;
 	try {
 		spooled = await spool(ctx.spoolDir, message.id, message.content);
-	} catch {
+	} catch (error) {
 		// The stream's own refusal (too big, a bare line break, a lost
-		// connection) replaces this reply.
+		// connection) replaces this reply, and says why; anything else is
+		// the server's, such as a full disk.
+		if (!message.signal.aborted) {
+			ctx.log(
+				`mx: ${message.id} from ${session.remoteAddress} not spooled: ${ctx.describe(error)}`,
+			);
+		}
 		return NOT_TAKEN;
 	}
 	try {
@@ -168,18 +180,24 @@ async function check(
 	);
 	if (verdict.action === 'reject') {
 		log(`mx: ${from} refused by DMARC (${summary(verdict)})`);
-		return dmarcRejected(verdict.dmarc.domain);
+		return verdict.dmarc.result === 'permerror'
+			? FROM_UNREADABLE
+			: dmarcRejected(verdict.dmarc.domain);
 	}
 	if (verdict.action === 'defer') {
 		log(`mx: ${from} deferred: DMARC temperror (${summary(verdict)})`);
 		return DMARC_DEFERRED;
 	}
-	// The client will send it again: nothing is kept for a message refused meanwhile.
-	if (message.signal.aborted) return NOT_TAKEN;
 	const { kept } = stripForged(header, ctx.hostname);
 	const prefix = joinHeader([returnPath(envelope.from), verdict.field], kept);
 	const junk = verdict.action === 'junk';
 	for (const user of users) {
+		// The client will send it again: nothing more is kept once the
+		// message was refused meanwhile (a timeout, a lost connection, a stop).
+		if (message.signal.aborted) {
+			log(`mx: ${from} abandoned before ${user}: the session ended`);
+			return NOT_TAKEN;
+		}
 		await deliver(ctx, user, junk, prefix, spooled);
 	}
 	log(

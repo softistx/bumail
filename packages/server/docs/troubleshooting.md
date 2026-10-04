@@ -164,6 +164,7 @@ directory commands' own refusals are under
 - [`bumail: a login came from a client with no IP address; the failure limiter does not count such logins`](#bumail-a-login-came-from-a-client-with-no-ip-address-the-failure-limiter-does-not-count-such-logins)
 - [`maxVerifies must be an integer of 1 or more`](#maxverifies-must-be-an-integer-of-1-or-more)
 - [`the directory URL must be sqlite: and a path`](#the-directory-url-must-be-sqlite-and-a-path)
+
 **Serving** (`bumail serve`: exit code 3 or 5; the replies other servers get; the log)
 
 - [`acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`](#acme-mode-arrives-in-a-later-slice-set-tlsmode--files-with-cert-and-key-for-now)
@@ -174,11 +175,16 @@ directory commands' own refusals are under
 - [`554 5.7.1 Relay access denied`](#554-571-relay-access-denied)
 - [`550 5.7.1 Rejected by the DMARC policy of …`](#550-571-rejected-by-the-dmarc-policy-of-)
 - [`451 4.7.0 DMARC check failed, try again later`](#451-470-dmarc-check-failed-try-again-later)
+- [`550 5.7.1 The From field cannot be evaluated for DMARC: none, several, or not one mailbox`](#550-571-the-from-field-cannot-be-evaluated-for-dmarc-none-several-or-not-one-mailbox)
 - [`552 5.3.4 Message header too large`](#552-534-message-header-too-large)
 - [`550 5.1.1 No recipient of this message is here any longer`](#550-511-no-recipient-of-this-message-is-here-any-longer)
 - [`451 4.3.0 Message not taken, try again later`](#451-430-message-not-taken-try-again-later)
-- [`imaps: login refused from …: …`](#imaps-login-refused-from--)
+- [`451 4.3.0 Local error in processing`](#451-430-local-error-in-processing)
+- [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
+- [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`
 - [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `imaps:`, `imap:`
+- [`mx: … not spooled: …`](#mx--not-spooled-)
+- [`mx: … abandoned before …: the session ended`](#mx--abandoned-before--the-session-ended)
 
 **Usage** (exit code 2)
 
@@ -1088,7 +1094,11 @@ more` (from `new FailureLimiter`, with `maxPending`), and
 
 `bumail serve` exits 3 for what arrives in a later release, 5 for
 what it cannot open or bind, and 1 for a configuration `check-config`
-refuses. What it does is in [running the server](serve.md).
+refuses. What it does is in [running the server](serve.md). It also
+prints the directory's and the store's own messages, such as
+[`the mail store is in use by another process, such as the running server`](#the-mail-store-is-in-use-by-another-process-such-as-the-running-server):
+see [the directory and the store](#the-directory-and-the-store), exit
+code 5.
 
 ### `acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`
 
@@ -1130,8 +1140,8 @@ The message never repeats the key.
 
 ### `the spool directory … cannot be used (…)`
 
-`<data>/spool`, where a message waits while it is checked, could not be
-created or emptied: `data` is read-only, full, or owned by another user.
+`<data>/spool`, where a message waits while it is checked (under a
+folder named after the process), could not be created or cleared: `data` is read-only, full, or owned by another user.
 Exit code 5. Give the server's user a writable `data`.
 
 ### `550 5.1.1 User unknown`
@@ -1169,6 +1179,14 @@ its DNS did not answer within the bound. The sending server tries
 again. Only with `inbound.dmarc = "enforce"`; with `"mark"` the message
 is delivered. Repeated for every domain: check this host's resolver.
 
+### `550 5.7.1 The From field cannot be evaluated for DMARC: none, several, or not one mailbox`
+
+The message has no From, two of them, or one that is not a single
+mailbox (a group, an empty value). A second From is the classic way
+around `p=reject`, since a reader may be shown either, so DMARC refuses
+what it cannot read (RFC 7489 §6.6.1). Only with `inbound.dmarc =
+"enforce"`; the sender has to fix the message.
+
 ### `552 5.3.4 Message header too large`
 
 The message's header is over 256 KiB. No real mail has such a header;
@@ -1186,9 +1204,22 @@ The sending server tries again. When the SMTP server refused the
 message itself — too big (`552 5.3.4`), a bare line break (`550
 5.6.11`) — that reply is sent instead.
 
+### `451 4.3.0 Local error in processing`
+
+What a sending server is told when the store or the directory failed
+during its session, or a check ran past the 60 seconds the SMTP server
+gives it. It tries again later. The log has the reason, as
+[`mx: error in a session from …`](#mx-error-in-a-session-from--).
+
+### `421 4.3.2 … Too many connections, try later`
+
+`inbound.maxConnections` sessions are open already; one more is told
+this and closed, and its server tries again. Raise
+`inbound.maxConnections` if honest servers hit it.
+
 ### `imaps: login refused from …: …`
 
-In the log, for every IMAP login refused, with why: `password`,
+In the log (`imap:` for port 143), for every IMAP login refused, with why: `password`,
 `unknown` (no such user), `disabled`, `blocked` (the failure limiter:
 10 failures within 15 minutes), `malformed` or `busy`. The client is
 told only `NO`. The password is never logged. See
@@ -1200,6 +1231,19 @@ In the log: the store or the directory failed during a session, the
 reason with any store password masked. The SMTP client got
 `451 4.3.0` and will try again; an IMAP client got `NO [UNAVAILABLE]`.
 Check the store (`store.url`) and the disk.
+
+### `mx: … not spooled: …`
+
+In the log: a message could not be written to `<data>/spool` — a full
+disk, a permission changed under the running server. The sending server
+got `451 4.3.0` and tries again. Free the disk.
+
+### `mx: … abandoned before …: the session ended`
+
+In the log: the session ended (the client left, the 60 seconds to answer
+ran out, the server stopped) while the message was being written for
+several users. The users before the one named have it; the sending
+server, never told `250`, sends it again, and they get it twice.
 
 ## Usage
 

@@ -26,8 +26,9 @@ and stops at the first thing it cannot do:
 1. reads the certificate and its key (`tls.mode = "files"`). With
    `tls.mode = "acme"`, which `check-config` takes, it exits 3: ACME
    comes in a later release;
-2. empties `<data>/spool`, where messages wait while they are checked,
-   or creates it, readable by the server alone;
+2. creates `<data>/spool/<pid>`, where messages wait while they are
+   checked, readable by the server alone, and removes what a server no
+   longer running left under `<data>/spool`;
 3. opens the directory and the mail store;
 4. binds each listener whose port is not 0.
 
@@ -62,7 +63,7 @@ server. Reloading it while running comes in a later release.
 
 Every listener binds to `bind` (default `0.0.0.0`). The other ports of
 `[ports]` — `submissions`, `submission`, `https`, `http`, `health` — are
-logged as arriving in a later release and bound to nothing; leave them
+logged as arriving in a later slice (a later release) and bound to nothing; leave them
 as they are, or set them to 0 to silence the line.
 
 ## Receiving mail on 25
@@ -89,7 +90,7 @@ users, so nothing received is sent on.
 Return-Path: <joe@example.org>
 Authentication-Results: mail.example.com; dkim=pass header.d=example.org …; spf=pass smtp.mailfrom=example.org; dmarc=pass header.from=example.org
 Received: from mx.example.org ([192.0.2.10])
-	by mail.example.com with ESMTPS id …; Mon, 5 Oct 2026 …
+	by mail.example.com with ESMTPS id …; …
 ```
 
 `Return-Path` holds the envelope sender (`<>` for a bounce), as RFC 5321
@@ -102,15 +103,17 @@ kept. Every other field is kept byte for byte.
 
 **Where it goes.** INBOX, or Junk for a message DMARC quarantines. The
 user's account and its six mailboxes are created in the store if they
-are missing. A user who renamed Junk away from its role gets quarantined
-mail in INBOX.
+are missing — at every delivery, so a role mailbox the user deleted
+(Archive, Trash) comes back with the next message. A user who renamed
+Junk away from its role gets quarantined mail in INBOX.
 
 **Limits.** `inbound.maxMessageSize` (25 MiB) is announced with SIZE and
 enforced as the message comes (`552 5.3.4`); `inbound.maxConnections`
 (1000) are served at once, and one more is answered `421` and closed. A
 header over 256 KiB is refused with `552 5.3.4 Message header too large`.
-A message waits on disk, in `<data>/spool`, while it is checked; memory
-holds 64 KiB of it at a time, and its header.
+A message waits on disk, in `<data>/spool/<pid>`, while it is checked,
+and is removed once delivered or refused; memory holds 64 KiB of it at a
+time, and its header.
 
 **No bounce is ever sent** for mail received on 25. Every refusal is a
 reply during the session, so the sending server, which knows the real
@@ -135,7 +138,7 @@ Each message is checked with `@bumail/auth`:
 | `pass`, `none`, or a failing domain with `p=none` | INBOX | INBOX |
 | fails, `p=quarantine` | Junk | INBOX |
 | fails, `p=reject` | `550 5.7.1 Rejected by the DMARC policy of …` | INBOX |
-| a From it cannot evaluate (none, two, a group) | `550 5.7.1` | INBOX |
+| a From it cannot evaluate (none, two, a group) | `550 5.7.1 The From field cannot be evaluated for DMARC: …` | INBOX |
 | `temperror`: the policy could not be looked up | `451 4.7.0 DMARC check failed, try again later` | INBOX |
 
 Either way, the result is written into `Authentication-Results`. SPF on
@@ -176,7 +179,13 @@ cleanly:
 5. the store and the directory are closed.
 
 It then exits 0. A second signal skips the waits. A message cut off
-by the stop was never answered `250`, so its sender tries again.
+by the stop was never answered `250`, so its sender tries again; if it
+was cut off while being written for several users, those already
+written to get it twice.
+
+Under Docker, the drain and the wait for deliveries can take 15
+seconds, past `docker stop`'s default 10 before it kills the process:
+give it more, with `docker stop -t 20` or `stop_grace_period: 20s`.
 
 ## The log
 
@@ -204,10 +213,13 @@ bumail: stopped
 | `mx: <id> … deferred: DMARC temperror (…)` | `451 4.7.0` |
 | `mx: <id> … refused: its header is over 256 KiB` | `552 5.3.4` |
 | `mx: <id> … refused: no recipient is here any longer` | every recipient was removed between RCPT and the end of DATA |
+| `mx: <id> from <ip> not spooled: …` | the spool could not take the message (a full disk, say): the client got `451` |
+| `mx: <id> … abandoned before <user>: the session ended` | the session ended while the message was being written: the users before `<user>` have it |
 | `mx: error in a session from <ip>: …` | the store or the directory failed: the client got `451` |
-| `imaps: login refused from <ip>: <reason>` | `password`, `unknown`, `disabled`, `blocked`, `malformed` or `busy` |
-| `imaps: error in a session from <ip>: …` | the store failed: the client got `NO [UNAVAILABLE]` |
+| `imaps: login refused from <ip>: <reason>` (`imap:` on 143) | `password`, `unknown`, `disabled`, `blocked`, `malformed` or `busy` |
+| `imaps: error in a session from <ip>: …` (`imap:` on 143) | the store failed: the client got `NO [UNAVAILABLE]` |
 | `bumail: SIGTERM, stopping`, `bumail: stopped` | the stop |
+| `bumail: <signal> again, stopping now` | a second signal during the stop: the waits are skipped |
 
 A refused recipient (`550 5.1.1`, `554 5.7.1`) is not logged: on port 25
 there are many, and the sending server has the reply.

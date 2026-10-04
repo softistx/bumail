@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { run } from '../cli/run';
 import { BASE, writeConfig } from '../config/config.fixtures';
@@ -10,6 +11,7 @@ import {
 	mailOf,
 	message,
 	prepare,
+	sendMail,
 	startServer,
 } from './serve.fixtures';
 
@@ -144,6 +146,38 @@ describe('serve: stopping', () => {
 		expect(smtp.closed).toBe(true);
 		await imap.until(/(?!)/, 2);
 		expect(imap.closed).toBe(true);
+	});
+
+	test('force skips the drain, a session still open', async () => {
+		const f = await startServer('', { drainSeconds: 30 });
+		const smtp = await LineClient.connect(f.port('mx'));
+		await smtp.reply();
+		const stopping = f.server.stop();
+		await Bun.sleep(100);
+		const started = Date.now();
+		await f.server.stop({ force: true });
+		await stopping;
+		expect(Date.now() - started).toBeLessThan(2000);
+		await smtp.until(/(?!)/, 2);
+		expect(smtp.closed).toBe(true);
+	});
+
+	test('leaves the spool empty after a delivery and a refusal', async () => {
+		const f = await startServer();
+		await sendMail(
+			f.port('mx'),
+			{ from: 'joe@pass.example', to: ['alice@example.com'] },
+			message('joe@pass.example', 'kept'),
+		);
+		await sendMail(
+			f.port('mx'),
+			{ from: 'joe@reject.example', to: ['alice@example.com'] },
+			message('joe@reject.example', 'refused'),
+		);
+		const spool = join(f.dir, 'spool', String(process.pid));
+		expect(statSync(spool).mode & 0o777).toBe(0o700);
+		expect(readdirSync(spool)).toEqual([]);
+		await f.stop();
 	});
 
 	test('bumail serve stops on SIGTERM, exits 0, and logs no secret', async () => {

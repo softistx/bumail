@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
 	authservId,
+	HeaderEndScanner,
 	headerEnd,
 	returnPath,
 	splitFields,
@@ -77,5 +78,27 @@ describe('returnPath (RFC 5321 §4.4)', () => {
 		);
 		expect(returnPath('')).toBe('Return-Path: <>\r\n');
 		expect(returnPath('a\r\nB: c')).toBe('Return-Path: <>\r\n');
+	});
+});
+
+describe('HeaderEndScanner', () => {
+	test('finds the blank line wherever the chunks split it', () => {
+		for (const whole of [
+			'A: 1\r\nB: 2\r\n\r\nbody\r\n\r\n',
+			'\r\nbody',
+			'A: 1\r\n\r\r\n\r\nx',
+			'A: 1\r\n',
+		]) {
+			const data = bytes(whole);
+			const expected = headerEnd(data);
+			for (let size = 1; size <= data.length; size++) {
+				const scanner = new HeaderEndScanner();
+				for (let at = 0; at < data.length; at += size) {
+					scanner.add(data.subarray(at, at + size));
+				}
+				expect(scanner.end).toBe(expected);
+				expect(scanner.length).toBe(data.length);
+			}
+		}
 	});
 });

@@ -22,7 +22,7 @@ export const MAX_HEADER_BYTES = 256 * 1024;
  */
 export function headerEnd(bytes: Uint8Array, from = 0): number {
 	// A message with no field at all: the blank line comes first.
-	if (bytes[0] === CR && bytes[1] === LF) return 0;
+	if (from === 0 && bytes[0] === CR && bytes[1] === LF) return 0;
 	for (let i = Math.max(from, 2); i + 1 < bytes.length; i++) {
 		if (
 			bytes[i] === CR &&
@@ -50,6 +50,41 @@ export function splitFields(header: Uint8Array): Uint8Array[] {
 	}
 	if (start < header.length) fields.push(header.subarray(start));
 	return fields;
+}
+
+/**
+ * Finds where a header ends as it arrives in chunks, each byte looked at
+ * once: the index `headerEnd` would give for the whole message.
+ */
+export class HeaderEndScanner {
+	/** How much of CRLF CRLF was just seen; a message starts after a line end. */
+	#matched = 2;
+	#position = 0;
+	/** The blank line's index, or `-1` while not found. */
+	end = -1;
+
+	add(chunk: Uint8Array): void {
+		if (this.end !== -1) {
+			this.#position += chunk.length;
+			return;
+		}
+		for (let i = 0; i < chunk.length; i++) {
+			const byte = chunk[i];
+			const expected = this.#matched % 2 === 0 ? CR : LF;
+			if (byte === expected) this.#matched++;
+			else this.#matched = byte === CR ? 1 : 0;
+			if (this.#matched === 4) {
+				this.end = this.#position + i - 1;
+				break;
+			}
+		}
+		this.#position += chunk.length;
+	}
+
+	/** Bytes seen so far. */
+	get length(): number {
+		return this.#position;
+	}
 }
 
 const decoder = new TextDecoder('utf-8', { fatal: false });
