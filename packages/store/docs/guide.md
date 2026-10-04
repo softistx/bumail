@@ -514,6 +514,10 @@ process.on('SIGTERM', async () => {
   statements, never bound. The tables go in the connection's default
   schema (its `search_path`).
 - **`maxTombstones`**, as for the other stores (below).
+- **Writes run at `READ COMMITTED`**, whatever the client's sessions
+  default to, so a client shared with code that defaults to `repeatable
+  read` or `serializable` still serves the store; reads of more than one
+  statement run at `REPEATABLE READ, READ ONLY`.
 - **Nothing connects at `open`**: a wrong option is refused there, as
   `INVALID`, and a database out of reach on the first call, as
   `INVALID`, `The PostgreSQL mail store cannot be set up: …`. A URL is
@@ -624,9 +628,10 @@ taken.
 
 ### Changes and pages in the database
 
-`messageChanges` and `mailboxChanges` are worked out in the database: one
-statement finds where the page ends, and only that page's entries leave
-it, however many changes the account has. `listAccountMessages` pages
+`messageChanges` and `mailboxChanges` are worked out in the database: it
+finds where the page ends and sends only the entries up to there, at
+most the page and the entries of one more modseq. It still goes over
+every change since `since` to find that end. `listAccountMessages` pages
 with `LIMIT` and `OFFSET`, `listMessages` reads from `fromUid` with
 `changedSince` in its statement, and a call given many ids looks them
 all up in one statement. The answers are the memory store's, entry for entry and

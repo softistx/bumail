@@ -5,6 +5,9 @@ import { StoreError } from '../errors';
 import type { PgState } from './state';
 import { isStorable } from './storable';
 
+/** What a login may weigh, in UTF-8: far above any address (RFC 5321 §4.5.3.1 caps one at 256 octets). */
+export const MAX_LOGIN_BYTES = 1024;
+
 export function getAccount(
 	state: PgState,
 	id: string,
@@ -41,6 +44,14 @@ export function createAccount(state: PgState, name: string): Promise<Account> {
 		throw new StoreError(
 			'INVALID',
 			'An account name PostgreSQL keeps holds no NUL and no lone surrogate',
+		);
+	}
+	// The login's key is in a unique index, whose entries PostgreSQL caps
+	// at about 2.7 KB: a longer one would be its error, not ours.
+	if (new TextEncoder().encode(login).length > MAX_LOGIN_BYTES) {
+		throw new StoreError(
+			'INVALID',
+			`An account name PostgreSQL keeps is at most ${MAX_LOGIN_BYTES} bytes of UTF-8`,
 		);
 	}
 	const account = { id: crypto.randomUUID(), name: login };

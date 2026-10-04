@@ -76,8 +76,14 @@ export function temporaryStores(url: string) {
 	});
 	afterAll(() => admin.close());
 	/** A client of its own, as another instance of a server would hold. */
-	const client = (max = 4): PostgresClient => {
-		const made = new Bun.SQL(url, { max }) as unknown as PostgresClient;
+	const client = (
+		max = 4,
+		connection: Record<string, string> = {},
+	): PostgresClient => {
+		const made = new Bun.SQL(url, {
+			max,
+			connection,
+		}) as unknown as PostgresClient;
 		clients.push(made);
 		return made;
 	};

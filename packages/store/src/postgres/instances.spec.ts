@@ -2,12 +2,13 @@ import { expect, test } from 'bun:test';
 import { bytes } from '../contract/fixtures/setup.fixtures';
 import type { MailStore } from '../contract/mail-store';
 import { describePostgres, temporaryStores } from './databases.fixtures';
+import { PostgresMailStore } from './store';
 
 // Several server instances on one database: each store here has a client
 // of its own, as another process would, and they run at once.
 
 describePostgres('PostgresMailStore: several instances', (url) => {
-	const { create, share } = temporaryStores(url);
+	const { client, create, share, tablesFor } = temporaryStores(url);
 
 	/** Two instances on one store, and a third that only reads. */
 	async function instances() {
@@ -45,6 +46,26 @@ describePostgres('PostgresMailStore: several instances', (url) => {
 		expect(mailbox?.highestModseq).toBe(first + 79);
 		const listed = await a.listMessages(account.id, inbox.id);
 		expect(listed.map((e) => e.uid)).toEqual(byUid.map((e) => e.uid));
+	});
+
+	test('appends hold when the clients default to a stricter isolation level', async () => {
+		const { a, account, inbox } = await instances();
+		// Another application's client, whose sessions default to more.
+		const strict = (level: string) =>
+			PostgresMailStore.open({
+				sql: client(4, { default_transaction_isolation: level }),
+				tablePrefix: tablesFor(a),
+			});
+		const stores = [strict('repeatable read'), strict('serializable')];
+		const added = await Promise.all(
+			Array.from({ length: 20 }, (_, i) =>
+				(stores[i % 2] as MailStore).addMessage(account.id, inbox.id, {
+					content: bytes(`${i}`),
+				}),
+			),
+		);
+		expect(new Set(added.map((m) => m.mailboxes[0]?.uid)).size).toBe(20);
+		await Promise.all(stores.map((s) => s.close()));
 	});
 
 	test('a reader syncing while two instances write misses no change, and sees them in order', async () => {

@@ -262,7 +262,8 @@ Every PR goes into `develop`. Before merging:
   version, then one transaction under an advisory lock) and
   `describePostgres` in `databases.fixtures.ts`, each with its own
   package's error class and words; and `isStorable`, the queue's in
-  `src/text.ts`, the store's in `src/postgres/storable.ts`. No package
+  `src/text.ts`, the store's in `src/postgres/storable.ts` (which takes
+  `unknown` and narrows to a string, for ids from a caller). No package
   peers on another for a few dozen lines, and the two stores' tables
   differ. A fix to one is a fix to the other.
 

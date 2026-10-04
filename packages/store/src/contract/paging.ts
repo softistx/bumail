@@ -75,8 +75,9 @@ export function liveItem(
  * answered.
  *
  * A store that cuts in its database passes only the items up to a modseq
- * at or past both the floor and the item after the `limit`th, and `more`
- * when it left items out: the page is the one all the items would give.
+ * at or past both the floor and the item after the `limit`th, whole
+ * modseqs, and `more` when it left any out: the page is the one all the
+ * items would give.
  */
 export function page(
 	account: Counter,
@@ -85,6 +86,12 @@ export function page(
 	more = false,
 ): { items: Item[]; modseq: number; hasMore: boolean } {
 	items.sort((a, b) => a.modseq - b.modseq);
+	if (more && limit !== undefined && items.length <= limit) {
+		// Whole modseqs were sent, up to a bound at or past the floor: the
+		// page ends at the last of them.
+		const last = Math.max(items.at(-1)?.modseq ?? 0, account.floor);
+		return { items, modseq: last, hasMore: true };
+	}
 	if (limit === undefined || items.length <= limit) {
 		return { items, modseq: account.modseq, hasMore: false };
 	}

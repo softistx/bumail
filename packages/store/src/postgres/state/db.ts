@@ -1,7 +1,7 @@
-import type { Mailbox, Message } from '../contract/types';
-import { StoreError } from '../errors';
-import type { Tables } from './connect';
-import type { PostgresClient, PostgresQueryable } from './options';
+import type { Mailbox, Message } from '../../contract/types';
+import { StoreError } from '../../errors';
+import type { Tables } from '../connect';
+import type { PostgresQueryable } from '../options';
 import {
 	type AccountRow,
 	accountOf,
@@ -16,8 +16,8 @@ import {
 	messageRowOf,
 	messageViews,
 	rowsOf,
-} from './rows';
-import { isStorable } from './storable';
+} from '../rows';
+import { isStorable } from '../storable';
 
 /** Statements on the store's tables, through a client or one transaction. */
 export class Db {
@@ -181,129 +181,5 @@ export class Db {
 	}
 }
 
-/**
- * A write in one account, in one transaction that holds the account's
- * row locked from its first statement to its commit. Every write of an
- * account takes that lock first, so the writes of one account run one
- * after the other, on any instance, and commit in the order of their
- * modseqs: the account's counter, every mailbox's UIDs and the
- * tombstones are only ever changed under it. The modseq is counted here
- * and written back once, before the commit.
- */
-export class Writer extends Db {
-	readonly held: AccountRow;
-	readonly maxTombstones: number;
-	readonly #started: number;
-
-	constructor(
-		sql: PostgresQueryable,
-		tables: Tables,
-		account: AccountRow,
-		maxTombstones: number,
-	) {
-		super(sql, tables);
-		this.held = account;
-		this.maxTombstones = maxTombstones;
-		this.#started = account.modseq;
-	}
-
-	get accountId(): string {
-		return this.held.id;
-	}
-
-	/** The account's next modseq. */
-	bump(): number {
-		this.held.modseq += 1;
-		return this.held.modseq;
-	}
-
-	/** Writes the counter back, if it moved. */
-	async finish(): Promise<void> {
-		if (this.held.modseq === this.#started) return;
-		await this.sql.unsafe(
-			`UPDATE ${this.t.accounts} SET modseq = $2::bigint WHERE id = $1`,
-			[this.accountId, this.held.modseq],
-		);
-	}
-
-	/**
-	 * The next UIDVALIDITY: never given twice by this database, and never
-	 * below the time in seconds, as the memory store gives them. One row,
-	 * locked until the commit, so two instances never give the same.
-	 */
-	async nextUidValidity(): Promise<number> {
-		const row = await this.one<{ value: number | string }>(
-			`INSERT INTO ${this.t.counters} (name, value) VALUES ('uid_validity', $1::bigint + 1)
-			ON CONFLICT (name) DO UPDATE
-				SET value = greatest(${this.t.counters}.value, $1::bigint) + 1
-			RETURNING value - 1 AS value`,
-			[Math.floor(Date.now() / 1000)],
-		);
-		return Number(row?.value);
-	}
-}
-
-const noAccount = (id: string) =>
+export const noAccount = (id: string) =>
 	new StoreError('NOT_FOUND', `No account "${id}"`);
-
-/** The PostgreSQL store's client and tables, and how its operations reach them. */
-export class PgState {
-	readonly client: PostgresClient;
-	readonly t: Tables;
-	readonly maxTombstones: number;
-	readonly #ready: () => Promise<void>;
-
-	constructor(
-		client: PostgresClient,
-		tables: Tables,
-		maxTombstones: number,
-		ready: () => Promise<void>,
-	) {
-		this.client = client;
-		this.t = tables;
-		this.maxTombstones = maxTombstones;
-		this.#ready = ready;
-	}
-
-	/** One statement or several that need no common snapshot, on the pool. */
-	async direct<T>(fn: (db: Db) => Promise<T>): Promise<T> {
-		await this.#ready();
-		return fn(new Db(this.client, this.t));
-	}
-
-	/**
-	 * A read of several statements, in one `REPEATABLE READ` transaction:
-	 * they all see the database as one instant left it, so a count, a
-	 * modseq and the rows it covers always agree.
-	 */
-	async read<T>(fn: (db: Db) => Promise<T>): Promise<T> {
-		await this.#ready();
-		return (await this.client.begin(async (sql) => {
-			await sql.unsafe(
-				'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY',
-			);
-			return fn(new Db(sql, this.t));
-		})) as T;
-	}
-
-	/** A write in the account: see `Writer`. An unknown account is `NOT_FOUND`. */
-	async write<T>(accountId: string, fn: (w: Writer) => Promise<T>): Promise<T> {
-		await this.#ready();
-		if (!isStorable(accountId)) throw noAccount(accountId);
-		return (await this.client.begin(async (sql) => {
-			const raw = await rowsOf<Parameters<typeof accountOf>[0]>(
-				sql.unsafe(
-					`SELECT id, name, modseq, floor FROM ${this.t.accounts}
-					WHERE id = $1 FOR UPDATE`,
-					[accountId],
-				),
-			);
-			const [found] = raw;
-			if (!found) throw noAccount(accountId);
-			const w = new Writer(sql, this.t, accountOf(found), this.maxTombstones);
-			const result = await fn(w);
-			await w.finish();
-			return result;
-		})) as T;
-	}
-}

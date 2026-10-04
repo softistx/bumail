@@ -94,6 +94,15 @@ describePostgres('PostgresMailStore: hostile input', (url) => {
 			message:
 				'A mailbox name PostgreSQL keeps holds no NUL and no lone surrogate',
 		});
+		await expect(
+			store.createAccount(`${'x'.repeat(1015)}@example.net`),
+		).rejects.toMatchObject({
+			code: 'INVALID',
+			message:
+				'An account name PostgreSQL keeps is at most 1024 bytes of UTF-8',
+		});
+		const longest = `${'é'.repeat(506)}@example.net`; // 1024 bytes
+		expect((await store.createAccount(longest)).name).toBe(longest);
 		const work = await store.createMailbox(account.id, { name: 'Work' });
 		await expect(
 			store.renameMailbox(account.id, work.id, { name: '\ud83d' }),

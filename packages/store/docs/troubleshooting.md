@@ -697,6 +697,19 @@ if (!login.isWellFormed() || login.includes('\0')) throw new Error('bad login');
 await store.createAccount(login);
 ```
 
+## `StoreError: An account name PostgreSQL keeps is at most 1024 bytes of UTF-8`
+
+**Code**: `INVALID`.
+
+**When**: `createAccount` on a `PostgresMailStore` was given a login longer than 1024 bytes once encoded as UTF-8. The login's key is in a unique index, whose entries PostgreSQL caps at about 2.7 KB; the store refuses well below that rather than let PostgreSQL's own error through. The memory and SQLite stores take such a login.
+
+**Fix**: Refuse it where it comes in: an address is at most 256 octets (RFC 5321 §4.5.3.1).
+
+```ts
+if (new TextEncoder().encode(login).length > 256) throw new Error('login too long');
+await store.createAccount(login);
+```
+
 ## `StoreError: A mailbox name PostgreSQL keeps holds no NUL and no lone surrogate`
 
 **Code**: `INVALID`.

@@ -20,6 +20,8 @@ export interface Tables {
 export interface Connection {
 	readonly client: PostgresClient;
 	readonly owned: boolean;
+	/** The password of the URL the store opened, masked in what it repeats of the client's reasons; `''` otherwise. */
+	readonly password: string;
 	readonly tables: Tables;
 	readonly maxTombstones: number;
 }
@@ -113,14 +115,16 @@ export function connect(options: PostgresMailStoreOptions): Connection {
 	const maxTombstones = checkMaxTombstones(options?.maxTombstones);
 	if (isClient(given)) {
 		checkAdapter(given);
-		return { client: given, owned: false, tables, maxTombstones };
+		return { client: given, owned: false, password: '', tables, maxTombstones };
 	}
 	if (typeof given !== 'string' && !(given instanceof URL)) {
 		throw invalid(NEEDS_SQL);
 	}
+	const url = urlOf(given);
 	return {
-		client: clientFor(urlOf(given)),
+		client: clientFor(url),
 		owned: true,
+		password: url.password,
 		tables,
 		maxTombstones,
 	};

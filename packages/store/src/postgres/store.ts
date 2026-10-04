@@ -1,6 +1,7 @@
 import type { MailStore } from '../contract/mail-store';
 import type * as T from '../contract/types';
 import { StoreError } from '../errors';
+import { masked } from '../masked';
 import * as accounts from './accounts';
 import { mailboxChanges, messageChanges } from './changes';
 import { type Connection, connect } from './connect';
@@ -69,7 +70,7 @@ export class PostgresMailStore implements MailStore {
 			if (error instanceof StoreError) throw error;
 			throw new StoreError(
 				'INVALID',
-				`The PostgreSQL mail store cannot be set up: ${messageOf(error)}`,
+				`The PostgreSQL mail store cannot be set up: ${masked(messageOf(error), this.#connection.password)}`,
 			);
 		});
 		return this.#migrated;

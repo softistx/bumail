@@ -144,12 +144,12 @@ await store.close(); // closes only a client it opened from a URL
   `DELETE` on the tables runs the store.
 - **Content in the database**: `bytea`, once per distinct bytes in an
   account, dropped with its last message.
-- **Pages in the database**: the changes and `listAccountMessages` send
-  only the page asked for.
+- **Pages in the database**: the changes send only the entries up to the
+  page's end, and `listAccountMessages` only the page asked for.
 - `tablePrefix` (`bumail_store_` by default) names the tables, and
   `maxTombstones` works as for the other stores. A login or a mailbox
   name holding a NUL or a lone surrogate, which PostgreSQL cannot keep
-  as given, is `INVALID`.
+  as given, is `INVALID`, and so is a login over 1024 bytes of UTF-8.
 
 Tables, roles, migrations, durability and how the instances share the
 work are in the
