@@ -9,13 +9,15 @@
 - [Copying, linking, moving, removing](#copying-linking-moving-removing)
 - [Changes](#changes)
 - [The bun:sqlite store](#the-bunsqlite-store)
+- [The PostgreSQL store](#the-postgresql-store)
 - [Writing a store](#writing-a-store)
 
 ## The contract
 
-`MailStore` is an interface; `MemoryMailStore` answers it in memory, and
-`SqliteMailStore`, from `@bumail/store/sqlite`, on disk. Code that keeps
-mail takes a `MailStore`:
+`MailStore` is an interface; `MemoryMailStore` answers it in memory,
+`SqliteMailStore`, from `@bumail/store/sqlite`, on disk, and
+`PostgresMailStore`, from `@bumail/store/postgres`, on a PostgreSQL that
+several server instances share. Code that keeps mail takes a `MailStore`:
 
 ```ts
 import type { MailStore } from '@bumail/store';
@@ -330,9 +332,9 @@ const mailboxes = await store.mailboxChanges(account.id, 0);
   `destroyed` and `expunged` are empty, so whatever a client holds that is
   not in `created` is gone. A page since 0 never ends below the oldest
   `since` the store still answers, so its `hasMore` pages can always be
-  asked for: it may go past `limit` to get there. `MemoryMailStore`
-  and `SqliteMailStore` remember every removal unless given
-  `maxTombstones`.
+  asked for: it may go past `limit` to get there. `MemoryMailStore`,
+  `SqliteMailStore` and `PostgresMailStore` remember every removal unless
+  given `maxTombstones`.
 
 ## The bun:sqlite store
 
@@ -429,8 +431,8 @@ One process opens a store, and in it one `SqliteMailStore`. `open` sets
 in this process or another, fails at once with `it is already open`,
 rather than waiting. Within the store, every call runs in one transaction
 without awaiting, so concurrent calls never interleave. Several processes
-that share mail need a store meant for that: the roadmap's PostgreSQL
-store.
+that share mail need a store meant for that: [the PostgreSQL
+store](#the-postgresql-store).
 
 ### The sweep on open
 
@@ -473,6 +475,219 @@ fails leaves the database as it was. A database written by a newer
 refused and left untouched, so downgrading the package never damages it:
 upgrade again, or restore a backup taken before the upgrade.
 
+## The PostgreSQL store
+
+`PostgresMailStore`, from `@bumail/store/postgres`, answers the same
+contract on PostgreSQL through Bun's own `Bun.sql`: there is no driver to
+install and no peer to add. It is the store for a server that runs as
+several instances: each opens a store on the same database, and they
+share the mail. It runs the same contract specs as the other two, and
+specs of its own for several instances on one database.
+
+### Opening and closing
+
+```ts
+import type { MailStore } from '@bumail/store';
+import { PostgresMailStore } from '@bumail/store/postgres';
+
+const sql = new Bun.SQL({ url: Bun.env['DATABASE_URL'], max: 10 });
+const postgres = PostgresMailStore.open({ sql });
+await postgres.migrate(); // or let the first call do it
+const store: MailStore = postgres;
+
+process.on('SIGTERM', async () => {
+	await postgres.close(); // closes only a client it opened itself
+	await sql.close(); // yours
+	process.exit(0);
+});
+```
+
+- **`sql`** is a `Bun.SQL` client of yours — you size its pool and close
+  it — or a `postgres://` (or `postgresql://`) URL, for which the store
+  opens a client with Bun's defaults and closes it in `close()`. A
+  `Bun.SQL` client for SQLite or MySQL is refused. It is typed by its
+  shape, `PostgresClient` (`unsafe`, `begin` and `close`), the shape
+  `@bumail/queue/postgres` takes too, so one client can serve both.
+- **`tablePrefix`** names the tables: `bumail_store_` by default;
+  lowercase letters, digits and underscores, starting with a letter or
+  an underscore, 40 characters at most. It is written into the
+  statements, never bound. The tables go in the connection's default
+  schema (its `search_path`). **It must never be the prefix of a
+  `@bumail/queue/postgres` queue, or of any other package**, on the same
+  database: the queue's tables include a `<prefix>schema` and a
+  `<prefix>messages`. The defaults differ (`bumail_queue_`). The store
+  keeps its version in `<prefix>store_schema`, and its first migration
+  refuses, `INVALID`, a `<prefix>schema` or any of its own tables
+  already there, so a store opened second on a queue's prefix fails
+  before it creates anything. A queue opened second on a store's prefix
+  is the queue's to refuse.
+- **`maxTombstones`**, as for the other stores (below).
+- **Every call sets its isolation level**, whatever the client's
+  sessions default to, so a client shared with code that defaults to
+  `repeatable read` or `serializable` still serves the store: writes,
+  creating an account and `migrate()`'s migration run at `READ COMMITTED`;
+  reads, and `migrate()`'s version check, at `REPEATABLE READ, READ ONLY`. Every transaction a call opens sets its
+  level, reads of a single row included.
+- **Nothing connects at `open`**: a wrong option is refused there, as
+  `INVALID`, and a database out of reach on the first call, as
+  `INVALID`, `The PostgreSQL mail store cannot be set up: …`. A URL is
+  never repeated in an error, and its password is masked should Bun's
+  reason name it: always as `:password@`, and alone from 4 characters.
+- `close()` may be called more than once. Every method called after it
+  rejects with `The store is closed`.
+
+### The tables
+
+| table | what it holds |
+| --- | --- |
+| `<prefix>accounts` | an account a row: `id`, `name`, `login_key` (the login lower-cased, unique), `modseq` (the account's counter) and `floor` (the oldest `since` it still answers) |
+| `<prefix>mailboxes` | `id`, `account_id`, `name`, `parent_id`, `role`, `is_subscribed`, `uid_validity` (unique), `uid_next`, `created_modseq`, `modseq` and `highest_modseq`. `<prefix>mailboxes_place` keeps a name unique under its parent, `<prefix>mailboxes_role` a role unique in its account |
+| `<prefix>messages` | `id`, `account_id`, `thread_id`, `blob_id`, `size`, `flags` (`jsonb`, sorted), `received_at` (milliseconds since the epoch), `created_modseq` and `modseq`. `<prefix>messages_created` and `<prefix>messages_changed`, on `(account_id, created_modseq)` and `(account_id, modseq)`, serve the account's pages and its changes |
+| `<prefix>memberships` | a message in a mailbox: `mailbox_id`, `uid` (the key, with the mailbox), `message_id` and `joined_modseq` |
+| `<prefix>contents` | the bytes: `account_id`, `blob_id`, `uses` (how many of the account's messages use them), `size` and `content` (`bytea`) |
+| `<prefix>tombstones` | what is gone, for the changes: a message destroyed, a mailbox deleted, a message that left a mailbox (with its UID there and when it had come in). `<prefix>tombstones_since` and `<prefix>tombstones_mailbox` serve the changes, for the account and for one mailbox |
+| `<prefix>counters` | the last UIDVALIDITY given |
+| `<prefix>store_schema` | the version: how many migrations ran |
+
+They are the `bun:sqlite` store's tables, column for column, but for the
+content. UIDs, modseqs, UIDVALIDITYs, sizes and times are `bigint`;
+`uses` and the schema's `version` are `integer`. Deleting an account
+deletes the rest with it (`ON DELETE CASCADE`). Every index and
+constraint is named after the prefix, so a prefix of 40 still fits
+PostgreSQL's 63 characters.
+
+### Content
+
+Message bytes are kept in the database, as `bytea` in
+`<prefix>contents`, once per distinct bytes **in an account** — the same
+bytes in two accounts are two rows, as the contract keeps blobs per
+account — and dropped with the last message of the account that uses
+them. Content given as a stream is read to its end first, hashed and
+counted, before the transaction that keeps it starts, so no lock waits
+on a slow stream; bytes the account already holds are not sent again.
+
+`readContent` reads the bytes in one statement and returns a `Blob`
+that holds them: it stays readable after its message is gone, and a
+range of it (`blob.slice`) is cut in memory. So a message is in memory
+whole while it is added or read, as in the memory store. A `bytea`
+holds 1 GB at most, far above what a mail server takes. Keeping the
+bytes apart from the database — on disk or in S3 — is the roadmap's blob
+store; until then the database holds them, and its backups do too.
+
+### Migrations and roles
+
+`migrate()` makes the tables, or brings them to the last migration, in
+one transaction; without it, the first call that needs them does. It
+runs once per store. Instances starting together wait on one advisory
+lock (`pg_advisory_xact_lock`), so each migration runs once. A migration
+that fails is `INVALID`, and the next call tries again; tables written by
+a newer version of the package are refused (`The database is at schema
+version …, newer than this store's …`).
+
+Tables already current are only read — `to_regclass` and their version,
+with no lock and no DDL — so the role the servers run as needs `CREATE`
+on the schema only to make them. Run `migrate()` once from a deploy step
+with the owner's role, and give the servers a narrower one:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+	bumail_store_accounts, bumail_store_mailboxes, bumail_store_messages,
+	bumail_store_memberships, bumail_store_contents, bumail_store_tombstones,
+	bumail_store_counters, bumail_store_store_schema
+	TO bumail_server;
+```
+
+After an upgrade that adds a migration, run that step again before the
+servers start: their role cannot make the change.
+
+### Several instances
+
+Every write runs in one transaction whose first statement locks its
+account's row (`SELECT … FOR UPDATE`). So the writes of one account run
+one after the other, whichever instance sends them, and those of
+different accounts run side by side:
+
+- **Modseqs.** The account's counter is that row's `modseq`: a write
+  counts on from it and writes it back before it commits, under the lock.
+  Each change takes the next value, none is given twice, and the writes
+  of an account commit in the order of their modseqs — so a reader never
+  sees a modseq before every smaller one is there.
+- **UIDs.** A message joins a mailbox in one statement that takes the
+  mailbox's `uid_next` and moves it on, under the same lock: UIDs ascend
+  strictly in the order of their modseqs, and none is given again, even
+  to two instances appending to one mailbox at once.
+- **UIDVALIDITY** is the one value shared by every account: one row of
+  `<prefix>counters`, moved on in the statement that reads it and locked
+  until its transaction commits, never below the time in seconds. Two
+  instances creating mailboxes at once wait on it in turn, briefly.
+- **Thread ids** are the message's own id unless the caller gives one:
+  nothing to allot.
+- **Logins** are unique by an index, and created in one `INSERT … ON
+  CONFLICT DO NOTHING`: of two instances creating one login, one gets
+  `ALREADY_EXISTS`. Mailbox names and roles are checked under the
+  account's lock.
+- **Reads** of more than one statement — a mailbox and its counts, the
+  changes and the modseq they end at — run in one `REPEATABLE READ, READ
+  ONLY` transaction, so they agree with each other. With the commits in
+  modseq order, following `messageChanges` from page to page while other
+  instances write never misses a change.
+
+A busy account's writes wait on each other: an IMAP client storing flags
+while mail arrives for it takes turns. A write holds the lock for a few
+statements per message it changes; content is read before the lock is
+taken.
+
+### Changes and pages in the database
+
+`messageChanges` and `mailboxChanges` are worked out in the database: it
+finds where the page ends and sends only the entries up to there, at
+most the page and the entries of one more modseq. It still goes over
+every change since `since` to find that end. `listAccountMessages` pages
+with `LIMIT` and `OFFSET`, `listMessages` reads from `fromUid` with
+`changedSince` in its statement, and a call given many ids looks them
+all up in one statement. The answers are the memory store's, entry for entry and
+in the same order: a spec runs random histories on both and compares
+every answer.
+
+### Durability
+
+A call resolves once its transaction has committed, so what it changed
+is as durable as the server makes a commit: with PostgreSQL's defaults
+(`synchronous_commit = on`, `fsync = on`), on disk. A server that
+acknowledges commits before they are flushed, or before a standby has
+them, can lose the last of them in a crash, as for any application on
+it. Back the store up as any database: `pg_dump` reads one consistent
+snapshot, the content included, while the store runs.
+
+### maxTombstones
+
+```ts
+const store = PostgresMailStore.open({ sql, maxTombstones: 10_000 });
+```
+
+As for the other stores: how many removals each account remembers for
+`messageChanges` and `mailboxChanges`; past it the oldest are forgotten,
+under the account's lock, and a `since` before them is
+`CANNOT_CALCULATE_CHANGES`. It is not kept in the database: give every
+instance the same.
+
+### Text PostgreSQL cannot keep
+
+PostgreSQL's `text` holds no NUL, and `Bun.sql` sends a lone surrogate
+(half of a UTF-16 pair) as U+FFFD, which would keep, and match, other
+text. So a login or a mailbox name holding either is `INVALID` here,
+where the memory store keeps it; an id or a login to look up holding
+either names nothing, as an id no row has. Logins and names read from
+IMAP or JMAP are well-formed already.
+
+### Pool size
+
+Each call holds one connection for one statement or one short
+transaction. `Bun.SQL`'s default pool of 10 connections is enough for an
+instance; a call waits for a free connection rather than fail. Keep every
+instance's pool, and the queue's when it shares the database, within the
+server's `max_connections` (100 by default).
+
 ## Writing a store
 
 A store of your own implements `MailStore` and:
@@ -480,7 +695,8 @@ A store of your own implements `MailStore` and:
 - throws `StoreError` with the codes above, for the same causes;
 - does each call all or nothing, and as if alone: a `bun:sqlite` store
   runs each in a transaction, with UNIQUE indexes for logins, names and
-  roles;
+  roles; the PostgreSQL store runs each write in a transaction that
+  locks its account first;
 - returns copies, never what it keeps;
 - keeps blobs per account, and addresses content by its SHA-256:
   `blobIdOf(bytes)` takes a `Uint8Array` only, so content given as a

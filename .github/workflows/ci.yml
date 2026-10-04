@@ -25,8 +25,9 @@ jobs:
     # alxia's job, on the same skeleton, takes 1 to 2 minutes. Past 8 it is
     # hung, and the six-hour default would hold the runner for nothing.
     timeout-minutes: 8
-    # The PostgreSQL the queue's `@bumail/queue/postgres` specs run against;
-    # elsewhere they skip without BUMAIL_TEST_POSTGRES_URL, here they fail.
+    # The PostgreSQL the specs of `@bumail/queue/postgres` and
+    # `@bumail/store/postgres` run against; elsewhere they skip without
+    # BUMAIL_TEST_POSTGRES_URL, here they fail.
     # It starts while the runner checks out, and `bun run test` reaches it
     # only after the build. Not in "Newest peers": those specs exercise
     # Bun.sql and the database, which no peer range changes. The same goes

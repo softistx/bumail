@@ -73,13 +73,26 @@ export function liveItem(
  * modseq: a page goes over `limit` only when one modseq alone holds more,
  * or to reach the account's floor, below which the next page could not be
  * answered.
+ *
+ * A store that cuts in its database passes only the items up to a modseq
+ * at or past both the floor and the item after the `limit`th, whole
+ * modseqs, and `more` when it left any out: the page is the one all the
+ * items would give.
  */
 export function page(
 	account: Counter,
 	items: Item[],
 	limit: number | undefined,
+	more = false,
 ): { items: Item[]; modseq: number; hasMore: boolean } {
 	items.sort((a, b) => a.modseq - b.modseq);
+	if (more && limit !== undefined && items.length <= limit) {
+		// The PostgreSQL store never sends this — it sends the item past the
+		// limit too — but a store that sent no more than the page while
+		// leaving whole modseqs out still owes a next one, from its end.
+		const last = Math.max(items.at(-1)?.modseq ?? 0, account.floor);
+		return { items, modseq: last, hasMore: true };
+	}
 	if (limit === undefined || items.length <= limit) {
 		return { items, modseq: account.modseq, hasMore: false };
 	}
@@ -100,7 +113,7 @@ export function page(
 		last = account.floor;
 		kept = items.filter((item) => item.modseq <= last);
 	}
-	if (kept.length === items.length) {
+	if (kept.length === items.length && !more) {
 		return { items, modseq: account.modseq, hasMore: false };
 	}
 	return { items: kept, modseq: last, hasMore: true };

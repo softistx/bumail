@@ -326,8 +326,10 @@ S3 and the metadata in a database.
 - an in-memory store;
 - a store on disk, on `bun:sqlite`, which writes the bytes with fsync before
   it commits;
-- Next: PostgreSQL on `Bun.sql`, for a server that runs as several instances; then
-  MongoDB, and a separate blob store (disk, S3, GridFS).
+- a store on PostgreSQL, on `Bun.sql`, for a server that runs as several
+  instances: each write locks its account, so UIDs and modseqs stay in
+  order whichever instance writes;
+- Next: a separate blob store (disk, S3).
 
 Every implementation passes the same contract tests, so the SMTP server,
 IMAP and JMAP never need to know which one they were given.

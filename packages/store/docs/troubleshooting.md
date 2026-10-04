@@ -1,9 +1,10 @@
 # Troubleshooting
 
 Each entry is headed by the message of the `StoreError` thrown; its `code`
-is the group it is listed under. The parts shown as … vary. The last group
-is the `bun:sqlite` store's own: what opening a directory, a closed store
-and its content on disk can throw.
+is the group it is listed under. The parts shown as … vary. The last two
+groups are the stores' own: what opening a `bun:sqlite` directory, a
+closed store and its content on disk can throw, then what opening and
+setting up a PostgreSQL store can.
 
 **NOT_FOUND**
 
@@ -59,6 +60,23 @@ and its content on disk can throw.
 - [`StoreError: The store at "…" cannot be opened: …`](#storeerror-the-store-at--cannot-be-opened-)
 - [`StoreError: maxTombstones must be an integer of at least 0, not …`](#storeerror-maxtombstones-must-be-an-integer-of-at-least-0-not-)
 - [`ENOENT: no such file or directory, open '…/blobs/…/…'`](#enoent-no-such-file-or-directory-open-blobs)
+
+**The PostgreSQL store** (`@bumail/store/postgres`)
+
+- [`StoreError: A PostgreSQL mail store needs sql: a Bun.SQL client or a postgres:// URL`](#storeerror-a-postgresql-mail-store-needs-sql-a-bunsql-client-or-a-postgres-url)
+- [`StoreError: sql is a … client; the mail store needs a PostgreSQL one`](#storeerror-sql-is-a--client-the-mail-store-needs-a-postgresql-one)
+- [`StoreError: tablePrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`](#storeerror-tableprefix-must-be-lowercase-letters-digits-and-underscores-starting-with-a-letter-or-an-underscore-at-most-40-characters-not-)
+- [`StoreError: The URL in sql cannot be opened: …`](#storeerror-the-url-in-sql-cannot-be-opened-)
+- [`StoreError: The PostgreSQL mail store cannot be set up: …`](#storeerror-the-postgresql-mail-store-cannot-be-set-up-)
+- [`StoreError: An account name PostgreSQL keeps holds no NUL and no lone surrogate`](#storeerror-an-account-name-postgresql-keeps-holds-no-nul-and-no-lone-surrogate)
+- [`StoreError: An account name PostgreSQL keeps is at most 1024 bytes of UTF-8`](#storeerror-an-account-name-postgresql-keeps-is-at-most-1024-bytes-of-utf-8)
+- [`StoreError: A mailbox name PostgreSQL keeps holds no NUL and no lone surrogate`](#storeerror-a-mailbox-name-postgresql-keeps-holds-no-nul-and-no-lone-surrogate)
+- [`StoreError: The table "…" is already in the database, and is not the mail store's: give the store a tablePrefix of its own`](#storeerror-the-table--is-already-in-the-database-and-is-not-the-mail-stores-give-the-store-a-tableprefix-of-its-own)
+- [`PostgresError: …`, or a connection error, from a call](#postgreserror--or-a-connection-error-from-a-call)
+
+The `bun:sqlite` group's `The store is closed`, `The database is at
+schema version …, newer than this store's …` and `maxTombstones must be
+…` come from the PostgreSQL store too, for the same causes.
 
 ## `StoreError: No account "…"`
 
@@ -513,20 +531,20 @@ try {
 
 **Code**: `INVALID`.
 
-**When**: a method of a `SqliteMailStore` was called after its `close()`. A request still running at shutdown is the usual one.
+**When**: a method of a `SqliteMailStore` or a `PostgresMailStore` was called after its `close()`. A request still running at shutdown is the usual one.
 
 **Fix**: Close the store last, once the servers that use it have stopped taking requests.
 
 ```ts
 await server.stop(); // the SMTP server: no new delivery from here
-store.close();
+store.close(); // await it, for a PostgresMailStore
 ```
 
 ## `StoreError: The database is at schema version …, newer than this store's …`
 
 **Code**: `INVALID`.
 
-**When**: `mail.sqlite` was written by a newer `@bumail/store`, whose migrations this version does not know: the package was downgraded, or two versions share a directory. The database is left as it was.
+**When**: `mail.sqlite`, or a PostgreSQL store's tables, were written by a newer `@bumail/store`, whose migrations this version does not know: the package was downgraded, or two versions share a directory or a database — an instance not yet upgraded, after another ran `migrate()`. The database is left as it was.
 
 **Fix**: Run the `@bumail/store` that wrote it, or a newer one. To go back to an older version, restore a backup taken before the upgrade.
 
@@ -576,7 +594,7 @@ install -d -m 0700 -o bumail -g bumail /var/lib/bumail/mail
 
 **Code**: `INVALID`.
 
-**When**: `SqliteMailStore.open`, or `new MemoryMailStore`, was given a `maxTombstones` that is negative, fractional, `NaN` or not a number — often a setting read from the environment as a string.
+**When**: `SqliteMailStore.open`, `PostgresMailStore.open`, or `new MemoryMailStore`, was given a `maxTombstones` that is negative, fractional, `NaN` or not a number — often a setting read from the environment as a string.
 
 **Fix**: Pass an integer of at least 0, `Infinity`, or leave it out to remember every removal.
 
@@ -599,4 +617,134 @@ SqliteMailStore.open({ directory, maxTombstones });
 const content = await store.readContent(account.id, message.blobId);
 const raw = await content?.arrayBuffer(); // read first…
 await store.destroyMessages(account.id, [message.id]); // …then remove
+```
+
+## `StoreError: A PostgreSQL mail store needs sql: a Bun.SQL client or a postgres:// URL`
+
+**Code**: `INVALID`.
+
+**When**: `PostgresMailStore.open` was called without options or without `sql`, with a string that is not a `postgres://` or `postgresql://` URL, or with an object that lacks `unsafe`, `begin` and `close`. The message never repeats what was given, which may hold a password.
+
+**Fix**: Give a `Bun.SQL` client of yours, or the database's URL.
+
+```ts
+PostgresMailStore.open({ sql: new Bun.SQL({ url: Bun.env['DATABASE_URL'], max: 10 }) });
+// or a client of the store's own, closed by close():
+PostgresMailStore.open({ sql: 'postgres://bumail:secret@db.internal:5432/mail' });
+```
+
+## `StoreError: sql is a … client; the mail store needs a PostgreSQL one`
+
+**Code**: `INVALID`.
+
+**When**: `sql` is a `Bun.SQL` client made for SQLite or MySQL (`adapter: 'sqlite'`, a `mysql://` URL).
+
+**Fix**: For one process on one disk, use `@bumail/store/sqlite`; otherwise give a PostgreSQL client.
+
+```ts
+PostgresMailStore.open({ sql: new Bun.SQL('postgres://bumail@db.internal/mail') });
+```
+
+## `StoreError: tablePrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`
+
+**Code**: `INVALID`.
+
+**When**: `tablePrefix` holds anything else: a capital, a dot, a dash, a quote, or more than 40 characters. The prefix is written into every statement, never bound as a value, so nothing but a plain name is taken; 40 characters keep every name built on it within PostgreSQL's 63.
+
+**Fix**: A plain name. To put the tables in another schema, set the connection's `search_path` rather than a dotted prefix.
+
+```ts
+PostgresMailStore.open({ sql, tablePrefix: 'mail_' });
+```
+
+## `StoreError: The URL in sql cannot be opened: …`
+
+**Code**: `INVALID`.
+
+**When**: `PostgresMailStore.open` was given a URL `Bun.SQL` refuses before connecting, such as a `sslmode` it does not know. The rest is Bun's reason (`The argument 'sslmode' must be one of: disable, allow, prefer, require, verify-ca, verify-full. Received '…'`); the URL is never repeated, and the password is masked should the reason name it.
+
+**Fix**: Correct the parameter.
+
+```ts
+PostgresMailStore.open({ sql: 'postgres://bumail@db.internal/mail?sslmode=verify-full' });
+```
+
+## `StoreError: The PostgreSQL mail store cannot be set up: …`
+
+**Code**: `INVALID`.
+
+**When**: the first call on a store, or `migrate()`, could not make the tables or bring them up to date. The rest is the database's reason: `Failed to connect`, `password authentication failed for user "…"`, `permission denied for schema public`.
+
+**Why**: the database is out of reach, the credentials are wrong, or the tables are missing or behind and the role may not create them: a role without `CREATE` uses tables that are current, and never makes them.
+
+**Fix**: Check the URL, and that the server answers. For `permission denied`, run `migrate()` once with the owner's role — on a new database, and after an upgrade that adds a migration — and keep the servers on their narrower role (the guide's [Migrations and roles](guide.md#migrations-and-roles)), or give the role `CREATE` on the schema. Nothing is left half made, since a migration is one transaction, and the next call tries again.
+
+```ts
+// a deploy step, with the owner's role
+const owner = PostgresMailStore.open({ sql: Bun.env['OWNER_DATABASE_URL'] as string });
+await owner.migrate();
+await owner.close();
+```
+
+## `StoreError: An account name PostgreSQL keeps holds no NUL and no lone surrogate`
+
+**Code**: `INVALID`.
+
+**When**: `createAccount` on a `PostgresMailStore` was given a login holding U+0000, or half of a UTF-16 surrogate pair. PostgreSQL's `text` holds no NUL, and `Bun.sql` would send the lone surrogate as U+FFFD: the account would be kept, and found, under another name. The memory store takes such a login.
+
+**Fix**: Refuse the login where it comes in; one read from IMAP or JMAP is well-formed already. To keep a string you cut yourself, cut it whole.
+
+```ts
+if (!login.isWellFormed() || login.includes('\0')) throw new Error('bad login');
+await store.createAccount(login);
+```
+
+## `StoreError: An account name PostgreSQL keeps is at most 1024 bytes of UTF-8`
+
+**Code**: `INVALID`.
+
+**When**: `createAccount` on a `PostgresMailStore` was given a login longer than 1024 bytes once encoded as UTF-8. The login's key is in a unique index, whose entries PostgreSQL caps at about 2.7 KB; the store refuses well below that rather than let PostgreSQL's own error through. The memory and SQLite stores take such a login.
+
+**Fix**: Refuse it where it comes in: an address is at most 256 octets (RFC 5321 §4.5.3.1).
+
+```ts
+if (new TextEncoder().encode(login).length > 256) throw new Error('login too long');
+await store.createAccount(login);
+```
+
+## `StoreError: A mailbox name PostgreSQL keeps holds no NUL and no lone surrogate`
+
+**Code**: `INVALID`.
+
+**When**: `createMailbox` or `renameMailbox` on a `PostgresMailStore` was given a name holding half of a UTF-16 surrogate pair (a NUL is already `"…" is not a mailbox name`, as a control character). The memory store takes such a name.
+
+**Fix**: Make the name well-formed first; `toWellFormed()` puts U+FFFD in place of each lone half.
+
+```ts
+await store.createMailbox(account.id, { name: name.toWellFormed() });
+```
+
+## `StoreError: The table "…" is already in the database, and is not the mail store's: give the store a tablePrefix of its own`
+
+**Code**: `INVALID`.
+
+**When**: the first call on a `PostgresMailStore`, or `migrate()`, was about to make the tables on a database where none of the store's are recorded yet, and found a `<prefix>schema` or one of its own tables' names taken. Most often a `@bumail/queue/postgres` queue was given the same `tablePrefix`: the queue has a `<prefix>schema` and a `<prefix>messages`. Nothing is created; the store refuses rather than share a table that is not its own.
+
+**Fix**: The store's `tablePrefix` must never be the same as the queue's, or any other package's. Give each its own; the defaults already differ.
+
+```ts
+const store = PostgresMailStore.open({ sql, tablePrefix: 'mail_' });
+const queue = PostgresQueueStore.open({ sql, tablePrefix: 'outbound_' });
+```
+
+## `PostgresError: …`, or a connection error, from a call
+
+**Code**: none: `Bun.sql`'s own error, not a `StoreError`.
+
+**When**: a call on a `PostgresMailStore` whose tables are set up, when the database fails it: the server restarted or is out of reach, a connection dropped, the server refused one past its `max_connections`, or a statement timed out (`statement_timeout`). As the `bun:sqlite` store passes its disk errors on, this store passes these on as they are. A call that failed before its commit is rolled back and changed nothing; one whose connection dropped during the commit itself may have committed, and cannot know.
+
+**Fix**: Check the server is up and reachable. When it counts too many connections, give each instance's client a smaller `max`, or raise `max_connections`. Before adding a message again after such an error, look for it: its UID may already be taken.
+
+```ts
+const sql = new Bun.SQL({ url: Bun.env['DATABASE_URL'], max: 5 });
 ```

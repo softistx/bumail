@@ -42,4 +42,8 @@ describe('entry points', () => {
 			'bun:sqlite',
 		);
 	});
+
+	test('@bumail/store/postgres reaches nothing but Bun.SQL, a global: no bun:sqlite', async () => {
+		expect([...(await reached(join(src, 'postgres', 'index.ts')))]).toEqual([]);
+	});
 });
