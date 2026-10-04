@@ -14,8 +14,11 @@ import { Spool, type Spooled } from './spool';
 let spool: Spool | undefined;
 let server: SmtpServer | undefined;
 let directory: Directory | undefined;
+/** Every file `spooledOf` spooled: removed even when an expect failed, so no open file outlives its test. */
+const spooledFiles: Spooled[] = [];
 
-afterEach(() => {
+afterEach(async () => {
+	await Promise.all(spooledFiles.splice(0).map((spooled) => spooled.remove()));
 	server?.stop(true);
 	directory?.close();
 	spool?.close();
@@ -35,6 +38,7 @@ async function spooledOf(text: string): Promise<Spooled> {
 		new Blob([new TextEncoder().encode(text)]).stream(),
 	);
 	if (written === 'full') throw new Error('full');
+	spooledFiles.push(written);
 	return written;
 }
 
@@ -59,7 +63,6 @@ describe('checks over 64 KiB, read back from the spool', () => {
 		expect(verdict.dkim.map((d) => d.result)).toEqual(['none']);
 		expect(verdict.dmarc.result).toBe('fail');
 		expect(verdict.action).toBe('reject');
-		await spooled.remove();
 	});
 
 	test('a message whose signature cannot be used is still refused', async () => {
@@ -70,8 +73,24 @@ describe('checks over 64 KiB, read back from the spool', () => {
 		expect(verdict.dkim.map((d) => d.result)).not.toContain('temperror');
 		expect(verdict.dkim.map((d) => d.result)).not.toContain('pass');
 		expect(verdict.action).toBe('reject');
-		await spooled.remove();
 	});
+
+	test.each([
+		['an unsupported version', 'v=2; a=rsa-sha256'],
+		['rsa-sha1', 'v=1; a=rsa-sha1'],
+	])(
+		'a signature refused before any key lookup (%s) is still refused',
+		async (_, tags) => {
+			// No key to wait for: DKIM stops reading the body at once. That early
+			// stop is not a read that failed, so the message is refused, not deferred.
+			const signature = `DKIM-Signature: ${tags}; d=reject.example; s=sel; h=from; bh=AAAA; b=AAAA\r\n`;
+			const spooled = await spooledOf(fromReject(signature));
+			const verdict = await judged(spooled);
+			expect(verdict.dkim.map((d) => d.result)).toEqual(['permerror']);
+			expect(verdict.dmarc.result).toBe('fail');
+			expect(verdict.action).toBe('reject');
+		},
+	);
 
 	test('a file that can no longer be read still defers', async () => {
 		const signature =
