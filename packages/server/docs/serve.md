@@ -258,11 +258,20 @@ From is read strictly: every `@` in it must belong to a plain address,
 so a quoted local part (`<"bob"@example.com>`), or another address in
 a display name or a comment (`"bob@example.com" <alice@example.com>`),
 is refused, since a reader could be shown an author this check did not
-see. An encoded-word (RFC 2047), in any charset, known or not, is
-refused when it holds an `@` or its bytes decode to one, as some reader
-may decode it: `=?UTF-8?Q?ceo=40bank.example?= <alice@example.com>` is
-refused like `"ceo@bank.example" <alice@example.com>`, and so is an
-address hidden inside an encoded-word.
+see. Encoded-words (RFC 2047) are read as an allow-list, since readers
+decode them differently:
+
+- every `=?` in From must start a well-formed encoded-word, with no
+  white space or fold inside it and printable ASCII for its text;
+- its charset must be UTF-8, US-ASCII, ISO-8859-1 to 16 or
+  windows-1250 to 1258 (UTF-7, among others, is refused);
+- no word may hold an `@`, nor decode to one, alone or joined with the
+  words next to it in the same charset and encoding, so an escape or a
+  base64 group split across two words is caught.
+
+So `=?UTF-8?Q?ceo=40bank.example?= <alice@example.com>` is refused like
+`"ceo@bank.example" <alice@example.com>`, while
+`=?UTF-8?Q?Alice_M=C3=BCller?= <alice@example.com>` is taken.
 
 A session that logged in keeps its rights only while the user is
 unchanged: once it is removed, disabled (`bumail user disable`) or given
@@ -285,7 +294,9 @@ since a queued message may leave at once and cannot be taken back; the
 client is answered `250` only once both took it. Should a local
 delivery fail, or the queue refuse the message, the client is told to
 send it again: a local recipient that already has it may get a second
-copy, but no other domain ever does.
+copy, but no other domain does (unless a PostgreSQL or Redis queue
+store commits the item and its reply is lost, when the retry queues it
+again).
 
 **Limits.** `[submission]`: `maxMessageSize` (25 MiB) announced with
 SIZE, `maxRecipients` (100) per message, `maxConnections` (1000) at once,

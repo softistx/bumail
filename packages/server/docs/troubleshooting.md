@@ -1525,10 +1525,13 @@ The message's From names an address the user may not send as — the
 same rule as MAIL FROM — or one this server cannot read plainly: a
 quoted local part, an address in a display name or a comment that is
 not the user's, an `@` that belongs to no plain address. A reader must
-never be shown an author that was not checked. An encoded-word is
-refused when it holds an `@` or decodes to one, in any charset, known
-or not: `=?UTF-8?Q?ceo=40bank.example?= <you@example.com>` shows a
-reader `ceo@bank.example`. Write From as
+never be shown an author that was not checked. Encoded-words are read
+as an allow-list: every `=?` must start a well-formed word with no
+white space inside it, in UTF-8, US-ASCII, ISO-8859-1 to 16 or
+windows-1250 to 1258 (not UTF-7), and no word, alone or joined with its
+neighbours in the same charset and encoding, may hold or decode to an
+`@`: `=?UTF-8?Q?ceo=40bank.example?= <you@example.com>` shows a reader
+`ceo@bank.example`. A mail client encodes a name in UTF-8, which passes. Write From as
 `Name <you@example.com>`.
 
 ### `550 5.6.0 The message needs exactly one From field`

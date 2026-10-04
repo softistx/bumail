@@ -9,7 +9,8 @@ import { tempDir } from '../config/config.fixtures';
 import type { Directory } from '../directory/directory';
 import { seededDirectory } from '../directory/directory.fixtures';
 import { Spool } from './spool';
-import { createSubmission } from './submission';
+import { createSubmission, type SubmissionContext } from './submission';
+import { send, USER } from './submission/send';
 import { letter, session, submit } from './submission.fixtures';
 
 let server: SmtpServer | undefined;
@@ -37,14 +38,16 @@ function memoryQueue(limits: QueueLimits = {}): {
 	return { queue, queueStore };
 }
 
-async function start(
+/** What submission is given, on a fresh directory; its log in `lines`. */
+async function context(
 	queue: Queue,
-	store = new MemoryMailStore(),
-): Promise<{ port: number; lines: string[] }> {
+	store: MemoryMailStore,
+): Promise<{ ctx: SubmissionContext; lines: string[] }> {
 	directory = await seededDirectory();
 	const lines: string[] = [];
-	server = createSubmission(
-		{
+	return {
+		lines,
+		ctx: {
 			hostname: 'mail.example.com',
 			directory,
 			store,
@@ -69,8 +72,15 @@ async function start(
 			describe: (error) =>
 				error instanceof Error ? error.message : String(error),
 		},
-		'submissions',
-	);
+	};
+}
+
+async function start(
+	queue: Queue,
+	store = new MemoryMailStore(),
+): Promise<{ port: number; lines: string[] }> {
+	const { ctx, lines } = await context(queue, store);
+	server = createSubmission(ctx, 'submissions');
 	const { port } = await server.listen({ port: 0, hostname: '127.0.0.1' });
 	return { port, lines };
 }
@@ -158,4 +168,85 @@ describe('submission: handing on', () => {
 			expect(lines.some((l) => l.includes(' not queued: '))).toBe(true);
 		},
 	);
+
+	test('a full queue after the local copies: 452, nothing queued, one copy here', async () => {
+		const store = new MemoryMailStore();
+		const { queue, queueStore } = memoryQueue({ maxItems: 1 });
+		await queue.enqueue(new TextEncoder().encode('Subject: x\r\n\r\nx\r\n'), {
+			from: 'bob@example.com',
+			to: ['erin@elsewhere.example'],
+		});
+		const { port } = await start(queue, store);
+		expect(
+			await sent(port, ['carol@elsewhere.example', 'bob@example.com']),
+		).toStartWith('452 4.3.1');
+		expect(await queueStore.count()).toBe(1);
+		expect(await inbox(store, 'bob@example.com')).toBe(1);
+	});
+});
+
+/** How many messages `user`'s INBOX holds in `store`. */
+async function inbox(store: MemoryMailStore, user: string): Promise<number> {
+	const account = await store.findAccount(user);
+	if (account === undefined) return 0;
+	const mailbox = await store.findMailbox(account.id, 'inbox');
+	if (mailbox === undefined) return 0;
+	return (await store.listMessages(account.id, mailbox.id)).length;
+}
+
+describe('submission: a session that ended', () => {
+	/** `send` of a message whose session ended before it was handed on. */
+	async function ended(to: readonly string[]) {
+		const store = new MemoryMailStore();
+		const { queue, queueStore } = memoryQueue();
+		const { ctx, lines } = await context(queue, store);
+		const reply = await send(
+			ctx,
+			'submissions',
+			{
+				id: 'm1',
+				envelope: {
+					from: 'alice@example.com',
+					to,
+					smtputf8: false,
+					body: '7BIT',
+				},
+				content: new Response(letter('alice@example.com', to[0] ?? '', 'ended'))
+					.body as ReadableStream<Uint8Array>,
+				signal: AbortSignal.abort(),
+			},
+			{
+				id: 's1',
+				remoteAddress: '127.0.0.1',
+				secure: true,
+				esmtp: true,
+				data: { [USER]: 'alice@example.com' },
+			},
+		);
+		return { reply, lines, store, queueStore };
+	}
+
+	test('before a local copy: nothing delivered, nothing queued', async () => {
+		const { reply, lines, store, queueStore } = await ended([
+			'bob@example.com',
+			'carol@elsewhere.example',
+		]);
+		expect(reply?.code).toBe(451);
+		expect(lines).toContain(
+			'submissions: m1 from alice@example.com <alice@example.com> abandoned before bob@example.com: the session ended',
+		);
+		expect(await inbox(store, 'bob@example.com')).toBe(0);
+		expect(await queueStore.count()).toBe(0);
+	});
+
+	test('before the queue: nothing queued', async () => {
+		const { reply, lines, queueStore } = await ended([
+			'carol@elsewhere.example',
+		]);
+		expect(reply?.code).toBe(451);
+		expect(lines).toContain(
+			'submissions: m1 from alice@example.com <alice@example.com> not queued: the session ended',
+		);
+		expect(await queueStore.count()).toBe(0);
+	});
 });

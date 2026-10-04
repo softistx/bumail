@@ -48,16 +48,33 @@ const ADDRESS = /[^\s<>()",;:@[\]\\]+@[^\s<>()",;:@[\]\\]+/gu;
 const decoder = new TextDecoder('utf-8', { fatal: false });
 
 /**
- * Anything shaped like an encoded-word (RFC 2047): `=?charset?encoding?text?=`,
- * in any charset and any encoding letter, as broadly as a reader might
- * decode one.
+ * One encoded-word (RFC 2047 §2) exactly: a charset token, an optional
+ * RFC 2231 `*language`, `B` or `Q`, then printable ASCII other than `?`
+ * and white space. Sticky: it must start where it is tried.
  */
-const ENCODED_WORD = /=\?[^?\s]*\?([^?\s]*)\?([^?\s]*)\?=/g;
+const ENCODED_WORD =
+	/=\?([A-Za-z0-9!#$%&'*+\-^_`{|}~]+?)(?:\*[A-Za-z0-9-]+)?\?([BbQq])\?([!->@-~]*)\?=/y;
 
-/** The bytes of an encoded-word's text, read as B (base64) or Q; `undefined` for another encoding. */
-function encodedBytes(encoding: string, text: string): Uint8Array | undefined {
-	if (encoding.toUpperCase() === 'B') return Buffer.from(text, 'base64');
-	if (encoding.toUpperCase() !== 'Q') return undefined;
+/** The charsets a From display name may be encoded in: those every reader decodes alike, UTF-7 not among them. */
+const CHARSETS = new Set([
+	'utf-8',
+	'us-ascii',
+	...Array.from({ length: 16 }, (_, i) => `iso-8859-${i + 1}`),
+	...Array.from({ length: 9 }, (_, i) => `windows-${1250 + i}`),
+]);
+
+/** An encoded-word read: its charset, lowercase; `B` or `Q`; its text; where it ends. */
+interface Word {
+	readonly charset: string;
+	readonly encoding: string;
+	readonly text: string;
+	readonly start: number;
+	readonly end: number;
+}
+
+/** The bytes of encoded text, B (base64, padding anywhere ignored) or Q. */
+function encodedBytes(encoding: string, text: string): Uint8Array {
+	if (encoding === 'B') return Buffer.from(text.replace(/=/g, ''), 'base64');
 	const bytes: number[] = [];
 	for (let i = 0; i < text.length; i++) {
 		const hex = text.slice(i + 1, i + 3);
@@ -72,18 +89,68 @@ function encodedBytes(encoding: string, text: string): Uint8Array | undefined {
 }
 
 /**
- * Whether an encoded-word in `value` could show a reader an `@`: one
- * holding a raw `@` (an address hidden inside it), or whose B or Q text
- * holds the byte 0x40, whatever its charset says — a charset the
- * platform does not know is shown raw by one reader and decoded by
- * another, and UTF-16's `@` holds that byte too.
+ * The encoded-words of `value`, read strictly, or `undefined` when one
+ * `=?` in it starts no well-formed word in an allowed charset: white
+ * space or a fold inside a word, a word never closed, a charset such as
+ * UTF-7 or one this check does not know.
+ */
+function encodedWords(value: string): Word[] | undefined {
+	const words: Word[] = [];
+	let from = 0;
+	for (;;) {
+		const start = value.indexOf('=?', from);
+		if (start === -1) return words;
+		ENCODED_WORD.lastIndex = start;
+		const match = ENCODED_WORD.exec(value);
+		if (match === null) return undefined;
+		const [word, charset = '', encoding = '', text = ''] = match;
+		if (!CHARSETS.has(charset.toLowerCase())) return undefined;
+		words.push({
+			charset: charset.toLowerCase(),
+			encoding: encoding.toUpperCase(),
+			text,
+			start,
+			end: start + word.length,
+		});
+		from = start + word.length;
+	}
+}
+
+/**
+ * Whether the encoded-words of `value` could show a reader an `@`, read
+ * as an allow-list: any `=?` that is not a strict encoded-word in an
+ * allowed charset; a raw `@` in a word; a word, or a run of adjacent
+ * words (nothing or white space between them) in one charset and
+ * encoding joined as some readers join them, whose bytes hold 0x40 —
+ * which catches an escape or a base64 group split across two words.
  */
 function hidesAt(value: string): boolean {
-	for (const [word, encoding = '', text = ''] of value.matchAll(ENCODED_WORD)) {
-		if (word.slice(2).includes('@')) return true;
-		if (encodedBytes(encoding, text)?.includes(0x40)) return true;
+	if (!value.includes('=?')) return false;
+	const words = encodedWords(value);
+	if (words === undefined) return true;
+	let run: Word[] = [];
+	const runHides = () =>
+		run.length > 0 &&
+		encodedBytes(
+			run[0]?.encoding ?? 'Q',
+			run.map((w) => w.text).join(''),
+		).includes(0x40);
+	for (const word of words) {
+		if (word.text.includes('@')) return true;
+		if (encodedBytes(word.encoding, word.text).includes(0x40)) return true;
+		const last = run.at(-1);
+		const adjacent =
+			last !== undefined &&
+			last.charset === word.charset &&
+			last.encoding === word.encoding &&
+			/^[ \t]*$/.test(value.slice(last.end, word.start));
+		if (!adjacent) {
+			if (runHides()) return true;
+			run = [];
+		}
+		run.push(word);
 	}
-	return false;
+	return runHides();
 }
 
 /** Why a From field names no author this check can stand behind. */

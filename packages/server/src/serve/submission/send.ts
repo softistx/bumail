@@ -97,9 +97,14 @@ async function handOn(
 	const { envelope } = message;
 	const user = String(session.data[USER]);
 	const from = `${message.id} from ${user} <${envelope.from}>`;
-	const refusal = checkHeader(ctx, name, from, user, spooled);
+	const { header } = spooled;
+	if (header === undefined) {
+		ctx.log(`${name}: ${from} refused: its header is over 256 KiB`);
+		return HEADER_TOO_LARGE;
+	}
+	const refusal = checkFrom(ctx, name, from, user, header);
 	if (refusal !== undefined) return refusal;
-	const out = await signed({ ctx, name, message, spooled, from });
+	const out = await signed({ ctx, name, message, spooled, from }, header);
 
 	const { directory } = ctx;
 	const local = envelope.to.filter(
@@ -125,19 +130,14 @@ async function handOn(
 	return undefined;
 }
 
-/** The refusal of a header too large, or of a From the user may not send as. */
-function checkHeader(
+/** The refusal of a From the user may not send as, logged. */
+function checkFrom(
 	ctx: SubmissionContext,
 	name: string,
 	from: string,
 	user: string,
-	spooled: Spooled,
+	header: Uint8Array,
 ): Reply | undefined {
-	const { header } = spooled;
-	if (header === undefined) {
-		ctx.log(`${name}: ${from} refused: its header is over 256 KiB`);
-		return HEADER_TOO_LARGE;
-	}
 	const yours = fromIsYours(ctx.directory, user, header);
 	if (yours === 'yes') return undefined;
 	ctx.log(`${name}: ${from} refused: ${FROM_PROBLEMS[yours]}`);
@@ -148,9 +148,9 @@ function checkHeader(
 /** The header with what a sender could forge removed, as on the MX, and its DKIM signature. */
 async function signed(
 	base: Omit<Outgoing, 'kept' | 'signature'>,
+	header: Uint8Array,
 ): Promise<Outgoing> {
 	const { ctx, spooled } = base;
-	const header = spooled.header ?? new Uint8Array();
 	const { kept } = stripForged(header, ctx.hostname, (id) =>
 		ctx.directory.domains.has(id),
 	);

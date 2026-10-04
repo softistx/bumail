@@ -194,7 +194,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   mechanism, `redirect=`, `exp=`, the macros, the lookup limits and a
   timeout, never a throw for a record.
 - **`@bumail/smtp`, the client**, as `@bumail/smtp/client`, in smtp 0.2.0
-  (0.3.0 now) — `sendMail` delivers one message to a smarthost, a submission
+  (0.4.0 now) — `sendMail` delivers one message to a smarthost, a submission
   server or a domain's MX hosts (looked up through `@bumail/dns` or any
   resolver of that shape, with the null MX honoured), and `resolveMx` gives
   those hosts in order: STARTTLS, opportunistic or required, implicit TLS,
