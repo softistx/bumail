@@ -27,16 +27,26 @@ export class PgState {
 		this.#ready = ready;
 	}
 
-	/** One statement or several that need no common snapshot, on the pool. */
-	async direct<T>(fn: (db: Db) => Promise<T>): Promise<T> {
+	/**
+	 * A write that touches no account yet — creating one — in a `READ
+	 * COMMITTED` transaction: under a stricter default, a statement that
+	 * waits on another's row would end in a serialization failure.
+	 */
+	async committed<T>(fn: (db: Db) => Promise<T>): Promise<T> {
 		await this.#ready();
-		return fn(new Db(this.client, this.t));
+		return (await this.client.begin(async (sql) => {
+			await sql.unsafe(
+				'SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE',
+			);
+			return fn(new Db(sql, this.t));
+		})) as T;
 	}
 
 	/**
-	 * A read of several statements, in one `REPEATABLE READ` transaction:
-	 * they all see the database as one instant left it, so a count, a
-	 * modseq and the rows it covers always agree.
+	 * A read, in one `REPEATABLE READ, READ ONLY` transaction whatever the
+	 * client's default: its statements all see the database as one instant
+	 * left it, so a count, a modseq and the rows it covers always agree,
+	 * and a read-only transaction at that level never fails to serialize.
 	 */
 	async read<T>(fn: (db: Db) => Promise<T>): Promise<T> {
 		await this.#ready();

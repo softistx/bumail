@@ -29,8 +29,9 @@ store is merged (see Shipped).
 
 ## Not planned
 
-- **A runtime dependency.** The memory store needs none, and the
-  `bun:sqlite` store uses Bun's own SQLite.
+- **A runtime dependency.** The memory store needs none, the
+  `bun:sqlite` store uses Bun's own SQLite, and the PostgreSQL store
+  Bun's own `Bun.sql`.
 - **Parsing messages in the store.** A store keeps bytes; `@bumail/mime`
   reads them.
 

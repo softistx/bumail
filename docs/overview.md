@@ -329,7 +329,7 @@ S3 and the metadata in a database.
 - a store on PostgreSQL, on `Bun.sql`, for a server that runs as several
   instances: each write locks its account, so UIDs and modseqs stay in
   order whichever instance writes;
-- Next: MongoDB, and a separate blob store (disk, S3, GridFS).
+- Next: a separate blob store (disk, S3).
 
 Every implementation passes the same contract tests, so the SMTP server,
 IMAP and JMAP never need to know which one they were given.

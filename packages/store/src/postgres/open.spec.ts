@@ -235,12 +235,47 @@ describePostgres('PostgresMailStore on PostgreSQL', (url) => {
 		await store.migrate();
 		const newer = migrations(tablesOf('')).length + 1;
 		await admin.unsafe(
-			`UPDATE ${tablesFor(store)}schema SET version = ${newer}`,
+			`UPDATE ${tablesFor(store)}store_schema SET version = ${newer}`,
 		);
 		const later = share(store);
 		await expect(later.findAccount('x')).rejects.toThrow(
 			`The database is at schema version ${newer}, newer than this store's ${newer - 1}`,
 		);
+	});
+
+	test("another package's schema table on the prefix, such as a queue's, is refused", async () => {
+		const p = prefix();
+		await admin.unsafe(`CREATE TABLE ${p}schema (version integer NOT NULL)`);
+		try {
+			const store = PostgresMailStore.open({ sql: client(), tablePrefix: p });
+			await expect(store.findAccount('x')).rejects.toMatchObject({
+				code: 'INVALID',
+				message: `The table "${p}schema" is already in the database, and is not the mail store's: give the store a tablePrefix of its own`,
+			});
+		} finally {
+			await admin.unsafe(`DROP TABLE IF EXISTS ${p}schema`);
+		}
+	});
+
+	test("tables of another's on the prefix, such as a queue's, are refused before any is created", async () => {
+		const p = prefix();
+		// What a @bumail/queue/postgres queue on the same prefix leaves.
+		await admin.unsafe(`CREATE TABLE ${p}schema (version integer NOT NULL)`);
+		await admin.unsafe(`INSERT INTO ${p}schema VALUES (1)`);
+		await admin.unsafe(`CREATE TABLE ${p}messages (id text PRIMARY KEY)`);
+		try {
+			const store = PostgresMailStore.open({ sql: client(), tablePrefix: p });
+			await expect(store.migrate()).rejects.toMatchObject({
+				code: 'INVALID',
+				message: `The table "${p}schema" is already in the database, and is not the mail store's: give the store a tablePrefix of its own`,
+			});
+			const [left] = await admin.unsafe(
+				`SELECT to_regclass('${p}accounts') IS NULL AS none, (SELECT version FROM ${p}schema) AS version`,
+			);
+			expect(left).toEqual({ none: true, version: 1 });
+		} finally {
+			await admin.unsafe(`DROP TABLE IF EXISTS ${p}schema`);
+		}
 	});
 
 	test('close leaves a client it was given open, and closes one it opened', async () => {

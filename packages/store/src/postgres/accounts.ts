@@ -12,7 +12,7 @@ export function getAccount(
 	state: PgState,
 	id: string,
 ): Promise<Account | undefined> {
-	return state.direct(async (db) => {
+	return state.read(async (db) => {
 		const row = await db.findAccountRow(id);
 		return row && { id: row.id, name: row.name };
 	});
@@ -24,7 +24,7 @@ export function findAccount(
 	name: string,
 ): Promise<Account | undefined> {
 	const key = loginKey(name);
-	return state.direct(async (db) => {
+	return state.read(async (db) => {
 		// A login PostgreSQL cannot hold is one no account has.
 		if (!isStorable(key)) return undefined;
 		return db.one<Account>(
@@ -55,7 +55,7 @@ export function createAccount(state: PgState, name: string): Promise<Account> {
 		);
 	}
 	const account = { id: crypto.randomUUID(), name: login };
-	return state.direct(async (db) => {
+	return state.committed(async (db) => {
 		const inserted = await db.rows(
 			`INSERT INTO ${db.t.accounts} (id, name, login_key) VALUES ($1, $2, $3)
 			ON CONFLICT (login_key) DO NOTHING RETURNING id`,

@@ -146,8 +146,11 @@ await store.close(); // closes only a client it opened from a URL
   account, dropped with its last message.
 - **Pages in the database**: the changes send only the entries up to the
   page's end, and `listAccountMessages` only the page asked for.
-- `tablePrefix` (`bumail_store_` by default) names the tables, and
-  `maxTombstones` works as for the other stores. A login or a mailbox
+- `tablePrefix` (`bumail_store_` by default) names the tables. It must
+  never be the same as a `@bumail/queue/postgres` queue's (by default
+  `bumail_queue_`) or any other package's: a store that finds another's
+  `<prefix>schema` refuses it, `INVALID`. `maxTombstones` works as for
+  the other stores. A login or a mailbox
   name holding a NUL or a lone surrogate, which PostgreSQL cannot keep
   as given, is `INVALID`, and so is a login over 1024 bytes of UTF-8.
 
@@ -170,6 +173,12 @@ yet. The interface may grow in a 0.x minor version, which such a store
 follows.
 
 ## API
+
+| import | what it holds |
+| --- | --- |
+| `@bumail/store` | the contract, `MemoryMailStore` and the helpers; no `bun:` import |
+| `@bumail/store/sqlite` | `SqliteMailStore`, on `bun:sqlite` and files |
+| `@bumail/store/postgres` | `PostgresMailStore`, on PostgreSQL through `Bun.sql` |
 
 | export | |
 | --- | --- |

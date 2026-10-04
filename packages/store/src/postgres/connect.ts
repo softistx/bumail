@@ -39,7 +39,7 @@ const PREFIX = /^[a-z_][a-z0-9_]{0,39}$/;
 export function tablesOf(prefix: string): Tables {
 	return {
 		prefix,
-		schema: `${prefix}schema`,
+		schema: `${prefix}store_schema`,
 		counters: `${prefix}counters`,
 		accounts: `${prefix}accounts`,
 		mailboxes: `${prefix}mailboxes`,

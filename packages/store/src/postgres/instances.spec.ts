@@ -8,7 +8,7 @@ import { PostgresMailStore } from './store';
 // of its own, as another process would, and they run at once.
 
 describePostgres('PostgresMailStore: several instances', (url) => {
-	const { client, create, share, tablesFor } = temporaryStores(url);
+	const { client, create, prefix, share, tablesFor } = temporaryStores(url);
 
 	/** Two instances on one store, and a third that only reads. */
 	async function instances() {
@@ -48,7 +48,27 @@ describePostgres('PostgresMailStore: several instances', (url) => {
 		expect(listed.map((e) => e.uid)).toEqual(byUid.map((e) => e.uid));
 	});
 
-	test('appends hold when the clients default to a stricter isolation level', async () => {
+	test('instances migrating at once under a stricter default isolation level each see the tables once', async () => {
+		const p = prefix();
+		const levels = ['repeatable read', 'serializable'];
+		const stores = Array.from({ length: 8 }, (_, i) =>
+			PostgresMailStore.open({
+				sql: client(2, {
+					default_transaction_isolation: levels[i % 2] as string,
+				}),
+				tablePrefix: p,
+			}),
+		);
+		await Promise.all(stores.map((s) => s.migrate()));
+		const account = await (stores[0] as MailStore).createAccount(
+			'm@example.net',
+		);
+		expect(await (stores[7] as MailStore).getAccount(account.id)).toEqual(
+			account,
+		);
+	});
+
+	test('appends and logins hold when the clients default to a stricter isolation level', async () => {
 		const { a, account, inbox } = await instances();
 		// Another application's client, whose sessions default to more.
 		const strict = (level: string) =>
@@ -65,6 +85,17 @@ describePostgres('PostgresMailStore: several instances', (url) => {
 			),
 		);
 		expect(new Set(added.map((m) => m.mailboxes[0]?.uid)).size).toBe(20);
+		const created = await Promise.allSettled(
+			Array.from({ length: 10 }, (_, i) =>
+				(stores[i % 2] as MailStore).createAccount('joe@example.net'),
+			),
+		);
+		expect(created.filter((c) => c.status === 'fulfilled')).toHaveLength(1);
+		for (const c of created) {
+			if (c.status === 'rejected') {
+				expect(c.reason).toMatchObject({ code: 'ALREADY_EXISTS' });
+			}
+		}
 		await Promise.all(stores.map((s) => s.close()));
 	});
 

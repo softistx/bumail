@@ -72,15 +72,10 @@ No dates. Each entry says what someone running or embedding the server gets.
   destination over one session, for the queue to deliver in batches.
 - **A blob store, apart from the mailbox store** — message bytes kept
   apart from their metadata, behind one small contract: put as a stream,
-  get and delete, by account and hash. Three answers: the disk through
-  `Bun.file`, S3 through `@nxgt/s3`, and GridFS through
-  `@nxgt/mongo/gridfs`. Each mailbox store keeps its bytes in whichever
-  the operator picks; the PostgreSQL store, which keeps them in the
-  database today, first.
-- **`@bumail/store-mongo`** — the store contract on MongoDB: peers on
-  `@nxgt/mongo`, `mongodb` and `zod`, with message bytes on GridFS or S3,
-  at the operator's choice. It needs a replica set, since UIDs and modseqs
-  are allotted in transactions. The same contract specs again.
+  get and delete, by account and hash. Two answers: the disk through
+  `Bun.file`, and S3 through `@nxgt/s3`. Each mailbox store keeps its
+  bytes in whichever the operator picks; the PostgreSQL store, which
+  keeps them in the database today, first.
 
 ## Later
 

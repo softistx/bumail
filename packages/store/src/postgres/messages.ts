@@ -150,7 +150,7 @@ export function readContent(
 	accountId: string,
 	blobId: string,
 ): Promise<Blob | undefined> {
-	return state.direct(async (db) => {
+	return state.read(async (db) => {
 		if (!isStorable(accountId)) throw noAccount(accountId);
 		const [row] = await db.rows<{ content: Uint8Array | null }>(
 			`SELECT c.content FROM ${db.t.accounts} a

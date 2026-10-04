@@ -69,7 +69,9 @@ setting up a PostgreSQL store can.
 - [`StoreError: The URL in sql cannot be opened: …`](#storeerror-the-url-in-sql-cannot-be-opened-)
 - [`StoreError: The PostgreSQL mail store cannot be set up: …`](#storeerror-the-postgresql-mail-store-cannot-be-set-up-)
 - [`StoreError: An account name PostgreSQL keeps holds no NUL and no lone surrogate`](#storeerror-an-account-name-postgresql-keeps-holds-no-nul-and-no-lone-surrogate)
+- [`StoreError: An account name PostgreSQL keeps is at most 1024 bytes of UTF-8`](#storeerror-an-account-name-postgresql-keeps-is-at-most-1024-bytes-of-utf-8)
 - [`StoreError: A mailbox name PostgreSQL keeps holds no NUL and no lone surrogate`](#storeerror-a-mailbox-name-postgresql-keeps-holds-no-nul-and-no-lone-surrogate)
+- [`StoreError: The table "…" is already in the database, and is not the mail store's: give the store a tablePrefix of its own`](#storeerror-the-table--is-already-in-the-database-and-is-not-the-mail-stores-give-the-store-a-tableprefix-of-its-own)
 - [`PostgresError: …`, or a connection error, from a call](#postgreserror--or-a-connection-error-from-a-call)
 
 The `bun:sqlite` group's `The store is closed`, `The database is at
@@ -720,6 +722,19 @@ await store.createAccount(login);
 
 ```ts
 await store.createMailbox(account.id, { name: name.toWellFormed() });
+```
+
+## `StoreError: The table "…" is already in the database, and is not the mail store's: give the store a tablePrefix of its own`
+
+**Code**: `INVALID`.
+
+**When**: the first call on a `PostgresMailStore`, or `migrate()`, was about to make the tables on a database where none of the store's are recorded yet, and found a `<prefix>schema` or one of its own tables' names taken. Most often a `@bumail/queue/postgres` queue was given the same `tablePrefix`: the queue has a `<prefix>schema` and a `<prefix>messages`. Nothing is created; the store refuses rather than share a table that is not its own.
+
+**Fix**: The store's `tablePrefix` must never be the same as the queue's, or any other package's. Give each its own; the defaults already differ.
+
+```ts
+const store = PostgresMailStore.open({ sql, tablePrefix: 'mail_' });
+const queue = PostgresQueueStore.open({ sql, tablePrefix: 'outbound_' });
 ```
 
 ## `PostgresError: …`, or a connection error, from a call

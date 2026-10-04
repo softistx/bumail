@@ -512,17 +512,27 @@ process.on('SIGTERM', async () => {
   lowercase letters, digits and underscores, starting with a letter or
   an underscore, 40 characters at most. It is written into the
   statements, never bound. The tables go in the connection's default
-  schema (its `search_path`).
+  schema (its `search_path`). **It must never be the prefix of a
+  `@bumail/queue/postgres` queue, or of any other package**, on the same
+  database: the queue's tables include a `<prefix>schema` and a
+  `<prefix>messages`. The defaults differ (`bumail_queue_`). The store
+  keeps its version in `<prefix>store_schema`, and its first migration
+  refuses, `INVALID`, a `<prefix>schema` or any of its own tables
+  already there, so a store opened second on a queue's prefix fails
+  before it creates anything. A queue opened second on a store's prefix
+  is the queue's to refuse.
 - **`maxTombstones`**, as for the other stores (below).
-- **Writes run at `READ COMMITTED`**, whatever the client's sessions
-  default to, so a client shared with code that defaults to `repeatable
-  read` or `serializable` still serves the store; reads of more than one
-  statement run at `REPEATABLE READ, READ ONLY`.
+- **Every call sets its isolation level**, whatever the client's
+  sessions default to, so a client shared with code that defaults to
+  `repeatable read` or `serializable` still serves the store: writes,
+  creating an account and `migrate()` run at `READ COMMITTED`, reads at
+  `REPEATABLE READ, READ ONLY`. Each call is one transaction, reads of a
+  single row included.
 - **Nothing connects at `open`**: a wrong option is refused there, as
   `INVALID`, and a database out of reach on the first call, as
   `INVALID`, `The PostgreSQL mail store cannot be set up: …`. A URL is
   never repeated in an error, and its password is masked should Bun's
-  reason name it.
+  reason name it: always as `:password@`, and alone from 4 characters.
 - `close()` may be called more than once. Every method called after it
   rejects with `The store is closed`.
 
@@ -537,10 +547,11 @@ process.on('SIGTERM', async () => {
 | `<prefix>contents` | the bytes: `account_id`, `blob_id`, `uses` (how many of the account's messages use them), `size` and `content` (`bytea`) |
 | `<prefix>tombstones` | what is gone, for the changes: a message destroyed, a mailbox deleted, a message that left a mailbox (with its UID there and when it had come in). `<prefix>tombstones_since` and `<prefix>tombstones_mailbox` serve the changes, for the account and for one mailbox |
 | `<prefix>counters` | the last UIDVALIDITY given |
-| `<prefix>schema` | the version: how many migrations ran |
+| `<prefix>store_schema` | the version: how many migrations ran |
 
 They are the `bun:sqlite` store's tables, column for column, but for the
-content. Counts, UIDs and modseqs are `bigint`. Deleting an account
+content. UIDs, modseqs, UIDVALIDITYs, sizes and times are `bigint`;
+`uses` and the schema's `version` are `integer`. Deleting an account
 deletes the rest with it (`ON DELETE CASCADE`). Every index and
 constraint is named after the prefix, so a prefix of 40 still fits
 PostgreSQL's 63 characters.
@@ -582,7 +593,7 @@ with the owner's role, and give the servers a narrower one:
 GRANT SELECT, INSERT, UPDATE, DELETE ON
 	bumail_store_accounts, bumail_store_mailboxes, bumail_store_messages,
 	bumail_store_memberships, bumail_store_contents, bumail_store_tombstones,
-	bumail_store_counters, bumail_store_schema
+	bumail_store_counters, bumail_store_store_schema
 	TO bumail_server;
 ```
 

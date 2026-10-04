@@ -87,8 +87,9 @@ export function page(
 ): { items: Item[]; modseq: number; hasMore: boolean } {
 	items.sort((a, b) => a.modseq - b.modseq);
 	if (more && limit !== undefined && items.length <= limit) {
-		// Whole modseqs were sent, up to a bound at or past the floor: the
-		// page ends at the last of them.
+		// The PostgreSQL store never sends this — it sends the item past the
+		// limit too — but a store that sent no more than the page while
+		// leaving whole modseqs out still owes a next one, from its end.
 		const last = Math.max(items.at(-1)?.modseq ?? 0, account.floor);
 		return { items, modseq: last, hasMore: true };
 	}
