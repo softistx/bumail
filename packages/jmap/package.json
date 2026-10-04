@@ -43,7 +43,7 @@
 		]
 	},
 	"devDependencies": {
-		"@alxia/core": "^0.3.0",
+		"@alxia/core": "^0.3.1",
 		"@alxia/openapi-routes": "^0.2.0",
 		"@bumail/mime": "workspace:^",
 		"@bumail/store": "workspace:^",
@@ -51,7 +51,7 @@
 		"jmap-jam": "^0.13.8"
 	},
 	"peerDependencies": {
-		"@alxia/core": "^0.3.0",
+		"@alxia/core": "^0.3.1",
 		"@bumail/mime": "workspace:^",
 		"@bumail/store": "workspace:^",
 		"typescript": "^6.0.3 || ^7.0.0"

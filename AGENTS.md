@@ -431,6 +431,13 @@ Every PR goes into `develop`. Before merging:
   first reaching `authenticate`, or reading and never pausing its sending,
   freed as fast once reset at `LINGER_MAX_MS`, having read the BYE;
   `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`.
+  Both `close.spec.ts` also time the server's own `close` from its
+  decision: within 100 ms for a reset with replies queued (smtp), from
+  `LINGER_QUIET_MS` to before `LINGER_MAX_MS` for a linger over a client
+  gone quiet, and within `LINGER_MAX_MS` plus 250 ms over one still
+  sending, which under load may pause long enough to half-close early
+  (measured 30 runs each on macOS and Linux beside busy cores: at most
+  12 ms, 37.5 ms, and 28 ms past `LINGER_MAX_MS`).
   The idle `timeout` (30 minutes at least) runs the same close but no imap
   real-socket spec waits for it. Each copy's `transport.spec.ts` checks,
   on a fake socket, that `shutdown` gets `true` (and nothing on TLS after
