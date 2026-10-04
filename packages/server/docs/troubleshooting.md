@@ -192,7 +192,7 @@ directory commands' own refusals are under
 - [`acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`](#acme-mode-arrives-in-a-later-slice-set-tlsmode--files-with-cert-and-key-for-now)
 - [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
 - [`tls: reloaded (…)`](#tls-reloaded-)
-- [`tls: reloaded (…); https keeps the old certificate until restart`](#tls-reloaded-https-keeps-the-old-certificate-until-restart)
+- [`tls: reloaded (…); https keeps the old certificate until restart`](#tls-reloaded--https-keeps-the-old-certificate-until-restart)
 - [`tls: unchanged (…)`](#tls-unchanged-)
 - [`tls: not reloaded: …`](#tls-not-reloaded-)
 - [A renewed certificate is not served](#a-renewed-certificate-is-not-served)
