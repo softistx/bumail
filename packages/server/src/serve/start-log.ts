@@ -1,11 +1,11 @@
 import type { ServerConfig } from '../config/types';
 import type { Directory } from '../directory/directory';
-import { descriptionOf, LATER } from './listeners';
+import { descriptionOf } from './listeners';
 import type { Log } from './log';
 import { envelopeDomain } from './recipients';
 import type { Listening } from './serve';
 
-/** The start's log: the server's name, one line per listener, one per port arriving later. */
+/** The start's log: the server's name, one line per listener. */
 export function logStart(
 	config: ServerConfig,
 	listening: readonly Listening[],
@@ -16,14 +16,6 @@ export function logStart(
 		log(
 			`bumail: ${name} listening on ${hostname}:${port}: ${descriptionOf(name, config)}`,
 		);
-	}
-	for (const name of LATER) {
-		const port = config.ports[name];
-		if (port !== 0) {
-			log(
-				`bumail: ${name} (port ${port}) arrives in a later slice; not listening`,
-			);
-		}
 	}
 }
 

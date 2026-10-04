@@ -61,9 +61,32 @@ describe('the bumail command', () => {
 				'  outbound      mx',
 				'  inbound dmarc enforce',
 				'  jmap          https://mail.example.com',
+				'  acme          mail.example.com; renewed 30 days before the end; kept in /data/acme',
 				'',
 			].join('\n'),
 		);
+	});
+
+	test('check-config shows the ACME names, the window and the state, and leaves port 80 out of a file certificate', async () => {
+		const acme = writeConfig(
+			'hostname = "mail.example.com"\n[acme]\nacceptTerms = true\nnames = ["imap.example.com"]\nrenewBeforeDays = 20\ndir = "/srv/acme"\n',
+		);
+		const shown = await bumail(['check-config', '--config', acme]);
+		expect(shown.out).toContain(
+			'  acme          mail.example.com, imap.example.com; renewed 20 days before the end; kept in /srv/acme\n',
+		);
+		expect(shown.out).toContain('https 443, http 80, health');
+		const files = writeConfig(
+			'hostname = "mail.example.com"\n[tls]\nmode = "files"\ncert = "c.pem"\nkey = "k.pem"\n',
+			await (async () => {
+				const { selfSigned } = await import('../config/certificates.fixtures');
+				const pair = await selfSigned(['mail.example.com']);
+				return { 'c.pem': pair.cert, 'k.pem': pair.key };
+			})(),
+		);
+		const plain = await bumail(['check-config', '--config', files]);
+		expect(plain.out).not.toContain('http 80');
+		expect(plain.out).not.toContain('  acme ');
 	});
 
 	test('check-config shows JMAP behind a proxy and the PROXY protocol, and a health check off loopback', async () => {
@@ -105,7 +128,6 @@ describe('the bumail command', () => {
 				`bumail: ${path}:`,
 				'  relay: not an option: bumail never relays without AUTH',
 				'  hostname: is required (or set BUMAIL_HOSTNAME)',
-				'  acme.email: is required with tls.mode "acme"',
 				"  acme.acceptTerms: must be true: the CA's terms of service, read and accepted",
 				'',
 			].join('\n'),
@@ -130,13 +152,7 @@ describe('the bumail command', () => {
 		);
 	});
 
-	test('serve checks the file, then refuses tls.mode "acme" for now, exiting 3', async () => {
-		const path = writeConfig(BASE);
-		const { code, err } = await bumail(['serve', '--config', path]);
-		expect(code).toBe(3);
-		expect(err).toBe(
-			'bumail: acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now\n',
-		);
+	test('serve checks the file first, exiting 1 for a bad one', async () => {
 		expect((await bumail(['serve', '--config', writeConfig('')])).code).toBe(1);
 	});
 

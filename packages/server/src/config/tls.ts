@@ -13,7 +13,7 @@ function namesOf(certificate: X509Certificate): string[] {
 		.filter((entry) => entry.startsWith('DNS:'))
 		.map((entry) => entry.slice(4));
 	if (alt.length > 0) return alt;
-	const cn = /(?:^|\n)CN=([^\n]*)/.exec(certificate.subject)?.[1];
+	const cn = /(?:^|\n)CN=([^\n]*)/.exec(certificate.subject ?? '')?.[1];
 	return cn === undefined ? [] : [cn];
 }
 

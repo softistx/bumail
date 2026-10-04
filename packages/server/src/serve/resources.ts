@@ -4,6 +4,7 @@ import type { Queue } from '@bumail/queue';
 import type { ServerConfig } from '../config/types';
 import type { Directory } from '../directory/directory';
 import { maskedFor, type OpenedStore } from '../store/open';
+import type { Acme } from './acme';
 import type { Delivery, Resources } from './listeners';
 import type { Log } from './log';
 import {
@@ -34,6 +35,8 @@ export interface Opened {
 	readonly opened: OpenedStore;
 	readonly queueStore: OpenedQueueStore;
 	readonly tls: TlsFiles;
+	/** With `tls.mode = "acme"`. */
+	readonly acme?: Acme | undefined;
 	readonly spool: Spool;
 	readonly log: Log;
 }
@@ -111,6 +114,7 @@ export function assemble(
 		config,
 		directory,
 		tls: opened.tls,
+		acme: opened.acme,
 		spool: opened.spool,
 		log: opened.log,
 		inflight,

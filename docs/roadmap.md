@@ -38,7 +38,8 @@ No dates. Each entry says what someone running or embedding the server gets.
   (no AUTH there, so never a relay), checks SPF, DKIM and DMARC
   (enforced by default), delivers into the store, and serves it over
   IMAP on 993 and JMAP on 443 (HTTPS, or plain HTTP behind a reverse
-  proxy that ends TLS, such as Traefik), with a certificate from files, a
+  proxy that ends TLS, such as Traefik), with a certificate from files or
+  obtained and renewed from an ACME CA by HTTP-01 on port 80, a
   health check on loopback (`GET /healthz`) and the PROXY protocol on the
   mail ports from proxies it is told to trust. **And it sends mail**:
   submission on 465 and 587, logged in over TLS only, a user sending as

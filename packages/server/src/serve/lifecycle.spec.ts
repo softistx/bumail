@@ -2,8 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fixtureResolver } from '@bumail/dns';
-import { run } from '../cli/run';
-import { BASE, writeConfig } from '../config/config.fixtures';
 import { readConfig } from '../config/read';
 import { ServerError } from '../errors';
 import { serve } from './serve';
@@ -43,7 +41,7 @@ async function refused(port: number): Promise<boolean> {
 }
 
 describe('serve: starting', () => {
-	test('logs one line per listener, and the ports of later slices', async () => {
+	test('logs one line per listener, and none for port 80 with a certificate from files', async () => {
 		const f = await startServer();
 		await f.stop();
 		expect(f.lines[0]).toBe('bumail: serving mail.example.com');
@@ -63,9 +61,7 @@ describe('serve: starting', () => {
 		expect(f.lines[6]).toMatch(
 			/^bumail: health listening on 127\.0\.0\.1:\d+: health check, GET \/healthz: 200 when every listener is up and the directory and the store answer, else 503$/,
 		);
-		expect(f.lines[7]).toBe(
-			'bumail: http (port 80) arrives in a later slice; not listening',
-		);
+		expect(f.lines.some((line) => line.includes(' http '))).toBe(false);
 		expect(f.lines.at(-1)).toBe('bumail: stopped');
 	});
 
@@ -86,28 +82,6 @@ describe('serve: starting', () => {
 		expect(kept[0]).toStartWith(
 			`bumail: the spool folder ${join(dir, 'spool', 'stray')} is kept: its age cannot be read (`,
 		);
-	});
-
-	test('tls.mode "acme" fails clearly, and check-config still takes it', async () => {
-		const path = writeConfig(BASE);
-		const config = await readConfig({ path, env: {} });
-		expect(() => serve(config)).toThrow('acme mode arrives in a later slice');
-		const err: string[] = [];
-		const out: string[] = [];
-		const io = {
-			out: (t: string) => out.push(t),
-			err: (t: string) => err.push(t),
-			env: {},
-			version: '0.0.0',
-			terminal: {
-				stdin: async () => '',
-				isTTY: false,
-				prompt: async () => '',
-			},
-		};
-		expect(await run(['serve', '--config', path], io)).toBe(3);
-		expect(err.join('')).toContain('acme mode arrives in a later slice');
-		expect(await run(['check-config', '--config', path], io)).toBe(0);
 	});
 
 	test('a port it cannot bind is UNAVAILABLE, and closes what it opened', async () => {

@@ -3,8 +3,9 @@ import type { ImapServer } from '@bumail/imap';
 import type { Queue } from '@bumail/queue';
 import type { SmtpServer } from '@bumail/smtp';
 import type { MailStore } from '@bumail/store';
-import type { PortsConfig, ServerConfig } from '../config/types';
+import type { ServerConfig } from '../config/types';
 import type { Directory } from '../directory/directory';
+import type { Acme } from './acme';
 import { createHealth } from './http/health';
 import { createJmap } from './http/jmap';
 import type { HttpListener } from './http/listener';
@@ -23,6 +24,7 @@ export type ListenerName =
 	| 'imaps'
 	| 'imap'
 	| 'https'
+	| 'http'
 	| 'health';
 
 export const LISTENERS: readonly ListenerName[] = [
@@ -32,11 +34,16 @@ export const LISTENERS: readonly ListenerName[] = [
 	'imaps',
 	'imap',
 	'https',
+	'http',
 	'health',
 ];
 
-/** The ports whose listeners arrive in a later slice: logged, never bound. */
-export const LATER: readonly (keyof PortsConfig)[] = ['http'];
+/** Whether `name` is started for `config`: its port is not 0, and `http` only serves `tls.mode = "acme"`. */
+export function enabled(name: ListenerName, config: ServerConfig): boolean {
+	return (
+		config.ports[name] !== 0 && (name !== 'http' || config.acme !== undefined)
+	);
+}
 
 /** What each listener's log line adds after its address. */
 export const DESCRIPTION: Record<ListenerName, string> = {
@@ -48,6 +55,7 @@ export const DESCRIPTION: Record<ListenerName, string> = {
 	imaps: 'IMAP over TLS from the first byte',
 	imap: 'IMAP with STARTTLS, required before any login',
 	https: 'JMAP over HTTPS: Basic auth for the users of the directory',
+	http: 'ACME HTTP-01 challenges on /.well-known/acme-challenge/, a redirect to HTTPS for GET /, 404 for the rest',
 	health:
 		'health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503',
 };
@@ -67,9 +75,10 @@ export function descriptionOf(
 	return `JMAP over plain HTTP for ${who}: Basic auth for the users of the directory`;
 }
 
-/** The address a listener binds to: JMAP's and the health check's own, else `bind`. */
+/** The address a listener binds to: JMAP's, ACME's and the health check's own, else `bind`. */
 export function bindOf(name: ListenerName, config: ServerConfig): string {
 	if (name === 'https') return config.jmap.bind;
+	if (name === 'http') return config.acme?.bind ?? config.bind;
 	return name === 'health' ? config.health.bind : config.bind;
 }
 
@@ -97,7 +106,10 @@ export interface Resources {
 	readonly directory: Directory;
 	readonly store: MailStore;
 	readonly resolver: Resolver;
-	readonly tls: TlsFiles;
+	/** The pair TLS listeners are created with; under `tls.mode = "acme"`, set once the first certificate is there. */
+	tls: TlsFiles;
+	/** With `tls.mode = "acme"`. */
+	readonly acme?: Acme | undefined;
 	readonly spool: Spool;
 	readonly log: Log;
 	/** A failure's text, any secret in it masked. */
@@ -133,16 +145,22 @@ export function createListener(
 		const server = createJmap({ config, directory, store, tls, log, describe });
 		return { name, kind: 'http', server };
 	}
+	if (name === 'http') {
+		if (resources.acme === undefined) throw new Error('http needs ACME');
+		return { name, kind: 'http', server: resources.acme.challenge.listener };
+	}
 	if (name === 'health') {
 		const expected = LISTENERS.filter(
-			(other) => other !== 'health' && config.ports[other] !== 0,
+			(other) => other !== 'health' && enabled(other, config),
 		);
+		const { acme } = resources;
 		const server = createHealth({
 			config,
 			directory,
 			store,
 			expected,
 			up: resources.up,
+			...(acme === undefined ? {} : { tls: () => acme.tls }),
 			log,
 		});
 		return { name, kind: 'http', server };

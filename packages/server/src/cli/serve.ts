@@ -1,5 +1,5 @@
 import type { ServerConfig } from '../config/types';
-import { serve } from '../serve/serve';
+import { type RunningServer, serve } from '../serve/serve';
 import type { Io } from './run';
 
 /**
@@ -13,7 +13,25 @@ export async function serveUntilSignal(
 	io: Io,
 ): Promise<number> {
 	const log = (line: string) => io.out(`${line}\n`);
-	const server = await serve(config, { log });
+	// A signal while `serve` still waits for a first certificate (`tls.mode
+	// = "acme"`) aborts the wait, which stops what had started.
+	const waiting = new AbortController();
+	let first: string | undefined;
+	let unsubscribe = () => {};
+	let drain: (name: string) => void = (name) => {
+		first ??= name;
+		waiting.abort();
+	};
+	unsubscribe = io.signals?.((name) => drain(name)) ?? unsubscribe;
+	let server: RunningServer;
+	try {
+		server = await serve(config, { log, signal: waiting.signal });
+	} catch (error) {
+		unsubscribe();
+		if (first === undefined) throw error;
+		log(`bumail: ${first}, stopping`);
+		return 0;
+	}
 	if (io.signals === undefined) {
 		await server.stop();
 		return 0;
@@ -23,19 +41,19 @@ export async function serveUntilSignal(
 			log('bumail: SIGHUP, looking for a renewed certificate');
 			void server.reloadTls();
 		}) ?? (() => {});
-	let unsubscribe = () => {};
 	const signal = await new Promise<string>((resolve) => {
-		let first: string | undefined;
-		unsubscribe =
-			io.signals?.((name) => {
-				if (first === undefined) {
-					first = name;
-					resolve(name);
-				} else {
-					log(`bumail: ${name} again, stopping now`);
-					void server.stop({ force: true });
-				}
-			}) ?? unsubscribe;
+		const again = (name: string) => {
+			if (first === undefined) {
+				first = name;
+				resolve(name);
+			} else {
+				log(`bumail: ${name} again, stopping now`);
+				void server.stop({ force: true });
+			}
+		};
+		// A signal that came during the start counts as the first.
+		if (first !== undefined) resolve(first);
+		drain = again;
 	});
 	log(`bumail: ${signal}, stopping`);
 	unreload();

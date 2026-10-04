@@ -15,9 +15,10 @@
  *   or aliases, a user an alias points to.
  * - `UNAVAILABLE`: the directory or the mail store cannot be opened or
  *   read, or is held by another process; or `serve` cannot bind a port,
- *   read the certificate or use its spool directory.
- * - `NOT_IMPLEMENTED`: `serve` was asked for what arrives in a later
- *   release: `tls.mode = "acme"`.
+ *   read the certificate or use its spool directory, or no certificate came
+ *   from the ACME CA.
+ * - `NOT_IMPLEMENTED`: reserved for a feature a release asks of `serve`
+ *   before it exists; nothing raises it now.
  */
 export type ServerErrorCode =
 	| 'INVALID_CONFIG'

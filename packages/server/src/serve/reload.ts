@@ -1,3 +1,4 @@
+import type { X509Certificate } from 'node:crypto';
 import { Checker } from '../config/checker';
 import { readText } from '../config/files';
 import { checkTlsPair } from '../config/tls';
@@ -50,12 +51,28 @@ export interface TlsWatch {
 	 * under way.
 	 */
 	reload(): Promise<void>;
+	/** The pair every listener uses now. */
+	readonly applied: TlsFiles;
 	/** Looks no more; one under way finishes. */
 	stop(): void;
 }
 
-/** How a certificate is named in the log: its subject, on one line. */
-const subjectOf = (subject: string) => subject.split('\n').join(', ');
+/**
+ * How a certificate is named in the log: its subject on one line, or,
+ * when it has none — Let's Encrypt's certificates have an empty subject
+ * — its DNS names.
+ */
+function subjectOf(certificate: X509Certificate): string {
+	const subject = certificate.subject as string | undefined;
+	if (subject !== undefined && subject !== '') {
+		return subject.split('\n').join(', ');
+	}
+	return (certificate.subjectAltName ?? '')
+		.split(',')
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.startsWith('DNS:'))
+		.join(', ');
+}
 
 /**
  * Watches `tls.cert` and `tls.key` for a renewed pair, every `pollSeconds`
@@ -93,6 +110,10 @@ class CertificateWatch implements TlsWatch {
 				? setInterval(() => void this.#run(false), pollSeconds * 1000)
 				: undefined;
 		this.#timer?.unref();
+	}
+
+	get applied(): TlsFiles {
+		return this.#applied;
 	}
 
 	reload(): Promise<void> {
@@ -158,7 +179,7 @@ class CertificateWatch implements TlsWatch {
 			return;
 		}
 		const expires = new Date(certificate.validTo).toISOString().slice(0, 10);
-		const named = `${subjectOf(certificate.subject)}, expires ${expires}`;
+		const named = `${subjectOf(certificate)}, expires ${expires}`;
 		if (unchanged) {
 			if (explicit) log(`tls: unchanged (${named})`);
 			return;
@@ -200,7 +221,7 @@ class CertificateWatch implements TlsWatch {
 }
 
 /** The TLS listeners that cannot take a renewed pair while running. */
-function heldOf(config: ServerConfig): string[] {
+export function heldOf(config: ServerConfig): string[] {
 	const held =
 		config.ports.https !== 0 &&
 		config.jmap.mode === 'https' &&

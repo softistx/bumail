@@ -52,8 +52,8 @@ The environment overrides URLs and secrets only, each also as *_FILE:
   BUMAIL_SMARTHOST_PASSWORD
 
 Exit codes: 0 done (serve: stopped cleanly), 1 invalid configuration,
-2 bad usage, 3 not available yet (serve with tls.mode "acme"), 4 refused
+2 bad usage, 3 reserved (nothing returns it now), 4 refused
 by the directory (an address, a password, a name taken, not found,
 still in use, a selector), 5 the directory, the mail store, the queue,
-a port or the certificate unavailable.
+a port or the certificate (none came from the ACME CA) unavailable.
 `;

@@ -10,9 +10,12 @@ function schemeOf(store: { url: string; plaintext?: boolean }): string {
 	return store.plaintext === true ? `${scheme} (plaintext)` : scheme;
 }
 
-function listeners(ports: PortsConfig, healthBind: string): string {
+/** The ports served: `http` only with ACME, whose challenges it answers. */
+function listeners(config: ServerConfig): string {
+	const { ports } = config;
+	const healthBind = config.health.bind;
 	const on = (Object.entries(ports) as [keyof PortsConfig, number][])
-		.filter(([, port]) => port !== 0)
+		.filter(([name, port]) => port !== 0 && (name !== 'http' || config.acme))
 		.map(([name, port]) =>
 			name === 'health'
 				? `health ${port} (${isLoopback(healthBind) ? 'loopback' : healthBind})`
@@ -51,10 +54,7 @@ export function summary(config: ServerConfig): string {
 	const rows: [string, string][] = [
 		['hostname', config.hostname],
 		['data', config.data],
-		[
-			'listening',
-			`${config.bind}: ${listeners(config.ports, config.health.bind)}`,
-		],
+		['listening', `${config.bind}: ${listeners(config)}`],
 		['tls', config.tls.mode],
 		['store', schemeOf(config.store)],
 		['queue', schemeOf(config.queue)],
@@ -63,6 +63,12 @@ export function summary(config: ServerConfig): string {
 		['inbound dmarc', config.inbound.dmarc],
 		['jmap', jmap(config)],
 	];
+	if (config.acme !== undefined) {
+		rows.push([
+			'acme',
+			`${config.acme.names.join(', ')}; renewed ${config.acme.renewBeforeDays} days before the end; kept in ${config.acme.dir}`,
+		]);
+	}
 	if (config.proxyProtocol !== undefined) {
 		rows.push([
 			'mail proxies',
