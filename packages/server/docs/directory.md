@@ -20,7 +20,8 @@ entry for each message.
 ## Where it is
 
 One SQLite file, `directory.url` in the configuration, by default
-`sqlite:<data>/directory.sqlite`. It is created on first use, readable by its owner only (0600),
+`sqlite:<data>/directory.sqlite`. It is created on first use, readable
+by its owner only (0600),
 in WAL mode: the running server reads it while a `bumail` command
 writes it from another process, and a write waits up to 5 seconds for
 another.
@@ -172,8 +173,8 @@ what a command reports (`added the user …`, a listing).
 - **Unicode.** A password is hashed and verified in NFC, as RFC 8265's
   OpaqueString prepares one: `café` typed with a composed `é` or with
   `e` and a combining accent is one password.
-- **Length.** At least 12 characters (after NFC), at most 1024 bytes of UTF-8, and
-  no control character: no prompt types one, and a stray line break
+- **Length.** At least 12 characters (after NFC), at most 1024 bytes
+  of UTF-8, and no control character: no prompt types one, and a stray line break
   from a file would be a password nobody could type.
 - **Secrecy.** No output and no error repeats a password: not an
   option's value, not a file's content, and not an operand or a
@@ -202,9 +203,9 @@ what a command reports (`added the user …`, a listing).
    enable` bump and `user remove` deletes, from whichever process: a
    change counts at the very next request, not a minute later.
    `cacheSeconds: 0` turns it off.
-4. **Logins under way.** One client has at most `maxPending` (5)
-   logins being verified at once, and no more than it has failures left
-   before a block; past either, a login is `busy`, never `blocked`. So
+4. **Logins under way.** One client has at most `maxPending` (5, and
+   never more than `maxFailures`) logins being verified at once, and no
+   more than it has failures left before a block; past either, a login is `busy`, never `blocked`. So
    guesses sent all at once get no more verified than guesses sent in
    turn, and a client with the right password is never blocked for the
    logins it has under way.
@@ -230,17 +231,22 @@ every listener:
 - **Who a client is**: an IPv4 address; an IPv6 address that embeds
   one — IPv4-mapped (`::ffff:192.0.2.1`, or `::ffff:c000:201`) or
   NAT64 (`64:ff9b::/96`) — as that IPv4 address; any other IPv6 address
-  by its **/64**, which one machine usually holds whole. A login from
-  no IP address (an empty one, a Unix socket) is not limited: there is
-  no client to tell apart, and one bucket for all of them would let one
-  guesser block everyone. The first such login logs a warning
-  (`onUnlimited` replaces it); a listener behind a proxy must pass the
-  client's address.
+  by its **/64**, which one machine usually holds whole. `clientKey(ip)`
+  gives that key, and `undefined` for anything that is no IP address
+  (an empty string, a Unix socket path). A login from such a client is
+  not limited: there is no client to tell apart, and one bucket for all
+  of them would let one guesser block everyone. The first such login
+  logs a warning (`onUnlimited` replaces it); a listener behind a proxy
+  must pass the client's address.
 - **What counts**: every refusal but `blocked` and `busy`. Tries while
   blocked are not counted, so hammering never extends a block. A
   `malformed` login, refused before any verify, counts only against a
   client already remembered: a spray of them from new addresses
   remembers no one.
+- **Logins under way**: at most `maxPending` (5) per client; a
+  `maxPending` above `maxFailures` is capped at `maxFailures`. Past it,
+  or past the failures a client has left, `begin(ip)` answers `busy`
+  instead of `started`, never `blocked`.
 - **When it blocks**: at `maxFailures` (10) failures within the last
   `windowSeconds` (900, 15 minutes). The window slides: each failure
   ageing out gives one try back, and a client whose failures are all
@@ -333,6 +339,6 @@ listener answers as a temporary failure (`454`, `NO [UNAVAILABLE]`,
 
 `Directory.open` also takes `maxVerifies`, `maxQueuedVerifies`,
 `cacheSeconds`, `onUnlimited` and a `limiter`, a `new FailureLimiter({
-maxFailures, windowSeconds, maxClients, maxPending })`; `provisionAccount(store, address)` and
-`purgeAccount(store, address)` are what `user add` and `user remove
---purge` do to the store.
+maxFailures, windowSeconds, maxClients, maxPending })`;
+`provisionAccount(store, address)` and `purgeAccount(store, address)`
+are what `user add` and `user remove --purge` do to the store.

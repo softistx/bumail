@@ -161,6 +161,7 @@ directory commands' own refusals are under
 *From code*
 
 - [`too many logins under way; try again later`](#too-many-logins-under-way-try-again-later)
+- [`bumail: a login came from a client with no IP address; the failure limiter does not count such logins`](#bumail-a-login-came-from-a-client-with-no-ip-address-the-failure-limiter-does-not-count-such-logins)
 - [`maxVerifies must be an integer of 1 or more`](#maxverifies-must-be-an-integer-of-1-or-more)
 - [`the directory URL must be sqlite: and a path`](#the-directory-url-must-be-sqlite-and-a-path)
 **Usage** (exit code 2)
@@ -1024,6 +1025,24 @@ steady from the whole server, raise `maxVerifies` on a machine with the
 memory for it (19 MiB each); if one client meets it with the right
 password, it opens many connections at once with a password that
 changed or is not yet cached: it passes once one of them is verified.
+
+#### `bumail: a login came from a client with no IP address; the failure limiter does not count such logins`
+
+**When**: a warning on the console, once per directory, the first time
+`authenticate` gets a client address that is no IP address: an empty
+string, a Unix socket path, or whatever a listener behind a proxy
+passes when it cannot read the client's. `clientKey` answers
+`undefined` for it, and such logins are not limited, rather than all
+sharing one bucket that one guesser would block for everyone. The login
+itself goes on as usual.
+
+**Why**: the listener's `remoteAddress`, or the `ipOf` given to
+`jmapAuthenticate`, answered no address.
+
+**Fix**: pass the client's real address: for JMAP, `ipOf` as
+`(request) => server.requestIP(request)?.address ?? ''`; behind a
+proxy, the address the proxy reports. To log it elsewhere, give
+`Directory.open` an `onUnlimited` callback.
 
 #### `maxVerifies must be an integer of 1 or more`
 
