@@ -394,7 +394,8 @@ for a pool of proxies, and only when nothing else connects from it.
 
 A peer is trusted when its TCP address is in `trusted`. An IPv4-mapped
 peer, such as `::ffff:10.0.0.5` on a dual-stack listener, matches as its
-IPv4 address, `10.0.0.5`; a zone suffix (`%eth0`) is ignored. An entry
+IPv4 address, `10.0.0.5`; an address with a zone (`%eth0`), and a prefix of 0 (`0.0.0.0/0`, `::/0`),
+which trusts every peer, are refused. An entry
 may be IPv4-mapped too: `::ffff:10.0.0.0/104` is `10.0.0.0/8`.
 
 From a trusted peer the header is required, first, and in time:

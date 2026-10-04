@@ -7,8 +7,10 @@ import { isIP } from 'node:net';
  * peer that way.
  */
 
-/** The 4 or 16 bytes of an IP address, or `undefined` for anything else. */
+/** The 4 or 16 bytes of an IP address, or `undefined` for anything else, a zone included. */
 export function addressBytes(text: string): Uint8Array | undefined {
+	// A zone (`fe80::1%eth0`) names an interface of this host, never a client's.
+	if (text.includes('%')) return undefined;
 	const kind = isIP(text);
 	if (kind === 4) return new Uint8Array(text.split('.').map(Number));
 	if (kind !== 6) return undefined;

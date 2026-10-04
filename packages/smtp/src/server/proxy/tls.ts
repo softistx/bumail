@@ -100,6 +100,11 @@ export class ProxiedTls {
 	 */
 	shutdown(halfClose = false): void {
 		this.#halfClose = halfClose;
+		// TLS ended — its close_notify written to the wire — ends the wire too,
+		// which closes the raw socket once what it holds has left: waiting for
+		// the client's own close_notify would hold a client that stopped
+		// reading for as long as it likes.
+		this.#tls.once('finish', () => this.#wire.end());
 		this.#tls.end();
 	}
 

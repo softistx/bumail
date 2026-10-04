@@ -2,6 +2,7 @@
 export type ImapErrorCode =
 	| 'INVALID_OPTION'
 	| 'ALREADY_LISTENING'
+	| 'STOPPED'
 	| 'HOOK_TIMEOUT';
 
 /**

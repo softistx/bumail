@@ -77,6 +77,11 @@ describe('version 1 (proxy-protocol.txt §2.1)', () => {
 		['a bare LF', 'PROXY TCP4 1.2.3.4 1.2.3.5 1 2\n'],
 		['a control character', 'PROXY TCP4 1.2.3.4\t1.2.3.5 1 2\r\n'],
 		['lower case', 'proxy TCP4 1.2.3.4 1.2.3.5 1 2\r\n'],
+		['a zone on a TCP6 address', 'PROXY TCP6 fe80::1%eth0 fe80::2 1 2\r\n'],
+		[
+			'a zone on an IPv4-mapped address',
+			'PROXY TCP6 ::ffff:1.2.3.4%x ::ffff:1.2.3.5 1 2\r\n',
+		],
 		['an SMTP command', 'EHLO client.example\r\n'],
 	])('refuses %s', (_, line) => {
 		expect(text(line).status).toBe('invalid');

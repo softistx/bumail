@@ -31,12 +31,13 @@ describe('trustedPeers', () => {
 	});
 
 	test('IPv4 never matches an IPv6 network, nor the other way', () => {
-		expect(trust(['::/0'])('10.0.0.1')).toBe(false);
-		expect(trust(['0.0.0.0/0'])('::1')).toBe(false);
+		expect(trust(['::/1'])('10.0.0.1')).toBe(false);
+		expect(trust(['0.0.0.0/1'])('::1')).toBe(false);
 	});
 
 	test('a zone, or anything that is not an address, never matches', () => {
-		expect(trust(['fe80::/10'])('fe80::1%en0')).toBe(true);
+		expect(trust(['fe80::/10'])('fe80::1%en0')).toBe(false);
+		expect(trust(['::ffff:10.0.0.0/104'])('::ffff:10.0.0.1%x')).toBe(false);
 		expect(trust(['10.0.0.0/8'])('')).toBe(false);
 		expect(trust(['10.0.0.0/8'])('/tmp/smtp.sock')).toBe(false);
 	});
@@ -53,9 +54,20 @@ describe('trustedPeers', () => {
 		[['10.0.0.0/']],
 		[[10]],
 		[['::ffff:10.0.0.0/8']],
+		[['fe80::1%eth0']],
+		[['::ffff:1.2.3.4%x']],
 	])('refuses %p', (entries) => {
 		expect(() => trust(entries)).toThrow(/proxyProtocol\.trusted/);
 	});
+});
+
+describe('a prefix of 0 trusts every peer: refused', () => {
+	test.each([['0.0.0.0/0'], ['::/0'], ['::ffff:0.0.0.0/96'], ['10.0.0.5/0']])(
+		'%s',
+		(entry) => {
+			expect(() => trust([entry])).toThrow(/prefix length of 0/);
+		},
+	);
 });
 
 describe('formatAddress', () => {

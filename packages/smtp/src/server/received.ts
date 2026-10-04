@@ -1,3 +1,4 @@
+import { isIPv6 } from 'node:net';
 import type { Connection } from './connection';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -33,6 +34,11 @@ export function protocolOf(
 	return `ESMTP${secure ? 'S' : ''}${authenticated ? 'A' : ''}`;
 }
 
+/** The client's address as a domain literal (RFC 5321 §4.1.3): an IPv6 address is tagged `IPv6:`. */
+export function addressLiteral(address: string): string {
+	return isIPv6(address) ? `IPv6:${address}` : printable(address);
+}
+
 /** Keeps a client-given name printable in a header: anything else becomes `?`. */
 function printable(text: string): string {
 	let out = '';
@@ -60,7 +66,7 @@ export function receivedField(
 ): string {
 	const { state, transport, settings } = connection;
 	const lines = [
-		`Received: from ${printable(state.helo ?? 'unknown')} ([${printable(transport.remoteAddress)}])`,
+		`Received: from ${printable(state.helo ?? 'unknown')} ([${addressLiteral(transport.remoteAddress)}])`,
 		`\tby ${settings.options.hostname} with ${protocolOf(state.esmtp, state.secure, state.user !== undefined)} id ${id}`,
 	];
 	const [recipient] = recipients;

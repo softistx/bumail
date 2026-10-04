@@ -119,12 +119,15 @@ await server.listen({ port: 25 });
 | `createSmtpServer(): greetingDelay must be a number of seconds, 0 or more, not <value>` | `greetingDelay` negative, `NaN` or `Infinity` |
 | `createSmtpServer(): greetingDelay (<n> s) must be shorter than timeout (<n> s), or every client times out before the greeting` | `greetingDelay` as long as `timeout`, or longer |
 | `createSmtpServer(): proxyProtocol.trusted must list the addresses or CIDRs of the proxies, at least one` | `proxyProtocol` without `trusted`, with an empty one, or one that is not an array |
-| `createSmtpServer(): proxyProtocol.trusted: "<entry>" is neither an IP address nor a CIDR` | an entry that is a host name, a malformed address, or has more than one `/` |
+| `createSmtpServer(): proxyProtocol.trusted: "<entry>" is neither an IP address nor a CIDR` | an entry that is a host name, a malformed address, an address with a zone (`fe80::1%eth0`), or has more than one `/` |
 | `createSmtpServer(): proxyProtocol.trusted: "<entry>" has a prefix length out of range` | a prefix past 32 for IPv4 or 128 for IPv6, not a number, or below 96 for an IPv4-mapped address (`::ffff:10.0.0.0/8`) |
+| `createSmtpServer(): proxyProtocol.trusted: "<entry>" has a prefix length of 0, which trusts every peer` | `0.0.0.0/0`, `::/0`, `::ffff:0.0.0.0/96`: the option would trust anyone |
 | `createSmtpServer(): proxyProtocol.trusted: <value> is not a string` | an entry that is a number, `null`, an object |
 
 `listen` a second time throws an `SmtpError` with `code:
-'ALREADY_LISTENING'`: create another server for another port.
+'ALREADY_LISTENING'`: create another server for another port. A `stop()`
+called while `listen` still reads the TLS key and certificate (implicit TLS
+only) makes that `listen` reject with `code: 'STOPPED'`, and nothing is bound.
 
 What to do about each is in [Troubleshooting](troubleshooting.md).
 
@@ -481,7 +484,8 @@ Subject: hi
 body
 ```
 
-- `from` is the EHLO or HELO name, then the client's address in brackets.
+- `from` is the EHLO or HELO name, then the client's address in brackets:
+  an IPv6 address is the literal of RFC 5321 §4.1.3, `([IPv6:2001:db8::7])`.
   Any character of the name that is not printable ASCII is written `?`.
 - `with` is the protocol of RFC 3848: `SMTP` after HELO; `ESMTP` after EHLO,
   `ESMTPS` with TLS, `ESMTPA` with AUTH, `ESMTPSA` with both.
@@ -1116,7 +1120,9 @@ the proxy's.
 
 A peer reported IPv4-mapped (`::ffff:10.0.0.5`), as a listener on `::`
 sees an IPv4 client, matches as its IPv4 address, so `'10.0.0.5'` covers
-both. A zone suffix (`fe80::1%eth0`) is ignored. A bad entry throws an
+both. An address with a zone (`fe80::1%eth0`) is refused, as an entry and as a
+peer: a zone names an interface of this host, not a client. A prefix of 0
+(`0.0.0.0/0`, `::/0`) is refused too, since it trusts every peer. A bad entry throws an
 `SmtpError` (`INVALID_OPTION`) from `createSmtpServer`; the messages are in
 [Options](#options).
 

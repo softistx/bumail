@@ -27,10 +27,12 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: createSmtpServer(): proxyProtocol.trusted must list the addresses or CIDRs of the proxies, at least one`](#smtperror-createsmtpserver-proxyprotocoltrusted-must-list-the-addresses-or-cidrs-of-the-proxies-at-least-one)
 - [`SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" is neither an IP address nor a CIDR`](#smtperror-createsmtpserver-proxyprotocoltrusted--is-neither-an-ip-address-nor-a-cidr)
 - [`SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" has a prefix length out of range`](#smtperror-createsmtpserver-proxyprotocoltrusted--has-a-prefix-length-out-of-range)
+- [`SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" has a prefix length of 0, which trusts every peer`](#smtperror-createsmtpserver-proxyprotocoltrusted--has-a-prefix-length-of-0-which-trusts-every-peer)
 - [`SmtpError: createSmtpServer(): proxyProtocol.trusted: … is not a string`](#smtperror-createsmtpserver-proxyprotocoltrusted--is-not-a-string)
 - [`SmtpError: listen(): the server is already listening on …`](#smtperror-listen-the-server-is-already-listening-on-)
 - [`SmtpError: listen(): the server is already starting to listen`](#smtperror-listen-the-server-is-already-starting-to-listen)
 - [`SmtpError: listen(): tls: { key, cert } cannot be used: …`](#smtperror-listen-tls--key-cert--cannot-be-used-)
+- [`SmtpError: listen(): stop() was called before the server bound its port`](#smtperror-listen-stop-was-called-before-the-server-bound-its-port)
 
 **Relaying and authentication**
 
@@ -446,7 +448,9 @@ createSmtpServer({
 ### `SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" is neither an IP address nor a CIDR`
 
 **When**: an entry of `trusted` is a host name (`traefik`), an address with
-a port (`10.0.0.5:25`), a malformed address, or holds more than one `/`.
+a port (`10.0.0.5:25`), a malformed address, an address with a zone
+(`fe80::1%eth0`: a zone names an interface of this host, never a client),
+or holds more than one `/`.
 `…` is the entry.
 
 **Why**: the server matches the TCP address a connection comes from; it
@@ -491,6 +495,20 @@ createSmtpServer({
 		await new Response(message.content).bytes();
 	},
 });
+```
+
+### `SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" has a prefix length of 0, which trusts every peer`
+
+**When**: an entry has a prefix of 0: `0.0.0.0/0`, `::/0`, or
+`::ffff:0.0.0.0/96`, which is the same. `…` is the entry.
+
+**Why**: such an entry matches every peer, so any client could send a
+PROXY header and claim any address: the option would defend nothing.
+
+**Fix**: list the proxy's own address, or the smallest network it is in:
+
+```ts
+proxyProtocol: { trusted: ['172.20.0.2'] }, // not '0.0.0.0/0'
 ```
 
 ### `SmtpError: createSmtpServer(): proxyProtocol.trusted: … is not a string`
@@ -558,6 +576,25 @@ before it binds, so two calls not awaited in turn meet here. Its `code` is
 ```ts
 const server = createSmtpServer({ ...options, tls, implicitTls: true });
 await server.listen({ port: 465 }); // not Promise.all([server.listen(…), server.listen(…)])
+```
+
+### `SmtpError: listen(): stop() was called before the server bound its port`
+
+**When**: `stop()` ran while `listen` was still reading the TLS key and
+certificate, which an `implicitTls` server does before it binds. `listen`
+rejects with `code: 'STOPPED'` and binds nothing; a later `listen` binds as
+usual.
+
+**Why**: `stop()` means the server is not to serve; binding afterwards would
+leave a listener nothing could stop.
+
+**Fix**: nothing is wrong if the stop was meant. To start again, call
+`listen` again:
+
+```ts
+await server.listen({ port: 465 }).catch((error) => {
+	if (error.code !== 'STOPPED') throw error;
+});
 ```
 
 ### `SmtpError: listen(): tls: { key, cert } cannot be used: …`

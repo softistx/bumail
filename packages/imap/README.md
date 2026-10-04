@@ -165,7 +165,7 @@ has the Traefik configuration and every case.
 | `Credentials` | what `authenticate` receives: `mechanism` (`LOGIN` or `PLAIN`), `username`, `password`, `authorizationId?` |
 | `TlsOptions` | `key` and `cert`, as `Bun.listen` takes them |
 | `ProxyProtocolOptions` | `trusted`: the IPv4 and IPv6 addresses and CIDRs of the proxies whose PROXY header is read |
-| `ImapError`, `ImapErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and `HOOK_TIMEOUT`, which `onError` gets |
+| `ImapError`, `ImapErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, `STOPPED` (a `stop()` came while `listen` read the TLS key), and `HOOK_TIMEOUT`, which `onError` gets |
 | `encodeUtf7(name)`, `decodeUtf7(name)` | mailbox names to and from modified UTF-7 (RFC 3501 §5.1.3), as IMAP4rev1 clients write them |
 
 ## Documentation

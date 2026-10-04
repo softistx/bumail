@@ -23,6 +23,9 @@ function networkOf(entry: unknown): Network | string {
 	if (bits < 0 || bits > width) {
 		return `"${entry}" has a prefix length out of range`;
 	}
+	if (bits === 0) {
+		return `"${entry}" has a prefix length of 0, which trusts every peer`;
+	}
 	return { bytes: raw, bits };
 }
 
@@ -44,7 +47,7 @@ function contains(network: Network, address: Uint8Array): boolean {
 /**
  * `proxyProtocol.trusted` as a test of a peer's address: IPv4 and IPv6
  * addresses and CIDRs, an IPv4-mapped address or peer matched as its IPv4
- * address. An entry that is neither throws, through `invalid`, and so
+ * address; a zone, or a prefix of 0, which trusts everyone, is refused. An entry that is neither throws, through `invalid`, and so
  * does an empty list: it would trust nobody, which is no proxy at all.
  */
 export function trustedPeers(
@@ -64,7 +67,7 @@ export function trustedPeers(
 		return network;
 	});
 	return (peer) => {
-		const address = addressBytes(peer.replace(/%.*$/, ''));
+		const address = addressBytes(peer);
 		return (
 			address !== undefined &&
 			networks.some((network) => contains(network, address))

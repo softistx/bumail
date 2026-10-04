@@ -34,10 +34,12 @@ fixed part of the text.
 - [`ImapError: createImapServer(): proxyProtocol.trusted must list the addresses or CIDRs of the proxies, at least one`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted-must-list-the-addresses-or-cidrs-of-the-proxies-at-least-one)
 - [`ImapError: createImapServer(): proxyProtocol.trusted: "…" is neither an IP address nor a CIDR`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted--is-neither-an-ip-address-nor-a-cidr)
 - [`ImapError: createImapServer(): proxyProtocol.trusted: "…" has a prefix length out of range`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted--has-a-prefix-length-out-of-range)
+- [`ImapError: createImapServer(): proxyProtocol.trusted: "…" has a prefix length of 0, which trusts every peer`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted--has-a-prefix-length-of-0-which-trusts-every-peer)
 - [`ImapError: createImapServer(): proxyProtocol.trusted: … is not a string`](troubleshooting/configuration.md#imaperror-createimapserver-proxyprotocoltrusted--is-not-a-string)
 - [`ImapError: listen(): the server is already listening on …`](troubleshooting/configuration.md#imaperror-listen-the-server-is-already-listening-on-)
 - [`ImapError: listen(): the server is already starting to listen`](troubleshooting/configuration.md#imaperror-listen-the-server-is-already-starting-to-listen)
 - [`ImapError: listen(): tls: { key, cert } cannot be used: …`](troubleshooting/configuration.md#imaperror-listen-tls--key-cert--cannot-be-used-)
+- [`ImapError: listen(): stop() was called before the server bound its port`](troubleshooting/configuration.md#imaperror-listen-stop-was-called-before-the-server-bound-its-port)
 - [`ImapError: authenticate did not settle within hookTimeout (… s)`](troubleshooting/configuration.md#imaperror-authenticate-did-not-settle-within-hooktimeout--s)
 - [`Error: authenticate answered the account "…", which the store does not have`](troubleshooting/configuration.md#error-authenticate-answered-the-account--which-the-store-does-not-have)
 

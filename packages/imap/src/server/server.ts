@@ -17,6 +17,7 @@ async function bind(
 	listening: Omit<Listening, 'proxied'>,
 	port: number,
 	hostname: string,
+	stopped: () => boolean,
 ): Promise<TCPSocketListener<SocketState>> {
 	// Implicit TLS: the key and certificate are checked first, so one
 	// that cannot be used fails here alike, with a proxy or without.
@@ -24,6 +25,13 @@ async function bind(
 		listening.secure && options.tls
 			? await tlsContext(options.tls, invalidTls)
 			: undefined;
+	// `stop()` came while the key was being read: nothing is bound.
+	if (stopped()) {
+		throw new ImapError(
+			'STOPPED',
+			'listen(): stop() was called before the server bound its port',
+		);
+	}
 	// Behind a proxy: a clear listener, TLS after the header.
 	const proxied = listening.settings.trusts ? context : undefined;
 	return Bun.listen<SocketState>({
@@ -75,6 +83,8 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 	const secure = options.implicitTls === true;
 	/** `listen` is reading the TLS material, before it binds. */
 	let starting = false;
+	/** `stop()` was called while `starting`: `listen` binds nothing. */
+	let stopRequested = false;
 	return {
 		get connections() {
 			return open.size;
@@ -95,12 +105,14 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 			}
 			// Set before the first await: a second call meanwhile throws, never binds.
 			starting = true;
+			stopRequested = false;
 			try {
 				listener = await bind(
 					options,
 					{ settings, open, handshaking, secure },
 					port,
 					hostname,
+					() => stopRequested,
 				);
 				return { port: listener.port, hostname: listener.hostname };
 			} finally {
@@ -108,6 +120,7 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 			}
 		},
 		stop(closeConnections = false) {
+			if (starting) stopRequested = true;
 			listener?.stop(closeConnections);
 			listener = undefined;
 			if (!closeConnections) return;

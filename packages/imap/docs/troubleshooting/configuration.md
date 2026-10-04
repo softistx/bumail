@@ -92,7 +92,8 @@ proxyProtocol: { trusted: ['10.0.0.5'] },
 An entry of `trusted` is an IPv4 or IPv6 address (`10.0.0.5`,
 `2001:db8::5`) or a CIDR (`10.0.0.0/24`, `2001:db8::/64`). A host name
 such as `proxy.internal`, a trailing slash (`10.0.0.0/`) or two prefixes
-(`10.0.0.0/8/8`) is refused: the list is compared with the peer's TCP
+(`10.0.0.0/8/8`) is refused, and so is an address with a zone
+(`fe80::1%eth0`: a zone names an interface of this host, never a client): the list is compared with the peer's TCP
 address, and no name is looked up. Write the address the server sees the
 proxy connect from:
 
@@ -109,6 +110,16 @@ an IPv4-mapped peer also matches:
 
 ```ts
 proxyProtocol: { trusted: ['10.0.0.0/8'] },
+```
+
+## `ImapError: createImapServer(): proxyProtocol.trusted: "…" has a prefix length of 0, which trusts every peer`
+
+`0.0.0.0/0`, `::/0` and `::ffff:0.0.0.0/96` match every peer, so any client
+could send a PROXY header and claim any address. List the proxy's own
+address, or the smallest network it is in:
+
+```ts
+proxyProtocol: { trusted: ['10.0.0.5'] }, // not '0.0.0.0/0'
 ```
 
 ## `ImapError: createImapServer(): proxyProtocol.trusted: … is not a string`
@@ -131,6 +142,13 @@ A second `listen` on the same server while the first has not resolved
 yet: with `implicitTls`, `listen` reads the key and certificate before it
 binds. Its `code` is `ALREADY_LISTENING`; the first call binds, this one
 binds nothing. Await `listen` once per server.
+
+## `ImapError: listen(): stop() was called before the server bound its port`
+
+`stop()` ran while `listen` was still reading the TLS key and certificate,
+which an `implicitTls` server does before it binds. `listen` rejects with
+`code: 'STOPPED'` and binds nothing; a later `listen` binds as usual.
+Nothing is wrong if the stop was meant.
 
 ## `ImapError: listen(): tls: { key, cert } cannot be used: …`
 

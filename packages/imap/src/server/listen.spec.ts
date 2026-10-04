@@ -13,6 +13,8 @@ const tls = {
 const proxied = { proxyProtocol: { trusted: ['127.0.0.1'] } };
 
 const { store, accountId } = await seededStore();
+/** A port nothing listens on: found once, then asked of `listen`. */
+const PORT = await freePort();
 const servers: ImapServer[] = [];
 afterEach(() => {
 	for (const server of servers.splice(0)) server.stop(true);
@@ -24,6 +26,17 @@ function server(overrides: Partial<ImapServerOptions>): ImapServer {
 	);
 	servers.push(one);
 	return one;
+}
+
+async function freePort(): Promise<number> {
+	const probe = Bun.listen({
+		hostname: '127.0.0.1',
+		port: 0,
+		socket: { data() {} },
+	});
+	const { port } = probe;
+	probe.stop(true);
+	return port;
 }
 
 /** What `listen` rejects with, or `undefined` once it bound. */
@@ -58,6 +71,32 @@ describe('listen, called twice at the same moment', () => {
 			await expect(
 				one.listen({ port: 0, hostname: '127.0.0.1' }),
 			).rejects.toThrow(/already listening on 127\.0\.0\.1:/);
+		},
+	);
+});
+
+describe('stop() while listen() reads the key and certificate', () => {
+	test.each([
+		['with proxyProtocol', proxied],
+		['without', {}],
+	])(
+		'%s: nothing is bound, and listen rejects with STOPPED',
+		async (_, overrides) => {
+			const one = server(overrides);
+			const listening = one.listen({ port: PORT, hostname: '127.0.0.1' });
+			one.stop(true);
+			await expect(listening).rejects.toMatchObject({ code: 'STOPPED' });
+			await expect(listening).rejects.toBeInstanceOf(ImapError);
+			await expect(
+				Bun.connect({
+					hostname: '127.0.0.1',
+					port: PORT,
+					socket: { data() {} },
+				}),
+			).rejects.toThrow();
+			// A later listen binds as any other.
+			const { port } = await one.listen({ port: 0, hostname: '127.0.0.1' });
+			expect(port).toBeGreaterThan(0);
 		},
 	);
 });

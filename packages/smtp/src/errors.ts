@@ -4,6 +4,7 @@ import type { Reply } from './protocol/reply';
 export type SmtpErrorCode =
 	| 'INVALID_OPTION'
 	| 'ALREADY_LISTENING'
+	| 'STOPPED'
 	| 'MESSAGE_TOO_BIG'
 	| 'BARE_LINE_BREAK'
 	| 'CONNECTION_LOST'

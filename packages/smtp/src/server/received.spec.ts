@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { dateTime, protocolOf } from './received';
+import { addressLiteral, dateTime, protocolOf } from './received';
 import { FAKE_TLS, fakeSession, mxOptions, plain } from './session.fixtures';
 
 describe('the Received field (RFC 5321 §4.4)', () => {
@@ -24,6 +24,19 @@ describe('the Received field (RFC 5321 §4.4)', () => {
 		const head = s.received[0]?.text.split('\r\nhi')[0] ?? '';
 		expect(head).not.toContain('for <');
 		expect(head).toMatch(/id [0-9a-f]{20}; \w{3}, /);
+	});
+
+	test('an IPv6 client is the literal of RFC 5321 §4.1.3, tagged IPv6:', async () => {
+		const s = await fakeSession(mxOptions(), { remoteAddress: '2001:db8::7' });
+		await s.send(
+			'EHLO bar.com\r\nMAIL FROM:<a@bar.com>\r\nRCPT TO:<b@foo.com>\r\nDATA\r\n',
+		);
+		await s.send('hi\r\n.\r\n');
+		expect(s.received[0]?.text).toStartWith(
+			'Received: from bar.com ([IPv6:2001:db8::7])\r\n',
+		);
+		expect(addressLiteral('192.0.2.10')).toBe('192.0.2.10');
+		expect(addressLiteral('')).toBe('');
 	});
 
 	test('with, per RFC 3848: SMTP, ESMTP, ESMTPS, ESMTPSA', () => {
