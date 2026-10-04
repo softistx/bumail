@@ -3,7 +3,8 @@
  * argument it cannot take. `MESSAGE_TOO_BIG`, `TOO_MANY_RECIPIENTS` and
  * `QUEUE_FULL`: a limit `enqueue` enforces. `CLOSED`: a store used after
  * `close()`. `LEASE_LOST`: given to the `error` event when another worker
- * took an item before its outcome was recorded.
+ * took an item before its outcome was recorded — or, once the lease's
+ * expiry passed, when the item is gone: lost or cancelled.
  */
 export type QueueErrorCode =
 	| 'INVALID'

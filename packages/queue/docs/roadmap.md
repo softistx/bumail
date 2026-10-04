@@ -77,6 +77,16 @@ Then:
   specs as the other stores, and to specs of two instances delivering
   every item exactly once. One Redis, or a primary with replicas, not
   Cluster; its durability is Redis's, which the guide spells out.
+- **A lease lost to an instance that finished the item is reported** —
+  an instance that stalled past its lease, while another claimed the
+  item, delivered it and dropped it, no longer takes the item's absence
+  for a cancel: it reports `LEASE_LOST` on the `error` event, tells no
+  outcome and sends no DSN, so the operator learns the message may have
+  gone out twice. With no record of who dropped an item, a lease that
+  expired, or a renewal refused while the item was still there, is
+  reported as lost or cancelled; a cancel under a lease that
+  still held is told as before, and no longer draws a `LEASE_LOST` from
+  a renewal that finds the item gone.
 
 ### 0.2.0
 
