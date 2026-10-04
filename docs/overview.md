@@ -53,11 +53,11 @@ them one by one.
 | [SMTP, receiving](#smtp-receiving-mail) | Takes mail in: MX on 25, submission on 587 | [`@bumail/smtp`](../packages/smtp) | published, with the client on `@bumail/smtp/client` |
 | [DNS](#dns) | MX, TXT, A, AAAA, PTR lookups; the records a domain publishes | [`@bumail/dns`](../packages/dns) | lookups published; record helpers next |
 | [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | published; DMARC reports and ARC next |
-| [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
+| [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite, PostgreSQL) |
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | published |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap) and [`@bumail/jmap`](../packages/jmap) | published |
-| TLS certificates | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives merged; the client next |
-| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration |
+| TLS certificates | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives published (0.1.0); the client next |
+| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration, and its directory of domains, users and aliases |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
 
@@ -423,12 +423,14 @@ password crosses the network in clear, over SMTP, IMAP or JMAP.
 
 **In bumail.** It is in progress, as
 [`@bumail/server`](../packages/server), built on alxia, whose
-`@alxia/core` is on npm. Private until it serves mail, it reads and
-checks its configuration so far: one TOML file, which `bumail
-check-config` checks whole. Then **a Docker image, all in one**: the
-server app with ports 25, 465, 587, 993, 443 and 80, and one volume for
-the mail, the queue and the certificates. It holds the server only; any
-JMAP or IMAP client connects to it.
+`@alxia/core` is on npm. Private until it serves mail, it has so far
+its configuration, one TOML file which `bumail check-config` checks
+whole, and its directory of domains, users and aliases, which
+`bumail domain`, `bumail user` and `bumail alias` manage. Then **a
+Docker image, all in one**: the server app with ports 25, 465, 587,
+993, 443 and 80, and one volume for the mail, the queue and the
+certificates. It holds the server only; any JMAP or IMAP client
+connects to it.
 
 **Sending from a container.** Many cloud hosts and home connections block
 outbound port 25, and receiving servers distrust an address without

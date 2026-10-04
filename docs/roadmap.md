@@ -31,12 +31,14 @@ No dates. Each entry says what someone running or embedding the server gets.
   on another repository's checkout. In progress, and private until it
   serves mail: its configuration — one TOML file, checked whole by
   `bumail check-config`, the environment overriding URLs and secrets
-  only — is merged; the steps that follow are in
+  only — is merged, and so is its directory of domains, users and
+  aliases (argon2id passwords, aliases to local users only), managed by
+  `bumail domain`, `user` and `alias`; the steps that follow are in
   [its roadmap](../packages/server/docs/roadmap.md).
 
 ## Next
 
-- **`@bumail/acme`, the client** — on the primitives merged below: the
+- **`@bumail/acme`, the client** — on the primitives published below: the
   directory, nonces, the account, an order, HTTP-01 challenges answered
   on port 80, finalize and the certificate chain, tested against Pebble,
   Let's Encrypt's test CA. The server app obtains and renews its
@@ -104,18 +106,15 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Shipped
 
-### Unreleased — merged, not yet published
-
-- **`@bumail/acme`, the primitives of an ACME client** — a certificate
-  signing request (PKCS #10) for DNS names, signed with ECDSA P-256 or
-  RSA through Web Crypto on a DER writer of its own; the flattened JWS
-  every ACME request is (ES256, RS256); the JWK thumbprint, key
-  authorizations and the HTTP-01 path; keys written as PKCS #8 PEM that
-  Bun's TLS takes. Its own package, with no required peer, so a server
-  can obtain certificates with nothing else of bumail.
-
 ### Published
 
+- **`@bumail/acme`, the primitives of an ACME client**, in acme 0.1.0 —
+  a certificate signing request (PKCS #10) for DNS names, signed with
+  ECDSA P-256 or RSA through Web Crypto on a DER writer of its own; the
+  flattened JWS every ACME request is (ES256, RS256); the JWK
+  thumbprint, key authorizations and the HTTP-01 path; keys written as
+  PKCS #8 PEM that Bun's TLS takes. Its own package, with no required
+  peer, so a server can obtain certificates with nothing else of bumail.
 - **`@bumail/store`, a PostgreSQL store**, in store 0.4.0, as
   `@bumail/store/postgres` — the store contract on PostgreSQL through
   Bun's own `Bun.sql`, so it peers on no driver, as the queue's does, for

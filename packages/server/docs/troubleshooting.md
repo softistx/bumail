@@ -17,7 +17,9 @@ number, a scheme. A path is the key, dotted from the top
 (`store.url (BUMAIL_STORE_URL)`); `(file)` is the file itself. No
 problem repeats a URL or a secret, so a URL is named by its scheme.
 
-The command exits 1 for these, and 2 for [bad usage](#usage).
+The command exits 1 for these, and 2 for [bad usage](#usage). The
+directory commands' own refusals are under
+[the directory commands](#the-directory-commands).
 
 **The file**
 
@@ -106,9 +108,65 @@ The command exits 1 for these, and 2 for [bad usage](#usage).
 - [`BUMAIL_…_FILE: names an empty file`](#bumail__file-names-an-empty-file)
 - [`BUMAIL_SMARTHOST_PASSWORD…: is set, but there is no [smarthost]`](#bumail_smarthost_password-is-set-but-there-is-no-smarthost), as `BUMAIL_SMARTHOST_PASSWORD` or `BUMAIL_SMARTHOST_PASSWORD_FILE`
 
+**The directory commands** (exit code 4, or 5 for the directory and the store)
+
+*Names and addresses*
+
+- [`"…" is not a domain name`](#-is-not-a-domain-name)
+- [`"…" is not an e-mail address`](#-is-not-an-e-mail-address)
+
+*Domains*
+
+- [`the domain … already exists`](#the-domain--already-exists)
+- [`the domain … does not exist`](#the-domain--does-not-exist)
+- [`the domain … still has …; remove them first`](#the-domain--still-has--remove-them-first)
+- [`the domain … is not hosted here; add it first`](#the-domain--is-not-hosted-here-add-it-first)
+
+*Users*
+
+- [`the user … already exists`](#the-user--already-exists)
+- [`… is an alias; a user cannot take its address`](#-is-an-alias-a-user-cannot-take-its-address)
+- [`the user … does not exist`](#the-user--does-not-exist)
+- [`… is a target of …; remove that alias first`](#-is-a-target-of--remove-that-alias-first)
+
+*Aliases*
+
+- [`the alias … already exists`](#the-alias--already-exists)
+- [`… is a user; an alias cannot take its address`](#-is-a-user-an-alias-cannot-take-its-address)
+- [`the alias … does not exist`](#the-alias--does-not-exist)
+- [`an alias needs at least one target`](#an-alias-needs-at-least-one-target)
+- [`… is not a user here: an alias points to local users only, never elsewhere`](#-is-not-a-user-here-an-alias-points-to-local-users-only-never-elsewhere)
+
+*Passwords*
+
+- [`the password must be at least 12 characters`](#the-password-must-be-at-least-12-characters)
+- [`the password must be at most 1024 bytes`](#the-password-must-be-at-most-1024-bytes)
+- [`the password must not hold a control character, such as a line break`](#the-password-must-not-hold-a-control-character-such-as-a-line-break)
+- [`the two passwords typed differ`](#the-two-passwords-typed-differ)
+- [`no password typed`](#no-password-typed)
+- [`--password-file: cannot be read (…)`](#--password-file-cannot-be-read-)
+- [`--password-stdin: is larger than 1 MiB`](#--password-stdin-is-larger-than-1-mib)
+
+*The directory and the store*
+
+- [`the directory is in use by another process (…)`](#the-directory-is-in-use-by-another-process-)
+- [`the directory … cannot be opened (…)`](#the-directory--cannot-be-opened-)
+- [`the directory is at schema version …, newer than this server's …`](#the-directory-is-at-schema-version--newer-than-this-servers-)
+- [`the mail store is in use by another process, such as the running server`](#the-mail-store-is-in-use-by-another-process-such-as-the-running-server)
+- [`the mail store cannot be opened (…)`](#the-mail-store-cannot-be-opened-)
+- [`the mail store failed (…)`](#the-mail-store-failed-)
+- [`the user … is disabled, but its mail is not purged: …; run the command again`](#the-user--is-disabled-but-its-mail-is-not-purged--run-the-command-again)
+- [`added the user …, but not its mailboxes: …; the server creates them at its first login`](#added-the-user--but-not-its-mailboxes--the-server-creates-them-at-its-first-login)
+
+*From code*
+
+- [`too many logins under way; try again later`](#too-many-logins-under-way-try-again-later)
+- [`bumail: a login came from a client with no IP address; the failure limiter does not count such logins`](#bumail-a-login-came-from-a-client-with-no-ip-address-the-failure-limiter-does-not-count-such-logins)
+- [`maxVerifies must be an integer of 1 or more`](#maxverifies-must-be-an-integer-of-1-or-more)
+- [`the directory URL must be sqlite: and a path`](#the-directory-url-must-be-sqlite-and-a-path)
 **Usage** (exit code 2)
 
-- [`bumail: … ; see bumail --help`](#usage)
+- [`bumail: …; see bumail --help`](#usage)
 
 ## The file
 
@@ -638,20 +696,423 @@ relay, and as whom, is in the file.
 **Fix**: add `[smarthost]` with its `host` and `username`, or unset the
 variable.
 
+## The directory commands
+
+`bumail domain`, `user` and `alias` print a refusal as `bumail: <message>`
+on standard error; each message has an entry here. No message repeats
+a password. Exit code 4 is a refusal of the directory, 5 the directory
+or the mail store unavailable. [The directory guide](directory.md) has
+every command.
+
+### Names and addresses
+
+#### `"…" is not a domain name`
+
+**When**: `domain add`, `domain remove`, or a `list` given a domain,
+with what is not a domain name of two labels or more: a name with a
+space or an `@`, a label over 63 characters. A value with no `.` and
+no `@` — `localhost`, or a password typed in the wrong place — is not
+repeated: `the value given is not a domain name`.
+
+**Fix**: give the domain the server receives mail for, as in its MX
+records. Case, a trailing dot and a name in Unicode are fine:
+`Bücher.Example.` is kept as `xn--bcher-kva.example`.
+
+```sh
+bumail domain add example.com
+```
+
+#### `"…" is not an e-mail address`
+
+**When**: a `user` or `alias` command, with what is not
+`local@domain`: no `@`, an empty local part, a quoted local part
+(`"john doe"@example.com`), two dots in a row, a local part over 64
+octets, an address over 254. A value with no `@` and no `.` — `alice`,
+or a password typed where the address goes — is not repeated: `the
+value given is not an e-mail address`.
+
+**Why**: the directory keeps dot-atom local parts only, so one mailbox
+has one spelling. See [addresses](directory.md#addresses-and-their-case).
+
+**Fix**: give the full address, domain included: `alice@example.com`,
+not `alice`.
+
+### Domains
+
+#### `the domain … already exists`
+
+**When**: `domain add` with a domain the directory has, in any case.
+
+**Fix**: nothing to do; `bumail domain list` shows it.
+
+#### `the domain … does not exist`
+
+**When**: `domain remove` with a domain the directory does not have.
+
+**Fix**: check the spelling against `bumail domain list`.
+
+#### `the domain … still has …; remove them first`
+
+**When**: `domain remove` with a domain that still has users or
+aliases: `the domain example.com still has 2 users and 1 alias; remove
+them first`.
+
+With one user or one alias left, it ends `remove it first`.
+
+**Why**: removing it would leave addresses nobody can receive mail at,
+in a domain the server no longer hosts.
+
+**Fix**: remove its aliases, then its users, then the domain.
+
+```sh
+bumail alias list example.com
+bumail user list example.com
+```
+
+#### `the domain … is not hosted here; add it first`
+
+**When**: `user add` or `alias add` with an address in a domain the
+directory does not have.
+
+**Fix**: add the domain first.
+
+```sh
+bumail domain add example.com
+bumail user add alice@example.com
+```
+
+### Users
+
+#### `the user … already exists`
+
+**When**: `user add` with an address a user has, in any case:
+`Alice@example.com` is `alice@example.com`.
+
+**Fix**: choose another address, or change the user's password with
+`bumail user passwd`.
+
+#### `… is an alias; a user cannot take its address`
+
+**When**: `user add` with the address of an alias.
+
+**Why**: one address delivers to one place: a user's mailbox, or an
+alias's users.
+
+**Fix**: remove the alias first, or choose another address.
+
+#### `the user … does not exist`
+
+**When**: `user passwd`, `disable`, `enable` or `remove` with an address
+no user has (an alias is not a user). With `--purge`, only when the mail
+store has no account for it either: an account left there, by a plain
+`remove` or by a login under way during a purge, is deleted, and the
+command prints `… is not a user; deleted its account and mail left in
+the mail store`. Since `--purge` looks in the store first, a store the
+running server holds or one that cannot be reached answers before this:
+exit 5, not 4.
+
+**Fix**: check it against `bumail user list`.
+
+#### `… is a target of …; remove that alias first`
+
+**When**: `user remove` with a user an alias points to: `bob@example.com
+is a target of sales@example.com; remove that alias first`, or `…;
+remove those aliases first` when there are several.
+
+**Why**: an alias left pointing nowhere would take mail and lose it.
+
+**Fix**: remove the alias, and add it again with its other users.
+
+```sh
+bumail alias remove sales@example.com
+bumail alias add sales@example.com alice@example.com
+bumail user remove bob@example.com
+```
+
+### Aliases
+
+#### `the alias … already exists`
+
+**When**: `alias add` with an address an alias has.
+
+**Fix**: to change its users, remove it and add it again.
+
+#### `… is a user; an alias cannot take its address`
+
+**When**: `alias add` with the address of a user.
+
+**Fix**: choose another address for the alias.
+
+#### `the alias … does not exist`
+
+**When**: `alias remove` with an address no alias has.
+
+**Fix**: check it against `bumail alias list`.
+
+#### `an alias needs at least one target`
+
+**When**: `Directory.aliases.add` with an empty list. (The command
+refuses that as [bad usage](#usage) first.)
+
+**Fix**: give one or more users.
+
+#### `… is not a user here: an alias points to local users only, never elsewhere`
+
+**When**: `alias add` with a target that is not a user of this
+server: an address at another domain, an address nobody has here, or
+another alias.
+
+**Why**: an alias to an address elsewhere would make the server a
+relay, and break SPF for what it passes on. There is no option to allow
+it. See [no forwarding](directory.md#no-forwarding).
+
+**Fix**: add the target as a user first, or point the alias at a user.
+For another alias, list that alias's users instead.
+
+### Passwords
+
+#### `the password must be at least 12 characters`
+
+**When**: `user add` or `user passwd` with a password shorter than 12
+characters (counted as characters, not bytes).
+
+**Fix**: a longer one; a passphrase of a few words is easy to type and
+hard to guess.
+
+#### `the password must be at most 1024 bytes`
+
+**When**: a password over 1024 bytes of UTF-8 — usually a file or
+standard input holding more than the password.
+
+**Fix**: give the password alone; one final line break is dropped.
+
+#### `the password must not hold a control character, such as a line break`
+
+**When**: the password holds a tab, a line break or another control
+character — standard input or a file with two lines, or a Windows line
+break doubled.
+
+**Why**: no login prompt types one, so such a password could never be
+used.
+
+**Fix**: put the password alone on one line.
+
+```sh
+printf '%s\n' "$PASSWORD" | bumail user add alice@example.com --password-stdin
+```
+
+#### `the two passwords typed differ`
+
+**When**: at the prompt, the second password typed is not the first.
+
+**Fix**: run the command again, and type the same one twice.
+
+#### `no password typed`
+
+**When**: Ctrl-C or Ctrl-D at the password prompt.
+
+**Fix**: nothing was changed; run the command again.
+
+#### `--password-file: cannot be read (…)`
+
+**When**: the file `--password-file` names is not there, or not
+readable: `--password-file: cannot be read (ENOENT)`. The parenthesis is
+the system's code. `--password-file: is not a regular file` (a
+directory, a device) and `--password-file: is larger than 1 MiB` are
+its siblings.
+
+**Fix**: name a regular file holding the password, readable by whoever
+runs the command.
+
+#### `--password-stdin: is larger than 1 MiB`
+
+**When**: standard input held more than 1 MiB.
+
+**Fix**: pipe the password alone into the command.
+
+### The directory and the store
+
+#### `the directory is in use by another process (…)`
+
+**When**: a change to the directory waited 5 seconds for another
+process's write and gave up: `the directory is in use by another
+process (SQLITE_BUSY)`. Exits 5, and nothing was changed. Its sibling
+`the directory failed (…)` names any other failure of SQLite's.
+
+**Why**: another `bumail` command, or a tool holding the file open in a
+write transaction (an `sqlite3` shell left in `BEGIN`).
+
+**Fix**: let the other finish, or close it, and run the command again.
+
+#### `the directory … cannot be opened (…)`
+
+**When**: the directory's file, `directory.url`, cannot be created or
+opened: `the directory /data/directory.sqlite cannot be opened
+(SQLITE_CANTOPEN)`. Exits 5.
+
+**Why**: its directory is not writable, the path runs through a file,
+the volume is not mounted, or the file is not SQLite.
+
+**Fix**: check the path, the volume, and who owns them; the file and
+its directory are created if missing.
+
+#### `the directory is at schema version …, newer than this server's …`
+
+**When**: the file was written by a newer bumail, which added to its
+schema. Exits 5.
+
+**Fix**: run that newer bumail, or a backup of the file from before the
+upgrade. A server never downgrades a file.
+
+#### `the mail store is in use by another process, such as the running server`
+
+**When**: `user remove --purge` with a SQLite mail store the running
+server holds, which only one process opens at a time. Exits 5, and
+nothing is removed.
+
+`user add` meets it too, but goes on: it adds the user and prints
+`added the user …; the mail store is in use by the running server,
+which creates its mailboxes at its first login`, exiting 0.
+
+**Fix**: stop the server, purge, and start it again; or remove the
+user without `--purge`, keeping its mail, and purge later.
+
+#### `the mail store cannot be opened (…)`
+
+**When**: `store.url` cannot be opened: a SQLite directory that is not
+writable, a PostgreSQL URL Bun refuses. The reason is the store's, with
+a password it repeats masked. Exits 5.
+
+**Fix**: check `store.url` and `bumail check-config`.
+
+#### `the mail store failed (…)`
+
+**When**: the store opened, but a call failed: PostgreSQL unreachable,
+a disk full. Exits 5.
+
+**Fix**: what the reason says; the command can be run again.
+
+#### `added the user …, but not its mailboxes: …; the server creates them at its first login`
+
+**When**: `user add` added the user, but the mail store could not be
+opened or used for another reason than the server holding it. Exits 5.
+
+**Why**: the user is in the directory and can log in; the account and
+its mailboxes are created at its first login, if the store works by
+then.
+
+**Fix**: fix the store, as the reason says; nothing needs undoing.
+
+#### `the user … is disabled, but its mail is not purged: …; run the command again`
+
+**When**: `user remove --purge` opened the store, disabled the user so
+no new login creates its account again during the purge (one already
+under way still may), and then the store failed deleting the account.
+The reason is the store's. Exits 5; the user is still there, disabled,
+and its mail may be partly deleted.
+
+**Fix**: fix the store, as the reason says, and run the same command
+again: it finishes the purge and removes the user. To keep the user
+instead, `bumail user enable` it.
+
+### From code
+
+#### `too many logins under way; try again later`
+
+**When**: thrown by an adapter (`smtpAuthenticate`, `imapAuthenticate`,
+`jmapAuthenticate`) when `authenticate` answered `busy`: more than
+`maxQueuedVerifies` logins waited for a verify, or one client had
+`maxPending` (5) logins under way already, or as many as it has
+failures left before a block. The listener tells the client a temporary
+failure, and its `onError` gets this. A login already verified within
+`cacheSeconds` is answered from the cache and is never `busy`.
+
+**Fix**: a burst passes, and the client's retry succeeds. If it is
+steady from the whole server, raise `maxVerifies` on a machine with the
+memory for it (19 MiB each); if one client meets it with the right
+password, it opens many connections at once with a password that
+changed or is not yet cached: it passes once one of them is verified.
+
+#### `bumail: a login came from a client with no IP address; the failure limiter does not count such logins`
+
+**When**: a warning on the console, once per directory, the first time
+`authenticate` gets a client address that is no IP address: an empty
+string, a Unix socket path, or whatever a listener behind a proxy
+passes when it cannot read the client's. `clientKey` answers
+`undefined` for it, and such logins are not limited, rather than all
+sharing one bucket that one guesser would block for everyone. The login
+itself goes on as usual.
+
+**Why**: the listener's `remoteAddress`, or the `ipOf` given to
+`jmapAuthenticate`, answered no address.
+
+**Fix**: pass the client's real address: for JMAP, `ipOf` as
+`(request) => server.requestIP(request)?.address ?? ''`; behind a
+proxy, the address the proxy reports. To log it elsewhere, give
+`Directory.open` an `onUnlimited` callback.
+
+#### `maxVerifies must be an integer of 1 or more`
+
+**When**: `Directory.open` with `maxVerifies` that is not a positive
+integer. `maxQueuedVerifies must be an integer of 0 or more`, and
+`maxFailures`, `windowSeconds` or `maxClients must be an integer of 1 or
+more` (from `new FailureLimiter`, with `maxPending`), and
+`cacheSeconds must be an integer of 0 or more`, are its siblings.
+
+**Fix**: give whole numbers, or leave the option out for its default.
+
+#### `the directory URL must be sqlite: and a path`
+
+**When**: `directoryFile` with a URL that is not `sqlite:`.
+`readConfig` refuses such a `directory.url` before.
+
+**Fix**: `sqlite:` and an absolute path: `sqlite:/data/directory.sqlite`.
+
 ## Usage
 
 The command exits 2, with `ServerError`'s code `USAGE`, for:
 
 - `bumail: no command given; see bumail --help`
 - `bumail: unknown command …; see bumail --help` — the commands are
-  `serve` and `check-config`.
+  `serve`, `check-config`, `domain`, `user` and `alias`. A word that is
+  not lowercase letters and hyphens is shown as `…`, in case it is a
+  password; so is an unexpected argument.
 - `bumail: unknown option …; see bumail --help` — the options are
-  `--config`, `-h` or `--help`, and `-v` or `--version`.
-- `bumail: unexpected argument …; see bumail --help` — one command at a
-  time.
-- `bumail: --config needs a file; see bumail --help`
-- `bumail: --config is given twice; see bumail --help`
+  `--config`, `--password-stdin`, `--password-file`, `--purge`, `-h` or
+  `--help`, and `-v` or `--version`. A short option is named by its
+  first letter alone (`-p…`), and a long one without what follows its
+  `=`, so neither repeats a password typed there.
+- `bumail: unexpected argument …; see bumail --help` — `serve` and
+  `check-config` take no operand.
+- `bumail: --config needs a file; see bumail --help`, and the same for
+  `--password-file`.
+- `bumail: --config is given twice; see bumail --help`, and the same for
+  `--password-file`.
+
+The directory commands add:
+
+- `bumail: … needs a command: …; see bumail --help` — `bumail user`
+  alone; the message lists the commands it takes.
+- `bumail: unknown command … …; … takes …; see bumail --help` —
+  `bumail domain rename`.
+- `bumail: … takes …; see bumail --help` — an operand missing, or one
+  too many: `domain add takes one domain`, `alias add takes an address,
+  then one or more users`, `user list takes a domain at most`. For
+  `user add` and `user passwd` it reads `user add takes one address: a
+  password is never taken from the command line`, the extra operand
+  being, most likely, a password: it is not repeated.
+- `bumail: … takes no --password-stdin; see bumail --help`, and the
+  same for `--password-file` and `--purge`: only `user add` and `user
+  passwd` read a password, only `user remove` purges.
+- `bumail: --password-stdin and --password-file are both given; give one; see bumail --help`
+- `bumail: a password is never taken from the command line: use --password-stdin or --password-file, or type it at the prompt; see bumail --help`
+  — an option starting with `-pass` or `--pass`, such as
+  `--password=…`. Its value is not repeated.
+- `bumail: standard input is not a terminal, so no password can be typed: give --password-stdin or --password-file; see bumail --help`
+  — `user add` or `user passwd` without either option, in a script or
+  a container without a terminal.
 
 ```sh
 bumail --config /data/bumail.toml check-config
+bumail user add alice@example.com --password-file /run/secrets/alice
 ```

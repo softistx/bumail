@@ -11,16 +11,19 @@ private until it serves mail: nothing here is on npm yet.
   problem listed at once and none repeating a secret, and `bumail
   check-config`. `bumail serve` checks the file, then says serving is
   not implemented yet.
+- **Domains, users and aliases** (merged, not published), in a SQLite
+  directory on the volume, managed by `bumail domain`, `bumail user` and
+  `bumail alias`, each change counting at once. Passwords hashed with
+  argon2id and never taken from the command line; logins verified a few
+  at a time, an unknown user as slow as a known one, and failures
+  counted per client. A new user gets its mailboxes in the store;
+  removing one keeps its mail unless purged. An alias points to local
+  users only. The listeners that will use it come next.
 
 ## Next
 
 In this order, each its own step:
 
-- **Domains, users and aliases**, in a SQLite directory on the volume,
-  managed by the command: `bumail domain`, `bumail user`, `bumail alias`.
-  Passwords hashed with argon2id, a verify for an unknown user as slow as
-  for a known one, and a limit per address. An alias points to a local
-  user only: forwarding out would make the server a relay.
 - **Receiving mail and reading it**: SMTP on 25 (MX, never AUTH there)
   delivering into the store, and IMAP on 993, with certificates from
   files. Inbound DMARC enforced by default: `p=reject` refused during the
@@ -40,6 +43,9 @@ In this order, each its own step:
 
 ## Later
 
+- **Plus addressing** (`alice+news@example.com` delivered to
+  `alice@example.com`), and changing an alias's users in place rather
+  than removing and adding it.
 - **ACME by DNS-01**, through a hook a DNS provider plugs into, for
   servers whose port 80 is not reachable.
 

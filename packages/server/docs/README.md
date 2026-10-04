@@ -6,5 +6,6 @@ long one.
 | Page | Read it when |
 | --- | --- |
 | [Guide](guide.md) | writing a configuration: every key, its default, and what the environment overrides |
-| [Troubleshooting](troubleshooting.md) | `bumail check-config` (or `readConfig`) reported a problem, or the command exited 2 |
+| [The directory](directory.md) | adding domains, users and aliases: every `bumail domain`, `user` and `alias` command, passwords, logins, the failure limiter |
+| [Troubleshooting](troubleshooting.md) | `bumail check-config` (or `readConfig`) reported a problem, a directory command refused something, or the command exited 2 |
 | [Roadmap](roadmap.md) | wondering what the server does next, and what it never will |

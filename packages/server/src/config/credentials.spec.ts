@@ -175,6 +175,38 @@ describe('the environment PostgreSQL reads is the one given', () => {
 		}
 	});
 
+	test('is put back when Bun.SQL throws on a bad sslmode', async () => {
+		const before = Object.fromEntries(
+			Object.entries(process.env).filter(([key]) =>
+				/^(PG|POSTGRES_)/.test(key),
+			),
+		);
+		process.env['PGHOST'] = 'from-the-process';
+		try {
+			for (const [url, env] of [
+				[
+					'postgres://u:pw@db.internal/mail?sslmode=bogus',
+					{ PGPASSWORD: 'pw' },
+				],
+				[
+					'postgres://u:pw@db.internal/mail',
+					{ PGSSLMODE: 'bogus', PGUSER: 'u' },
+				],
+			] as const) {
+				expect(await problems(`[store]\nurl = "${url}"`, env)).toEqual([
+					'store.url: is not a PostgreSQL URL Bun.sql takes',
+				]);
+				expect(process.env['PGHOST']).toBe('from-the-process');
+				for (const key of Object.keys(env)) {
+					expect(process.env[key]).toBe(before[key]);
+				}
+			}
+		} finally {
+			if (before['PGHOST'] === undefined) delete process.env['PGHOST'];
+			else process.env['PGHOST'] = before['PGHOST'];
+		}
+	});
+
 	test('PGSSLMODE given turns TLS on, as Bun will', async () => {
 		const config = await read(
 			'[store]\nurl = "postgres://u:pw@db.internal/mail"',
