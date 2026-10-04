@@ -3,11 +3,12 @@ import type { ReceivedMessage, Reply, Session } from '@bumail/smtp';
 import { joinHeader, returnPath, stripForged } from '../header';
 import { deliver } from '../mx/deliver';
 import { HEADER_TOO_LARGE, NOT_TAKEN, SPOOL_FULL } from '../mx/replies';
-import { POSTMASTER, usersOf } from '../recipients';
+import { envelopeDomain, POSTMASTER, usersOf } from '../recipients';
 import { type Spooled, spooledStream } from '../spool';
 import type { SubmissionContext } from './index';
 import {
 	FROM_COUNT,
+	FROM_NO_ADDRESS,
 	FROM_NOT_YOURS,
 	QUEUE_FULL,
 	QUEUE_TOO_BIG,
@@ -18,11 +19,12 @@ import { fromAddresses, fromIsYours } from './sender';
 /** What a session keeps from MAIL FROM: the user, as the directory keeps it. */
 export const USER = 'bumail.user';
 
-/** The domain of an envelope recipient, lowercase; `''` for the bare `postmaster`. */
-function domainOf(address: string): string {
-	const at = address.lastIndexOf('@');
-	return at === -1 ? '' : address.slice(at + 1).toLowerCase();
-}
+/** How the log says why a From field was refused. */
+const FROM_PROBLEMS = {
+	count: 'it has no From field, or several',
+	none: 'its From field names no address',
+	no: 'its From field names another address',
+} as const;
 
 /** What a refusal of the queue's answers the client. */
 function queueRefusal(error: QueueError): Reply | undefined {
@@ -34,8 +36,12 @@ function queueRefusal(error: QueueError): Reply | undefined {
 
 /**
  * A submitted message, spooled, checked, signed, then handed on: to the
- * store for the hosted domains' recipients, to the queue for the others.
- * Nothing is kept unless every step went through.
+ * queue for other domains' recipients first, then to the store for the
+ * hosted domains'. A failure answers the client to send it again, so
+ * what was handed on is taken back first: the queued item is cancelled
+ * (best effort, logged when it cannot be, and a worker may have begun
+ * on it already). A local recipient the store already took keeps the
+ * message, as on the MX: the client's retry may bring it a second copy.
  */
 export async function send(
 	ctx: SubmissionContext,
@@ -86,10 +92,12 @@ async function handOn(
 	}
 	const yours = fromIsYours(directory, user, header);
 	if (yours !== 'yes') {
-		log(
-			`${name}: ${from} refused: ${yours === 'count' ? 'it has no From field, or several' : 'its From field names another address'}`,
-		);
-		return yours === 'count' ? FROM_COUNT : FROM_NOT_YOURS;
+		log(`${name}: ${from} refused: ${FROM_PROBLEMS[yours]}`);
+		return yours === 'count'
+			? FROM_COUNT
+			: yours === 'none'
+				? FROM_NO_ADDRESS
+				: FROM_NOT_YOURS;
 	}
 
 	// What a sender could forge to fool a reader here goes, as on the MX.
@@ -99,13 +107,13 @@ async function handOn(
 	const authors = fromAddresses(header);
 	const author = Array.isArray(authors) ? (authors[0] ?? '') : '';
 	const signature = await ctx.sign(
-		domainOf(author),
+		envelopeDomain(author),
 		spooledStream(joinHeader([], kept), spooled.stream(spooled.bodyStart)),
 	);
 	const top = signature === undefined ? [] : [signature];
 
 	const local = envelope.to.filter(
-		(to) => to === POSTMASTER || directory.domains.has(domainOf(to)),
+		(to) => to === POSTMASTER || directory.domains.has(envelopeDomain(to)),
 	);
 	const remote = envelope.to.filter((to) => !local.includes(to));
 	const users = usersOf(directory, local, ctx.postmaster);
@@ -128,12 +136,18 @@ async function handOn(
 		}
 	}
 	const prefix = joinHeader([returnPath(envelope.from), ...top], kept);
-	for (const to of users) {
-		if (message.signal.aborted) {
-			log(`${name}: ${from} abandoned before ${to}: the session ended`);
-			return NOT_TAKEN;
+	try {
+		for (const to of users) {
+			if (message.signal.aborted) {
+				log(`${name}: ${from} abandoned before ${to}: the session ended`);
+				await cancel(ctx, name, from, queued);
+				return NOT_TAKEN;
+			}
+			await deliver(ctx, to, false, prefix, spooled);
 		}
-		await deliver(ctx, to, false, prefix, spooled);
+	} catch (error) {
+		await cancel(ctx, name, from, queued);
+		throw error;
 	}
 	const parts = [
 		...(users.length > 0 ? [`delivered to ${users.join(', ')}`] : []),
@@ -145,4 +159,25 @@ async function handOn(
 		`${name}: ${from} ${parts.join('; ') || 'taken for nobody here any longer'}${signature === undefined ? ' (unsigned)' : ''}`,
 	);
 	return undefined;
+}
+
+/**
+ * Takes back the item `queued` (none when `''`), since the client is told
+ * to send the message again: a failure here is logged, not thrown.
+ */
+async function cancel(
+	ctx: SubmissionContext,
+	name: string,
+	from: string,
+	queued: string,
+): Promise<void> {
+	if (queued === '') return;
+	try {
+		await ctx.queue.cancel(queued);
+		ctx.log(`${name}: ${from} queued as ${queued}, cancelled: it is not taken`);
+	} catch (error) {
+		ctx.log(
+			`${name}: ${from} queued as ${queued}, not cancelled: ${ctx.describe(error)}; the retry may send it twice`,
+		);
+	}
 }

@@ -17,6 +17,11 @@ export const FROM_COUNT = reply(
 	'5.6.0',
 	'The message needs exactly one From field',
 );
+export const FROM_NO_ADDRESS = reply(
+	550,
+	'5.6.0',
+	'The From field must name your address',
+);
 export const ADDRESS_UNSENDABLE = reply(
 	553,
 	'5.1.3',

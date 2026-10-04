@@ -79,9 +79,16 @@ export function stopper(
 			for (const { server, kind } of running.listeners)
 				server.stop(kind === 'imap');
 			let queueStopped = false;
-			void running.queue.stop().finally(() => {
-				queueStopped = true;
-			});
+			void running.queue
+				.stop()
+				.catch((error: unknown) =>
+					running.log(
+						`bumail: the queue did not stop cleanly: ${running.describe(error)}`,
+					),
+				)
+				.finally(() => {
+					queueStopped = true;
+				});
 			await waitUntil(
 				() =>
 					smtps.every((s) => s.connections === 0) &&

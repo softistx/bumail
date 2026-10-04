@@ -1,7 +1,26 @@
+import { domainOf } from '../directory/address';
 import type { Directory } from '../directory/directory';
 
 /** How `@bumail/smtp` lists the bare `RCPT TO:<postmaster>` in an envelope: no `@`. */
 export const POSTMASTER = 'postmaster';
+
+/**
+ * The domain of an envelope or From address, after its last `@`, as the
+ * directory keeps domains: lowercase, in A-labels. `''` for the bare
+ * `postmaster` and for what is no domain name.
+ *
+ * `@bumail/smtp` hands the address on as the client spelt it — any case,
+ * and under SMTPUTF8 a U-label (`bücher.example`) — and a From field is
+ * whatever the user's client wrote. So the domain is normalised again
+ * here, with the directory's own `domainOf`: the hosted-domain check, the
+ * split between the store and the queue, and DKIM's `d=` then agree on
+ * one spelling, whichever the client used.
+ */
+export function envelopeDomain(address: string): string {
+	const at = address.lastIndexOf('@');
+	if (at === -1) return '';
+	return domainOf(address.slice(at + 1)) ?? '';
+}
 
 /**
  * The address the bare `<postmaster>` (RFC 5321 §4.5.1) stands for:

@@ -1,6 +1,8 @@
 import type { Queue } from '@bumail/queue';
 import {
 	createSmtpServer,
+	type Path,
+	type Reply,
 	type SmtpServer,
 	type TlsOptions,
 } from '@bumail/smtp';
@@ -15,9 +17,13 @@ import { usersFor } from '../recipients';
 import type { Spool } from '../spool';
 import { ADDRESS_UNSENDABLE, senderNotYours } from './replies';
 import { send, USER } from './send';
-import { sendsAs, userOf } from './sender';
+import { LOGIN_VERSION, sendsAs, userOf } from './sender';
 
-/** A DKIM signer: the `DKIM-Signature` field for a message `From` a domain, or `undefined` with no key for it. */
+/**
+ * A DKIM signer: the `DKIM-Signature` field for a message `From` a
+ * domain (as `envelopeDomain` gives it, `''` for none), or `undefined`
+ * with no key for it.
+ */
 export type Signer = (
 	domain: string,
 	message: ReadableStream<Uint8Array>,
@@ -59,6 +65,10 @@ export function createSubmission(
 	name: 'submissions' | 'submission',
 ): SmtpServer {
 	const { directory, log, submission } = ctx;
+	const check = smtpAuthenticate(directory, {
+		onRefused: (reason, ip) =>
+			log(`${name}: login refused from ${ip}: ${reason}`),
+	});
 	return createSmtpServer({
 		hostname: ctx.hostname,
 		mode: 'submission',
@@ -70,12 +80,18 @@ export function createSubmission(
 		maxConnections: submission.maxConnections,
 		maxConnectionsPerClient: submission.maxConnectionsPerClient,
 		handshakeTimeout: submission.handshakeTimeout,
-		authenticate: smtpAuthenticate(directory, {
-			onRefused: (reason, ip) =>
-				log(`${name}: login refused from ${ip}: ${reason}`),
-		}),
+		async authenticate(credentials, session) {
+			const ok = await check(credentials, session);
+			// What the user is now: MAIL FROM checks it still is (`userOf`).
+			if (ok) {
+				session.data[LOGIN_VERSION] = directory.users.version(
+					credentials.username,
+				);
+			}
+			return ok;
+		},
 		onMailFrom(path, session) {
-			const user = userOf(directory, session.user);
+			const user = userOf(directory, session.user, session.data[LOGIN_VERSION]);
 			if (user === undefined || !sendsAs(directory, user, path.address)) {
 				log(
 					`${name}: ${user ?? session.user ?? 'nobody'} from ${session.remoteAddress} refused as sender <${path.address}>`,
@@ -91,19 +107,7 @@ export function createSubmission(
 			session.data[USER] = user;
 			return undefined;
 		},
-		onRcptTo(path) {
-			if (path.postmaster) {
-				return usersFor(directory, path.address, ctx.postmaster) === undefined
-					? POSTMASTER_UNKNOWN
-					: undefined;
-			}
-			if (directory.domains.has(path.domain)) {
-				return directory.resolve(path.address) === undefined
-					? USER_UNKNOWN
-					: undefined;
-			}
-			return isMailbox(path.address) ? undefined : ADDRESS_UNSENDABLE;
-		},
+		onRcptTo: (path) => checkRecipient(ctx, path),
 		onData(message, session) {
 			return ctx.track(send(ctx, name, message, session));
 		},
@@ -113,4 +117,29 @@ export function createSubmission(
 			);
 		},
 	});
+}
+
+/**
+ * RCPT TO on submission: the bare `<postmaster>` and a hosted domain's
+ * address must resolve here; any other must be one the queue can send
+ * to (`isMailbox`, which `sendMail` checks again), so the queue never
+ * takes an address it would only bounce. `@bumail/smtp` parses paths as
+ * `isMailbox` does today; the check keeps the two from drifting apart.
+ */
+export function checkRecipient(
+	ctx: Pick<SubmissionContext, 'directory' | 'postmaster'>,
+	path: Path,
+): Reply | undefined {
+	const { directory } = ctx;
+	if (path.postmaster) {
+		return usersFor(directory, path.address, ctx.postmaster) === undefined
+			? POSTMASTER_UNKNOWN
+			: undefined;
+	}
+	if (directory.domains.has(path.domain)) {
+		return directory.resolve(path.address) === undefined
+			? USER_UNKNOWN
+			: undefined;
+	}
+	return isMailbox(path.address) ? undefined : ADDRESS_UNSENDABLE;
 }

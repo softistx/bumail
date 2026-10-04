@@ -77,20 +77,16 @@ export interface Resources {
 	/** Where mail for other domains goes. */
 	readonly queue: Queue;
 	readonly sign: Signer;
+	/** Built once (`delivery` in `resources.ts`), for the MX, submission and the queue. */
+	readonly delivery: Delivery;
 }
 
-/** Tells the IMAP servers of a delivery, and keeps it under way for a stop. */
-function delivery(resources: Resources) {
-	return {
-		onDelivered: (accountId: string) => {
-			for (const imap of resources.imaps) imap.notify(accountId);
-		},
-		track: <T>(work: Promise<T>): Promise<T> => {
-			resources.inflight.add(work);
-			void work.finally(() => resources.inflight.delete(work)).catch(() => {});
-			return work;
-		},
-	};
+/** What each delivery is told to: the IMAP servers notified, the work kept for a stop. */
+export interface Delivery {
+	/** Told of each account a message was added to: IMAP's IDLE looks at once. */
+	onDelivered(accountId: string): void;
+	/** Keeps a delivery under way, so a stop waits for it before closing the store. */
+	track<T>(work: Promise<T>): Promise<T>;
 }
 
 /** Creates the listener `name` on `resources`, not yet bound. */
@@ -112,7 +108,7 @@ export function createListener(
 			sign: resources.sign,
 			log,
 			describe,
-			...delivery(resources),
+			...resources.delivery,
 		};
 		return { name, kind: 'smtp', server: createSubmission(submission, name) };
 	}
@@ -142,7 +138,7 @@ export function createListener(
 		spool: resources.spool,
 		log,
 		describe,
-		...delivery(resources),
+		...resources.delivery,
 	});
 	return { name, kind: 'smtp', server };
 }

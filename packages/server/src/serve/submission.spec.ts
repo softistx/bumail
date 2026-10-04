@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { Directory } from '../directory/directory';
+import { seededDirectory } from '../directory/directory.fixtures';
 import { LineClient } from './line-client.fixtures';
 import { type Fixture, mailOf, startServer } from './serve.fixtures';
+import { checkRecipient } from './submission';
 import { letter, plain, session, submit } from './submission.fixtures';
 
 let fixture: Fixture | undefined;
@@ -33,6 +35,15 @@ describe('submission: AUTH', () => {
 		expect(ehlo).toContain('STARTTLS');
 		expect(ehlo).not.toContain('AUTH');
 		expect(await client.smtp(plain('alice@example.com'))).toStartWith('538 ');
+		expect(await client.smtp('MAIL FROM:<alice@example.com>')).toStartWith(
+			'530 ',
+		);
+		client.end();
+	});
+
+	test('465 refuses MAIL before AUTH, with 530', async () => {
+		const f = await start();
+		const client = await session(f.port('submissions'), true);
 		expect(await client.smtp('MAIL FROM:<alice@example.com>')).toStartWith(
 			'530 ',
 		);
@@ -153,15 +164,73 @@ describe('submission: the sender', () => {
 				'550 5.7.1 The From field names an address that is not yours',
 			);
 		}
+		const ok = (from: string) =>
+			letter('alice@example.com', 'bob@example.com', 'x').replace(
+				'From: Someone <alice@example.com>',
+				`From: ${from}`,
+			);
+		// An encoded-word display name is held to the rule decoded, as a reader sees it.
+		for (const from of [
+			'=?UTF-8?Q?ceo=40bank=2Eexample?= <alice@example.com>',
+			'=?UTF-8?B?Y2VvQGJhbmsuZXhhbXBsZQ==?= <alice@example.com>',
+			'Alice <alice@example.com> (bob@example.com)',
+		]) {
+			const { last } = await submit(
+				client,
+				'alice@example.com',
+				['bob@example.com'],
+				ok(from),
+			);
+			expect(last).toStartWith('550 5.7.1');
+		}
+		const none = await submit(
+			client,
+			'alice@example.com',
+			['bob@example.com'],
+			ok('undisclosed:;'),
+		);
+		expect(none.last).toStartWith(
+			'550 5.6.0 The From field must name your address',
+		);
 		const twice = `From: <alice@example.com>\r\n${letter('alice@example.com', 'bob@example.com', 'two')}`;
 		expect(
 			(await submit(client, 'alice@example.com', ['bob@example.com'], twice))
 				.last,
 		).toStartWith('550 5.6.0 The message needs exactly one From field');
 		client.end();
+		expect(f.lines).toContainEqual(
+			expect.stringMatching(/refused: its From field names no address$/),
+		);
 		expect(await mailOf(await stopped(f), 'bob@example.com', 'inbox')).toEqual(
 			[],
 		);
+	});
+
+	test('takes an encoded-word display name and a comment that hold no address', async () => {
+		const f = await start();
+		const client = await session(
+			f.port('submission'),
+			false,
+			'alice@example.com',
+		);
+		for (const from of [
+			'=?UTF-8?Q?Alice_M=C3=BCller?= <alice@example.com>',
+			'alice@example.com (Alice, at work)',
+			'Alice <alice@example.com>, (also) sales@example.com',
+		]) {
+			const text = letter('alice@example.com', 'bob@example.com', 'x').replace(
+				'From: Someone <alice@example.com>',
+				`From: ${from}`,
+			);
+			const { last } = await submit(
+				client,
+				'alice@example.com',
+				['bob@example.com'],
+				text,
+			);
+			expect(last).toStartWith('250 ');
+		}
+		client.end();
 	});
 });
 
@@ -246,5 +315,107 @@ describe('submission: local delivery', () => {
 			'553 5.7.1',
 		);
 		client.end();
+	});
+
+	test('a user disabled, or given a new password, after its login can send no more', async () => {
+		const f = await start();
+		const alice = await session(
+			f.port('submissions'),
+			true,
+			'alice@example.com',
+		);
+		const bob = await session(f.port('submissions'), true, 'bob@example.com');
+		expect(await alice.smtp('MAIL FROM:<alice@example.com>')).toStartWith(
+			'250',
+		);
+		await alice.smtp('RSET');
+		const directory = Directory.open({ file: join(f.dir, 'directory.sqlite') });
+		directory.users.setDisabled('alice@example.com', true);
+		await directory.users.setPassword(
+			'bob@example.com',
+			'a brand new passphrase',
+		);
+		directory.close();
+		expect(await alice.smtp('MAIL FROM:<alice@example.com>')).toStartWith(
+			'553 5.7.1',
+		);
+		expect(await bob.smtp('MAIL FROM:<bob@example.com>')).toStartWith(
+			'553 5.7.1',
+		);
+		alice.end();
+		bob.end();
+	});
+
+	test('<postmaster> goes to the postmaster configured', async () => {
+		const f = await start('postmaster = "alice@example.com"');
+		const client = await session(
+			f.port('submissions'),
+			true,
+			'bob@example.com',
+		);
+		const { last } = await submit(
+			client,
+			'bob@example.com',
+			['postmaster'],
+			letter('bob@example.com', 'postmaster', 'to the postmaster'),
+		);
+		expect(last).toStartWith('250 ');
+		client.end();
+		expect(
+			await mailOf(await stopped(f), 'alice@example.com', 'inbox'),
+		).toHaveLength(1);
+	});
+
+	test('<postmaster> is refused while nothing answers it', async () => {
+		const f = await start();
+		const client = await session(
+			f.port('submissions'),
+			true,
+			'bob@example.com',
+		);
+		await client.smtp('MAIL FROM:<bob@example.com>');
+		expect(await client.smtp('RCPT TO:<postmaster>')).toStartWith(
+			'550 5.1.1 No postmaster mailbox is configured here',
+		);
+		client.end();
+	});
+});
+
+describe('submission: RCPT TO', () => {
+	test('refuses with 553 5.1.3 an address the queue could not send to', async () => {
+		const directory = await seededDirectory();
+		try {
+			const answer = checkRecipient(
+				{ directory, postmaster: undefined },
+				{
+					address: 'bob@[192.0.2.300]',
+					local: 'bob',
+					domain: '[192.0.2.300]',
+				},
+			);
+			expect(answer?.code).toBe(553);
+			expect(answer?.status).toBe('5.1.3');
+			expect(
+				checkRecipient(
+					{ directory, postmaster: undefined },
+					{
+						address: 'carol@elsewhere.example',
+						local: 'carol',
+						domain: 'elsewhere.example',
+					},
+				),
+			).toBeUndefined();
+		} finally {
+			directory.close();
+		}
+	});
+});
+
+describe('submission: the start', () => {
+	test('warns when postmaster is in a domain not hosted', async () => {
+		const f = await start('postmaster = "root@elsewhere.example"');
+		expect(f.lines).toContain(
+			'bumail: postmaster root@elsewhere.example is in elsewhere.example, a domain not hosted here; mail for <postmaster> is refused until it is',
+		);
 	});
 });

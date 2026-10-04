@@ -1,10 +1,9 @@
-import { cachedResolver, nodeResolver, type Resolver } from '@bumail/dns';
-import type { ImapServer } from '@bumail/imap';
+import type { Resolver } from '@bumail/dns';
 import type { ServerConfig } from '../config/types';
 import { directoryFile } from '../directory/database';
 import { Directory } from '../directory/directory';
 import { ServerError } from '../errors';
-import { maskedFor, type OpenedStore, openStore } from '../store/open';
+import { type OpenedStore, openStore } from '../store/open';
 import {
 	createListener,
 	DESCRIPTION,
@@ -16,28 +15,17 @@ import {
 } from './listeners';
 import type { Log } from './log';
 import {
-	createOutbound,
 	type OpenedQueueStore,
 	type OutboundOptions,
 	openQueueStore,
 } from './outbound';
+import { envelopeDomain } from './recipients';
+import { assemble } from './resources';
 import { Spool } from './spool';
 import { closeResources, stopper } from './stop';
-import { dkimSigner } from './submission/sign';
 import { readTls } from './tls';
-import { trackedStore } from './tracked';
 
 export { LATER, type ListenerName } from './listeners';
-
-/**
- * Milliseconds one DNS try has, and tries per query, for the inbound
- * checks: one query takes 10 s at worst. DKIM, SPF and DMARC are each
- * cut off at 10 s on top of that (`CHECK_TIMEOUT_MS`); SPF runs from
- * MAIL FROM, so a message's checks take 20 s at worst after DATA (DKIM,
- * then DMARC), well within the 60 s the SMTP server gives `onData`.
- */
-export const DNS_TIMEOUT_MS = 5000;
-export const DNS_TRIES = 2;
 
 /** Seconds a stop waits for SMTP sessions to end, by default. */
 export const DEFAULT_DRAIN_SECONDS = 10;
@@ -167,6 +155,24 @@ function logStart(
 }
 
 /**
+ * Warns when `postmaster` is in a domain the server does not host: the
+ * bare `<postmaster>` goes nowhere, and is refused, until it is.
+ */
+function warnPostmaster(
+	config: ServerConfig,
+	directory: Directory,
+	log: Log,
+): void {
+	const { postmaster } = config;
+	if (postmaster === undefined) return;
+	const domain = envelopeDomain(postmaster);
+	if (directory.domains.has(domain)) return;
+	log(
+		`bumail: postmaster ${postmaster} is in ${domain}, a domain not hosted here; mail for <postmaster> is refused until it is`,
+	);
+}
+
+/**
  * Runs the server for `config`: reads the certificate (`tls.mode =
  * "files"`; `"acme"` is `NOT_IMPLEMENTED`), opens the spool, the
  * directory, the mail store and the queue, starts each listener whose
@@ -192,54 +198,11 @@ export async function serve(
 		spool.close();
 		throw error;
 	}
-	const describe = (error: unknown) =>
-		maskedFor(
-			error instanceof Error ? error.message : String(error),
-			config.store.url,
-		);
-	const storeCalls = new Set<Promise<unknown>>();
-	const store = trackedStore(opened.store, storeCalls);
-	const resolver =
-		options.resolver ??
-		cachedResolver(nodeResolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES }));
-	const inflight = new Set<Promise<unknown>>();
-	const imaps: ImapServer[] = [];
-	const queue = createOutbound(
-		config,
-		queueStore.store,
-		{
-			hostname: config.hostname,
-			directory,
-			store,
-			postmaster: config.postmaster,
-			resolver,
-			log,
-			describe: (error) => maskedFor(describe(error), config.queue.url),
-			onDelivered: (accountId) => {
-				for (const imap of imaps) imap.notify(accountId);
-			},
-			track: (work) => {
-				inflight.add(work);
-				void work.finally(() => inflight.delete(work)).catch(() => {});
-				return work;
-			},
-		},
-		options.outbound,
+	const { resources, storeCalls } = assemble(
+		{ config, directory, opened, queueStore, tls, spool, log },
+		options,
 	);
-	const resources: Resources = {
-		config,
-		directory,
-		store,
-		resolver,
-		tls,
-		spool,
-		log,
-		describe,
-		inflight,
-		imaps,
-		queue,
-		sign: dkimSigner(directory),
-	};
+	const { queue, describe } = resources;
 
 	let bound: Awaited<ReturnType<typeof bindListeners>>;
 	try {
@@ -254,6 +217,7 @@ export async function serve(
 	for (const { path, reason } of spool.kept) {
 		log(`bumail: the spool folder ${path} is kept: ${reason}`);
 	}
+	warnPostmaster(config, directory, log);
 
 	return {
 		listening: bound.listening,

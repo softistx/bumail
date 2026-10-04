@@ -2,7 +2,7 @@ import type { Sender } from '@bumail/queue';
 import { type SendMailResult, sendMail } from '@bumail/smtp/client';
 import type { Directory } from '../../directory/directory';
 import { type DeliveryContext, deliverContent } from '../mx/deliver';
-import { usersFor } from '../recipients';
+import { envelopeDomain, usersFor } from '../recipients';
 
 /** What the queue needs to deliver to the server's own users. */
 export interface LocalContext extends DeliveryContext {
@@ -15,11 +15,6 @@ export interface LocalContext extends DeliveryContext {
 }
 
 const encoder = new TextEncoder();
-
-/** The domain of `address`, after its last `@`, lowercase. */
-function domainOf(address: string): string {
-	return address.slice(address.lastIndexOf('@') + 1).toLowerCase();
-}
 
 /**
  * The queue's `send`: recipients in a hosted domain go straight to the
@@ -34,7 +29,7 @@ export function localFirst(ctx: LocalContext, send: Sender = sendMail): Sender {
 		const domain =
 			'domain' in options && typeof options.domain === 'string'
 				? options.domain
-				: domainOf(to[0] ?? '');
+				: envelopeDomain(to[0] ?? '');
 		if (!ctx.directory.domains.has(domain)) return send(message, options);
 		return ctx.track(deliverLocally(ctx, message, options.from, to));
 	};

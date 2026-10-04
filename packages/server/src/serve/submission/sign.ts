@@ -1,5 +1,4 @@
 import { importDkimPrivateKey, signDkim } from '@bumail/auth';
-import { domainOf } from '../../directory/address';
 import type { Directory } from '../../directory/directory';
 import type { Signer } from './index';
 
@@ -11,11 +10,9 @@ import type { Signer } from './index';
 export function dkimSigner(directory: Directory): Signer {
 	const imported = new Map<string, Promise<CryptoKey>>();
 	return async (domain, message) => {
-		// d= is the domain as the directory keeps it: its A-label.
-		const name = domainOf(domain);
-		const key =
-			name === undefined ? undefined : directory.dkim.signingKey(name);
-		if (name === undefined || key === undefined) {
+		// `domain` is `envelopeDomain`'s: as the directory keeps it, so d= is its A-label.
+		const key = domain === '' ? undefined : directory.dkim.signingKey(domain);
+		if (key === undefined) {
 			await message.cancel();
 			return undefined;
 		}
@@ -30,7 +27,7 @@ export function dkimSigner(directory: Directory): Signer {
 			imported.set(key.privateKey, privateKey);
 		}
 		return signDkim(message, {
-			domain: name,
+			domain,
 			selector: key.selector,
 			privateKey: await privateKey,
 		});
