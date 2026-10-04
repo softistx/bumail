@@ -37,9 +37,10 @@ function ipv4Of(g: readonly number[]): string {
  * any other IPv6 address by its /64, which one machine usually holds
  * whole, written as its first four groups in lower-case hex without
  * leading zeros, every group written out, zeros included, then `::/64`:
- * `2001:db8::1` is `2001:db8:0:0::/64`, never `2001:db8::/64`. Anything else — an empty string, a Unix socket — is `undefined`:
- * no client that can be told apart, so not limited, rather than putting
- * every such client in one bucket that one of them could fill for all.
+ * `2001:db8::1` is `2001:db8:0:0::/64`, never `2001:db8::/64`. Anything
+ * else — an empty string, a Unix socket — is `undefined`: no client that
+ * can be told apart, so not limited, rather than putting every such
+ * client in one bucket that one of them could fill for all.
  */
 export function clientKey(ip: string | undefined): string | undefined {
 	if (typeof ip !== 'string') return undefined;

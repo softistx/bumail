@@ -84,8 +84,8 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`421 4.7.0 … Too many errors, closing`](#421-470--too-many-errors-closing)
 - [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
 - [`421 4.7.0 … Too many connections from your address, try later`](#421-470--too-many-connections-from-your-address-try-later)
-- [`421 4.4.2 … Idle too long, closing`](#421-442--idle-too-long-closing)
 - [On implicit TLS, the connection closes before any greeting](#on-implicit-tls-the-connection-closes-before-any-greeting)
+- [`421 4.4.2 … Idle too long, closing`](#421-442--idle-too-long-closing)
 - [`554 … Talked before the greeting`](#554--talked-before-the-greeting)
 
 **Sending mail: options**
