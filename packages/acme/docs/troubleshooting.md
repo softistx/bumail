@@ -1057,7 +1057,7 @@ const client = new AcmeClient({
 
 **Where**: never thrown on its own. It is the `cause` of the error `obtainCertificate` throws, whose code and message are kept: `obtainCertificate(): no certificate within … ms` (past `timeoutMs`), `obtainCertificate(): aborted` (your signal fired), or `obtainCertificate(): the signal timed out` (your signal was an `AbortSignal.timeout`).
 
-`error.cause` is either the step that was running (an ordinary timeout or abort) or the cleanup's failure; both can be an `AcmeError`, so only the message tells which:
+`error.cause` is the step that was running (past `timeoutMs`), your signal's reason (an abort), or the cleanup's failure: an `obtainCertificate(): http01.set(`/`remove(` message, or what your `remove` threw. Only the message tells which:
 
 ```ts
 try {
@@ -1084,7 +1084,7 @@ Before you retry, wait for the hung `set` to settle (or stop it): its late `remo
 
 ### `AcmeError: obtainCertificate(): http01.remove(…) did not settle within 10000 ms`
 
-**When**: a `remove` hook neither returned nor threw within 10 seconds. Every other token was still removed. This error is thrown when nothing else failed, the order left `ready` (its authorizations stay valid for a while, so a new attempt reuses them). When the flow failed too, the flow's error is thrown and this one is its `error.cause` — for a `TIMEOUT`, an `ABORTED`, or an `AcmeError` with no cause of its own; it is lost when a hook's own error (not an `AcmeError`) or a `NETWORK_ERROR` is rethrown.
+**When**: a `remove` hook neither returned nor threw within 10 seconds. Every other token was still removed. This error is thrown when nothing else failed, the order left `ready` (its authorizations stay valid for a while, so a new attempt reuses them). When the flow failed too, the flow's error is thrown, and this one becomes its `error.cause` only when that error has no cause of its own. It is kept for a `TIMEOUT` from `timeoutMs` (`no certificate within … ms`), an `ABORTED` or `the signal timed out` from your signal, and any other `AcmeError` without a cause. It is lost for a hook's own error that is not an `AcmeError`, a `NETWORK_ERROR`, and a request's `…: no answer within … ms` `TIMEOUT`.
 
 **Why**: `remove` runs even after the flow's time is up or its signal fired, so the cleanup has a bound of its own: every token is removed at once, each `remove` after its `set` settled, all within one 10-second grace, and a hook that hangs cannot hold `obtainCertificate`.
 
