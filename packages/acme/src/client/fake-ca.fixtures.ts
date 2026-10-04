@@ -6,7 +6,7 @@
  * payload decoded, and any route can be replaced by a handler of the
  * spec's own.
  */
-import type { AcmeFetch } from './http';
+import type { AcmeFetch } from './types';
 
 export const BASE = 'https://ca.test';
 export const PROBLEM = 'urn:ietf:params:acme:error:';

@@ -4,7 +4,6 @@ export {
 	http01Responder,
 } from './challenge/responder';
 export { AcmeClient } from './client/client';
-export type { AcmeFetch } from './client/http';
 export {
 	type Http01Hooks,
 	type ObtainCertificateOptions,
@@ -25,6 +24,7 @@ export type {
 	AcmeChallengeStatus,
 	AcmeDirectory,
 	AcmeDirectoryMeta,
+	AcmeFetch,
 	AcmeIdentifier,
 	AcmeOrder,
 	AcmeOrderStatus,

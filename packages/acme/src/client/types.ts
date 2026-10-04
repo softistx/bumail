@@ -109,3 +109,6 @@ export interface AcmeChallenge {
 	/** Why it is `invalid`, when it is. */
 	error?: AcmeProblem;
 }
+
+/** What `fetch` the client calls: the global one, or one given for a test CA or a proxy. */
+export type AcmeFetch = (input: string, init: RequestInit) => Promise<Response>;

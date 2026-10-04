@@ -346,3 +346,90 @@ describe('obtainCertificate', () => {
 		expect(ca.requests).toHaveLength(before);
 	});
 });
+
+describe('obtainCertificate, as the review asked', () => {
+	test('a set that never settles is stopped by timeoutMs, its token removed', async () => {
+		const { client } = await setUp();
+		const removed: string[] = [];
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: {
+					set: () => new Promise(() => {}),
+					remove: (token) => {
+						removed.push(token);
+					},
+				},
+				timeoutMs: 100,
+			}),
+		);
+		expect(error.code).toBe('TIMEOUT');
+		expect(error.message).toBe(
+			'obtainCertificate(): no certificate within 100 ms',
+		);
+		expect(removed).toEqual(['token0http01']);
+	});
+
+	test('a set that never settles is stopped by the signal', async () => {
+		const { client } = await setUp();
+		const controller = new AbortController();
+		setTimeout(() => controller.abort(), 30);
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: { set: () => new Promise(() => {}), remove: () => {} },
+				signal: controller.signal,
+			}),
+		);
+		expect(error.code).toBe('ABORTED');
+	});
+
+	test('when the flow failed and remove throws too, the flow’s error wins', async () => {
+		const ca = new FakeCa();
+		ca.challengeTypes = ['http-01'];
+		ca.routes.set('POST /authz/0', (_, fake) => {
+			const authorization = fake.authorization(0);
+			if (fake.requests.some((r) => r.path === '/chall/0/http-01')) {
+				authorization['status'] = 'invalid';
+			}
+			return fake.json(authorization);
+		});
+		const { client } = await setUp(ca);
+		const { hooks, calls } = loggingHooks({ remove: true });
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: hooks,
+			}),
+		);
+		expect(error.code).toBe('AUTHORIZATION_FAILED');
+		expect(calls).toEqual(['set token0http01', 'remove token0http01']);
+	});
+
+	test('a valid order without a certificate URL is BAD_RESPONSE', async () => {
+		const { ca, client } = await setUp();
+		ca.routes.set('POST /finalize/1', (_, fake) => {
+			fake.orderStatus = 'valid';
+			const { certificate: _certificate, ...order } = fake.order();
+			return fake.json(order);
+		});
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: loggingHooks().hooks,
+			}),
+		);
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			`obtainCertificate(): the CA's order is "valid" but has no "certificate"`,
+		);
+	});
+});

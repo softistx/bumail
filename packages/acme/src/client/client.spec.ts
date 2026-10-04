@@ -2,9 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { createCsr } from '../csr/csr';
 import { AcmeError } from '../errors';
 import { generateKeyPair } from '../keys/keys';
+import { MAX_CERTIFICATE_BYTES, MAX_JSON_BYTES } from './body';
 import { AcmeClient } from './client';
 import { BASE, FAKE_CHAIN, FakeCa, PROBLEM } from './fake-ca.fixtures';
-import { MAX_CERTIFICATE_BYTES, MAX_JSON_BYTES, MAX_RETRY_AFTER } from './http';
+import { MAX_RETRY_AFTER } from './headers';
 import { MAX_BAD_NONCE_RETRIES } from './transport';
 
 const accountKey = await generateKeyPair();
@@ -831,5 +832,142 @@ describe('options', () => {
 		expect(error.message).toBe(
 			'waitForOrder(): timeoutMs must be an integer from 1 to 3600000, not number',
 		);
+	});
+});
+
+describe('what the review asked for', () => {
+	test('finalize answered "invalid" is ORDER_FAILED', async () => {
+		const { ca, client } = await withAccount();
+		const order = await client.newOrder({
+			identifiers: [{ type: 'dns', value: 'a.example' }],
+		});
+		ca.routes.set('POST /finalize/1', (_, fake) =>
+			fake.json({
+				...fake.order(),
+				status: 'invalid',
+				error: { type: `${PROBLEM}badCSR`, detail: 'key too weak' },
+			}),
+		);
+		const csr = await createCsr({
+			names: ['a.example'],
+			keyPair: await generateKeyPair(),
+		});
+		const error = await rejection(client.finalize(order, csr));
+		expect(error.code).toBe('ORDER_FAILED');
+		expect(error.message).toBe(
+			`finalize(): the order is "invalid": ${PROBLEM}badCSR: key too weak`,
+		);
+	});
+
+	test('a Retry-After shorter than pollIntervalMs waits pollIntervalMs', async () => {
+		const { ca, client } = await withAccount(new FakeCa(), {
+			pollIntervalMs: 300,
+		});
+		await client.newOrder({
+			identifiers: [{ type: 'dns', value: 'a.example' }],
+		});
+		let polls = 0;
+		ca.routes.set('POST /authz/0', (_, fake) => {
+			if (++polls === 2) fake.authorizations[0] = 'valid';
+			return fake.json(fake.authorization(0), 200, { 'retry-after': '0' });
+		});
+		const started = performance.now();
+		await client.waitForAuthorization(`${BASE}/authz/0`);
+		expect(performance.now() - started).toBeGreaterThanOrEqual(280);
+	});
+
+	test('a token that is not base64url is the CA’s fault: BAD_RESPONSE', async () => {
+		const { ca, client } = await withAccount();
+		await client.newOrder({
+			identifiers: [{ type: 'dns', value: 'a.example' }],
+		});
+		ca.routes.set('POST /authz/0', (_, fake) => {
+			const authorization = fake.authorization(0);
+			(authorization['challenges'] as Record<string, unknown>[])[0] = {
+				type: 'http-01',
+				url: `${BASE}/chall/0/http-01`,
+				status: 'pending',
+				token: 'bad token/../x',
+			};
+			return fake.json(authorization);
+		});
+		const error = await rejection(client.authorization(`${BASE}/authz/0`));
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			`authorization(): the CA's challenge has a missing or invalid "token"`,
+		);
+	});
+
+	test('meta text with control characters is dropped', async () => {
+		const ca = new FakeCa();
+		ca.routes.set('GET /dir', (_, fake) =>
+			fake.json({
+				newNonce: `${BASE}/nonce`,
+				newAccount: `${BASE}/account`,
+				newOrder: `${BASE}/order`,
+				meta: {
+					termsOfService: 'https://ca.test/terms\nforged',
+					website: 'https://ca.test',
+				},
+			}),
+		);
+		expect((await clientOf(ca).directory()).meta).toEqual({
+			website: 'https://ca.test',
+		});
+	});
+
+	test('an order identifier over its length caps is BAD_RESPONSE', async () => {
+		const { ca, client } = await withAccount();
+		ca.routes.set('POST /order', (_, fake) =>
+			fake.json(
+				{
+					...fake.order(),
+					identifiers: [{ type: 'dns', value: 'a'.repeat(300) }],
+				},
+				201,
+				{ location: `${BASE}/order/1` },
+			),
+		);
+		const error = await rejection(
+			client.newOrder({ identifiers: [{ type: 'dns', value: 'a.example' }] }),
+		);
+		expect(error.message).toBe(
+			`newOrder(): the CA's order has a missing or invalid "identifiers"`,
+		);
+	});
+
+	test('callers asking for the directory at once share one GET', async () => {
+		const ca = new FakeCa();
+		const client = clientOf(ca);
+		await Promise.all([
+			client.directory(),
+			client.directory(),
+			client.newNonce(),
+		]);
+		expect(ca.to('/dir')).toHaveLength(1);
+	});
+
+	test('one caller aborting does not fail another waiting on the same directory', async () => {
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const ca = new FakeCa();
+		const slow: typeof ca.fetch = async (input, init) => {
+			if (input.endsWith('/dir')) await gate;
+			return await ca.fetch(input, init);
+		};
+		const client = new AcmeClient({
+			directoryUrl: `${BASE}/dir`,
+			accountKey,
+			fetch: slow,
+		});
+		const controller = new AbortController();
+		const first = rejection(client.directory({ signal: controller.signal }));
+		const second = client.directory();
+		controller.abort();
+		expect((await first).code).toBe('ABORTED');
+		release();
+		expect((await second).newOrder).toBe(`${BASE}/order`);
 	});
 });

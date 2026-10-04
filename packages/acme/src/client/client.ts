@@ -3,33 +3,26 @@ import type { Csr } from '../csr/csr';
 import { base64url } from '../encoding';
 import { AcmeError } from '../errors';
 import { jwkThumbprint } from '../jws/jwk';
-import { algorithmOf, expectType } from '../keys/algorithm';
-import {
-	abortedError,
-	callerUrl,
-	isOptions,
-	MAX_CERTIFICATE_BYTES,
-	retryAfter,
-	serverUrl,
-	sleep,
-} from './http';
+import { isOptions, MAX_CERTIFICATE_BYTES } from './body';
+import { pemChainOf } from './certificate';
+import { retryAfter } from './headers';
 import {
 	type AcmeClientOptions,
 	type AcmeRequestOptions,
 	type AcmeWaitOptions,
+	accountKeyOf,
 	accountPayload,
 	checkOptions,
 	DEFAULT_POLL_INTERVAL_MS,
 	DEFAULT_REQUEST_TIMEOUT_MS,
-	DEFAULT_WAIT_TIMEOUT_MS,
 	identifiersOf,
 	integerOption,
 	MAX_POLL_DELAY_MS,
-	MAX_WAIT_MS,
 	type NewAccountOptions,
 	type NewOrderOptions,
 	signalOf,
 } from './options';
+import { poll } from './poll';
 import {
 	authorizationFailed,
 	authorizationOf,
@@ -44,13 +37,7 @@ import type {
 	AcmeDirectory,
 	AcmeOrder,
 } from './types';
-
-/** One certificate or more, in PEM, nothing else. */
-const PEM_CHAIN =
-	/^(?:-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]+\n-----END CERTIFICATE-----\n*)+$/;
-
-/** What one poll found: the resource when it is done, or the CA's `Retry-After` and the state it is still in. */
-type PollStep<T> = { done: T } | { after: number | undefined; state: string };
+import { callerUrl, serverUrl } from './urls';
 
 /**
  * A client of an ACME server (RFC 8555): the directory, nonces, the
@@ -250,7 +237,7 @@ export class AcmeClient {
 		options: AcmeWaitOptions = {},
 	): Promise<AcmeAuthorization> {
 		const where = 'waitForAuthorization()';
-		return await this.#poll(where, options, async (signal) => {
+		return await poll(where, options, this.#pollIntervalMs, async (signal) => {
 			const { authorization, after } = await this.#getAuthorization(
 				where,
 				url,
@@ -275,7 +262,7 @@ export class AcmeClient {
 	): Promise<AcmeOrder> {
 		const where = 'waitForOrder()';
 		const url = isOptions(order) ? (order as AcmeOrder).url : order;
-		return await this.#poll(where, options, async (signal) => {
+		return await poll(where, options, this.#pollIntervalMs, async (signal) => {
 			const { order: current, after } = await this.#getOrder(
 				where,
 				url as string,
@@ -367,21 +354,7 @@ export class AcmeClient {
 			accept: 'application/pem-certificate-chain',
 			maxBytes: MAX_CERTIFICATE_BYTES,
 		});
-		let text: string;
-		try {
-			text = new TextDecoder('utf-8', { fatal: true }).decode(answer.body);
-		} catch {
-			text = '';
-		}
-		const chain = text.replace(/\r\n/g, '\n').trim();
-		if (!PEM_CHAIN.test(chain)) {
-			throw new AcmeError(
-				'BAD_RESPONSE',
-				`${where}: the CA's answer is not a PEM certificate chain`,
-				{ status: answer.status },
-			);
-		}
-		return `${chain}\n`;
+		return pemChainOf(answer.body, answer.status, where);
 	}
 
 	/**
@@ -459,86 +432,4 @@ export class AcmeClient {
 			after: retryAfter(answer.headers),
 		};
 	}
-
-	/**
-	 * Runs `step` until it returns `done`, sleeping between two runs as the
-	 * CA's `Retry-After` says, clamped from `pollIntervalMs` to a minute,
-	 * all within `timeoutMs`.
-	 */
-	async #poll<T>(
-		where: string,
-		options: AcmeWaitOptions,
-		step: (signal: AbortSignal) => Promise<PollStep<T>>,
-	): Promise<T> {
-		const caller = signalOf(options, where);
-		const timeoutMs = integerOption(
-			options.timeoutMs,
-			'timeoutMs',
-			where,
-			1,
-			MAX_WAIT_MS,
-			DEFAULT_WAIT_TIMEOUT_MS,
-		);
-		const deadline = AbortSignal.timeout(timeoutMs);
-		const signal = caller ? AbortSignal.any([caller, deadline]) : deadline;
-		let state = 'unknown';
-		const timedOut = (cause: unknown) =>
-			new AcmeError(
-				'TIMEOUT',
-				`${where}: still ${state} after ${timeoutMs} ms`,
-				{
-					cause,
-				},
-			);
-		for (;;) {
-			let result: PollStep<T>;
-			try {
-				result = await step(signal);
-			} catch (error) {
-				if (deadline.aborted && !caller?.aborted) throw timedOut(error);
-				throw error;
-			}
-			if ('done' in result) return result.done;
-			state = result.state;
-			const delay =
-				result.after === undefined
-					? this.#pollIntervalMs
-					: Math.min(
-							Math.max(result.after * 1000, this.#pollIntervalMs),
-							MAX_POLL_DELAY_MS,
-						);
-			try {
-				await sleep(delay, signal);
-			} catch (error) {
-				if (caller?.aborted) throw abortedError(where, caller);
-				throw timedOut(error);
-			}
-		}
-	}
-}
-
-/** The account key pair, both halves checked for their algorithm and type; RSA sizes are checked when signing. */
-function accountKeyOf(value: unknown, where: string): CryptoKeyPair {
-	const pair = value as Partial<CryptoKeyPair> | undefined;
-	if (!isOptions(pair)) {
-		throw new AcmeError(
-			'INVALID_KEY',
-			`${where}: accountKey must be a CryptoKeyPair ({ publicKey, privateKey })`,
-		);
-	}
-	const privateKey = pair?.privateKey;
-	const publicKey = pair?.publicKey;
-	algorithmOf(privateKey, `${where}: accountKey.privateKey`);
-	algorithmOf(publicKey, `${where}: accountKey.publicKey`);
-	expectType(
-		privateKey as CryptoKey,
-		'private',
-		`${where}: accountKey.privateKey`,
-	);
-	expectType(
-		publicKey as CryptoKey,
-		'public',
-		`${where}: accountKey.publicKey`,
-	);
-	return pair as CryptoKeyPair;
 }

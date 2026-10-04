@@ -2,11 +2,15 @@ import { type Csr, createCsr } from '../csr/csr';
 import { shown } from '../encoding';
 import { AcmeError } from '../errors';
 import { jwkThumbprint } from '../jws/jwk';
+import { isOptions } from './body';
 import { AcmeClient } from './client';
-import { abortedError, isOptions } from './http';
+import { abortedError, untilAborted } from './failure';
+import { integerOption, MAX_WAIT_MS, signalOf } from './options';
 import type { AcmeOrder } from './types';
 
 const DEFAULT_TIMEOUT_MS = 300_000;
+/** How long each `remove` may take: it runs even after the flow's time is up. */
+export const REMOVE_GRACE_MS = 10_000;
 
 /** The hooks that publish an HTTP-01 answer: `http01Responder()` is one. */
 export interface Http01Hooks {
@@ -77,25 +81,15 @@ export async function obtainCertificate(
 			`${where}: http01 must be { set(token, keyAuthorization), remove(token) }`,
 		);
 	}
-	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-	if (
-		typeof timeoutMs !== 'number' ||
-		!Number.isInteger(timeoutMs) ||
-		timeoutMs < 1 ||
-		timeoutMs > 3_600_000
-	) {
-		throw new AcmeError(
-			'INVALID_OPTION',
-			`${where}: timeoutMs must be an integer from 1 to 3600000, not ${shown(timeoutMs)}`,
-		);
-	}
-	const caller = options.signal;
-	if (caller !== undefined && !(caller instanceof AbortSignal)) {
-		throw new AcmeError(
-			'INVALID_OPTION',
-			`${where}: signal must be an AbortSignal`,
-		);
-	}
+	const timeoutMs = integerOption(
+		options.timeoutMs,
+		'timeoutMs',
+		where,
+		1,
+		MAX_WAIT_MS,
+		DEFAULT_TIMEOUT_MS,
+	);
+	const caller = signalOf(options, where);
 	if (client.kid === undefined) {
 		throw new AcmeError(
 			'NO_ACCOUNT',
@@ -167,7 +161,7 @@ async function run(
 			}
 			const answer = await client.keyAuthorization(challenge.token);
 			tokens.push(challenge.token);
-			await http01.set(challenge.token, answer);
+			await untilAborted(http01.set(challenge.token, answer), signal);
 			if (challenge.status === 'pending') {
 				await client.challenge(challenge.url, { signal });
 			}
@@ -198,17 +192,30 @@ async function run(
 	return { certificate, order, csr };
 }
 
-/** Calls `remove` for every token, each in turn whatever the others did; the first failure, if any. */
+/**
+ * Calls `remove` for every token, each in turn whatever the others did,
+ * each given `REMOVE_GRACE_MS` to settle — the flow may be over its own
+ * time already; the first failure, if any.
+ */
 async function removeAll(
 	http01: Http01Hooks,
 	tokens: string[],
 ): Promise<{ error: unknown } | undefined> {
 	let first: { error: unknown } | undefined;
 	for (const token of tokens) {
+		const grace = AbortSignal.timeout(REMOVE_GRACE_MS);
 		try {
-			await http01.remove(token);
+			await untilAborted(http01.remove(token), grace);
 		} catch (error) {
-			first ??= { error };
+			first ??= {
+				error: grace.aborted
+					? new AcmeError(
+							'TIMEOUT',
+							`obtainCertificate(): http01.remove(${shown(token)}) did not settle within ${REMOVE_GRACE_MS} ms`,
+							{ cause: error },
+						)
+					: error,
+			};
 		}
 	}
 	return first;

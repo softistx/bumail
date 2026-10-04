@@ -1,19 +1,11 @@
 import { AcmeError } from '../errors';
 import { sign } from '../jws/sign';
-import {
-	ACME_ERROR,
-	type AcmeFetch,
-	abortedError,
-	failureOf,
-	isObject,
-	MAX_JSON_BYTES,
-	parseJson,
-	problemError,
-	readBounded,
-	replayNonce,
-} from './http';
+import { isObject, MAX_JSON_BYTES, parseJson, readBounded } from './body';
+import { abortedError, failureOf, untilAborted } from './failure';
+import { replayNonce } from './headers';
+import { ACME_ERROR, problemError } from './problem';
 import { directoryOf } from './resources';
-import type { AcmeDirectory } from './types';
+import type { AcmeDirectory, AcmeFetch } from './types';
 
 /** How many times a request is signed again after a `badNonce` (RFC 8555 §6.5), each with the nonce that refusal gave. */
 export const MAX_BAD_NONCE_RETRIES = 3;
@@ -58,6 +50,7 @@ export class Transport {
 	readonly #settings: TransportSettings;
 	readonly #nonces: string[] = [];
 	#directory: AcmeDirectory | undefined;
+	#pending: Promise<AcmeDirectory> | undefined;
 
 	constructor(settings: TransportSettings) {
 		this.#settings = settings;
@@ -71,17 +64,34 @@ export class Transport {
 		return this.#settings.accountKey.publicKey;
 	}
 
-	/** The directory, fetched with a GET the first time only. */
+	/**
+	 * The directory, fetched with a GET the first time only: callers that
+	 * ask at once share one request, each still stopped by its own signal.
+	 */
 	async directory(
 		where: string,
 		signal: AbortSignal | undefined,
 	): Promise<AcmeDirectory> {
 		if (this.#directory !== undefined) return this.#directory;
+		if (signal?.aborted) throw abortedError(where, signal);
+		this.#pending ??= this.#fetchDirectory(where).finally(() => {
+			this.#pending = undefined;
+		});
+		if (signal === undefined) return await this.#pending;
+		try {
+			return await untilAborted(this.#pending, signal);
+		} catch (error) {
+			if (signal.aborted) throw abortedError(where, signal);
+			throw error;
+		}
+	}
+
+	async #fetchDirectory(where: string): Promise<AcmeDirectory> {
 		const answer = await this.send(
 			where,
 			this.#settings.directoryUrl,
 			{ method: 'GET' },
-			signal,
+			undefined,
 			MAX_JSON_BYTES,
 		);
 		if (answer.status >= 400) {

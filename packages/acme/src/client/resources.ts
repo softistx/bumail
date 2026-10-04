@@ -1,13 +1,7 @@
-import { isArray, shown } from '../encoding';
+import { isArray, isBase64url, shown } from '../encoding';
 import { AcmeError } from '../errors';
-import {
-	describeProblem,
-	identifierOf,
-	isObject,
-	printable,
-	problemOf,
-	serverUrl,
-} from './http';
+import { isObject } from './body';
+import { describeProblem, identifierOf, printable, problemOf } from './problem';
 import type {
 	AcmeAuthorization,
 	AcmeAuthorizationStatus,
@@ -19,6 +13,7 @@ import type {
 	AcmeOrder,
 	AcmeOrderStatus,
 } from './types';
+import { serverUrl } from './urls';
 
 /** The most authorizations an order may list, and challenges an authorization: far above any CA's. */
 const MAX_ITEMS = 1000;
@@ -44,6 +39,16 @@ const CHALLENGE_STATUSES: readonly AcmeChallengeStatus[] = [
 	'valid',
 	'invalid',
 ];
+
+/** An identifier from the CA, its type 64 characters at most and its value 256; undefined otherwise. */
+function boundedIdentifier(value: unknown): AcmeIdentifier | undefined {
+	const identifier = identifierOf(value);
+	return identifier !== undefined &&
+		identifier.type.length <= 64 &&
+		identifier.value.length <= 256
+		? identifier
+		: undefined;
+}
 
 /** Reads the members of one resource, naming the member that is wrong. */
 class Reader {
@@ -93,14 +98,8 @@ class Reader {
 	}
 
 	identifier(member: string): AcmeIdentifier {
-		const identifier = identifierOf(this.value[member]);
-		if (
-			identifier === undefined ||
-			identifier.type.length > 64 ||
-			identifier.value.length > 256
-		) {
-			throw this.bad(member);
-		}
+		const identifier = boundedIdentifier(this.value[member]);
+		if (identifier === undefined) throw this.bad(member);
 		return identifier;
 	}
 
@@ -151,7 +150,10 @@ function metaOf(value: unknown): AcmeDirectoryMeta | undefined {
 	const meta: AcmeDirectoryMeta = {};
 	const text = (member: string) => {
 		const item = value[member];
-		return typeof item === 'string' && item.length <= 2048 ? item : undefined;
+		// a URL, as text: kept only without white space or control characters
+		return typeof item === 'string' && /^[\x21-\x7e]{1,2048}$/.test(item)
+			? item
+			: undefined;
 	};
 	const terms = text('termsOfService');
 	if (terms !== undefined) meta.termsOfService = terms;
@@ -196,7 +198,7 @@ export function orderOf(
 	}
 	const read = new Reader(value, 'order', where, allowInsecure);
 	const identifiers = read.array('identifiers').map((item) => {
-		const identifier = identifierOf(item);
+		const identifier = boundedIdentifier(item);
 		if (identifier === undefined) throw read.bad('identifiers');
 		return identifier;
 	});
@@ -274,7 +276,11 @@ export function challengeOf(
 		status: read.status(CHALLENGE_STATUSES),
 	};
 	const token = read.optionalString('token');
-	if (token !== undefined) challenge.token = token;
+	if (token !== undefined) {
+		// a token is base64url (RFC 8555 §8.1): another one is the CA's fault
+		if (!isBase64url(token)) throw read.bad('token');
+		challenge.token = token;
+	}
 	const validated = read.optionalString('validated');
 	if (validated !== undefined) challenge.validated = validated;
 	const error = problemOf(value['error']);

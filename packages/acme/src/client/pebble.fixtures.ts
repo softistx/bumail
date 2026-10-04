@@ -1,5 +1,5 @@
 import { describe, test } from 'bun:test';
-import type { AcmeFetch } from './http';
+import type { AcmeFetch } from './types';
 
 /**
  * Pebble, Let's Encrypt's ACME test server, from the environment: `bun

@@ -1,8 +1,9 @@
 import { MAX_NAMES } from '../csr/names';
 import { isArray, shown } from '../encoding';
 import { AcmeError } from '../errors';
-import { type AcmeFetch, isObject, isOptions } from './http';
-import type { AcmeIdentifier } from './types';
+import { algorithmOf, expectType } from '../keys/algorithm';
+import { isObject, isOptions } from './body';
+import type { AcmeFetch, AcmeIdentifier } from './types';
 
 /** The longest wait between two polls, whatever `Retry-After` says. */
 export const MAX_POLL_DELAY_MS = 60_000;
@@ -196,4 +197,30 @@ export function identifiersOf(value: unknown, where: string): AcmeIdentifier[] {
 		}
 		return { type, value: text };
 	});
+}
+
+/** The account key pair, both halves checked for their algorithm and type; RSA sizes are checked when signing. */
+export function accountKeyOf(value: unknown, where: string): CryptoKeyPair {
+	const pair = value as Partial<CryptoKeyPair> | undefined;
+	if (!isOptions(pair)) {
+		throw new AcmeError(
+			'INVALID_KEY',
+			`${where}: accountKey must be a CryptoKeyPair ({ publicKey, privateKey })`,
+		);
+	}
+	const privateKey = pair?.privateKey;
+	const publicKey = pair?.publicKey;
+	algorithmOf(privateKey, `${where}: accountKey.privateKey`);
+	algorithmOf(publicKey, `${where}: accountKey.publicKey`);
+	expectType(
+		privateKey as CryptoKey,
+		'private',
+		`${where}: accountKey.privateKey`,
+	);
+	expectType(
+		publicKey as CryptoKey,
+		'public',
+		`${where}: accountKey.publicKey`,
+	);
+	return pair as CryptoKeyPair;
 }

@@ -1,6 +1,7 @@
 import { base64url, isArray, isBase64url, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import { type JwsAlgorithm, keyPairOf, SIGN_PARAMS } from '../keys/algorithm';
+import { isRequestUrl } from '../url';
 import { jwkOf, type PublicJwk } from './jwk';
 
 /** Options of `signJws`. */
@@ -128,23 +129,7 @@ export async function sign(
 }
 
 function checkUrl(value: unknown, name: string, allowHttp: boolean): void {
-	let parsed: URL | undefined;
-	try {
-		parsed =
-			typeof value === 'string' && !/[\s\p{Cc}]/u.test(value)
-				? new URL(value)
-				: undefined;
-	} catch {
-		parsed = undefined;
-	}
-	const scheme = parsed?.protocol;
-	if (
-		parsed === undefined ||
-		(scheme !== 'https:' && !(allowHttp && scheme === 'http:')) ||
-		parsed.username !== '' ||
-		parsed.password !== '' ||
-		(value as string).includes('#')
-	) {
+	if (!isRequestUrl(value, allowHttp)) {
 		throw new AcmeError(
 			'INVALID_OPTION',
 			`signJws(): ${name} must be an https: URL without white space, credentials or a fragment, not ${shown(value)}`,
