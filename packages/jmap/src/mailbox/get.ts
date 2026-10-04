@@ -11,9 +11,9 @@ import { MethodError } from '../api/errors';
 import { stateOf } from '../api/state';
 import {
 	MAILBOX_PROPERTIES,
+	type MailboxCounts,
+	mailboxCounts,
 	mailboxObject,
-	type ThreadCounts,
-	threadCounts,
 } from './properties';
 
 const known = (property: string) =>
@@ -41,8 +41,12 @@ export async function mailboxGet(args: Args, ctx: CallContext): Promise<Args> {
 	}
 	const byId = new Map(mailboxes.map((mailbox) => [mailbox.id, mailbox]));
 	const wanted = ids ?? mailboxes.map((mailbox) => mailbox.id);
-	const countThreads =
-		properties.includes('totalThreads') || properties.includes('unreadThreads');
+	// The store's unseen count is IMAP's (`\Seen` only), and it keeps no
+	// thread counts: these three are counted here, in one pass per mailbox.
+	const count =
+		properties.includes('unreadEmails') ||
+		properties.includes('totalThreads') ||
+		properties.includes('unreadThreads');
 	const list: Args[] = [];
 	const notFound: string[] = [];
 	let left = ctx.settings.limits.maxQueryScan;
@@ -52,13 +56,13 @@ export async function mailboxGet(args: Args, ctx: CallContext): Promise<Args> {
 			notFound.push(id);
 			continue;
 		}
-		// Past the scan budget, the email counts stand in for the thread counts.
-		let threads: ThreadCounts | undefined;
-		if (countThreads && mailbox.messages <= left) {
+		// Past the scan budget, the store's counts stand in.
+		let counts: MailboxCounts | undefined;
+		if (count && mailbox.messages <= left) {
 			left -= mailbox.messages;
-			threads = await threadCounts(ctx.store, accountId, id);
+			counts = await mailboxCounts(ctx.store, accountId, id);
 		}
-		list.push(mailboxObject(mailbox, properties, threads));
+		list.push(mailboxObject(mailbox, properties, counts));
 	}
 	return { accountId, state, list, notFound };
 }

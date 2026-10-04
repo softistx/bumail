@@ -16,8 +16,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   modseqs these need.
 - **`@bumail/jmap`, the second slice** — the first slice is published in
   0.1.0 (see Shipped). What remains: queryChanges, push via EventSource,
-  then Identity and EmailSubmission through `@bumail/smtp/client`, and
-  mailbox unread counts that follow RFC 8621 to the letter. Any JMAP
+  then Identity and EmailSubmission through `@bumail/smtp/client`. Any JMAP
   client speaks it; bumail ships no client of its own.
 
 ## Next

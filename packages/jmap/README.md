@@ -133,7 +133,7 @@ A download serves an email's bytes, one of its parts (each part's
 | `maxReferenceItems` | 5000 | values one back-reference expands to |
 | `maxReferenceBytes` | 4 MiB | bytes of JSON all the back-references of one request resolve to |
 | `maxSizeResponse` | 64 MiB | bytes of JSON of one API response |
-| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a text search or a `Mailbox/get` thread count reads (past it, thread counts are email counts) |
+| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a text search or a `Mailbox/get` count reads (past it, the store's counts) |
 | `maxBodyValueBytes` | 1 MiB | one body value, whatever the client asks |
 | `maxBodyValuesTotal` | 16 MiB | body values in one request |
 
@@ -152,10 +152,12 @@ cut after 100 characters.
 - **Queries run in memory.** The store has no index yet: `Email/query`
   and `Thread/get` read at most `maxQueryScan` emails (one mailbox's when
   the filter names `inMailbox`), and answer `tooLarge` past it.
-  `Mailbox/get` counts threads within the same budget, all its mailboxes
-  together (`properties` left out, null, asks for `totalThreads` and
-  `unreadThreads`): past it, a mailbox's thread counts are its email
-  counts, which is exact while threads are single emails.
+  `Mailbox/get` counts `unreadEmails`, `totalThreads` and
+  `unreadThreads` as RFC 8621 §2 asks (`$seen` in any spelling is read,
+  `$draft` is never unread) within the same budget, all its mailboxes
+  together (`properties` left out, null, asks for them): past it, a
+  mailbox's counts are the store's IMAP counts, `unseen` for both unread
+  counts and `messages` for `totalThreads`.
 - **Uploads live in memory** for `uploadTtl`, in the process that took
   them: a restart forgets them, and two processes do not share them.
 - **Threads are single emails** unless your delivery code passes a

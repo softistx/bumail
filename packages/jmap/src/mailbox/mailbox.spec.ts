@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { type Harness, harness, SIMPLE, STORES } from '../server/app.fixtures';
+import {
+	bytes,
+	type Harness,
+	harness,
+	SIMPLE,
+	STORES,
+} from '../server/app.fixtures';
 
 describe.each(STORES)('Mailbox on the %s store', (kind) => {
 	let h: Harness;
@@ -185,5 +191,86 @@ describe.each(STORES)('Mailbox on the %s store', (kind) => {
 			filter: { colour: 'red' },
 		});
 		expect(badFilter.args.type).toBe('unsupportedFilter');
+	});
+
+	/** Adds SIMPLE to a mailbox of alice's, with flags and a thread. */
+	const put = (mailboxId: string, flags: string[], threadId?: string) =>
+		h.store.addMessage(h.alice.id, mailboxId, {
+			content: bytes(SIMPLE),
+			flags,
+			...(threadId === undefined ? {} : { threadId }),
+		});
+
+	const inboxCounts = async (properties: string[] | null = null) => {
+		const { args } = await h.call('Mailbox/get', {
+			ids: [h.inbox.id],
+			properties,
+		});
+		return args.list[0];
+	};
+
+	test('RFC 8621 §2: unreadEmails counts $seen however the store keeps it — \\Seen, $Seen, $SEEN', async () => {
+		h = await harness(kind);
+		await put(h.inbox.id, []);
+		await put(h.inbox.id, ['\\Seen']);
+		await put(h.inbox.id, ['$Seen']);
+		await put(h.inbox.id, ['$SEEN']);
+		// The store's own count is IMAP's: only \Seen is seen there.
+		expect((await h.store.getMailbox(h.alice.id, h.inbox.id))?.unseen).toBe(3);
+		expect(await inboxCounts()).toMatchObject({
+			totalEmails: 4,
+			unreadEmails: 1,
+			totalThreads: 4,
+			unreadThreads: 1,
+		});
+		expect(await inboxCounts(['unreadEmails'])).toEqual({
+			id: h.inbox.id,
+			unreadEmails: 1,
+		});
+	});
+
+	test('RFC 8621 §2: unreadEmails and unreadThreads leave out $draft — \\Draft, $draft, $Draft', async () => {
+		h = await harness(kind);
+		await put(h.inbox.id, ['\\Draft']);
+		await put(h.inbox.id, ['$draft']);
+		await put(h.inbox.id, ['$Draft', '$Seen']);
+		await put(h.inbox.id, ['$Forwarded']);
+		expect(await inboxCounts()).toMatchObject({
+			totalEmails: 4,
+			unreadEmails: 1,
+			totalThreads: 4,
+			unreadThreads: 1,
+		});
+	});
+
+	test('RFC 8621 §2: unreadThreads counts the threads with an unread email in the mailbox', async () => {
+		h = await harness(kind);
+		// a: one read, one unread in the inbox — unread.
+		await put(h.inbox.id, ['\\Seen'], 'a');
+		await put(h.inbox.id, [], 'a');
+		// b: every email read — read.
+		await put(h.inbox.id, ['\\Seen'], 'b');
+		await put(h.inbox.id, ['$seen'], 'b');
+		// c: read in the inbox, unread in the archive — read in the inbox.
+		await put(h.inbox.id, ['\\Seen'], 'c');
+		await put(h.archive.id, [], 'c');
+		// d: an unread draft only — not unread.
+		await put(h.inbox.id, ['\\Draft'], 'd');
+		expect(await inboxCounts()).toMatchObject({
+			totalEmails: 6,
+			unreadEmails: 1,
+			totalThreads: 4,
+			unreadThreads: 1,
+		});
+		const { args } = await h.call('Mailbox/get', {
+			ids: [h.archive.id],
+			properties: ['totalThreads', 'unreadThreads', 'unreadEmails'],
+		});
+		expect(args.list[0]).toEqual({
+			id: h.archive.id,
+			unreadEmails: 1,
+			totalThreads: 1,
+			unreadThreads: 1,
+		});
 	});
 });

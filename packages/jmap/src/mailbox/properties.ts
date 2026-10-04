@@ -1,5 +1,6 @@
 import type { Mailbox, MailStore } from '@bumail/store';
 import type { Args } from '../api/args';
+import { hasFlag } from '../email/keywords';
 
 export const MAILBOX_PROPERTIES = [
 	'id',
@@ -31,36 +32,63 @@ export const MY_RIGHTS = {
 	maySubmit: false,
 } as const;
 
-/** A mailbox's threads, and those with an unread email in it. */
-export interface ThreadCounts {
-	readonly total: number;
-	readonly unread: number;
+/**
+ * A mailbox's counts that the store's do not give as RFC 8621 §2 asks: its
+ * unread emails, and its threads with those unread among them.
+ */
+export interface MailboxCounts {
+	readonly unreadEmails: number;
+	readonly totalThreads: number;
+	readonly unreadThreads: number;
 }
 
-/** Counts a mailbox's threads by listing its messages: the store keeps no thread counts. */
-export async function threadCounts(
+/**
+ * Whether an email counts as unread (RFC 8621 §2): it has neither `$seen`
+ * nor `$draft`, however the store keeps them — `\Seen` and `\Draft`, or a
+ * `$Seen` or `$Draft` kept as an ordinary keyword, in any case. The store's
+ * own `unseen` is IMAP's, which only looks for `\Seen`.
+ */
+export function isUnread(flags: readonly string[]): boolean {
+	return !(
+		hasFlag(flags, '\\Seen') ||
+		hasFlag(flags, '$seen') ||
+		hasFlag(flags, '\\Draft') ||
+		hasFlag(flags, '$draft')
+	);
+}
+
+/**
+ * Counts a mailbox's unread emails and its threads in one pass over its
+ * messages: the store keeps no thread counts, and its unseen count is IMAP's.
+ * A thread is unread when one of its emails in this mailbox is (the RFC's
+ * simplest rule): an unread email of the thread in another mailbox does not
+ * count here.
+ */
+export async function mailboxCounts(
 	store: MailStore,
 	accountId: string,
 	mailboxId: string,
-): Promise<ThreadCounts> {
+): Promise<MailboxCounts> {
 	const threads = new Map<string, boolean>();
+	let unreadEmails = 0;
 	for (const { message } of await store.listMessages(accountId, mailboxId)) {
-		const unread = !message.flags.includes('\\Seen');
+		const unread = isUnread(message.flags);
+		if (unread) unreadEmails++;
 		threads.set(
 			message.threadId,
 			(threads.get(message.threadId) ?? false) || unread,
 		);
 	}
-	let unread = 0;
-	for (const value of threads.values()) if (value) unread++;
-	return { total: threads.size, unread };
+	let unreadThreads = 0;
+	for (const value of threads.values()) if (value) unreadThreads++;
+	return { unreadEmails, totalThreads: threads.size, unreadThreads };
 }
 
 /** A store mailbox as a JMAP Mailbox, with the properties asked for. */
 export function mailboxObject(
 	mailbox: Mailbox,
 	properties: readonly string[],
-	threads: ThreadCounts | undefined,
+	counts: MailboxCounts | undefined,
 ): Args {
 	const all: Args = {
 		id: mailbox.id,
@@ -69,9 +97,9 @@ export function mailboxObject(
 		role: mailbox.role ?? null,
 		sortOrder: 0,
 		totalEmails: mailbox.messages,
-		unreadEmails: mailbox.unseen,
-		totalThreads: threads?.total ?? mailbox.messages,
-		unreadThreads: threads?.unread ?? mailbox.unseen,
+		unreadEmails: counts?.unreadEmails ?? mailbox.unseen,
+		totalThreads: counts?.totalThreads ?? mailbox.messages,
+		unreadThreads: counts?.unreadThreads ?? mailbox.unseen,
 		myRights: MY_RIGHTS,
 		isSubscribed: mailbox.isSubscribed,
 	};
