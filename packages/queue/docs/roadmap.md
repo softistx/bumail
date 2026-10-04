@@ -7,7 +7,7 @@ only number on it.
 ## Now
 
 Nothing in progress: the Redis store, first under Next, is the next one
-taken. The PostgreSQL store is merged (see Shipped).
+taken. The PostgreSQL store shipped in 0.2.0 (see Shipped).
 
 ## Next
 
@@ -73,7 +73,8 @@ Then:
   for a cancel: it reports `LEASE_LOST` on the `error` event, tells no
   outcome and sends no DSN, so the operator learns the message may have
   gone out twice. With no record of who dropped an item, a lease that
-  expired is reported as lost or cancelled; a cancel under a lease that
+  expired, or a renewal refused while the item was still there, is
+  reported as lost or cancelled; a cancel under a lease that
   still held is told as before, and no longer draws a `LEASE_LOST` from
   a renewal that finds the item gone.
 

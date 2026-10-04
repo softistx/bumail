@@ -35,7 +35,7 @@ parts shown as … vary.
 - [`QueueError: The lease on … was lost before its outcome was recorded; another worker will try it again`](#queueerror-the-lease-on--was-lost-before-its-outcome-was-recorded-another-worker-will-try-it-again)
 - [`QueueError: The lease on … was lost while it was delivered`](#queueerror-the-lease-on--was-lost-while-it-was-delivered)
 - [`QueueError: The lease on … expired before its outcome was recorded, and the item is gone: lost to another worker that finished it, the message then sent twice, or cancelled`](#queueerror-the-lease-on--expired-before-its-outcome-was-recorded-and-the-item-is-gone-lost-to-another-worker-that-finished-it-the-message-then-sent-twice-or-cancelled)
-- [`QueueError: The lease on … was lost while it was delivered, and the worker that took it has finished it: the message may have been sent twice`](#queueerror-the-lease-on--was-lost-while-it-was-delivered-and-the-worker-that-took-it-has-finished-it-the-message-may-have-been-sent-twice)
+- [`QueueError: The lease on … was lost while it was delivered, and the item is gone: finished by the worker that took it, the message then sent twice, or cancelled`](#queueerror-the-lease-on--was-lost-while-it-was-delivered-and-the-item-is-gone-finished-by-the-worker-that-took-it-the-message-then-sent-twice-or-cancelled)
 - [`SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`](#smtperror-sendmail--invalid_option-with-recipients-deferred-as-435)
 - [`SQLiteError: database is locked`, or another store error, during a delivery](#sqliteerror-database-is-locked-or-another-store-error-during-a-delivery)
 - [`PostgresError: …`, or a connection error, during a delivery](#postgreserror--or-a-connection-error-during-a-delivery)
@@ -244,8 +244,9 @@ or `… must be a number from … to …, not …`. A number option out of its r
 
 ### `QueueError: owner must be a non-empty string`
 
-**Code:** `INVALID`, also as `owner holds a NUL or a lone surrogate,
-which a store cannot keep`. Leave `owner` out for a random one, or give
+**Code:** `INVALID`, also as
+[`owner holds a NUL or a lone surrogate, which a store cannot keep`](#queueerror--holds-a-nul-or-a-lone-surrogate-which-a-store-cannot-keep).
+Leave `owner` out for a random one, or give
 each worker its own name.
 
 ## The `error` event
@@ -262,8 +263,9 @@ the process stalled longer than that, or the store could not be reached.
 
 ### `QueueError: The lease on … was lost while it was delivered`
 
-**Code:** `LEASE_LOST`. A renewal found the item under another worker:
-the same cause as above, seen sooner. A renewal that finds the item gone
+**Code:** `LEASE_LOST`. A renewal was refused while the item was still in
+the store, held by another worker or by none (another worker took it and
+let go of it): the same cause as above, seen sooner. A renewal that finds the item gone
 says nothing: the outcome, once the sessions end, tells a cancel from a
 lease lost (below).
 
@@ -285,16 +287,28 @@ stalled the process — an event loop blocked, a store out of reach. A
 cancel under a lease that still held is told as before: its outcomes on
 the events, with no error and no DSN.
 
-### `QueueError: The lease on … was lost while it was delivered, and the worker that took it has finished it: the message may have been sent twice`
+When the instances' clocks are out of step, one whose clock runs ahead
+can claim the item while this worker's own clock says the lease still
+holds. If it finishes and drops the item between two of this worker's
+renewals, no renewal saw it taken and the expiry has not passed by this
+clock: the attempt reads as a cancel, its outcomes told on the events
+with no error. Keep the machines on NTP; the 10-minute `leaseMs` leaves
+room for seconds of skew.
+
+### `QueueError: The lease on … was lost while it was delivered, and the item is gone: finished by the worker that took it, the message then sent twice, or cancelled`
 
 **Code:** `LEASE_LOST`, after
 [`The lease on … was lost while it was delivered`](#queueerror-the-lease-on--was-lost-while-it-was-delivered).
-**When:** a renewal found the item under another worker, and that worker
-had finished and dropped it before this one recorded its outcome. No
-outcome event and no DSN come from this attempt.
-**Why:** that worker claimed the item once this one's lease had expired
-by its own clock: this worker stalled, or the instances' clocks disagree
-(an instance whose clock runs ahead sees leases expire early).
+**When:** a renewal was refused while the item was still in the store,
+held by another worker or by none, and when this worker tried to record
+its outcome the item was gone. No outcome event and no DSN come from this
+attempt.
+**Why:** another worker claimed the item once this one's lease had
+expired by its own clock — this worker stalled, or the instances' clocks
+disagree (an instance whose clock runs ahead sees leases expire early) —
+and has most likely finished and dropped it, the recipients both reached
+getting the message twice. A `cancel` after the renewal drops it too, and
+the store keeps no record of which happened, so the message names both.
 **Fix:** a longer `leaseMs`, find what stalled the process, and keep the
 machines on NTP.
 

@@ -260,7 +260,11 @@ queue.start();
   lease still holding, has its outcomes told by the events, with no DSN
   and no error. Once the lease's expiry has passed, a worker cannot tell
   a cancel from an item another worker finished: it reports `LEASE_LOST`,
-  lost or cancelled, and tells no outcome.
+  lost or cancelled, and tells no outcome. One gap remains when the
+  instances' clocks are out of step: an instance whose clock runs ahead
+  can take the item while this worker's clock says the lease holds, and
+  if it finishes the item between two renewals, the attempt reads as a
+  cancel. Keep the machines on NTP.
 - **`stop()`** claims nothing more, lets every session under way end and
   records its outcome, and gives back what was claimed but not started —
   due at once, no attempt counted — so another worker can take it.

@@ -3,6 +3,7 @@ import type { QueueItem, RecipientUpdate } from '../contract/types';
 import { QueueError } from '../errors';
 import { domainOf } from './envelope';
 import type { Events } from './events';
+import type { Lapse } from './lease';
 import type { KeyedLimiter } from './limiter';
 import { type NotifyContext, notify } from './notify';
 import { isRouteError, outcomesOf, outcomesOfError } from './outcome';
@@ -25,23 +26,16 @@ export interface DeliveryContext extends NotifyContext {
 }
 
 /**
- * How a lease was lost. `taken`: a renewal found the item under another
- * worker. `expired`: the lease's expiry passed, so another worker could
- * claim it.
- */
-export type Lapse = 'taken' | 'expired';
-
-/**
  * Said when the item is gone at `complete` and the lease had lapsed. With
- * no record of who removed it, `expired` cannot tell another worker that
- * finished it from a cancel, so it names both; either way what this
+ * no record of who removed it, neither case can tell another worker that
+ * finished it from a cancel, so each names both; either way what this
  * worker sent may have been sent again, and it reports no outcome.
  */
 const goneAfter = (lapse: Lapse, id: string): QueueError =>
 	new QueueError(
 		'LEASE_LOST',
 		lapse === 'taken'
-			? `The lease on ${id} was lost while it was delivered, and the worker that took it has finished it: the message may have been sent twice`
+			? `The lease on ${id} was lost while it was delivered, and the item is gone: finished by the worker that took it, the message then sent twice, or cancelled`
 			: `The lease on ${id} expired before its outcome was recorded, and the item is gone: lost to another worker that finished it, the message then sent twice, or cancelled`,
 	);
 
