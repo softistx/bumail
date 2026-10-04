@@ -4,9 +4,9 @@ The outbound queue of a mail server: it keeps every message your server
 sends to another one, delivers it through `@bumail/smtp/client`, retries
 what failed for now, and sends a delivery status notification (RFC 3464)
 back when it gives up. Each recipient has its own state, the queue
-survives a restart on `bun:sqlite` or PostgreSQL, and several workers —
-on one machine, or on many with PostgreSQL — can share one queue. No
-runtime dependency: only peers.
+survives a restart on `bun:sqlite`, PostgreSQL or Redis, and several
+workers — on one machine, or on many with PostgreSQL or Redis — can
+share one queue. No runtime dependency: only peers.
 
 ## Install
 
@@ -27,6 +27,7 @@ queue that only uses a smarthost needs none.
 | `@bumail/queue/memory` | `MemoryQueueStore`: in memory, lost on a restart — for specs and trials |
 | `@bumail/queue/sqlite` | `SqliteQueueStore`: on disk with `bun:sqlite`, shared by the processes of one machine |
 | `@bumail/queue/postgres` | `PostgresQueueStore`: on PostgreSQL through Bun's own `Bun.sql`, shared by instances on several machines |
+| `@bumail/queue/redis` | `RedisQueueStore`: on Redis through Bun's own `Bun.redis`, shared by instances on several machines |
 
 ## Usage
 
@@ -175,6 +176,38 @@ waits on one another is taking. An instance that crashes loses its items
 when their leases expire, as with `bun:sqlite`. No driver to install:
 `Bun.sql` is Bun's.
 
+## Redis, for several machines
+
+```ts
+import { nodeResolver } from '@bumail/dns';
+import { createQueue } from '@bumail/queue';
+import { RedisQueueStore } from '@bumail/queue/redis';
+
+// In each instance, on the same Redis. A Bun.RedisClient of your own works too:
+// RedisQueueStore.open({ client: new Bun.RedisClient(url) }).
+const store = RedisQueueStore.open({
+	url: Bun.env['REDIS_URL'] ?? 'redis://localhost:6379',
+	keyPrefix: 'bumail:queue:', // the default: bumail:queue:items, …:item:<id>, …
+});
+const queue = createQueue({ store, hostname: 'mail.example.net', resolver: nodeResolver() });
+queue.start();
+
+process.on('SIGTERM', async () => {
+	await queue.stop();
+	await store.close(); // closes the client it opened for the URL, never yours
+});
+```
+
+Every operation that writes is one Lua script, which Redis runs whole:
+two instances never take the same item, and a crashed instance's items
+are claimed again once their leases expire. The message is kept byte for
+byte. One Redis, or a primary with replicas — not Redis Cluster. Redis
+acknowledges a write once it is in memory: with `appendfsync everysec`
+a crash loses up to a second of writes, and a failover to a replica can
+lose acknowledged ones, so keep `appendonly yes`, `appendfsync always`
+and `maxmemory-policy noeviction` where a lost message matters (the
+guide's Redis section). No driver to install: `Bun.redis` is Bun's.
+
 ## Events and admin
 
 ```ts
@@ -243,8 +276,8 @@ control character in it.
 
 ## Traps
 
-- **Bun only.** The stores use `bun:sqlite` and `Bun.sql`, so the package
-  runs on Bun 1.4.2 or later, not on Node.
+- **Bun only.** The stores use `bun:sqlite`, `Bun.sql` and `Bun.redis`,
+  so the package runs on Bun 1.4.2 or later, not on Node.
 - **It sends what you enqueue, to anyone.** The queue is not a relay
   policy: enqueue only what an authenticated user submitted, or what your
   own server writes, never what an unauthenticated client handed you.
@@ -264,12 +297,13 @@ control character in it.
 | `MemoryQueueStore` | from `@bumail/queue/memory` |
 | `SqliteQueueStore`, `SqliteQueueStoreOptions` | from `@bumail/queue/sqlite`: `SqliteQueueStore.open({ directory, busyTimeout? })`, `close()` |
 | `PostgresQueueStore`, `PostgresQueueStoreOptions`, `PostgresClient`, `PostgresQueryable` | from `@bumail/queue/postgres`: `PostgresQueueStore.open({ sql, tablePrefix? })`, `migrate()`, `close()`; `sql` a `Bun.SQL` client or a `postgres://` URL |
+| `RedisQueueStore`, `RedisQueueStoreOptions`, `RedisQueueClientOptions`, `RedisQueueUrlOptions`, `RedisQueueClient` | from `@bumail/queue/redis`: `RedisQueueStore.open({ client \| url, keyPrefix? })`, `close()`; `client` a `Bun.RedisClient`, `url` a `redis://` URL |
 
 ## Documentation
 
 These pages ship in the package, under `docs/`.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/README.md): the pages, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/guide.md): enqueuing, delivery and routing, the retry schedule, DSNs, several workers and leases, events and admin, the stores (PostgreSQL included), testing, and writing a store of your own.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/guide.md): enqueuing, delivery and routing, the retry schedule, DSNs, several workers and leases, events and admin, the stores (PostgreSQL and Redis included), testing, and writing a store of your own.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/troubleshooting.md): every `QueueError`, and what to do about it.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/roadmap.md): what is coming, and what is not planned.

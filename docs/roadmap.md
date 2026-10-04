@@ -24,9 +24,10 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **`@bumail/queue`, more stores for several instances** — more answers
   to the `QueueStore` contract, so several server instances share one
   queue, each held to the same contract specs, none a dependency. The
-  PostgreSQL store is merged (see Shipped); Redis comes next, on
-  `Bun.redis`; then MongoDB, typed structurally against the collection a
-  MongoDB driver hands it, so the package peers on no driver.
+  PostgreSQL store is published and the Redis store merged (see
+  Shipped); MongoDB comes next, typed structurally against the
+  collection a MongoDB driver hands it, so the package peers on no
+  driver.
 - **`@bumail/store`, a PostgreSQL adapter** — the store contract on
   PostgreSQL through `Bun.sql`, so it peers on no driver, as the queue's
   does, for a server that runs as several instances, held to the
@@ -107,16 +108,26 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ### Unreleased — merged, not yet published
 
-- **`@bumail/queue`, a PostgreSQL store**, as `@bumail/queue/postgres` —
-  the `QueueStore` contract on PostgreSQL through Bun's own `Bun.sql`, so
+- **`@bumail/queue`, a Redis store**, as `@bumail/queue/redis` — the
+  `QueueStore` contract on Redis through Bun's own `Bun.redis`, so
   several server instances, on several machines, share one queue with no
-  driver to install. A claim is one `UPDATE … RETURNING` whose item a
-  `SELECT … FOR UPDATE SKIP LOCKED` picks, so two instances never take
-  the same item, and a crashed instance's items are claimed again once
-  their leases expire. Its tables, the `bun:sqlite` store's, are made by
-  `migrate()` or on first use, under a table prefix.
+  driver to install. Every operation that writes is one Lua script,
+  which Redis runs whole, so two instances never take the same item, and
+  a crashed instance's items are claimed again once their leases expire.
+  One Redis, or a primary with replicas, not Cluster; its durability is
+  Redis's, as the queue's guide spells out.
 
 ### Published
+
+- **`@bumail/queue`, a PostgreSQL store**, in queue 0.2.0, as
+  `@bumail/queue/postgres` — the `QueueStore` contract on PostgreSQL
+  through Bun's own `Bun.sql`, so several server instances, on several
+  machines, share one queue with no driver to install. A claim is one
+  `UPDATE … RETURNING` whose item a `SELECT … FOR UPDATE SKIP LOCKED`
+  picks, so two instances never take the same item, and a crashed
+  instance's items are claimed again once their leases expire. Its
+  tables, the `bun:sqlite` store's, are made by `migrate()` or on first
+  use, under a table prefix.
 
 - **`@bumail/queue`, the first slice**, in queue 0.1.0 — outbound mail
   with each recipient's own state (pending, delivered, deferred, failed,

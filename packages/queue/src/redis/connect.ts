@@ -1,4 +1,5 @@
 import { invalid } from '../errors';
+import { masked } from '../masked';
 import type { RedisQueueClient, RedisQueueStoreOptions } from './options';
 
 /** The keys of one queue, each its prefix and a fixed name. */
@@ -70,21 +71,6 @@ function urlOf(value: unknown): URL {
 	const url = URL.parse(String(value));
 	if (url === null || !SCHEMES.includes(url.protocol)) throw invalid(NEEDS);
 	return url;
-}
-
-/** `text` with the password masked, as written in the URL and decoded, if it decodes. */
-function masked(text: string, raw: string): string {
-	let decoded = raw;
-	try {
-		decoded = decodeURIComponent(raw);
-	} catch {
-		// Not percent-encoding: the raw form is what would be repeated.
-	}
-	let out = text;
-	for (const password of [raw, decoded]) {
-		if (password !== '') out = out.replaceAll(password, '…');
-	}
-	return out;
 }
 
 /**
