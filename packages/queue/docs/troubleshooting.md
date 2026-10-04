@@ -757,8 +757,9 @@ your own keeps it.
 **When:** the store held the item but gave no message for it, and the
 failures were recorded: the `error` event says
 [`The message of … is unreadable`](#queueerror-the-message-of--is-unreadable-the-store-holds-the-item-but-not-its-message-so-every-pending-recipient-failed)
-for the same item, just before these `failed` events. An item cancelled,
-or whose lease was lost, before the record tells no `5.3.0` failure.
+for the same item, just before these `failed` events. An item cancelled
+before the record tells no `5.3.0` failure; with the lease lost, this
+attempt tells none and the next worker tells them.
 **Why:** no session can send a message that cannot be read, and an
 attempt left without an outcome would be claimed again at every lease,
 forever, keeping its `maxItems` place. Recipients already delivered keep
