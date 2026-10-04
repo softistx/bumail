@@ -1199,16 +1199,15 @@ disagree by more than that. The server makes the folder again, with its
 `owner` file, at its next heartbeat or its next message, whichever comes
 first, and goes on taking mail; it logs this once each time.
 
-No message is lost to it. A message already spooled is read back
-through the file the server holds open, so its checks and its delivery
-go on as if the folder were there. A message not yet written finds the
-folder missing, and its write makes the folder again and is tried once
-more.
+No message is lost to it. A message already spooled, or being written,
+is read back through the file the server holds open, so its checks and
+its delivery go on as if the folder were there. A message not yet begun
+finds the folder missing, and its write makes the folder again and is
+tried once more.
 
-**Fix**:
-
-If it recurs, keep the clocks within a minute of each other with NTP,
-and do not pause a server for minutes while others share its `data`.
+**Fix**: if it recurs, keep the clocks within a minute of each other
+with NTP, and do not pause a server for minutes while others share its
+`data`.
 
 ### `550 5.1.1 User unknown`
 
@@ -1295,9 +1294,11 @@ line break (`550 5.6.11`); a lost connection gets no reply at all.
 ### `451 4.3.0 Local error in processing`
 
 What a sending server is told when the store or the directory failed
-during its session, or a check ran past the 60 seconds the SMTP server
-gives it. It tries again later. The log has the reason, as
-[`mx: error in a session from …`](#mx-error-in-a-session-from--).
+during its session, the message's spooled file could not be read back
+while it was delivered (a failure of this server's disk), or a check ran
+past the 60 seconds the SMTP server gives it. It tries again later. The
+log has the reason, as [`mx: error in a session from
+…`](#mx-error-in-a-session-from--).
 
 ### `421 4.3.2 … Too many connections, try later`
 
@@ -1317,12 +1318,14 @@ is never logged. See
 
 ### `mx: error in a session from …: …`
 
-In the log: the store or the directory failed during a session, or a
-message's checks and delivery ran past the 60 seconds the SMTP server
-gives its `onData` hook; the reason has any store password masked. The
-SMTP client got `451 4.3.0` and will try again; an IMAP client got
-`NO [UNAVAILABLE]`, or `NO [SERVERBUG]` for a failure the IMAP server
-did not expect. Check the store (`store.url`), the disk and the DNS.
+In the log: the store or the directory failed during a session, a
+message's spooled file could not be read back while it was delivered (an
+I/O error of the disk under `<data>/spool`), or a message's checks and
+delivery ran past the 60 seconds the SMTP server gives its `onData`
+hook; the reason has any store password masked. The SMTP client got `451
+4.3.0` and will try again; an IMAP client got `NO [UNAVAILABLE]`, or `NO
+[SERVERBUG]` for a failure the IMAP server did not expect. Check the
+store (`store.url`), the disk and the DNS.
 
 ### `bumail: the mail store did not close cleanly: …`
 

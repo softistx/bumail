@@ -105,10 +105,10 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Shipped
 
-### Merged, not yet published
+### Published
 
-- **`@bumail/acme`, the client**, for acme 0.2.0 — on the primitives
-  published below: the directory, nonces (with the `badNonce` retry), the
+- **`@bumail/acme`, the client**, in acme 0.2.0 — on the primitives
+  below: the directory, nonces (with the `badNonce` retry), the
   account, an order, HTTP-01 challenges answered on port 80 through
   `http01Responder`, finalize and the certificate chain, or all of it in
   one call, `obtainCertificate`; `https:` only, answers bounded in size,
@@ -116,9 +116,6 @@ No dates. Each entry says what someone running or embedding the server gets.
   test CA, which validates HTTP-01 for real. The server app will obtain
   and renew its certificates through it. DNS-01, and with it wildcard
   names, later.
-
-### Published
-
 - **`@bumail/acme`, the primitives of an ACME client**, in acme 0.1.0 —
   a certificate signing request (PKCS #10) for DNS names, signed with
   ECDSA P-256 or RSA through Web Crypto on a DER writer of its own; the
