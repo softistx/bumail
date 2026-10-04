@@ -24,7 +24,9 @@ workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
 `scripts/publish.ts` and `verify:artifacts`. A check added there is a check
 to port here.
 
-The repository is **private** until the owner says otherwise.
+The repository is **public**, on GitHub as `softistx/bumail`: what is
+committed — code, docs, issues and pull requests — anyone can read, so
+none of it names a private application.
 
 ## Principles
 
@@ -180,9 +182,9 @@ reads `$NPM_TOKEN`, which must be an npm **granular** access token: npm no
 longer accepts a classic token for publishing, and says "two-factor
 authentication is required".
 
-Every package is **public on npm** — the repository's privacy is a separate
-matter — and MIT, with its own copy of `LICENSE`. A package that embeds
-a file under another license declares `MIT AND <SPDX id>` and ships that
+Every package is **public on npm**, as the repository is, and MIT, with
+its own copy of `LICENSE`. A package that embeds a file under another
+license declares `MIT AND <SPDX id>` and ships that
 license's text as `LICENSE-<id>`, which `verify:artifacts` checks:
 `@bumail/auth` is `MIT AND MPL-2.0`, for its Public Suffix List. Its manifest sets
 `publishConfig: { "registry": "https://registry.npmjs.org", "access":

@@ -32,7 +32,32 @@ Nothing in progress.
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.3.0
+
+- **`isMailbox(address)`**, from `@bumail/smtp/client` — whether an
+  address is exactly one `sendMail` takes, by the same check, so code that
+  keeps addresses for later (a queue) refuses a bad one when it takes it,
+  rather than at delivery.
+
+### 0.2.1
+
+- **Security: no command injection through an address.** `sendMail`
+  refuses a source route (`@host:`) in `from` and `to`, and any control
+  character, lone surrogate or out-of-range IPv4 literal in an address,
+  before it connects; it used to drop the route unchecked and write the
+  address as given, so a crafted recipient put extra commands on the
+  wire. The server answers a path holding a control character, or a
+  malformed route, with `501 5.5.4`. Upgrade if an address can come from
+  user input.
+- **A hang-up frees its slot within 500 ms**, not 5 seconds, for a client
+  the server had stopped reading because it pipelined more than it could
+  take; a client that went quiet still reads the last reply and a clean
+  end, on Linux too.
+- **IPv6 address literals** written with their `IPv6:` tag, in `helo`,
+  `EHLO` and an address's domain, are taken in any case; one without the
+  tag is refused, as RFC 5321 §4.1.3 asks.
+
+### 0.2.0
 
 - **A client that stops reading no longer holds a connection slot.** When
   the server hangs up on its own — the idle `timeout`, `maxErrors`, failed

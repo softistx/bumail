@@ -16,25 +16,46 @@ No dates. Each entry says what someone running or embedding the server gets.
   modseqs these need.
 - **`@bumail/jmap`, the second slice** — the first slice is published in
   0.1.0 (see Shipped). What remains: queryChanges, push via EventSource,
-  then Identity and EmailSubmission through `@bumail/smtp/client`. It is
-  what bumail's own web client will speak.
-- **`@bumail/queue`, the first slice** — in review. Outbound mail with
-  each recipient's own state (pending, delivered, deferred, failed, with
-  the last reply), delivered one session per domain through the published
-  `@bumail/smtp/client`: by MX, through a smarthost (around a blocked port
-  25) or by a route per domain, within a limit of items at once and of
-  sessions to one domain. A 4xx, a connection error or a timeout is retried
-  with exponential back-off and jitter (RFC 5321 §4.5.4.1: 30 minutes at
-  first, given up after 5 days); a 5xx fails at once. Delivery status
-  notifications (RFC 3464) for a failure and for a delay, never about a
-  bounce. A `QueueStore` contract with a memory and a `bun:sqlite`
-  answer, like the store, built for several workers from the start: a
-  claim leases an item to one worker, and a crashed worker's items are
-  claimed again. PostgreSQL, Redis and MongoDB answers, MTA-STS and DANE
-  come next, in the package's own roadmap.
+  then Identity and EmailSubmission through `@bumail/smtp/client`, and
+  mailbox unread counts that follow RFC 8621 to the letter. It is what
+  bumail's own web client will speak.
 
 ## Next
 
+- **`@bumail/queue`, stores for several instances** — more answers to the
+  `QueueStore` contract, so several server instances share one queue,
+  each held to the same contract specs, none a dependency. PostgreSQL
+  comes first, on Bun's own `Bun.sql`, the claim a `SELECT … FOR UPDATE
+  SKIP LOCKED`; then Redis, on `Bun.redis`; then MongoDB, typed
+  structurally against the collection a MongoDB driver hands it, so the
+  package peers on no driver.
+- **`@bumail/store`, a PostgreSQL adapter** — the store contract on
+  PostgreSQL, for a server that runs as several instances, held to the
+  same contract specs as the memory and `bun:sqlite` stores, with message
+  bytes on the disk or S3. It comes before MongoDB.
+- **The server app** — the packages wired into one process: SMTP on 25
+  (MX), 465 (submission over implicit TLS) and 587 (submission with
+  STARTTLS), IMAP on 993, JMAP over HTTPS on 443, the queue delivering
+  out, and certificates obtained and renewed through ACME. **Never an open
+  relay** — mail for a domain it does not host is taken only from an
+  authenticated session — and **AUTH only after TLS**, for SMTP, IMAP and
+  JMAP alike. An admin API for domains, accounts, aliases and DKIM keys;
+  health and metrics. It consumes alxia's published packages, not a link
+  to its working tree, so bumail's CI never depends on another
+  repository's checkout.
+- **A Docker image, all in one** — the server app in one container: ports
+  25, 465, 587, 993 and 443, and one volume for the mail, the queue and
+  the certificates. Its guide says what sending mail from a container
+  takes: many cloud hosts and home connections block outbound port 25,
+  and receiving servers distrust an address without reverse DNS (a PTR
+  record naming the server, whose name resolves back to it). Where port 25
+  is closed, or no PTR can be set, the queue sends through a smarthost —
+  a relay provider on 587 or 465 — instead.
+- **A web mail client on JMAP** — its own static package, built on our own
+  stack (alxia's typed client and `@nxgt/material`), bundled in the Docker
+  image and served by the server app, and turned off by an environment
+  variable for an operator who does not want it. Any other JMAP or IMAP
+  client keeps working.
 - **`@bumail/auth`, DMARC reports and ARC** — aggregate and failure
   reports to a domain's `rua=` and `ruf=` (RFC 7489 §7), and ARC
   (RFC 8617), so forwarded mail keeps its authentication. DKIM, SPF and
@@ -65,19 +86,10 @@ No dates. Each entry says what someone running or embedding the server gets.
   `Bun.file`, S3 through `@nxgt/s3`, and GridFS through
   `@nxgt/mongo/gridfs`. Each mailbox store keeps its bytes in whichever
   the operator picks.
-- **`@bumail/store-postgres`** — the store contract on PostgreSQL, for a
-  server that runs on several machines: peers on `@nxgt/drizzle` and
-  `drizzle-orm`, with message bytes on S3 or the disk. It runs the same
-  contract specs as the memory store. It comes before MongoDB.
 - **`@bumail/store-mongo`** — the store contract on MongoDB: peers on
   `@nxgt/mongo`, `mongodb` and `zod`, with message bytes on GridFS or S3,
   at the operator's choice. It needs a replica set, since UIDs and modseqs
   are allotted in transactions. The same contract specs again.
-- **The server app** — SMTP on 25 and submission on 587, the queue, and
-  the store served over IMAP and JMAP, wired together; an admin API for
-  domains, accounts, aliases and DKIM keys; health and metrics. It consumes
-  alxia's published packages, not a link to its working tree, so bumail's
-  CI never depends on another repository's checkout.
 
 ## Later
 
@@ -88,10 +100,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **Webhooks** on delivery, bounce and inbound mail.
 - **A transport for `@nxgt/mail`**, so an app that sends with it can hand
   mail to a bumail server's queue directly.
-- **Our own mail client** — a web MUA on JMAP, built on our own stack:
-  alxia's typed client and `@nxgt/material` for the interface. It comes
-  once `@bumail/jmap` and the server app exist, and any other JMAP client
-  keeps working.
 
 ## Not planned
 
@@ -105,6 +113,19 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ### Published
 
+- **`@bumail/queue`, the first slice**, in queue 0.1.0 — outbound mail
+  with each recipient's own state (pending, delivered, deferred, failed,
+  with the last reply), delivered one session per domain through
+  `@bumail/smtp/client`: by MX, through a smarthost (around a blocked port
+  25) or by a route per domain, within a limit of items at once and of
+  sessions to one domain. A 4xx, a connection error or a timeout is
+  retried with exponential back-off and jitter (RFC 5321 §4.5.4.1: 30
+  minutes at first, given up after 5 days); a 5xx fails at once. Delivery
+  status notifications (RFC 3464) for a failure and for a delay, never
+  about a bounce. A `QueueStore` contract with a memory and a `bun:sqlite`
+  answer, like the store, built for several workers from the start: a
+  claim leases an item to one worker, and a crashed worker's items are
+  claimed again.
 - **`@bumail/jmap`, the first slice**, in jmap 0.1.0 — mailbox access over
   JMAP (RFC 8620 core, RFC 8621 mail), as an alxia app on `@alxia/core`
   0.2.1 from npm, serving any `@bumail/store`: the session, the API with
@@ -120,35 +141,38 @@ No dates. Each entry says what someone running or embedding the server gets.
   not exactly one mailbox) gets `permerror` with disposition `reject`.
   `formatAuthenticationResults` (RFC 8601) writes the three results as one
   field.
-- **`@bumail/imap`, the first slice**, in imap 0.1.0 — IMAP4rev2
-  (RFC 9051) on `Bun.listen`, serving any `@bumail/store`: STARTTLS and
-  implicit TLS, login only once encrypted, LIST with special-use
-  (RFC 6154), SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE, SEARCH, APPEND and
-  IDLE, with every command and hang-up bounded.
+- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.1.1 now) —
+  IMAP4rev2 (RFC 9051) on `Bun.listen`, serving any `@bumail/store`:
+  STARTTLS and implicit TLS, login only once encrypted, LIST with
+  special-use (RFC 6154), SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE,
+  SEARCH, APPEND and IDLE, with every command and hang-up bounded.
 - **`@bumail/auth`, SPF**, in auth 0.2.0 — `checkSpf`, RFC 7208's
   `check_host()` for the client IP and the MAIL FROM or HELO domain: every
   mechanism, `redirect=`, `exp=`, the macros, the lookup limits and a
   timeout, never a throw for a record.
-- **`@bumail/smtp`, the client**, as `@bumail/smtp/client`, in smtp 0.2.0 —
-  `sendMail` delivers one message to a smarthost, a submission server or a
-  domain's MX hosts (looked up through `@bumail/dns` or any resolver of
-  that shape, with the null MX honoured), and `resolveMx` gives those hosts
-  in order: STARTTLS, opportunistic or required, implicit TLS, AUTH only
-  once the certificate checked out, PIPELINING, SIZE, 8BITMIME and
-  SMTPUTF8, the message streamed and dot-stuffed, a bare line break
-  refused. Every failure says whether it is temporary, for the queue to
-  come; every reply and every wait is bounded against a hostile server.
-  *Kept in the same package as the server, on its own subpath*: both share
-  the grammar.
+- **`@bumail/smtp`, the client**, as `@bumail/smtp/client`, in smtp 0.2.0
+  (0.3.0 now) — `sendMail` delivers one message to a smarthost, a submission
+  server or a domain's MX hosts (looked up through `@bumail/dns` or any
+  resolver of that shape, with the null MX honoured), and `resolveMx` gives
+  those hosts in order: STARTTLS, opportunistic or required, implicit TLS,
+  AUTH only once the certificate checked out, PIPELINING, SIZE, 8BITMIME and
+  SMTPUTF8, the message streamed and dot-stuffed, a bare line break refused.
+  Every failure says whether it is temporary, for the queue; every reply and
+  every wait is bounded against a hostile server. Since 0.2.1 an address
+  with a source route or a control character is refused before it reaches
+  the wire, and 0.3.0 exports `isMailbox`, the same check, for code that
+  keeps addresses for later. *Kept in the same package as the server, on its
+  own subpath*: both share the grammar.
 - **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite`, in store
-  0.2.0 — the same contract on disk, held to the same specs, with message
-  bodies as blobs on disk addressed by their hash. One process per
-  database, and every write flushed to disk before it is acknowledged.
+  0.2.0 (0.3.0 now) — the same contract on disk, held to the same specs,
+  with message bodies as blobs on disk addressed by their hash. One
+  process per database, and every write flushed to disk before it is
+  acknowledged.
 - **`@bumail/auth`, DKIM**, in auth 0.1.0 — signing and verifying
   (RFC 6376): rsa-sha256 and ed25519-sha256 (RFC 8463) through Web Crypto,
   simple and relaxed canonicalisation, a streamed body, key lookups through
   `@bumail/dns`, results in RFC 8601's words.
-- **`@bumail/mime`**, in mime 0.1.0 (0.1.1 now) — read and write e-mail
+- **`@bumail/mime`**, in mime 0.1.0 (0.1.2 now) — read and write e-mail
   messages. RFC 5322 headers, encoded-words (RFC 2047) and parameter
   continuations (RFC 2231), multipart, base64 and quoted-printable, any
   charset `TextDecoder` knows, and a streaming parser that walks a large

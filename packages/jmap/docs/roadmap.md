@@ -17,13 +17,18 @@ The second slice:
   the account's streams at once after a delivery.
 - **`Thread/changes`**, and threads that group replies by `In-Reply-To`
   and `References` as mail is delivered.
+- **Unread counts exactly as RFC 8621 §2 defines them** — a mailbox's
+  `unreadEmails` and `unreadThreads` will count an email as read whenever
+  it has `$seen`, however the store keeps it (the IMAP `\Seen` flag, or a
+  `$Seen` keyword as some clients write it), and will leave out an email
+  that has `$draft`, as the RFC asks.
 
 ## Next
 
 - **`Identity`** (RFC 8621 §6) — the addresses an account sends as.
 - **`EmailSubmission`** (RFC 8621 §7) — sending, through
-  `@bumail/smtp/client` (and the queue once it lands); `maySubmit` turns
-  true.
+  `@bumail/queue`, which retries and bounces, over `@bumail/smtp/client`;
+  `maySubmit` turns true.
 
 ## Later
 
@@ -69,12 +74,12 @@ and bounded. Each comes out once the store contract grows it.
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.1.0
 
-- **The first slice** — a JMAP server on `@alxia/core` 0.2.1, mounted in a host app,
-  serving any `@bumail/store`: the session with every core limit, Basic
-  only over HTTPS and Bearer through an `authenticate` hook, the API with
-  back-references and RFC 7807 problems, `Core/echo`, `Mailbox/get`,
+- **The first slice** — a JMAP server on `@alxia/core` 0.2.1, mounted in a
+  host app, serving any `@bumail/store`: the session with every core limit,
+  Basic only over HTTPS and Bearer through an `authenticate` hook, the API
+  with back-references and RFC 7807 problems, `Core/echo`, `Mailbox/get`,
   `/changes`, `/query` and `/set`, `Email/get` with every header form and
-  body values, `/query`, `/changes`, `/set` and `/import`, `Thread/get`,
-  and blob upload and download with ranges. Every input is bounded.
+  body values, `/query`, `/changes`, `/set` and `/import`, `Thread/get`, and
+  blob upload and download with ranges. Every input is bounded.

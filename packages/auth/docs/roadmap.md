@@ -6,8 +6,7 @@ number on it.
 
 ## Now
 
-- Nothing in progress: DMARC and `Authentication-Results` are merged,
-  waiting for a release.
+- Nothing in progress: the next entry is picked from Next.
 
 ## Next
 
@@ -42,7 +41,7 @@ number on it.
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.3.0
 
 - **DMARC** (RFC 7489): `checkDmarc` finds the From domain's policy at
   `_dmarc.<domain>` or its organizational domain, aligns the DKIM `d=`
