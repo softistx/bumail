@@ -5,7 +5,10 @@
  * Typed by shape rather than as `Bun.RedisClient`, so the declarations a
  * consumer's `tsc` reads from `@bumail/queue/redis` name no global of
  * Bun's: a `Bun.RedisClient` fits `RedisQueueClient` (`open.spec.ts`
- * checks it), and so does any client with these methods.
+ * checks it, though only because method parameters are compared both
+ * ways: Bun declares `args: string[]`; that it writes a `Uint8Array` as
+ * its bytes is what the Redis specs show), and so does any client with
+ * these methods.
  */
 
 /** A Redis client, such as `new Bun.RedisClient(url)`. */

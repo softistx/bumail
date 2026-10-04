@@ -7,15 +7,15 @@ export type Fields = Readonly<Record<string, string>>;
 /** A script's `HGETALL`, `[name, value, …]`, as a map; a map as it is. */
 export function fieldsOf(reply: unknown): Fields | undefined {
 	if (Array.isArray(reply)) {
-		if (reply.length === 0) return undefined;
 		const fields: Record<string, string> = {};
 		for (let i = 0; i + 1 < reply.length; i += 2) {
 			fields[String(reply[i])] = String(reply[i + 1]);
 		}
-		return fields;
+		return fieldsOf(fields);
 	}
 	if (typeof reply !== 'object' || reply === null) return undefined;
-	return Object.keys(reply).length === 0 ? undefined : (reply as Fields);
+	// No id: no item, whatever else a hash left half written holds.
+	return (reply as Fields)['id'] === undefined ? undefined : (reply as Fields);
 }
 
 const field = (fields: Fields, name: string): string => fields[name] ?? '';

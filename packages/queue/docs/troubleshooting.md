@@ -37,7 +37,7 @@ parts shown as … vary.
 - [`SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`](#smtperror-sendmail--invalid_option-with-recipients-deferred-as-435)
 - [`SQLiteError: database is locked`, or another store error, during a delivery](#sqliteerror-database-is-locked-or-another-store-error-during-a-delivery)
 - [`PostgresError: …`, or a connection error, during a delivery](#postgreserror--or-a-connection-error-during-a-delivery)
-- [`RedisError: …` during a delivery: `Connection has failed`, `OOM command not allowed …`, `READONLY …`](#rediserror--during-a-delivery-connection-has-failed-oom-command-not-allowed--readonly-)
+- [`RedisError: …` during a delivery: `Connection closed`, `OOM command not allowed …`, `READONLY …`](#rediserror--during-a-delivery-connection-closed-oom-command-not-allowed--readonly-)
 
 **The `bun:sqlite` store** (`@bumail/queue/sqlite`)
 
@@ -63,6 +63,7 @@ parts shown as … vary.
 - [`QueueError: keyPrefix must be lowercase letters, digits, '_', ':', '.' and '-', starting with a letter, at most 40 characters, not …`](#queueerror-keyprefix-must-be-lowercase-letters-digits------and---starting-with-a-letter-at-most-40-characters-not-)
 - [`QueueError: The URL in url cannot be opened: …`](#queueerror-the-url-in-url-cannot-be-opened-)
 - [`QueueError: The Redis queue cannot be set up: …`](#queueerror-the-redis-queue-cannot-be-set-up-)
+- [`QueueError: The key …schema does not hold a layout version: is the prefix another application's?`](#queueerror-the-key-schema-does-not-hold-a-layout-version-is-the-prefix-another-applications)
 - [`QueueError: The database is at schema version …, newer than this store's …`](#queueerror-the-database-is-at-schema-version--newer-than-this-stores-), and [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed), as for `bun:sqlite`
 
 **Listing** (`list`)
@@ -308,12 +309,16 @@ its lease expires — its recipients may then get the message twice.
 too many connections, give each instance's client a smaller `max` (see
 the guide's Pool size) or raise `max_connections`.
 
-### `RedisError: …` during a delivery: `Connection has failed`, `OOM command not allowed …`, `READONLY …`
+### `RedisError: …` during a delivery: `Connection closed`, `OOM command not allowed …`, `READONLY …`
 
 **When:** the `error` event, with the item's `id`, while it is delivered,
-on `@bumail/queue/redis`.
-**Why:** a lease renewal failed. `Connection has failed` or `Max
-reconnection attempts reached`: Redis restarted or is out of reach, and
+on `@bumail/queue/redis`. A call of yours — `enqueue`, `list`, `get`,
+`retryNow`, `cancel` — rejects with the same `RedisError` for the same
+reasons: an `enqueue` refused with `OOM …` kept nothing.
+**Why:** a lease renewal failed. `Connection closed`: Redis restarted,
+or the connection dropped, while the command was on its way; a command
+sent while the client is reconnecting waits instead. `Max reconnection
+attempts reached` or `Connection has failed`: Redis is out of reach, and
 `Bun.RedisClient` gave up reconnecting (20 tries by default). `OOM
 command not allowed when used memory > 'maxmemory'`: Redis is full and
 refuses writes. `READONLY You can't write against a read only replica`:
@@ -479,6 +484,15 @@ before the call fails.
 commands the store sends and those its scripts call, on the keys under
 its prefix, and nothing else (the guide's [Redis](guide.md#redis) has
 the `ACL SETUSER` line). The next call tries again.
+
+### `QueueError: The key …schema does not hold a layout version: is the prefix another application's?`
+
+**Code:** `INVALID`.
+**When:** the first call on a store whose `<prefix>schema` key holds
+something other than a whole number of at least 1.
+**Why:** the store keeps its layout version there; anything else means
+another application, or a hand, wrote under the same prefix.
+**Fix:** give the queue a `keyPrefix` of its own. Nothing was written.
 
 ## Listing
 

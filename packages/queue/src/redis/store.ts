@@ -19,6 +19,7 @@ import type {
 	QueueListOptions,
 } from '../contract/types';
 import { QueueError } from '../errors';
+import { isStorable } from '../text';
 import { type Connection, connect, type Keys } from './connect';
 import { fieldsOf, isId, itemOf, outcomeOf, time } from './items';
 import type { RedisQueueClient, RedisQueueStoreOptions } from './options';
@@ -171,7 +172,7 @@ export class RedisQueueStore implements QueueStore {
 		const fields = fieldsOf(
 			await this.#run(
 				CLAIM,
-				[k.ready, k.leases],
+				[k.ready, k.leases, k.items],
 				[owner, time(now), time(now + leaseMs)],
 			),
 		);
@@ -222,8 +223,10 @@ export class RedisQueueStore implements QueueStore {
 
 	async reschedule(id: string, at: number, owner?: string): Promise<boolean> {
 		checkTime('at', at);
-		if (!isId(id)) return false;
+		// As PostgreSQL: an id no store could hold is unknown before the owner is checked.
+		if (!isStorable(id)) return false;
 		if (owner !== undefined) checkOwner(owner);
+		if (!isId(id)) return false;
 		const k = this.#keys;
 		const done = await this.#run(
 			RESCHEDULE,

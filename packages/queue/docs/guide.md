@@ -528,7 +528,11 @@ exactly once, against `redis:7`.
 - **Nothing connects at `open`**: a wrong option is refused there, and a
   server out of reach on the first call. With Bun's defaults a client
   reconnects on its own, up to 20 times, and holds the commands sent
-  meanwhile: a restart of Redis makes calls wait rather than fail.
+  while it is disconnected until Redis is back (a `PING` sent during a
+  5-second stop answered once Redis started again). A command already
+  sent when the connection drops, or sent before the client noticed,
+  fails instead (`Connection closed`): a renewal tries again on its own,
+  and a claim or an outcome is told on `error` (see Troubleshooting).
 - One client is one connection, pipelined: every call of one store goes
   through it, so there is no pool to size.
 
@@ -552,7 +556,9 @@ Times are kept as the strings JavaScript writes for them, and read back
 exactly. The prefix is lowercase letters, digits, `_`, `:`, `.` and
 `-`, starting with a letter, 40 characters at most: no `{`, so no
 Cluster hash tag, and no glob character, so `SCAN 0 MATCH <prefix>*`
-finds the queue's keys and nothing else. Give each queue its own
+finds the queue's keys and nothing else. A `<prefix>schema` that holds
+anything but a layout version is refused at the first call: the prefix
+is another application's. Give each queue its own
 prefix to keep several in one Redis database. An id the store did not
 make (`crypto.randomUUID()`'s form) is one no item has: no id a caller
 gives reaches another key.
@@ -608,14 +614,17 @@ instance between its steps.
 - **`maxmemory-policy noeviction`.** Every message lives in memory, whole,
   until its item is done. Under any other policy a full Redis evicts
   queue keys — an item, or its message — to make room; with
-  `noeviction` it refuses the write (`OOM command not allowed`), which
-  `enqueue` reports. Bound the queue with `limits.maxItems` and
+  `noeviction` it refuses the write (`OOM command not allowed`), and
+  `enqueue` rejects with that `RedisError`. An item whose hash is gone
+  all the same (evicted, or deleted by hand) is dropped by the next
+  claim that meets it, its message with it, and never leased. Bound the queue with `limits.maxItems` and
   `limits.maxMessageSize`, and size `maxmemory` for both.
 - **An ACL user** needs the commands the store sends and the ones its
-  scripts call, on its prefix's keys, and nothing else:
+  scripts call, on its prefix's keys (`~<keyPrefix>*`; here the
+  example's `mail:queue:`), and nothing else:
 
   ```
-  ACL SETUSER bumail-worker on >secret resetkeys ~bumail:queue:* -@all +evalsha +eval +get +set +del +incr +hgetall +hget +hset +hdel +hincrby +zadd +zrem +zrange +zrangebyscore +zcard
+  ACL SETUSER bumail-worker on >secret resetkeys ~mail:queue:* -@all +evalsha +eval +get +set +del +incr +hgetall +hget +hset +hdel +hincrby +zadd +zrem +zrange +zrangebyscore +zcard
   ```
 
 ### What `Bun.redis` does with bytes and text

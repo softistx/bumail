@@ -136,5 +136,6 @@ function rescheduling({ create }: StoreFactories): void {
 			store.claim({ owner: 'w', now: Number.NaN, ...lease }),
 			'INVALID',
 		);
+		await rejects(store.reschedule('nope', T0, ''), 'INVALID');
 	});
 }

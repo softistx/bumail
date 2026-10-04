@@ -20,6 +20,20 @@ local function itemKey(member) return prefix .. 'item:' .. string.sub(member, 18
 local function seqOf(member) return tonumber(string.sub(member, 1, 16)) end
 `;
 
+/** For CLAIM: when an item's due time, or false when its hash is gone (evicted, deleted by hand). */
+const NEXT_OF = `
+local function nextOf(member)
+	local found = redis.call('HGET', itemKey(member), 'next')
+	if found then return tonumber(found) end
+	-- A member whose hash is gone is dropped, never leased.
+	redis.call('ZREM', KEYS[1], member)
+	redis.call('ZREM', KEYS[2], member)
+	redis.call('ZREM', KEYS[3], member)
+	redis.call('DEL', prefix .. 'message:' .. string.sub(member, 18))
+	return false
+end
+`;
+
 /** A script, and the SHA-1 `EVALSHA` names it by. */
 export interface Script {
 	readonly source: string;
@@ -65,23 +79,28 @@ return {'ok'}
 `);
 
 /**
- * KEYS ready, leases; ARGV prefix, owner, now, expiry. The earliest due,
- * then the oldest, of the items no lease holds and of those whose lease
- * expired, leased to the owner; its fields, or false. The expired leases
- * are read whole: there are only as many as the leases a crashed or
- * stalled worker left behind.
+ * KEYS ready, leases, items; ARGV prefix, owner, now, expiry. The
+ * earliest due, then the oldest, of the items no lease holds and of those
+ * whose lease expired, leased to the owner; its fields, or false. The
+ * expired leases are read whole: there are as many as the leases a
+ * crashed or stalled worker left behind, and the leased items an admin
+ * moved later, until they are due.
  */
-export const CLAIM = script(`
+export const CLAIM = script(`${NEXT_OF}
 local now = tonumber(ARGV[3])
 local best, bestNext
-local first = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[3], 'LIMIT', 0, 1)[1]
-if first then
-	best = first
-	bestNext = tonumber(redis.call('HGET', itemKey(first), 'next'))
+while best == nil do
+	local first = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[3], 'LIMIT', 0, 1)[1]
+	if not first then break end
+	local nextAt = nextOf(first)
+	if nextAt then
+		best = first
+		bestNext = nextAt
+	end
 end
 for _, member in ipairs(redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', ARGV[3])) do
-	local nextAt = tonumber(redis.call('HGET', itemKey(member), 'next'))
-	if nextAt <= now and (best == nil or nextAt < bestNext
+	local nextAt = nextOf(member)
+	if nextAt and nextAt <= now and (best == nil or nextAt < bestNext
 		or (nextAt == bestNext and seqOf(member) < seqOf(best))) then
 		best = member
 		bestNext = nextAt

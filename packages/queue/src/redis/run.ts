@@ -38,6 +38,12 @@ export async function checkLayout(
 	const found = Number(
 		await run(client, SCHEMA, [keys.schema], [keys.prefix, `${LAYOUT}`]),
 	);
+	if (!Number.isInteger(found) || found < 1) {
+		throw new QueueError(
+			'INVALID',
+			`The key ${keys.schema} does not hold a layout version: is the prefix another application's?`,
+		);
+	}
 	if (found > LAYOUT) {
 		throw new QueueError(
 			'INVALID',
