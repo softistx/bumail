@@ -441,6 +441,6 @@ describePostgres('PostgresMailStore: parity with the memory store', (url) => {
 				await step('end: mailboxes', (s, id) => s.listMailboxes(id(account)));
 				await step('end: changes', (s, id) => s.messageChanges(id(account), 0));
 			}
-		});
+		}, 30_000); // a history takes up to 2.2 s on a loaded database
 	}
 });

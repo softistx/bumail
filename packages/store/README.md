@@ -148,10 +148,10 @@ await store.close(); // closes only a client it opened from a URL
   page's end, and `listAccountMessages` only the page asked for.
 - `tablePrefix` (`bumail_store_` by default) names the tables. It must
   never be the same as a `@bumail/queue/postgres` queue's (by default
-  `bumail_queue_`) or any other package's: a store that finds another's
-  `<prefix>schema` refuses it, `INVALID`. `maxTombstones` works as for
-  the other stores. A login or a mailbox
-  name holding a NUL or a lone surrogate, which PostgreSQL cannot keep
+  `bumail_queue_`) or any other package's: a store about to make its tables refuses,
+  `INVALID`, another's `<prefix>schema` or any of its own table names
+  already there. `maxTombstones` works as for the other stores. A login
+  or a mailbox name holding a NUL or a lone surrogate, which PostgreSQL cannot keep
   as given, is `INVALID`, and so is a login over 1024 bytes of UTF-8.
 
 Tables, roles, migrations, durability and how the instances share the
