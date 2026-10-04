@@ -25,7 +25,8 @@ does, and which package does it.
 All eight are on npm. The server app that wires them together,
 [`@bumail/server`](./packages/server), is in progress and private until
 it serves mail: so far it reads and checks its configuration
-(`bumail check-config`). What comes — the rest of the server app, a blob
+(`bumail check-config`) and manages its domains, users and aliases
+(`bumail domain`, `user` and `alias`). What comes — the rest of the server app, a blob
 store and a Docker image that runs it — in what order and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
 

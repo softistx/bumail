@@ -31,7 +31,9 @@ No dates. Each entry says what someone running or embedding the server gets.
   on another repository's checkout. In progress, and private until it
   serves mail: its configuration — one TOML file, checked whole by
   `bumail check-config`, the environment overriding URLs and secrets
-  only — is merged; the steps that follow are in
+  only — is merged, and so is its directory of domains, users and
+  aliases (argon2id passwords, aliases to local users only), managed by
+  `bumail domain`, `user` and `alias`; the steps that follow are in
   [its roadmap](../packages/server/docs/roadmap.md).
 
 ## Next

@@ -160,6 +160,8 @@ url = "rediss://cache.internal:6380"
   never is.
 - A URL with a password is a secret: keep it out of the file, in
   `BUMAIL_STORE_URL_FILE` or `BUMAIL_QUEUE_URL_FILE`.
+- The directory is one SQLite file, managed by `bumail domain`, `user`
+  and `alias`: [the directory](directory.md) has every command.
 
 ### Credentials in clear, when you choose it
 
