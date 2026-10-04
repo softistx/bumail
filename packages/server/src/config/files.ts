@@ -10,7 +10,8 @@ export const MAX_FILE_SIZE = 1024 * 1024;
  * `cannot be read (<code>)`, `is not a regular file` (a directory, a
  * device, a FIFO that would never end) or `is larger than 1 MiB`. One
  * descriptor is opened, without blocking (a FIFO would wait for a
- * writer), checked with `fstat` and read, at most 1 MiB and a byte, so
+ * writer) and without becoming the process's controlling terminal
+ * (`O_NOCTTY`, should it name one), checked with `fstat` and read, at most 1 MiB and a byte, so
  * the file checked is the file read. A symbolic link is followed, as
  * Kubernetes mounts its secrets.
  */
@@ -21,7 +22,10 @@ export function readText(
 ): string | undefined {
 	let fd: number | undefined;
 	try {
-		fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
+		fd = openSync(
+			file,
+			constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY,
+		);
 		const stat = fstatSync(fd);
 		if (!stat.isFile()) {
 			checker.add(path, 'is not a regular file');
