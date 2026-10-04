@@ -383,8 +383,8 @@ without `CREATE` can use tables that are current, never make them.
 **Fix:** check the URL and that the server answers. For `permission
 denied`, run `migrate()` once with an owner's role — on a new database,
 and after an upgrade that adds a migration — and keep the workers on
-their narrower role (the guide's Migrations); or give the role `CREATE`
-on the schema. The next call tries again: nothing is left half made,
+their narrower role (the guide's [Migrations](guide.md#migrations)); or
+give the role `CREATE` on the schema. The next call tries again: nothing is left half made,
 since a migration is one transaction.
 
 ## Listing
