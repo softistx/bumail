@@ -182,6 +182,7 @@ describe('a spool folder swept while in use', () => {
 		expect(spooled.size).toBe(12);
 		expect(readdirSync(a.dir).sort()).toEqual(['d.eml', OWNER_FILE].sort());
 		expect(lines).toEqual([remade(a.dir)]);
+		await spooled.remove();
 		a.close();
 		b.close();
 	});

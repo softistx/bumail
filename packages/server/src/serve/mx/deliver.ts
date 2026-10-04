@@ -29,7 +29,7 @@ export async function deliver(
 		throw new Error(`the account of ${user} has no INBOX`);
 	}
 	await store.addMessage(account.id, mailbox.id, {
-		content: spooledStream(prefix, spooled.file, spooled.bodyStart),
+		content: spooledStream(prefix, spooled.stream(spooled.bodyStart)),
 	});
 	ctx.onDelivered(account.id);
 }

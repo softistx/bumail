@@ -1,9 +1,15 @@
-import { open, rm } from 'node:fs/promises';
+import { type FileHandle, open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HeaderEndScanner, MAX_HEADER_BYTES } from '../header';
 import { isMissing } from './folders';
+import { handleStream } from './stream';
 
-/** A message on its way in, on disk: removed once it is delivered or refused. */
+/**
+ * A message on its way in, on disk: removed once it is delivered or
+ * refused. Its file stays open until then, and is read back through
+ * that descriptor alone, so a sweep of its folder meanwhile (the file
+ * unlinked) loses none of it.
+ */
 export interface Spooled {
 	readonly file: string;
 	/** Its size, in bytes. */
@@ -12,7 +18,9 @@ export interface Spooled {
 	readonly header: Uint8Array | undefined;
 	/** Where the blank line, then the body, starts; `size` when the message has no blank line. */
 	readonly bodyStart: number;
-	/** Removes the file, and gives its bytes back to the budget. */
+	/** The message's bytes from `start` (default 0) to its end, read through the open file. */
+	stream(start?: number): ReadableStream<Uint8Array>;
+	/** Closes and removes the file, and gives its bytes back to the budget. */
 	remove(): Promise<void>;
 }
 
@@ -40,7 +48,8 @@ function concat(chunks: readonly Uint8Array[], length: number): Uint8Array {
  * byte counted in `budget`. Answers `'full'` when the budget ran out on
  * the way: the rest is read and dropped, the file removed. What the
  * stream throws — the SMTP server's refusal of the message — is thrown,
- * the file removed. When `dir` is missing — swept by another server —
+ * the file removed. The file is kept open, for reading back, until
+ * `remove`. When `dir` is missing — swept by another server —
  * `remake` makes it again and the file is opened once more, before any
  * of `content` is read.
  */
@@ -52,13 +61,13 @@ export async function writeSpooled(
 	remake?: () => void,
 ): Promise<Spooled | 'full'> {
 	const file = join(dir, `${id.replace(/[^A-Za-z0-9_-]/g, '_')}.eml`);
-	let handle: Awaited<ReturnType<typeof open>>;
+	let handle: FileHandle;
 	try {
-		handle = await open(file, 'wx', 0o600);
+		handle = await open(file, 'wx+', 0o600);
 	} catch (error) {
 		if (remake === undefined || !isMissing(error)) throw error;
 		remake();
-		handle = await open(file, 'wx', 0o600);
+		handle = await open(file, 'wx+', 0o600);
 	}
 	let held = 0;
 	const release = () => {
@@ -67,6 +76,7 @@ export async function writeSpooled(
 	};
 	const remove = async () => {
 		release();
+		await handle.close().catch(() => {});
 		await rm(file, { force: true });
 	};
 	const scanner = new HeaderEndScanner();
@@ -91,13 +101,6 @@ export async function writeSpooled(
 			scanner.add(value);
 		}
 	} catch (error) {
-		await handle.close().catch(() => {});
-		await remove();
-		throw error;
-	}
-	try {
-		await handle.close();
-	} catch (error) {
 		await remove();
 		throw error;
 	}
@@ -106,12 +109,13 @@ export async function writeSpooled(
 		return 'full';
 	}
 	const size = scanner.length;
+	const stream = (start = 0) => handleStream(handle, start, size);
 	// No blank line: the whole message is header.
 	const bodyStart = scanner.end === -1 ? size : scanner.end;
 	if (bodyStart > MAX_HEADER_BYTES) {
-		return { file, size, header: undefined, bodyStart: 0, remove };
+		return { file, size, header: undefined, bodyStart: 0, stream, remove };
 	}
 	const kept = head.reduce((sum, chunk) => sum + chunk.length, 0);
 	const header = concat(head, kept).subarray(0, bodyStart);
-	return { file, size, header, bodyStart, remove };
+	return { file, size, header, bodyStart, stream, remove };
 }
