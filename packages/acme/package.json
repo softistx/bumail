@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/acme",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "The primitives of an ACME client (RFC 8555) on Web Crypto: a CSR for DNS names, flattened JWS with ES256 and RS256, the JWK thumbprint, key authorizations and HTTP-01 paths, and PKCS #8 keys",
 	"license": "MIT",
 	"type": "module",
