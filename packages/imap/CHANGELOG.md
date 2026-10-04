@@ -1,5 +1,11 @@
 # @bumail/imap
 
+## 0.2.0
+
+### Minor Changes
+
+- [#65](https://github.com/softistx/bumail/pull/65) [`62f9b19`](https://github.com/softistx/bumail/commit/62f9b19bad0d8f1897f91369a59cd2b07ad30825) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The implicit TLS handshake is bounded. On an `implicitTls` port a socket is now counted by `maxConnections` from the TCP connection on, not from the end of its handshake, and closed without a word past the new `handshakeTimeout` (default 10 seconds) when its handshake has not completed: before, a socket that never sent its ClientHello was counted by no limit and closed by no timer. The greeting, and the `BYE` of a full server, wait for the handshake, and `loginTimeout` starts with the greeting. `stop(true)` resets a socket still in its handshake.
+
 ## 0.1.2
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @bumail/queue
 
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [[`8fa1c97`](https://github.com/softistx/bumail/commit/8fa1c97b592e206262fe2b74cd656147ffb00acf), [`6823153`](https://github.com/softistx/bumail/commit/682315306cf363f8b42b4260a9c3d3431fac02df)]:
+  - @bumail/smtp@0.4.0
+
 ## 0.4.0
 
 ### Minor Changes

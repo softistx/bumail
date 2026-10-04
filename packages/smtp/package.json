@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/smtp",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"description": "An SMTP server on Bun.listen — RFC 5321 with PIPELINING, SIZE, 8BITMIME, SMTPUTF8, STARTTLS and AUTH after TLS, policy hooks, and no open relay — and a client that delivers a message to a smarthost or by MX",
 	"license": "MIT",
 	"type": "module",

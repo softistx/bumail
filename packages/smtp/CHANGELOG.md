@@ -1,5 +1,15 @@
 # @bumail/smtp
 
+## 0.4.0
+
+### Minor Changes
+
+- [#63](https://github.com/softistx/bumail/pull/63) [`6823153`](https://github.com/softistx/bumail/commit/682315306cf363f8b42b4260a9c3d3431fac02df) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A connection limit per client, and `RCPT TO:<postmaster>`. `maxConnectionsPerClient` (default 10) bounds the connections one client holds at once, so one host cannot take every slot of `maxConnections`: a client is an IPv4 address, or an IPv6 address by its /64, and an IPv4-mapped or NAT64 address counts as the IPv4 address inside it. One more is answered `421 4.7.0 <hostname> Too many connections from your address, try later` and closed, before `onConnect`; every close frees its slot — QUIT, a hang-up, an error, the idle timeout, a refusal, `stop(true)`, after STARTTLS too. `clientKey(address)` is exported, to group clients the same way in `onConnect`; an IPv6 key is always four groups with the zeros written out (`2001:db8::1` is `2001:db8:0:0::/64`). On implicit TLS, a socket is now counted by both limits from the TCP connection on, not from the end of its handshake, and closed past the new `handshakeTimeout` (default 10 seconds) when its handshake has not completed: before, a socket that never sent its ClientHello was counted by no limit and closed by no timer. A refusal by a limit, `onConnect` and the greeting wait for the handshake. An error or a close Bun reports on a socket whose `open` never ran no longer throws. `RCPT TO:<postmaster>`, with no domain and in any case (RFC 5321 §4.1.1.3, §4.5.1), is now taken as this server's postmaster without AUTH and without asking `localDomains`: `onRcptTo` gets a `Path` with `postmaster: true`, `address` and `local` `'postmaster'` and `domain` `''`, and `envelope.to` lists it as `'postmaster'`, so an `onData` that splits recipients on `@` should route that one first. `<postmaster@domain>` is unchanged, an ordinary path.
+
+### Patch Changes
+
+- [#65](https://github.com/softistx/bumail/pull/65) [`8fa1c97`](https://github.com/softistx/bumail/commit/8fa1c97b592e206262fe2b74cd656147ffb00acf) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The listener's `open`, `handshake` and `close` handlers move out of `createSmtpServer` into a function of their own. Nothing a consumer sees changes. `stop(true)` resets a socket still in its implicit TLS handshake instead of closing its connection, which had no TLS to write a 421 on; Bun's own `stop(true)` already closed such a socket, so nothing a consumer sees changes there either.
+
 ## 0.3.0
 
 ### Minor Changes
