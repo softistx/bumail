@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/imap",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "An IMAP4rev2 server on Bun.listen (RFC 9051): STARTTLS, LOGIN and AUTHENTICATE PLAIN only once encrypted, IDLE, MOVE, SPECIAL-USE, serving any @bumail/store",
 	"license": "MIT",
 	"type": "module",

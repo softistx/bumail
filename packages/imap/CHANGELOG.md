@@ -1,5 +1,12 @@
 # @bumail/imap
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [[`4c22182`](https://github.com/softistx/bumail/commit/4c22182470c9fd13d1f78a5a3d14785667745c52)]:
+  - @bumail/store@0.4.0
+
 ## 0.1.1
 
 ### Patch Changes
