@@ -1,6 +1,7 @@
 import { open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { HeaderEndScanner, MAX_HEADER_BYTES } from '../header';
+import { isMissing } from './folders';
 
 /** A message on its way in, on disk: removed once it is delivered or refused. */
 export interface Spooled {
@@ -39,16 +40,26 @@ function concat(chunks: readonly Uint8Array[], length: number): Uint8Array {
  * byte counted in `budget`. Answers `'full'` when the budget ran out on
  * the way: the rest is read and dropped, the file removed. What the
  * stream throws — the SMTP server's refusal of the message — is thrown,
- * the file removed.
+ * the file removed. When `dir` is missing — swept by another server —
+ * `remake` makes it again and the file is opened once more, before any
+ * of `content` is read.
  */
 export async function writeSpooled(
 	dir: string,
 	id: string,
 	content: ReadableStream<Uint8Array>,
 	budget: Budget,
+	remake?: () => void,
 ): Promise<Spooled | 'full'> {
 	const file = join(dir, `${id.replace(/[^A-Za-z0-9_-]/g, '_')}.eml`);
-	const handle = await open(file, 'wx', 0o600);
+	let handle: Awaited<ReturnType<typeof open>>;
+	try {
+		handle = await open(file, 'wx', 0o600);
+	} catch (error) {
+		if (remake === undefined || !isMissing(error)) throw error;
+		remake();
+		handle = await open(file, 'wx', 0o600);
+	}
 	let held = 0;
 	const release = () => {
 		budget.add(-held);

@@ -139,3 +139,50 @@ describe('Spool.write', () => {
 		spool.close();
 	});
 });
+
+describe('a spool folder swept while in use', () => {
+	const remade = (dir: string) =>
+		`bumail: the spool folder ${dir} was removed while in use; made it again`;
+
+	test('is made again by the next heartbeat, logged once, and takes the next message', async () => {
+		const data = tempDir();
+		const lines: string[] = [];
+		const a = Spool.open(data, 1000, {
+			heartbeatMs: 20,
+			log: (line) => lines.push(line),
+		});
+		// B judges ages as if A had stalled past STALE_MS, and sweeps it.
+		const b = Spool.open(data, 1000, { now: Date.now() + STALE });
+		expect(entries(data)).toEqual([nameOf(b)]);
+		await Bun.sleep(100);
+		expect(entries(data)).toEqual([nameOf(a), nameOf(b)].sort());
+		expect(readFileSync(join(a.dir, OWNER_FILE), 'utf8')).toBe(
+			`${process.pid} ${hostname()}\n`,
+		);
+		const spooled = await a.write('c', stream('A: 1\r\n\r\n', 'body'));
+		if (spooled === 'full') throw new Error('full');
+		expect(readFileSync(spooled.file, 'utf8')).toBe('A: 1\r\n\r\nbody');
+		expect(lines).toEqual([remade(a.dir)]);
+		await spooled.remove();
+		a.close();
+		b.close();
+	});
+
+	test('is made again by a write before any heartbeat, which then succeeds', async () => {
+		const data = tempDir();
+		const lines: string[] = [];
+		const a = Spool.open(data, 1000, {
+			heartbeatMs: 60_000,
+			log: (line) => lines.push(line),
+		});
+		const b = Spool.open(data, 1000, { now: Date.now() + STALE });
+		expect(entries(data)).toEqual([nameOf(b)]);
+		const spooled = await a.write('d', stream('A: 1\r\n\r\n', 'body'));
+		if (spooled === 'full') throw new Error('full');
+		expect(spooled.size).toBe(12);
+		expect(readdirSync(a.dir).sort()).toEqual(['d.eml', OWNER_FILE].sort());
+		expect(lines).toEqual([remade(a.dir)]);
+		a.close();
+		b.close();
+	});
+});

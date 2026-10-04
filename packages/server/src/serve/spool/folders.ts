@@ -95,30 +95,48 @@ export function sweep(root: string, now: number): KeptFolder[] {
 /**
  * Makes the folder `name` under `root` with its owner file, whole under
  * a `.tmp` name first and then renamed: a folder is never seen without
- * its owner.
+ * its owner. A `.tmp` left by an earlier attempt is replaced.
  */
 export function makeFolder(root: string, name: string, owner: string): string {
 	const making = join(root, `${name}.tmp`);
 	const dir = join(root, name);
+	rmSync(making, { recursive: true, force: true });
 	mkdirSync(making, { mode: 0o700 });
 	writeFileSync(join(making, OWNER_FILE), owner, { mode: 0o600 });
 	renameSync(making, dir);
 	return dir;
 }
 
+/** Whether `error` says a file or folder is missing. */
+export function isMissing(error: unknown): boolean {
+	return codeOf(error) === 'ENOENT';
+}
+
 /**
  * Touches `dir`'s owner file every `ms`, so no other server sweeps the
- * folder; the timer never keeps the process alive. A touch that fails is
- * tried again at the next beat. Answers the stop.
+ * folder; the timer never keeps the process alive. When the owner file
+ * is missing — the folder swept by another server after this one
+ * stalled past `STALE_MS` — `remake` is called, to make the folder
+ * again. A touch, or a remake, that fails is tried again at the next
+ * beat. Answers the stop.
  */
-export function heartbeat(dir: string, ms: number): () => void {
+export function heartbeat(
+	dir: string,
+	ms: number,
+	remake: () => void,
+): () => void {
 	const owner = join(dir, OWNER_FILE);
 	const timer = setInterval(() => {
 		try {
 			const now = new Date();
 			utimesSync(owner, now, now);
-		} catch {
-			// Tried again at the next beat; STALE_MS is ten of them.
+		} catch (error) {
+			if (!isMissing(error)) return;
+			try {
+				remake();
+			} catch {
+				// Tried again at the next beat.
+			}
 		}
 	}, ms);
 	timer.unref();
