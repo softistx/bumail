@@ -425,11 +425,12 @@ password crosses the network in clear, over SMTP, IMAP or JMAP.
 [`@bumail/server`](../packages/server), built on alxia, whose
 `@alxia/core` is on npm. Private until it serves mail, it has so far
 its configuration, one TOML file which `bumail check-config` checks
-whole, and its directory of domains, users and aliases, which `bumail
-domain`, `bumail user` and `bumail alias` manage. Then **a Docker image, all in one**: the
-server app with ports 25, 465, 587, 993, 443 and 80, and one volume for
-the mail, the queue and the certificates. It holds the server only; any
-JMAP or IMAP client connects to it.
+whole, and its directory of domains, users and aliases, which
+`bumail domain`, `bumail user` and `bumail alias` manage. Then **a
+Docker image, all in one**: the server app with ports 25, 465, 587,
+993, 443 and 80, and one volume for the mail, the queue and the
+certificates. It holds the server only; any JMAP or IMAP client
+connects to it.
 
 **Sending from a container.** Many cloud hosts and home connections block
 outbound port 25, and receiving servers distrust an address without
