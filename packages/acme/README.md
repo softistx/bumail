@@ -93,7 +93,7 @@ POST-as-GET. Nonces are kept from each answer and fetched with a HEAD
 (`newNonce()`) only when none is left, and a `badNonce` refusal is
 retried with the nonce it carries, 3 times at most. The waits poll as the
 CA's `Retry-After` says, clamped from `pollIntervalMs` (1 s) to a minute,
-within `timeoutMs` (2 minutes). Every method takes `{ signal }`.
+within `timeoutMs` (2 minutes). Every method that sends a request takes `{ signal }`; `keyAuthorization()` and `accountThumbprint()` send none.
 
 What the client checks of the CA: every URL must be `https:` (only
 `allowInsecure: true` takes `http:`, for a test CA), a redirect is

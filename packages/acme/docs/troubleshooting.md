@@ -448,7 +448,7 @@ const client = new AcmeClient({
 
 ### `AcmeError: …: … must be an https: URL without credentials or a fragment (http: only with allowInsecure), not …`
 
-**When**: a URL you gave is not an absolute `https:` URL, or holds white space, credentials or a fragment: `directoryUrl` or `kid` of `new AcmeClient`, the `url` of `authorization()`, `challenge()`, `order()`, `waitForAuthorization()` or `certificate()`, or `order.url` and `order.finalize` of `finalize()`.
+**When**: a URL you gave is not an absolute `https:` URL, is longer than 2048 characters, or holds white space, credentials or a fragment: `directoryUrl` or `kid` of `new AcmeClient`, the `url` of `authorization()`, `challenge()`, `order()`, `waitForAuthorization()`, `waitForOrder()` or `certificate()`, or `order.url` and `order.finalize` of `finalize()`.
 
 **Why**: ACME runs over HTTPS only (RFC 8555 §6.1); the account key signs every request, and the CA's answers decide what you install.
 
@@ -585,9 +585,9 @@ Bun.serve({ port: 80, fetch: http01.fetch });
 
 ### `AcmeError: … must be a CryptoKeyPair ({ publicKey, privateKey })`
 
-**When**: `keyPair` of `createCsr` or `signJws` is missing or not an object.
+**When**: `keyPair` of `createCsr` or `signJws`, or `accountKey` of `new AcmeClient`, is missing or not an object.
 
-**Why**: both functions need the private key to sign and the public key to put in the request.
+**Why**: each needs the private key to sign and the public key to put in the request.
 
 **Fix**: pass what `generateKeyPair` or `importKeyPairPem` returns.
 
@@ -854,7 +854,7 @@ try {
 
 ### `AcmeError: …: the CA's … must be an https: URL without credentials or a fragment, not …`
 
-**When**: a URL the CA gave — in the directory, an order, an authorization, a challenge, or a `Location` header — is not `https:`, or holds credentials or a fragment. The second `…` names the member: `directory "newNonce"`, `order "finalize"`, `account URL (Location)`.
+**When**: a URL the CA gave — in the directory, an order, an authorization, a challenge, or a `Location` header — is not `https:`, is longer than 2048 characters, or holds white space, credentials or a fragment. The second `…` names the member: `directory "newNonce"`, `order "finalize"`, `account URL (Location)`.
 
 **Why**: the client sends signed requests to those URLs, so it follows none that is not HTTPS.
 
