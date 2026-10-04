@@ -77,3 +77,26 @@ export async function checkLayout(
 	);
 	checkVersion(written?.['version'], names);
 }
+
+/** The `_id` of the counter that orders items equally due, in the schema collection. */
+const SEQ_ID = 'seq';
+
+/** The next sequence number: the order of an item among those equally due. */
+export async function nextSeq(
+	{ schema }: Collections,
+	names: Names,
+): Promise<number> {
+	const doc = await schema.findOneAndUpdate(
+		{ _id: SEQ_ID },
+		{ $inc: { n: 1 } },
+		{ upsert: true, returnDocument: 'after' },
+	);
+	const n = doc?.['n'];
+	if (typeof n !== 'number' || !Number.isSafeInteger(n)) {
+		throw new QueueError(
+			'INVALID',
+			`The collection ${names.schema} holds a sequence that is not a number`,
+		);
+	}
+	return n;
+}

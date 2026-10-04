@@ -184,32 +184,103 @@ describeMongo('MongoQueueStore when something went wrong', (url) => {
 		expect(await share(other).get(item.id)).toEqual(done);
 	});
 
-	test('an add whose item cannot be written takes its message back', async () => {
-		const other = create();
-		await other.count();
+	/** A store on the collections of `other` whose items collection answers `insertOne` and `findOne` as `override` says. */
+	function wrapped(
+		other: MongoQueueStore,
+		override: (c: MongoQueueCollection) => Partial<MongoQueueCollection>,
+	) {
 		const real = db();
-		const failing: MongoQueueDb = {
+		const shaped: MongoQueueDb = {
 			collection(name, options) {
 				const c = real.collection(
 					name,
 					options,
 				) as unknown as MongoQueueCollection;
 				if (!name.endsWith('items')) return c;
-				return Object.assign(Object.create(c), {
-					insertOne: () => Promise.reject(new Error('connection reset')),
-				}) as MongoQueueCollection;
+				return Object.assign(Object.create(c), override(c));
 			},
 		};
-		const store = MongoQueueStore.open({
-			db: failing,
+		return MongoQueueStore.open({
+			db: shaped,
 			collectionPrefix: prefixFor(other),
 		});
+	}
+
+	test('an add whose item was written but whose answer was lost keeps its message, and resolves', async () => {
+		const other = create();
+		await other.count();
+		const store = wrapped(other, (c) => ({
+			async insertOne(doc) {
+				await c.insertOne(doc);
+				throw new Error('connection reset after commit');
+			},
+		}));
 		const big = new Uint8Array(9 * 1024 * 1024).fill(1);
-		await expect(store.add(entry({ message: big }))).rejects.toThrow(
-			'connection reset',
+		const item = await store.add(entry({ message: big }));
+		expect(await other.get(item.id)).toEqual(item);
+		expect(await other.readMessage(item.id)).toEqual(big);
+	});
+
+	test('an add whose item the server refused takes its message back; one whose fate is unknown leaves it dangling', async () => {
+		const other = create();
+		await other.count();
+		const refused = wrapped(other, () => ({
+			insertOne: () =>
+				Promise.reject(
+					Object.assign(new Error('document failed validation'), {
+						name: 'MongoServerError',
+						code: 121,
+					}),
+				),
+		}));
+		await expect(refused.add(entry())).rejects.toThrow(
+			'document failed validation',
 		);
-		expect(await other.count()).toBe(0);
 		expect(await collection(other, 'messages').countDocuments({})).toBe(0);
+		const unknown = wrapped(other, () => ({
+			insertOne: () => Promise.reject(new Error('connection reset')),
+		}));
+		await expect(unknown.add(entry())).rejects.toThrow('connection reset');
+		expect(await other.count()).toBe(0);
+		// Never read, as no item names them: the guide says how to clear them.
+		expect(await collection(other, 'messages').countDocuments({})).toBe(1);
+		const applied = wrapped(other, () => ({
+			insertOne: () =>
+				Promise.reject(
+					Object.assign(new Error('waiting for replication timed out'), {
+						name: 'MongoWriteConcernError',
+						code: 64,
+					}),
+				),
+		}));
+		await expect(applied.add(entry())).rejects.toThrow('timed out');
+		expect(await collection(other, 'messages').countDocuments({})).toBe(2);
+	});
+
+	test('complete gives up after 8 reads when every one is outrun, and records nothing', async () => {
+		const other = create();
+		const item = await other.add(entry());
+		await other.claim({ owner: 'w', now: T0, ...lease });
+		let reads = 0;
+		const store = wrapped(other, (c) => ({
+			async findOne(filter, options) {
+				const doc = await c.findOne(filter, options);
+				if (options === undefined && doc) {
+					reads++;
+					// Another outcome recorded by the same owner after each read.
+					await collection(other, 'items').updateOne(
+						{ _id: item.id as never },
+						{ $inc: { rev: 1 } },
+					);
+				}
+				return doc;
+			},
+		}));
+		expect(await store.complete(item.id, 'w', delivered)).toBeUndefined();
+		expect(reads).toBe(8);
+		const kept = await other.get(item.id);
+		expect(kept?.attempts).toBe(0);
+		expect(kept?.lease?.owner).toBe('w');
 	});
 
 	test('a lease another instance took since the read is not recorded over', async () => {

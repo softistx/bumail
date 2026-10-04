@@ -697,15 +697,15 @@ exactly once, against `mongo:7`.
 - **`db`** is a database of a client of yours — `client.db('mail')` of
   the `mongodb` driver — which you configure, connect (or let the driver
   connect at the first operation) and close. The store never closes it,
-  and has no `url` option: with no driver of its own, it has nothing to
-  open one with.
+  and takes no `url` — it refuses one, never repeating it: with no driver
+  of its own, it has nothing to open a client with.
 - It is typed by its shape, `MongoQueueDb`: `collection(name, options)`,
   returning a `MongoQueueCollection` with the nine methods the store
   calls — `findOne`, `find` (whose cursor it only reads whole with
   `toArray`), `insertOne`, `insertMany`, `findOneAndUpdate`,
   `findOneAndDelete`, `deleteMany`, `countDocuments` and `createIndex`.
-  A `Db` of the `mongodb` driver 6 or 7 fits it, which a spec checks
-  against 7; 5 does not, since its `findOneAndUpdate` resolves with a
+  A `Db` of the `mongodb` driver 6 or later fits it — a spec checks 7,
+  and 6.21 was checked by hand; 5 does not, since its `findOneAndUpdate` resolves with a
   `ModifyResult` rather than the document, and its types say so.
 - **The store sets how its collections are read and written**, through
   the options it gives `collection()`, whatever your client was opened
@@ -725,8 +725,8 @@ exactly once, against `mongo:7`.
 
 Three collections, each named by `collectionPrefix` (`bumail_queue_` by
 default) — lowercase letters, digits and underscores, starting with a
-letter or an underscore, 40 characters at most, so nothing MongoDB reads
-in a name (`$`, `.`, `system.`) — in the database you give:
+letter or an underscore, 40 characters at most, so it holds nothing
+MongoDB reads in a name (`$`, `.`, `system.`) — in the database you give:
 
 | collection | what it holds |
 | --- | --- |
@@ -866,11 +866,17 @@ primary:
   a `list`, a message;
 - **a write in flight when the primary fails** — sent, its answer lost —
   is retried once on the new primary by the driver's retryable writes
-  (on by default; keep them on), which never applies it twice. If that
-  fails too, the caller gets the error, not knowing whether it applied:
-  - an `enqueue` that rejects may have been kept (the item there), or
-    left only its message's chunks (see below): enqueued again, it may
-    be sent twice;
+  (on by default; keep them on), which never applies it twice. Retryable
+  writes need a replica set: on a standalone server a dropped connection
+  is not retried. Either way, a write whose answer never came reaches
+  the caller as an error, not knowing whether it applied:
+  - an add whose item insert failed so looks for the item: there, the
+    insert applied and the add resolves, its message whole; not there,
+    the add rejects and the message's chunks are left (see below), since
+    the insert may still apply — enqueued again, the message may then be
+    sent twice. Only an insert the server refused for certain (the queue
+    full, a validation error) takes its chunks back. So an item is never
+    left without its message by a failed add;
   - a claim whose answer was lost leaves the item leased to an owner
     that does not know it: claimed again once the lease expires — a
     delay, nothing lost;

@@ -28,34 +28,14 @@ import {
 	type Names,
 	reasonOf,
 } from './connect';
-import { chunksOf, isId, itemOf, messageOf, recipientsDoc } from './documents';
-import { checkLayout } from './layout';
-import type {
-	MongoQueueCollection,
-	MongoQueueDocument,
-	MongoQueueStoreOptions,
-} from './options';
+import { chunksOf, isId, itemOf, recipientsDoc } from './documents';
+import { checkLayout, nextSeq } from './layout';
+import { dropMessage, readChunks, settleFailedAdd } from './messages';
+import type { MongoQueueDocument, MongoQueueStoreOptions } from './options';
 import { full, insertPlaced } from './places';
-
-export type {
-	MongoQueueCollection,
-	MongoQueueCollectionOptions,
-	MongoQueueCursor,
-	MongoQueueDb,
-	MongoQueueDocument,
-	MongoQueueStoreOptions,
-} from './options';
-
-/** The `_id` of the counter that orders items equally due, in the schema collection. */
-const SEQ_ID = 'seq';
 
 /** How often `complete` reads an item, another outcome recorded since each read. */
 const MAX_READS = 8;
-
-/** The chunks of an item's message: their `_id`s are `<id>:<n>`, and `;` follows `:`. */
-const chunksFilter = (id: string) => ({
-	_id: { $gte: `${id}:`, $lt: `${id};` },
-});
 
 const closed = () => new QueueError('CLOSED', 'The queue store is closed');
 
@@ -117,31 +97,6 @@ export class MongoQueueStore implements QueueStore {
 		return this.#c;
 	}
 
-	async #nextSeq(): Promise<number> {
-		const doc = await this.#c.schema.findOneAndUpdate(
-			{ _id: SEQ_ID },
-			{ $inc: { n: 1 } },
-			{ upsert: true, returnDocument: 'after' },
-		);
-		const n = doc?.['n'];
-		if (typeof n !== 'number' || !Number.isSafeInteger(n)) {
-			throw new QueueError(
-				'INVALID',
-				`The collection ${this.#names.schema} holds a sequence that is not a number`,
-			);
-		}
-		return n;
-	}
-
-	/** Drops a message's chunks once its item is gone; what a failure leaves is never read. */
-	async #dropMessage(messages: MongoQueueCollection, id: string) {
-		try {
-			await messages.deleteMany(chunksFilter(id));
-		} catch {
-			// Dangling: no item names them, so no read returns them (see the guide).
-		}
-	}
-
 	async add(item: NewQueueItem, options: AddOptions = {}): Promise<QueueItem> {
 		checkNewItem(item);
 		const max = checkMaxItems(options.maxItems);
@@ -155,7 +110,7 @@ export class MongoQueueStore implements QueueStore {
 		const chunks = chunksOf(added.id, item.message);
 		const doc = {
 			_id: added.id,
-			seq: await this.#nextSeq(),
+			seq: await nextSeq(this.#c, this.#names),
 			from: added.from,
 			recipients: recipientsDoc(added.recipients),
 			size: added.size,
@@ -167,15 +122,19 @@ export class MongoQueueStore implements QueueStore {
 			chunks: chunks.length,
 		};
 		// The message first: the item's insert is what makes it visible.
-		try {
-			if (chunks.length > 0) {
+		if (chunks.length > 0) {
+			try {
 				await c.messages.insertMany(chunks, { ordered: true });
+			} catch (error) {
+				await dropMessage(c.messages, added.id); // no item names them yet
+				throw error;
 			}
+		}
+		try {
 			if (max === undefined) await c.items.insertOne(doc);
-			else await insertPlaced(c, doc, max, () => this.#nextSeq());
+			else await insertPlaced(c, doc, max, () => nextSeq(this.#c, this.#names));
 		} catch (error) {
-			await this.#dropMessage(c.messages, added.id);
-			throw error;
+			if (!(await settleFailedAdd(c, added.id, error))) throw error;
 		}
 		return added;
 	}
@@ -203,18 +162,7 @@ export class MongoQueueStore implements QueueStore {
 
 	async readMessage(id: string): Promise<Uint8Array | undefined> {
 		if (!isId(id)) return undefined;
-		const { items, messages } = await this.#collections();
-		const doc = await items.findOne(
-			{ _id: id },
-			{ projection: { size: 1, chunks: 1 } },
-		);
-		if (!doc) return undefined;
-		const chunks = await messages.find(chunksFilter(id)).toArray();
-		if (chunks.length !== doc['chunks'] || typeof doc['size'] !== 'number') {
-			return undefined;
-		}
-		chunks.sort((a, b) => Number(a['n']) - Number(b['n']));
-		return messageOf(chunks, doc['size']);
+		return readChunks(await this.#collections(), id);
 	}
 
 	async claim(request: ClaimRequest): Promise<QueueItem | undefined> {
@@ -263,7 +211,7 @@ export class MongoQueueStore implements QueueStore {
 			const held = { _id: id, owner, rev };
 			if (isDone(item)) {
 				if (await items.findOneAndDelete(held)) {
-					await this.#dropMessage(messages, id);
+					await dropMessage(messages, id);
 					return item;
 				}
 				continue;
@@ -314,7 +262,7 @@ export class MongoQueueStore implements QueueStore {
 		const { items, messages } = await this.#collections();
 		const doc = await items.findOneAndDelete({ _id: id });
 		if (!doc) return undefined;
-		await this.#dropMessage(messages, id);
+		await dropMessage(messages, id);
 		return itemOf(doc);
 	}
 }

@@ -72,6 +72,7 @@ parts shown as … vary.
 **The MongoDB store** (`@bumail/queue/mongo`)
 
 - [`QueueError: A MongoDB queue store needs db: a Db of the mongodb driver, or an object of its shape`](#queueerror-a-mongodb-queue-store-needs-db-a-db-of-the-mongodb-driver-or-an-object-of-its-shape)
+- [`QueueError: A MongoDB queue store takes db, not url: give it client.db() of a MongoClient of yours`](#queueerror-a-mongodb-queue-store-takes-db-not-url-give-it-clientdb-of-a-mongoclient-of-yours)
 - [`QueueError: collectionPrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`](#queueerror-collectionprefix-must-be-lowercase-letters-digits-and-underscores-starting-with-a-letter-or-an-underscore-at-most-40-characters-not-)
 - [`QueueError: db cannot give the queue's collections: …`](#queueerror-db-cannot-give-the-queues-collections-)
 - [`QueueError: The MongoDB queue cannot be set up: …`](#queueerror-the-mongodb-queue-cannot-be-set-up-)
@@ -131,6 +132,11 @@ defers everything, a route that fails, no worker running.
 **Fix:** answer the submitter with a temporary failure (a 452 in SMTP),
 look at `queue.list()` and the `deferred` events, and check a worker
 called `start()`.
+**On MongoDB:** an add that lost its place to other adds 32 times in a
+row is refused so too, with a count that may be below the limit; and an
+instance given a lower `limits.maxItems` than the others refuses adds
+they would take. Give every instance the same `limits.maxItems` (the
+guide's [`limits.maxItems`](guide.md#limitsmaxitems)).
 
 ### `QueueError: … must be an address, local@domain, not "…"`
 
@@ -603,11 +609,22 @@ on no driver — so it takes a database from a client of yours.
 **Fix:**
 
 ```ts
+import { MongoQueueStore } from '@bumail/queue/mongo';
 import { MongoClient } from 'mongodb';
 
 const client = new MongoClient('mongodb://bumail:secret@db.internal:27017/?replicaSet=rs0');
 MongoQueueStore.open({ db: client.db('mail') });
 ```
+
+### `QueueError: A MongoDB queue store takes db, not url: give it client.db() of a MongoClient of yours`
+
+**Code:** `INVALID`.
+**When:** `MongoQueueStore.open` given `url`, alone or beside `db`, as
+the Redis and PostgreSQL stores take one. The URL is never repeated.
+**Why:** the package has no MongoDB driver to open a client with: the
+application opens it, and gives the store its database.
+**Fix:** `MongoQueueStore.open({ db: new MongoClient(url).db('mail') })`,
+and close that client yourself.
 
 ### `QueueError: collectionPrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`
 

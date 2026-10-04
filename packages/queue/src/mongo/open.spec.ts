@@ -59,6 +59,17 @@ describe('MongoQueueStore.open', () => {
 		}
 	});
 
+	test('refuses a url, beside db or alone, never repeating it', () => {
+		const url = 'mongodb://root:secret@localhost/q';
+		for (const options of [{ url }, { db: failing('unused', ''), url }]) {
+			const open = () => MongoQueueStore.open(options as never);
+			expect(open).toThrow(
+				'A MongoDB queue store takes db, not url: give it client.db() of a MongoClient of yours',
+			);
+			expect(open).not.toThrow('secret');
+		}
+	});
+
 	test('refuses a collection prefix that is not a plain name', () => {
 		const db = failing('unused', '');
 		for (const collectionPrefix of [

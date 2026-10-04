@@ -105,6 +105,12 @@ export const reasonOf = (error: unknown, secret: string): string =>
 /** Checks the options and names the collections; connects to nothing. */
 export function connect(options: MongoQueueStoreOptions): Connection {
 	if (typeof options !== 'object' || options === null) throw invalid(NEEDS);
+	if ((options as { url?: unknown }).url !== undefined) {
+		// Never repeated: it may hold a password.
+		throw invalid(
+			'A MongoDB queue store takes db, not url: give it client.db() of a MongoClient of yours',
+		);
+	}
 	const names = namesOf(options.collectionPrefix);
 	const { db } = options;
 	if (!isDb(db)) throw invalid(NEEDS);
