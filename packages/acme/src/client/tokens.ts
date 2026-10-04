@@ -45,7 +45,8 @@ export class Http01Tokens {
 	/**
 	 * Removes every token, all at once within one grace (`REMOVE_GRACE_MS`): each
 	 * `remove` waits for its `set` to settle first, then runs; a `set` still
-	 * pending at the end of the grace gets its `remove` then, unwaited. The
+	 * pending at the end of the grace gets its `remove` then, unwaited, and
+	 * again once it lands. The
 	 * first failure, if any: a hook that threw, or one that did not settle
 	 * in time.
 	 */
@@ -59,8 +60,9 @@ export class Http01Tokens {
 						grace,
 					);
 				} catch (error) {
-					// still asked, at once and unwaited: it may land before the set does
+					// asked at once, unwaited, and again once the set lands, if it does
 					void (async () => this.#hooks.remove(token))().catch(() => {});
+					void setting.then(() => this.#hooks.remove(token)).catch(() => {});
 					throw new AcmeError(
 						'TIMEOUT',
 						`obtainCertificate(): http01.set(${shown(token)}) did not settle within ${this.#graceMs} ms, so its token may stay served`,

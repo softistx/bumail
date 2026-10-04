@@ -102,4 +102,25 @@ describe('Http01Tokens', () => {
 	test(`the default grace is ${REMOVE_GRACE_MS} ms`, () => {
 		expect(REMOVE_GRACE_MS).toBe(10_000);
 	});
+
+	test('a set that lands after the grace is removed once it lands', async () => {
+		const served = new Set<string>();
+		const tokens = new Http01Tokens(
+			{
+				async set(token) {
+					await Bun.sleep(80);
+					served.add(token);
+				},
+				remove(token) {
+					served.delete(token);
+				},
+			},
+			30,
+		);
+		await tokens.set('a', '', AbortSignal.abort()).catch(() => {});
+		const error = (await tokens.removeAll())?.error as AcmeError;
+		expect(error.code).toBe('TIMEOUT');
+		await Bun.sleep(100);
+		expect(served.size).toBe(0);
+	});
 });

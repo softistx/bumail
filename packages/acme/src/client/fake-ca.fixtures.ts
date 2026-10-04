@@ -71,6 +71,8 @@ export class FakeCa {
 	issueNames: string[] | undefined;
 	/** A key the leaf holds instead of the CSR's, as SPKI DER, for the same. */
 	issueSpki: Uint8Array | undefined;
+	/** The end of the leaf's validity, for a spec of an expired certificate. */
+	issueNotAfter: Date | undefined;
 	#nonce = 0;
 
 	readonly fetch: AcmeFetch = async (input, init) => {
@@ -239,6 +241,9 @@ export class FakeCa {
 					subject: ca.names[0] ?? 'leaf',
 					issuer: 'Fake CA',
 					signer: keyPair.privateKey,
+					...(ca.issueNotAfter === undefined
+						? {}
+						: { notAfter: ca.issueNotAfter }),
 				});
 				ca.chain = `${leaf}${pem}`;
 				ca.orderStatus = 'valid';

@@ -73,7 +73,8 @@ function certificatesOf(
 
 /**
  * Refuses, with `BAD_RESPONSE`, a chain whose leaf is not for `publicKey`,
- * or does not name exactly `names` as its DNS names, and nothing else.
+ * has expired, or does not name exactly `names` as its DNS names, and
+ * nothing else.
  */
 export async function checkLeaf(
 	chain: string,
@@ -93,6 +94,12 @@ export async function checkLeaf(
 	);
 	if (Buffer.compare(expected, actual) !== 0) {
 		throw bad(where, "the CA's certificate is not for certificateKey");
+	}
+	if (new Date(leaf.validTo).getTime() <= Date.now()) {
+		throw bad(
+			where,
+			`the CA's certificate expired already, on ${shown(leaf.validTo)}`,
+		);
 	}
 	const sans = (leaf.subjectAltName ?? '')
 		.split(', ')

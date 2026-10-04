@@ -59,26 +59,29 @@ export interface IssueOptions {
 	issuer: string;
 	/** The issuer's private key, ECDSA P-256 or RSA. */
 	signer: CryptoKey;
+	/** The end of its validity; a day from now by default. */
+	notAfter?: Date;
 }
 
-/** A certificate valid from an hour ago for a day: the subject's key and names, signed by the issuer. */
+/** A certificate valid from an hour ago to `notAfter` (a day by default): the subject's key and names, signed by the issuer. */
 export async function issueCertificate(options: IssueOptions): Promise<string> {
 	const { spki, names, subject, issuer, signer } = options;
+	const now = Date.now();
+	const notAfter = options.notAfter ?? new Date(now + 86_400_000);
 	const ec = signer.algorithm.name === 'ECDSA';
 	const algorithm = ec
 		? sequence(oid(OID.ecdsaWithSha256))
 		: sequence(oid(OID.sha256WithRsaEncryption), nullValue());
 	const dn = (cn: string) =>
 		sequence(set(sequence(oid(OID.commonName), utf8String(cn))));
-	const now = Date.now();
 	const tbs = sequence(
 		explicit(0, integer(2)),
 		integer(crypto.getRandomValues(new Uint8Array(16))),
 		algorithm,
 		dn(issuer),
 		sequence(
-			utcTime(new Date(now - 3_600_000)),
-			utcTime(new Date(now + 86_400_000)),
+			utcTime(new Date(Math.min(now, notAfter.getTime()) - 3_600_000)),
+			utcTime(notAfter),
 		),
 		dn(subject),
 		spki,

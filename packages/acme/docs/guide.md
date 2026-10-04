@@ -418,7 +418,8 @@ What it does, in order:
    account's;
 2. `newOrder` for the names, refusing an order for other names, or with
    more authorizations than names, before anything is set;
-3. for each authorization: one already `valid` (the CA reuses recent
+3. for each authorization — refused when it is for a name not asked
+   for — one already `valid` (the CA reuses recent
    ones) is skipped; for a `pending` one, the `http-01` challenge's key
    authorization is `set`, then the challenge is answered;
 4. waits for every authorization to be `valid`;
@@ -426,14 +427,16 @@ What it does, in order:
    failed validation, on a `set` that threw or hung, on an abort or a
    timeout. Each `remove` waits for its `set` to settle first, so a `set`
    that lands late cannot serve its token again; the removes run all at
-   once, within one 10-second grace. A `remove` that throws does not stop
-   the others; its error is thrown only when nothing else failed;
+   once, within one 10-second grace, and a `set` still pending then is
+   removed once it lands. A `remove` that throws does not stop the
+   others; its error is thrown when nothing else failed, and is the
+   `cause` of the error thrown otherwise;
 6. waits for the order to be `ready` — one already `valid`, before any
    CSR was sent, is refused — finalizes it with the CSR, waits for it to
    be `valid`;
 7. downloads the chain, and checks it: each block an X.509 certificate,
-   each issued by the next, and the leaf for `certificateKey` and exactly
-   the names asked for. Anything else is `BAD_RESPONSE`, and nothing is
+   each issued by the next, and the leaf for `certificateKey`, not
+   expired, and for exactly the names asked. Anything else is `BAD_RESPONSE`, and nothing is
    returned.
 
 It returns `{ certificate, order, csr }`. Its `timeoutMs` (5 minutes by
@@ -578,7 +581,8 @@ What the CA sends is read as untrusted:
   `obtainCertificate` a `timeoutMs`, and every call a `signal`. They
   bound your hooks too: a `set` that never settles is no longer waited
   for at the time limit or the abort, and the cleanup, which runs even
-  then, has 10 seconds in all — each `remove` after its `set` settled.
+  then, has 10 seconds in all — each `remove` after its `set` settled,
+  and a token whose `set` lands later removed once it lands.
 - **The account key stays private.** The client keeps it in a private
   field: `inspect` shows `AcmeClient {}`, `JSON.stringify` shows `{}`, and
   no message holds it. Only its public half leaves, in `newAccount`'s
@@ -695,8 +699,9 @@ not write it:
 - `obtainCertificate` against the same fake, which issues a real chain
   for the CSR's key: every token removed after a failed validation, a
   `set` that threw, an abort and a timeout — a `set` landing after them
-  included — and an order for other names, an order valid before
-  finalize, and a leaf for another key or other names refused;
+  included, and a cleanup failure kept as the `cause` — and an order or
+  an authorization for other names, an order valid before finalize, and
+  a leaf for another key, for other names or expired refused;
 - the whole flow against Pebble, Let's Encrypt's test server, validating
   HTTP-01 for real, for P-256 and RSA keys: each issued chain read back
   with `node:crypto`'s `X509Certificate` — the names, the certificate's

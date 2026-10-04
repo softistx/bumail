@@ -114,8 +114,10 @@ changes nothing; the others are about the CA's answer, or the way to it.
 - [`AcmeError: obtainCertificate(): the CA's order is "valid" but has no "certificate"`](#acmeerror-obtaincertificate-the-cas-order-is-valid-but-has-no-certificate)
 - [`AcmeError: obtainCertificate(): the CA's order is for "…", not the names requested`](#acmeerror-obtaincertificate-the-cas-order-is-for--not-the-names-requested)
 - [`AcmeError: obtainCertificate(): the CA's order lists … authorizations for … names`](#acmeerror-obtaincertificate-the-cas-order-lists--authorizations-for--names)
+- [`AcmeError: obtainCertificate(): the CA's authorization is for "…", not one of the names requested`](#acmeerror-obtaincertificate-the-cas-authorization-is-for--not-one-of-the-names-requested)
 - [`AcmeError: obtainCertificate(): the CA's order is "valid" before it was finalized`](#acmeerror-obtaincertificate-the-cas-order-is-valid-before-it-was-finalized)
 - [`AcmeError: obtainCertificate(): the CA's certificate is not for certificateKey`](#acmeerror-obtaincertificate-the-cas-certificate-is-not-for-certificatekey)
+- [`AcmeError: obtainCertificate(): the CA's certificate expired already, on "…"`](#acmeerror-obtaincertificate-the-cas-certificate-expired-already-on-)
 - [`AcmeError: obtainCertificate(): the CA's certificate names "…", not the names requested`](#acmeerror-obtaincertificate-the-cas-certificate-names--not-the-names-requested)
 
 **NETWORK_ERROR**
@@ -946,7 +948,7 @@ try {
 
 **Why**: RFC 8555 §7.4 has the CA echo the identifiers asked for; validating and finalizing an order for other names would serve tokens for names you did not ask for, or end in a certificate that does not cover yours.
 
-**Fix**: report it to the CA, with the order's URL (`error.cause` is unset; log the names you passed).
+**Fix**: report it to the CA, with the names you passed and the names in the message.
 
 ### `AcmeError: obtainCertificate(): the CA's order lists … authorizations for … names`
 
@@ -955,6 +957,14 @@ try {
 **Why**: a CA gives one authorization per identifier, at most; more would make `obtainCertificate` set tokens for names you did not ask for.
 
 **Fix**: report it to the CA.
+
+### `AcmeError: obtainCertificate(): the CA's authorization is for "…", not one of the names requested`
+
+**When**: an authorization of the order is for a name you did not pass (case does not matter), or is not a DNS identifier. Its token was not set.
+
+**Why**: serving a key authorization proves control of a name to the CA; `obtainCertificate` serves tokens only for the names you asked for.
+
+**Fix**: report it to the CA, with the names you passed and the name in the message.
 
 ### `AcmeError: obtainCertificate(): the CA's order is "valid" before it was finalized`
 
@@ -971,6 +981,14 @@ try {
 **Why**: a certificate for another key cannot be served with yours: the TLS handshake would fail, or worse, the CA issued someone else's certificate.
 
 **Fix**: do not install it; report it to the CA. The order is `valid`, so `result` is not returned; download it with `client.certificate()` only to send it with the report.
+
+### `AcmeError: obtainCertificate(): the CA's certificate expired already, on "…"`
+
+**When**: the leaf's `notAfter` is in the past: the certificate the CA handed back is no longer valid. The message quotes it, as `node:crypto` prints it (`Jan  1 00:00:00 2020 GMT`).
+
+**Why**: an expired certificate fails every TLS handshake; installing it would take the listener down. Only the expiry is checked: a `notBefore` slightly ahead of your clock is normal and is not refused.
+
+**Fix**: check this machine's clock first; if it is right, report it to the CA.
 
 ### `AcmeError: obtainCertificate(): the CA's certificate names "…", not the names requested`
 
@@ -1029,7 +1047,7 @@ const client = new AcmeClient({
 
 ### `AcmeError: obtainCertificate(): no certificate within … ms`
 
-**When**: the whole flow took longer than its `timeoutMs` (5 minutes by default). The step it was in is `error.cause`. Every token set was removed.
+**When**: the whole flow took longer than its `timeoutMs` (5 minutes by default). The step it was in is `error.cause` — unless removing the tokens failed: then `error.cause` is that failure (`http01.set(…) did not settle…`, `http01.remove(…) did not settle…`, or what `remove` threw). Every token set was removed, or its `remove` called.
 
 **Why**: the CA was slow to validate or to issue, or could not reach port 80.
 
@@ -1037,15 +1055,28 @@ const client = new AcmeClient({
 
 ### `AcmeError: obtainCertificate(): http01.set(…) did not settle within 10000 ms, so its token may stay served`
 
-**When**: a `set` hook was still running when the flow ended — it hung past `timeoutMs` or the signal — and did not settle within the 10 seconds the cleanup allows. Its `remove` was still called, at once, unwaited; this error is thrown when nothing else failed.
+**Where**: never thrown on its own. It is the `cause` of the error `obtainCertificate` throws — `obtainCertificate(): no certificate within … ms` or `obtainCertificate(): aborted`, whose code and message are kept — so look for it in `error.cause`:
 
-**Why**: a token is removed only once its `set` settled, so that a `set` landing late cannot serve the token again after its `remove`. A `set` that never settles leaves that order unknown: the token may be served after all.
+```ts
+try {
+	await obtainCertificate({ client, names, certificateKey, http01 });
+} catch (error) {
+	if (error instanceof AcmeError && error.cause instanceof AcmeError) {
+		console.error('cleanup:', error.cause.message);
+	}
+	throw error;
+}
+```
 
-**Fix**: make `set` settle, with a time limit of its own on whatever it writes to; then check the responder for the token and remove it by hand.
+**When**: the flow had already failed — `timeoutMs` passed or the signal fired — while a `set` hook was still pending, and that `set` did not settle within the 10 seconds the cleanup allows.
+
+**Why**: a token is removed only once its `set` settled, so that a `set` landing late cannot serve the token again after its `remove`. When it does not settle in time, its `remove` is called at once, unwaited, and again once the `set` lands; if the `set` never lands, nothing tells whether the token is served.
+
+**Fix**: make `set` settle, with a time limit of its own on whatever it writes to. A token left served is harmless, but stale: check the responder and remove it by hand if the `set` never landed.
 
 ### `AcmeError: obtainCertificate(): http01.remove(…) did not settle within 10000 ms`
 
-**When**: a `remove` hook neither returned nor threw within 10 seconds. Every other token was still removed; this error is thrown when nothing else failed, and the order is left `ready` (its authorizations stay valid for a while, so a new attempt reuses them).
+**When**: a `remove` hook neither returned nor threw within 10 seconds. Every other token was still removed. This error is thrown when nothing else failed, the order left `ready` (its authorizations stay valid for a while, so a new attempt reuses them). When the flow failed too, the flow's error is thrown and this one is its `error.cause` (unless that error had a cause of its own, as a network failure does).
 
 **Why**: `remove` runs even after the flow's time is up or its signal fired, so the cleanup has a bound of its own: every token is removed at once, each `remove` after its `set` settled, all within one 10-second grace, and a hook that hangs cannot hold `obtainCertificate`.
 
@@ -1055,7 +1086,7 @@ const client = new AcmeClient({
 
 ### `AcmeError: …: aborted`
 
-**When**: the `signal` you gave fired with another reason than a timeout; that reason is `error.cause`. `obtainCertificate` removed every token it set first.
+**When**: the `signal` you gave fired with another reason than a timeout; that reason is `error.cause`. `obtainCertificate` removed every token it set first; when that failed, `error.cause` is the cleanup's failure instead, and the reason is still `signal.reason`.
 
 **Why**: you asked it to stop.
 

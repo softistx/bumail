@@ -426,7 +426,57 @@ describe('obtainCertificate: hooks that hang, and answers that do not match', ()
 			}),
 		);
 		expect(error.code).toBe('AUTHORIZATION_FAILED');
+		expect(error.message).toStartWith(
+			'waitForAuthorization(): the authorization for "a.example" is "invalid"',
+		);
+		expect(error.cause).toEqual(new Error('could not remove'));
 		expect(calls).toEqual(['set token0http01', 'remove token0http01']);
+	});
+
+	test('a timeout keeps its code and message, the cleanup failure as its cause', async () => {
+		const { client } = await setUp();
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: {
+					set: () => Bun.sleep(100),
+					remove() {
+						throw new Error('could not remove');
+					},
+				},
+				timeoutMs: 50,
+			}),
+		);
+		expect(error.code).toBe('TIMEOUT');
+		expect(error.message).toBe(
+			'obtainCertificate(): no certificate within 50 ms',
+		);
+		expect(error.cause).toEqual(new Error('could not remove'));
+	});
+
+	test('an abort keeps its code and message, the cleanup failure as its cause', async () => {
+		const { client } = await setUp();
+		const controller = new AbortController();
+		setTimeout(() => controller.abort(), 30);
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: {
+					set: () => Bun.sleep(100),
+					remove() {
+						throw new Error('could not remove');
+					},
+				},
+				signal: controller.signal,
+			}),
+		);
+		expect(error.code).toBe('ABORTED');
+		expect(error.message).toBe('obtainCertificate(): aborted');
+		expect(error.cause).toEqual(new Error('could not remove'));
 	});
 
 	test('a valid order without a certificate URL is BAD_RESPONSE', async () => {
@@ -596,6 +646,46 @@ describe('obtainCertificate: hooks that hang, and answers that do not match', ()
 			Buffer.from(
 				await crypto.subtle.exportKey('spki', certificateKey.publicKey),
 			),
+		);
+	});
+
+	test('an authorization for a name not requested is BAD_RESPONSE, nothing set', async () => {
+		const { ca, client } = await setUp();
+		ca.routes.set('POST /authz/0', (_, fake) => {
+			const authorization = fake.authorization(0);
+			authorization['identifier'] = { type: 'dns', value: 'evil.example' };
+			return fake.json(authorization);
+		});
+		const { hooks, calls } = loggingHooks();
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: hooks,
+			}),
+		);
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			`obtainCertificate(): the CA's authorization is for "evil.example", not one of the names requested`,
+		);
+		expect(calls).toEqual([]);
+	});
+
+	test('an expired certificate is BAD_RESPONSE', async () => {
+		const { ca, client } = await setUp();
+		ca.issueNotAfter = new Date(Date.now() - 60_000);
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: loggingHooks().hooks,
+			}),
+		);
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toStartWith(
+			"obtainCertificate(): the CA's certificate expired already, on ",
 		);
 	});
 });

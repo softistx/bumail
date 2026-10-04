@@ -101,17 +101,45 @@ export async function obtainCertificate(
 	const signal = caller ? AbortSignal.any([caller, deadline]) : deadline;
 	try {
 		return await run(client, csr, certificateKey, http01, signal, timeoutMs);
-	} catch (error) {
-		if (caller?.aborted) throw abortedError(where, caller);
+	} catch (thrown) {
+		const { error, cleanup } =
+			thrown instanceof Uncleaned
+				? thrown
+				: { error: thrown, cleanup: undefined };
+		if (caller?.aborted) {
+			throw withCleanup(abortedError(where, caller), cleanup);
+		}
 		if (deadline.aborted) {
 			throw new AcmeError(
 				'TIMEOUT',
 				`${where}: no certificate within ${timeoutMs} ms`,
-				{ cause: error },
+				{ cause: cleanup ?? error },
 			);
+		}
+		if (cleanup !== undefined && error instanceof AcmeError) {
+			throw error.cause === undefined ? withCleanup(error, cleanup) : error;
 		}
 		throw error;
 	}
+}
+
+/** The flow's failure, and the cleanup's after it: the first is thrown, the second its `cause`. */
+class Uncleaned {
+	constructor(
+		readonly error: unknown,
+		readonly cleanup: unknown,
+	) {}
+}
+
+/** `error` again, its code, message and problem kept, with `cleanup` as its `cause`. */
+function withCleanup(error: AcmeError, cleanup: unknown): AcmeError {
+	if (cleanup === undefined) return error;
+	return new AcmeError(error.code, error.message, {
+		cause: cleanup,
+		...(error.problem === undefined ? {} : { problem: error.problem }),
+		...(error.status === undefined ? {} : { status: error.status }),
+		...(error.retryAfter === undefined ? {} : { retryAfter: error.retryAfter }),
+	});
 }
 
 async function run(
@@ -132,12 +160,16 @@ async function run(
 	const tokens = new Http01Tokens(http01);
 	let failure: { error: unknown } | undefined;
 	try {
-		await validate(client, order, tokens, signal, timeoutMs);
+		await validate(client, order, csr.names, tokens, signal, timeoutMs);
 	} catch (error) {
 		failure = { error };
 	}
 	const removed = await tokens.removeAll();
-	if (failure !== undefined) throw failure.error;
+	if (failure !== undefined) {
+		throw removed === undefined
+			? failure.error
+			: new Uncleaned(failure.error, removed.error);
+	}
 	if (removed !== undefined) throw removed.error;
 	order = await client.waitForOrder(order, wait);
 	if (order.status === 'valid') {
@@ -166,16 +198,27 @@ async function run(
 async function validate(
 	client: AcmeClient,
 	order: AcmeOrder,
+	names: readonly string[],
 	tokens: Http01Tokens,
 	signal: AbortSignal,
 	timeoutMs: number,
 ): Promise<void> {
 	const where = 'obtainCertificate()';
+	const requested = new Set(names.map((name) => name.toLowerCase()));
 	const pending: string[] = [];
 	for (const url of order.authorizations) {
 		const authorization = await client.authorization(url, { signal });
-		if (authorization.status === 'valid') continue;
 		const name = shown(authorization.identifier.value);
+		if (
+			authorization.identifier.type !== 'dns' ||
+			!requested.has(authorization.identifier.value.toLowerCase())
+		) {
+			throw new AcmeError(
+				'BAD_RESPONSE',
+				`${where}: the CA's authorization is for ${name}, not one of the names requested`,
+			);
+		}
+		if (authorization.status === 'valid') continue;
 		if (authorization.status !== 'pending') {
 			throw new AcmeError(
 				'AUTHORIZATION_FAILED',
