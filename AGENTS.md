@@ -42,7 +42,8 @@ none of it names a private application.
   caret range from the registry — never a `link:` or a workspace path to
   alxia's checkout — and lists the same range as a devDependency. Bun's and the
   web platform's own APIs — `Bun.listen`, `socket.upgradeTLS`, `bun:sqlite`,
-  `Bun.file`, Web Crypto, `TextDecoder`, `node:dns` — are not dependencies.
+  `Bun.file`, `Bun.sql`, `Bun.redis`, Web Crypto, `TextDecoder`, `node:dns`
+  — are not dependencies.
   `verify:artifacts` fails a manifest with a `dependencies` field that lists
   anything.
 - **Data a package needs is a snapshot it embeds**, never fetched at
