@@ -76,11 +76,13 @@ export function handlers(settings: Settings): SocketHandler<SocketState> {
 /**
  * The listener's own handlers: `open` counts a socket and greets it or turns
  * it away, `handshake` lets implicit TLS start once encrypted, `close`
- * frees the slot.
+ * frees the slot. `handshaking` holds the sockets still in their
+ * handshake, for `stop(true)`.
  */
 function listenerHandlers(
 	settings: Settings,
 	slots: Slots<Connection>,
+	handshaking: Set<Socket<SocketState>>,
 	secure: boolean,
 ): Pick<SocketHandler<SocketState>, 'open' | 'handshake' | 'close'> {
 	return {
@@ -93,8 +95,9 @@ function listenerHandlers(
 			socket.data = { upgraded: false, handshaking: secure };
 			socket.timeout(secure ? settings.handshakeTimeout : settings.timeout);
 			const begin = (start: () => void) => {
-				if (secure) socket.data.start = start;
-				else start();
+				if (!secure) return start();
+				handshaking.add(socket);
+				socket.data.start = start;
 			};
 			if (slots.size >= settings.maxConnections) {
 				return begin(() =>
@@ -126,6 +129,7 @@ function listenerHandlers(
 		handshake(socket, success) {
 			const state = socket.data;
 			if (!state?.handshaking) return;
+			handshaking.delete(socket);
 			// A failed handshake: Bun closes the socket, and `close` counts it out.
 			if (!success) return;
 			state.handshaking = false;
@@ -135,6 +139,7 @@ function listenerHandlers(
 			start?.();
 		},
 		close(socket) {
+			handshaking.delete(socket);
 			const connection = socket.data?.connection;
 			if (connection) slots.release(connection);
 			socket.data?.transport?.closed();
@@ -213,6 +218,8 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 	const settings = settingsOf(options);
 	let listener: TCPSocketListener<SocketState> | undefined;
 	const slots = new Slots<Connection>();
+	/** Implicit TLS sockets still in their handshake, for `stop(true)`. */
+	const handshaking = new Set<Socket<SocketState>>();
 	const secure = options.implicitTls === true;
 	return {
 		get connections() {
@@ -233,7 +240,7 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 					: {}),
 				socket: {
 					...handlers(settings),
-					...listenerHandlers(settings, slots, secure),
+					...listenerHandlers(settings, slots, handshaking, secure),
 				},
 			});
 			return { port: listener.port, hostname: listener.hostname };
@@ -244,8 +251,17 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 			if (!closeConnections) return;
 			// Bun's `stop(true)` closes the sockets the listener holds, and a
 			// socket STARTTLS moved to TLS is no longer one of them: hang up on
-			// every connection here, as a timeout does.
-			for (const connection of slots.connections()) connection.close();
+			// every connection here, as a timeout does. A socket still in its
+			// handshake has no TLS to say 421 on: it is reset.
+			const stuck = new Set<Connection | undefined>();
+			for (const socket of [...handshaking]) {
+				stuck.add(socket.data?.connection);
+				handshaking.delete(socket);
+				socket.terminate();
+			}
+			for (const connection of slots.connections()) {
+				if (!stuck.has(connection)) connection.close();
+			}
 		},
 	};
 }
