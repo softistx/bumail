@@ -71,6 +71,30 @@ describe('fromAddresses: an @ hidden from the check is refused', () => {
 			'a split in a later run',
 			`=?UTF-8?Q?Alice?= =?UTF-8?Q?ceo=4?==?UTF-8?Q?0bank?= ${ME}`,
 		],
+		// B text that is not strict base64.
+		['B, padding in the middle', `=?UTF-8?B?Yw==Y2VvQA==?= ${ME}`],
+		['B, base64url -', `=?UTF-8?B?Y2Vv-QA==?= ${ME}`],
+		['B, base64url _', `=?UTF-8?B?Y2Vv_QA==?= ${ME}`],
+		['B, a group cut short', `=?UTF-8?B?Y2VvQ?= ${ME}`],
+		// Q text with an = not followed by two hex digits.
+		['Q, a lone =', `=?UTF-8?Q?ceo=?= ${ME}`],
+		['Q, = and one hex digit', `=?UTF-8?Q?ceo=4?= ${ME}`],
+		// Two charsets cannot assemble an @ between them.
+		[
+			'iso-8859-1 then windows-1252',
+			`=?iso-8859-1?Q?ceo=4?==?windows-1252?Q?0bank?= ${ME}`,
+		],
+		// Look-alike @, raw and encoded.
+		['a raw FULLWIDTH @', `ceo\uFF20bank.example ${ME}`],
+		['a raw SMALL @', `ceo\uFE6Bbank.example ${ME}`],
+		['FULLWIDTH @ in UTF-8 Q', `=?UTF-8?Q?ceo=EF=BC=A0bank.example?= ${ME}`],
+		['SMALL @ in UTF-8 Q', `=?UTF-8?Q?ceo=EF=B9=ABbank.example?= ${ME}`],
+		['FULLWIDTH @ in UTF-8 B', `=?UTF-8?B?Y2Vv77ygYmFuaw==?= ${ME}`],
+		// A =? that starts no word, even in a quoted name: refused, since a
+		// reader may decode what follows.
+		['a =? in a quoted name', `"a =? b" ${ME}`],
+		// Past 64 KiB.
+		['a From over 64 KiB', `${'A'.repeat(70_000)} ${ME}`],
 	])('%s', (_, value) => {
 		expect(authors(value)).toBe('unreadable');
 	});
@@ -124,5 +148,21 @@ describe('fromAddresses: what a mail client writes is read', () => {
 
 	test('a From naming no address is none', () => {
 		expect(authors('undisclosed:;')).toBe('none');
+	});
+});
+
+describe('fromAddresses: linear in the field', () => {
+	test('a 1 MB From is read in well under 100 ms', () => {
+		const long = `${'a@'.repeat(250_000)}b ${ME}`;
+		const begun = performance.now();
+		expect(authors(long)).toBe('unreadable');
+		expect(performance.now() - begun).toBeLessThan(100);
+	});
+
+	test('a From just under 64 KiB, read whole, takes well under 100 ms', () => {
+		const long = `${'a.'.repeat(30_000)}@${'b'.repeat(2_000)} ${'c@'.repeat(500)}`;
+		const begun = performance.now();
+		expect(authors(long)).toBe('unreadable');
+		expect(performance.now() - begun).toBeLessThan(100);
 	});
 });

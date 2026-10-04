@@ -1526,12 +1526,21 @@ same rule as MAIL FROM — or one this server cannot read plainly: a
 quoted local part, an address in a display name or a comment that is
 not the user's, an `@` that belongs to no plain address. A reader must
 never be shown an author that was not checked. Encoded-words are read
-as an allow-list: every `=?` must start a well-formed word with no
-white space inside it, in UTF-8, US-ASCII, ISO-8859-1 to 16 or
-windows-1250 to 1258 (not UTF-7), and no word, alone or joined with its
-neighbours in the same charset and encoding, may hold or decode to an
-`@`: `=?UTF-8?Q?ceo=40bank.example?= <you@example.com>` shows a reader
-`ceo@bank.example`. A mail client encodes a name in UTF-8, which passes. Write From as
+as an allow-list:
+
+- every `=?` must start a well-formed word with no white space inside it;
+- B text must be whole base64 groups, padded only at the end, with no
+  `-` or `_`, and Q text must follow every `=` with two hex digits;
+- the charset must be UTF-8, US-ASCII, ISO-8859-1 to 16 or
+  windows-1250 to 1258;
+- no word may hold or decode to an `@`, or in UTF-8 to `＠` or `﹫`,
+  which are refused written plainly too.
+
+`=?UTF-8?Q?ceo=40bank.example?= <you@example.com>` shows a reader
+`ceo@bank.example`, and is refused. A name encoded in ISO-2022-JP,
+Shift_JIS, GB2312, Big5, EUC-KR, KOI8-R or UTF-7 is refused even when it
+holds no `@`: set the mail client to encode headers in UTF-8. A From
+field over 64 KiB is refused as well. Write From as
 `Name <you@example.com>`.
 
 ### `550 5.6.0 The message needs exactly one From field`

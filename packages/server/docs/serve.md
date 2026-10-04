@@ -262,16 +262,23 @@ see. Encoded-words (RFC 2047) are read as an allow-list, since readers
 decode them differently:
 
 - every `=?` in From must start a well-formed encoded-word, with no
-  white space or fold inside it and printable ASCII for its text;
+  white space or fold inside it;
+- its text must be strict: B as whole base64 groups, padding only at
+  the end and no base64url `-` or `_`; Q with every `=` followed by two
+  hex digits. So no word splits a byte with its neighbour, and each word
+  is read on its own;
 - its charset must be UTF-8, US-ASCII, ISO-8859-1 to 16 or
-  windows-1250 to 1258 (UTF-7, among others, is refused);
-- no word may hold an `@`, nor decode to one, alone or joined with the
-  words next to it in the same charset and encoding, so an escape or a
-  base64 group split across two words is caught.
+  windows-1250 to 1258;
+- no word may hold an `@` or decode to one, nor, in UTF-8, to the
+  look-alike `＠` (U+FF20) or `﹫` (U+FE6B), which are refused written
+  plainly too.
 
 So `=?UTF-8?Q?ceo=40bank.example?= <alice@example.com>` is refused like
 `"ceo@bank.example" <alice@example.com>`, while
-`=?UTF-8?Q?Alice_M=C3=BCller?= <alice@example.com>` is taken.
+`=?UTF-8?Q?Alice_M=C3=BCller?= <alice@example.com>` is taken. **A name
+in ISO-2022-JP, Shift_JIS, GB2312, Big5, EUC-KR, KOI8-R or UTF-7 is
+refused**: its client must encode names in UTF-8, as current mail
+clients do by default. A From field over 64 KiB is refused too.
 
 A session that logged in keeps its rights only while the user is
 unchanged: once it is removed, disabled (`bumail user disable`) or given
