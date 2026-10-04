@@ -38,6 +38,7 @@ For local tests, `allowInsecureBasic: true`.
 ## `503 Temporary authentication failure`
 
 `authenticate` threw, did not settle within `hookTimeout`, answered
-something other than an id, or named an account the store does not have.
+something other than an id or `null`, or named an account the store does
+not have; or the store's `getAccount` threw.
 The response says `Retry-After: 5`; `onError` has the cause — see
 [configuration](configuration.md).

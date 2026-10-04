@@ -174,12 +174,13 @@ fails answers an `error` invocation inside the 200, never an HTTP status.
 RFC 8620 and RFC 8621 define each method's arguments. The document is
 documentation and a contract: the server does not validate against it,
 and a spec of the package fails when a route and the document disagree.
+Its `info.version` is the version of the document, not of the package.
 
 ## Traps
 
 - **Queries run in memory.** The store has no index yet: `Email/query`
   and `Thread/get` read at most `maxQueryScan` emails (one mailbox's when
-  the filter names `inMailbox`), and answer `tooLarge` past it.
+  the filter names `inMailbox`), and answer `requestTooLarge` past it.
   `Mailbox/get` counts `unreadEmails`, `totalThreads` and
   `unreadThreads` as RFC 8621 §2 asks (`$seen` in any spelling is read,
   `$draft` is never unread) within the same budget, all its mailboxes

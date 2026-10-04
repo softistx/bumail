@@ -4,7 +4,7 @@
 		"title": "@bumail/jmap",
 		"version": "1.0.0",
 		"summary": "The HTTP surface of the JMAP server of @bumail/jmap (RFC 8620, RFC 8621).",
-		"description": "The routes `jmap(options)` adds to the alxia app that mounts it: the session at `/.well-known/jmap`, and, under `basePath` (`/jmap` by default), the API, blob download and blob upload. It is documentation and a contract, kept in step with the routes by a spec of the package; the server does not validate requests against it.\n\nThe API is described as RFC 8620 §3 frames it: a Request of method calls and a Response of method responses, each an Invocation `[name, arguments, callId]`. The arguments of each method are left generic on purpose: an argument named `#name` is a back-reference (RFC 8620 §3.7) resolved from an earlier response, so a call's arguments are only known once the calls before it ran, and a method's error is an `error` invocation inside a 200, not an HTTP status. RFC 8620 and RFC 8621 define each method's arguments.\n\nThe limits stated are the defaults of the `limits` option; the session announces the ones in effect. The session announces an `eventSourceUrl`, as RFC 8620 requires, which no route serves yet: push is a later release.\n\nEvery route authenticates its request first, with HTTP Basic (RFC 7617) or a Bearer token (RFC 6750), and answers 401, 403 or 503 before anything else.",
+		"description": "The routes `jmap(options)` adds to the alxia app that mounts it: the session at `/.well-known/jmap`, and, under `basePath` (`/jmap` by default), the API, blob download and blob upload. Its `info.version` is the version of the document, not of the package. It is documentation and a contract, kept in step with the routes by a spec of the package; the server does not validate requests against it.\n\nThe API is described as RFC 8620 §3 frames it: a Request of method calls and a Response of method responses, each an Invocation `[name, arguments, callId]`. The arguments of each method are left generic on purpose: an argument named `#name` is a back-reference (RFC 8620 §3.7) resolved from an earlier response, so a call's arguments are only known once the calls before it ran, and a method's error is an `error` invocation inside a 200, not an HTTP status. RFC 8620 and RFC 8621 define each method's arguments.\n\nThe limits stated are the defaults of the `limits` option; the session announces the ones in effect. The session announces an `eventSourceUrl`, as RFC 8620 requires, which no route serves yet: push is a later release.\n\nEvery route authenticates its request first, with HTTP Basic (RFC 7617) or a Bearer token (RFC 6750), and answers 401, 403 or 503 before anything else.",
 		"license": {
 			"name": "MIT",
 			"identifier": "MIT"
@@ -445,13 +445,19 @@
 						}
 					},
 					"416": {
-						"description": "The range starts past the end of the blob, ends before it starts, or is an empty suffix (`bytes=-0`). The body is empty.",
+						"description": "The range starts at or past the end of the blob, ends before it starts, or is an empty suffix (`bytes=-0`). The body is empty, and carries none of the blob's headers.",
 						"headers": {
 							"Content-Range": {
 								"description": "`bytes */size`.",
 								"schema": {
 									"type": "string"
 								}
+							},
+							"Accept-Ranges": {
+								"$ref": "#/components/headers/AcceptRanges"
+							},
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
 							}
 						}
 					},
@@ -712,7 +718,7 @@
 				}
 			},
 			"AuthUnavailable": {
-				"description": "`authenticate` threw, did not settle within `hookTimeout` (30 s), or named an account the store does not have; `onError` is told.",
+				"description": "`authenticate` threw, did not settle within `hookTimeout` (30 s), answered something other than an account id or `null`, or named an account the store does not have; or the store's `getAccount` threw. `onError` is told.",
 				"headers": {
 					"Retry-After": {
 						"description": "`5` seconds.",
@@ -801,6 +807,11 @@
 						"required": ["urn:ietf:params:jmap:mail"],
 						"additionalProperties": {
 							"$ref": "#/components/schemas/Id"
+						},
+						"properties": {
+							"urn:ietf:params:jmap:mail": {
+								"$ref": "#/components/schemas/Id"
+							}
 						}
 					},
 					"username": {
@@ -1017,7 +1028,8 @@
 					"^#": {
 						"$ref": "#/components/schemas/ResultReference"
 					}
-				}
+				},
+				"additionalProperties": true
 			},
 			"ResultReference": {
 				"description": "A ResultReference (RFC 8620 §3.7): the response with the call id `resultOf`, which must be named `name`, read at `path`, an RFC 6901 JSON Pointer where `*` maps the rest over an array. It expands to at most `maxReferenceItems` (5000) values, and the references of one request to at most `maxReferenceBytes` (4 MiB) of JSON; past either, or when it does not resolve, the call answers `invalidResultReference`.",
@@ -1135,8 +1147,7 @@
 							"anchorNotFound",
 							"unsupportedSort",
 							"unsupportedFilter",
-							"tooManyChanges",
-							"tooLarge"
+							"tooManyChanges"
 						]
 					},
 					"description": {

@@ -81,7 +81,7 @@ request, for its name, which the session calls `username`.
 | no `Authorization`, another scheme, a header past 8 KiB, Basic that is not base64 of UTF-8 `user:password` | 401 `Authentication required` |
 | `authenticate` answers `null` | 401 `Authentication failed` |
 | Basic on a clear request | 403 `Basic authentication is refused on a clear connection: use HTTPS`, `authenticate` not called |
-| `authenticate` throws, does not settle within `hookTimeout`, or names an account the store does not have | 503 `Temporary authentication failure`, with `Retry-After: 5`; `onError` is told |
+| `authenticate` throws, does not settle within `hookTimeout`, answers something other than an account id or `null`, or names an account the store does not have; or the store's `getAccount` throws | 503 `Temporary authentication failure`, with `Retry-After: 5`; `onError` is told |
 
 Every 401 carries both challenges, `Basic realm="JMAP", charset="UTF-8"`
 and `Bearer realm="JMAP"`. Every refusal is an RFC 7807 problem
@@ -330,7 +330,7 @@ The store has no index, so the query runs here: it reads the candidates —
 the mailbox's messages when the filter names `inMailbox` at its top or
 under an `AND`, else the account's — at most `maxQueryScan` of them, and
 reads an email's header or text only when a condition or a sort needs it.
-Past `maxQueryScan` it is `tooLarge`. `limit` is capped at
+Past `maxQueryScan` it is `requestTooLarge`. `limit` is capped at
 `maxObjectsInGet`, and the answer says `limit` when it was.
 `canCalculateChanges` is false: there is no `Email/queryChanges` yet.
 
@@ -431,7 +431,7 @@ writer between that check and the call's own changes is not caught.
 | `maxReferenceItems` | 5000 | values of one back-reference | `invalidResultReference` |
 | `maxReferenceBytes` | 4 MiB | bytes of JSON all the back-references of a request resolve to | `invalidResultReference` |
 | `maxSizeResponse` | 64 MiB | bytes of JSON of one API response | 400 problem `limit` |
-| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` count reads | `tooLarge`; the store's counts |
+| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` count reads | `requestTooLarge`; the store's counts |
 | `maxBodyValueBytes` | 1 MiB | one body value | cut, `isTruncated` |
 | `maxBodyValuesTotal` | 16 MiB | body values of one request | cut, `isTruncated` |
 | `maxSizeUpload` | 25 MiB | one upload | 413 problem `limit` |
@@ -476,7 +476,8 @@ error: `onError` is not told, alxia logs nothing, and the host app's
 `openapi/jmap.json`, exported as `@bumail/jmap/openapi.json`, is an
 OpenAPI 3.1 document of the four routes `jmap()` adds. It is written by
 hand, as documentation and a contract: the server never reads it, and
-validates nothing against it.
+validates nothing against it. Its `info.version` is the version of the document, not
+of the package.
 
 ```ts
 import document from '@bumail/jmap/openapi.json' with { type: 'json' };
@@ -518,8 +519,11 @@ operations `@alxia/openapi-routes` reads — method, full path, and
 `jmap()` mounted in a host app, with the default `basePath` and another:
 a route added without a document entry fails it, and so does an entry
 with no route. It also checks that the document is OpenAPI 3.1 and that
-every `$ref` resolves, and that a real session, an API response with an
-`error`, an upload and four problems fit the document's schemas.
+every `$ref` resolves, that its schemas use only the keywords the spec's
+checker reads, and that a real session, an API response with an `error`,
+an upload, four problems and a download's 200, 206 and 416 fit the
+document: each header it declares for that status is sent, with its
+value where the document fixes one, and each JSON body fits its schema.
 
 ## RFCs followed, and what is not
 

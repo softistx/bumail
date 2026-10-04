@@ -113,6 +113,9 @@ describe.each(STORES)('blobs on the %s store', (kind) => {
 			{ headers: { range: `bytes=${message.size}-` } },
 		);
 		expect(past.status).toBe(416);
+		expect(past.headers.get('content-range')).toBe(`bytes */${message.size}`);
+		expect(past.headers.get('cache-control')).toBe('no-store');
+		expect(past.headers.get('content-disposition')).toBeNull();
 		const pdf = await h.fetch(
 			`/jmap/download/${h.alice.id}/${message.blobId}_2/report.pdf`,
 		);

@@ -79,6 +79,12 @@ Merged, not yet published.
   upload, the Basic and Bearer schemes, and `basePath` as a server
   variable: for a viewer, a gateway or a client generator. A spec keeps it
   in step with the routes, both ways.
+- **`requestTooLarge` past `maxQueryScan`** — a query, a text search or
+  a `Thread/get` that would read too much answers `requestTooLarge`, a
+  method error RFC 8620 defines, instead of `tooLarge`, which is only a
+  SetError.
+- **A download's 416 is never cached** — `Cache-Control: no-store`, and
+  none of the blob's own headers.
 
 ### 0.2.0
 

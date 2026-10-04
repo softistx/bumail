@@ -117,6 +117,9 @@ part of the text.
 - [`requestTooLarge` — `Thread/get needs ids`](troubleshooting/methods.md#requesttoolarge--threadget-needs-ids)
 - [`requestTooLarge` — `The call creates, updates and destroys more than … objects`](troubleshooting/methods.md#requesttoolarge--the-call-creates-updates-and-destroys-more-than--objects)
 - [`requestTooLarge` — `emails holds more than … emails`](troubleshooting/methods.md#requesttoolarge--emails-holds-more-than--emails)
+- [`requestTooLarge` — `The query would read more than … emails: the store has no index yet`](troubleshooting/methods.md#requesttoolarge--the-query-would-read-more-than--emails-the-store-has-no-index-yet)
+- [`requestTooLarge` — `The query reads more than … emails`](troubleshooting/methods.md#requesttoolarge--the-query-reads-more-than--emails)
+- [`requestTooLarge` — `The account has more than … emails: the store has no thread index yet`](troubleshooting/methods.md#requesttoolarge--the-account-has-more-than--emails-the-store-has-no-thread-index-yet)
 - [`cannotCalculateChanges` — `The state is not one this server gave`](troubleshooting/methods.md#cannotcalculatechanges--the-state-is-not-one-this-server-gave)
 - [`cannotCalculateChanges`](troubleshooting/methods.md#cannotcalculatechanges)
 - [`stateMismatch` — `The account has changed since ifInState`](troubleshooting/methods.md#statemismatch--the-account-has-changed-since-ifinstate)
@@ -127,9 +130,6 @@ part of the text.
 - [`unsupportedFilter` — `operator is AND, OR or NOT`](troubleshooting/methods.md#unsupportedfilter--operator-is-and-or-or-not)
 - [`unsupportedFilter` — `Operators nest deeper than 16`](troubleshooting/methods.md#unsupportedfilter--operators-nest-deeper-than-16)
 - [`unsupportedFilter` — `The filter holds more than 256 conditions`](troubleshooting/methods.md#unsupportedfilter--the-filter-holds-more-than-256-conditions)
-- [`tooLarge` — `The query would read more than … emails: the store has no index yet`](troubleshooting/methods.md#toolarge--the-query-would-read-more-than--emails-the-store-has-no-index-yet)
-- [`tooLarge` — `The query reads more than … emails`](troubleshooting/methods.md#toolarge--the-query-reads-more-than--emails)
-- [`tooLarge` — `The account has more than … emails: the store has no thread index yet`](troubleshooting/methods.md#toolarge--the-account-has-more-than--emails-the-store-has-no-thread-index-yet)
 - [`serverFail`](troubleshooting/methods.md#serverfail)
 
 **[Objects not created, updated or destroyed](troubleshooting/objects.md)**

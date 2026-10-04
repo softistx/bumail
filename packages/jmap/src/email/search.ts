@@ -35,7 +35,7 @@ export class Candidate {
 	async #blob(): Promise<Blob> {
 		if (--this.#budget.left < 0) {
 			throw new MethodError(
-				'tooLarge',
+				'requestTooLarge',
 				`The query reads more than ${this.#ctx.settings.limits.maxQueryScan} emails`,
 			);
 		}

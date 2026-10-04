@@ -76,8 +76,14 @@ export async function handleDownload(
 	const range = request.headers.get('range');
 	const parsed = range === null ? undefined : parseRange(range, blob.size);
 	if (parsed === 'unsatisfiable') {
-		headers.set('content-range', `bytes */${blob.size}`);
-		return reply(416, '', { headers });
+		// An error, not the blob: never cached, and none of the blob's headers.
+		return reply(416, '', {
+			headers: {
+				'content-range': `bytes */${blob.size}`,
+				'accept-ranges': 'bytes',
+				'cache-control': 'no-store',
+			},
+		});
 	}
 	if (parsed !== undefined) {
 		headers.set(

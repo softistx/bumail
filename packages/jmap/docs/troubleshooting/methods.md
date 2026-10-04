@@ -222,6 +222,25 @@ A `/set` past `maxObjectsInSet`. Split it.
 
 An `Email/import` past `maxObjectsInSet`. Split it.
 
+## `requestTooLarge` — `The query would read more than … emails: the store has no index yet`
+
+The mailbox (or the account, without `inMailbox`) holds more emails than
+`maxQueryScan`: queries run in memory until the store has an index. Put
+`inMailbox` at the top of the filter, or raise `limits.maxQueryScan`.
+
+Before 0.3.0 these three were answered as `tooLarge`, which RFC 8620
+defines only as a SetError; a method-level error is `requestTooLarge`.
+
+## `requestTooLarge` — `The query reads more than … emails`
+
+The query's conditions or sort read more emails' content than
+`maxQueryScan`.
+
+## `requestTooLarge` — `The account has more than … emails: the store has no thread index yet`
+
+`Thread/get` reads the account's emails to find a thread's: past
+`maxQueryScan`, it refuses.
+
 ## `cannotCalculateChanges` — `The state is not one this server gave`
 
 `sinceState` is not a state this server answered — not a number, or one
@@ -276,22 +295,6 @@ filter: `AND` inside `AND` is one `AND`.
 
 The filter, every operator and condition counted, has more than 256
 nodes. Split the query, or use `inMailbox` and fewer conditions.
-
-## `tooLarge` — `The query would read more than … emails: the store has no index yet`
-
-The mailbox (or the account, without `inMailbox`) holds more emails than
-`maxQueryScan`: queries run in memory until the store has an index. Put
-`inMailbox` at the top of the filter, or raise `limits.maxQueryScan`.
-
-## `tooLarge` — `The query reads more than … emails`
-
-The query's conditions or sort read more emails' content than
-`maxQueryScan`.
-
-## `tooLarge` — `The account has more than … emails: the store has no thread index yet`
-
-`Thread/get` reads the account's emails to find a thread's: past
-`maxQueryScan`, it refuses.
 
 ## `serverFail`
 
