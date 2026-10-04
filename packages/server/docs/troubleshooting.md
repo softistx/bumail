@@ -38,6 +38,7 @@ directory commands' own refusals are under
 - [`…: must be true or false, not …`](#-must-be-true-or-false-not-)
 - [`…: must be an integer from … to …`](#-must-be-an-integer-from--to-)
 - [`…: must be "…" or "…"`](#-must-be--or-)
+- [`inbound.spoolBytes: must be at least inbound.maxMessageSize (…)`](#inboundspoolbytes-must-be-at-least-inboundmaxmessagesize-)
 
 **Top-level keys**
 
@@ -164,6 +165,31 @@ directory commands' own refusals are under
 - [`bumail: a login came from a client with no IP address; the failure limiter does not count such logins`](#bumail-a-login-came-from-a-client-with-no-ip-address-the-failure-limiter-does-not-count-such-logins)
 - [`maxVerifies must be an integer of 1 or more`](#maxverifies-must-be-an-integer-of-1-or-more)
 - [`the directory URL must be sqlite: and a path`](#the-directory-url-must-be-sqlite-and-a-path)
+
+**Serving** (`bumail serve`: exit code 3 or 5; the replies other servers get; the log)
+
+- [`acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`](#acme-mode-arrives-in-a-later-slice-set-tlsmode--files-with-cert-and-key-for-now)
+- [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
+- [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
+- [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
+- [`bumail: the spool folder … is kept: …`](#bumail-the-spool-folder--is-kept-)
+- [`550 5.1.1 User unknown`](#550-511-user-unknown)
+- [`554 5.7.1 Relay access denied`](#554-571-relay-access-denied)
+- [`550 5.7.1 Rejected by the DMARC policy of …`](#550-571-rejected-by-the-dmarc-policy-of-)
+- [`451 4.7.0 DMARC check failed, try again later`](#451-470-dmarc-check-failed-try-again-later)
+- [`550 5.7.1 The From field cannot be evaluated for DMARC: none, several, or not one mailbox`](#550-571-the-from-field-cannot-be-evaluated-for-dmarc-none-several-or-not-one-mailbox)
+- [`452 4.3.1 Insufficient system storage, try again later`](#452-431-insufficient-system-storage-try-again-later)
+- [`552 5.3.4 Message header too large`](#552-534-message-header-too-large)
+- [`550 5.1.1 No recipient of this message is here any longer`](#550-511-no-recipient-of-this-message-is-here-any-longer)
+- [`451 4.3.0 Message not taken, try again later`](#451-430-message-not-taken-try-again-later)
+- [`451 4.3.0 Local error in processing`](#451-430-local-error-in-processing)
+- [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
+- [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`
+- [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `imaps:`, `imap:`
+- [`bumail: the mail store did not close cleanly: …`](#bumail-the-mail-store-did-not-close-cleanly-)
+- [`mx: … not spooled: …`](#mx--not-spooled-)
+- [`mx: … abandoned before …: the session ended`](#mx--abandoned-before--the-session-ended)
+
 **Usage** (exit code 2)
 
 - [`bumail: …; see bumail --help`](#usage)
@@ -300,6 +326,22 @@ off; sizes are bytes.
 `smarthost.tls: must be "required", "opportunistic" or "none"`.
 
 **Fix**: one of the choices listed, as a string.
+
+### `inbound.spoolBytes: must be at least inbound.maxMessageSize (…)`
+
+**When**: `inbound.spoolBytes`, what the messages waiting to be checked
+may hold on disk at once, is smaller than one message as large as
+allowed: no such message could ever be taken. The number in brackets is
+`inbound.maxMessageSize`.
+
+**Fix**: raise it, or leave it out for the default, 20 times
+`inbound.maxMessageSize`:
+
+```toml
+[inbound]
+maxMessageSize = 26214400
+spoolBytes = 524288000
+```
 
 ## Top-level keys
 
@@ -1067,6 +1109,212 @@ more` (from `new FailureLimiter`, with `maxPending`), and
 `readConfig` refuses such a `directory.url` before.
 
 **Fix**: `sqlite:` and an absolute path: `sqlite:/data/directory.sqlite`.
+
+## Serving
+
+`bumail serve` exits 3 for what arrives in a later release, 5 for
+what it cannot open or bind, and 1 for a configuration `check-config`
+refuses. What it does is in [running the server](serve.md). It also
+prints the directory's and the store's own messages, such as
+[`the mail store is in use by another process, such as the running server`](#the-mail-store-is-in-use-by-another-process-such-as-the-running-server):
+see [the directory and the store](#the-directory-and-the-store), exit
+code 5.
+
+### `acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`
+
+`bumail serve` with `tls.mode = "acme"`, the default. `check-config`
+takes it, so a file written for ACME stays valid, but the server does
+not obtain certificates yet. Exit code 3.
+
+Get a certificate another way (certbot, your provider) and point the
+server at it:
+
+```toml
+[tls]
+mode = "files"
+cert = "/etc/bumail/fullchain.pem"
+key = "/etc/bumail/privkey.pem"
+```
+
+Remove `[acme]`, which `"files"` refuses.
+
+### `… cannot listen on …:… (…)`
+
+`mx`, `imaps` or `imap` could not bind its port; the reason is Bun's.
+Exit code 5, with what was opened closed again.
+
+- `Failed to listen at …: EADDRINUSE`: another process holds the port —
+  another mail server, or a `bumail serve` already running. Stop it, or
+  move this listener (`[ports]`).
+- `EACCES`: ports under 1024 need privileges. Run as root in a
+  container, or give Bun the capability:
+  `setcap cap_net_bind_service=+ep "$(command -v bun)"`.
+- `EADDRNOTAVAIL`: `bind` is an address this host does not have.
+
+### `tls.cert … cannot be read (…)`
+
+The certificate or the key was readable when the configuration was
+checked, and is not a moment later: removed, or its permissions changed
+under a running renewal. Exit code 5. Check the file, then start again.
+The message never repeats the key.
+
+### `the spool directory … cannot be used (…)`
+
+`<data>/spool`, where a message waits while it is checked, could not be
+created, cleared of what a stopped server left, or given this server's
+folder (`<pid>-<random>`, with its `owner` file): `data` is read-only,
+full, or owned by another user. Exit code 5. Give the server's user a
+writable `data`. A folder is removed only once its `owner` file has
+gone 5 minutes untouched, whichever machine wrote it.
+
+### `bumail: the spool folder … is kept: …`
+
+Logged at start, once per entry, when the sweep of `<data>/spool` met
+something it could not judge or remove, and left it there. The server
+starts anyway.
+
+- `its age cannot be read (…)`: the entry's `owner` file, or the entry
+  itself, could not be read for a reason other than its absence — a
+  stray file rather than a folder (`ENOTDIR`), or a folder the server's
+  user may not read (`EACCES`).
+- `it cannot be removed (…)`: it is older than 5 minutes, but removing
+  it failed, often for its permissions.
+
+**Fix**: remove the entry by hand, or give it to the server's user.
+Nothing in it was acknowledged to a sending server, which sends it
+again.
+
+### `550 5.1.1 User unknown`
+
+What a sending server is told for a recipient in a hosted domain that
+no user or alias has. Add the user or the alias; it counts at once, no
+restart.
+
+### `554 5.7.1 Relay access denied`
+
+What a sending server is told for a recipient in a domain this server
+does not host. That is the rule on port 25, with no exception: no AUTH
+is offered there, so no session can relay. If the domain should be
+yours, `bumail domain add` it. A user who wants to send elsewhere uses
+submission, in a later release.
+
+### `550 5.7.1 Rejected by the DMARC policy of …`
+
+The message failed DMARC — neither an aligned DKIM signature nor an
+aligned SPF pass — and the From domain publishes `p=reject`. With
+`inbound.dmarc = "enforce"`, the default, it is refused during the
+session, and logged as `refused by DMARC`. The sending server tells its
+sender.
+
+If an honest sender is refused, their mail is usually forwarded by a
+server that breaks DKIM, or sent through a service missing from their
+SPF record: the fix is on their side. To take such mail meanwhile,
+`inbound.dmarc = "mark"` records the result and delivers everything.
+
+### `451 4.7.0 DMARC check failed, try again later`
+
+The From domain's DMARC record, or an aligned check, could not be had:
+its DNS did not answer within the bound. Or DKIM did not finish within
+10 seconds while DMARC would otherwise refuse or quarantine the message:
+a signature that would have passed may be among those not checked. The
+log says `deferred: DMARC or DKIM did not finish`. The sending server
+tries again. Only with `inbound.dmarc = "enforce"`; with `"mark"` the message
+is delivered. Repeated for every domain: check this host's resolver.
+
+### `550 5.7.1 The From field cannot be evaluated for DMARC: none, several, or not one mailbox`
+
+The message has no From, two of them, or one that is not a single
+mailbox (a group, an empty value). A second From is the classic way
+around `p=reject`, since a reader may be shown either, so DMARC refuses
+what it cannot read (RFC 7489 §6.6.1). Only with `inbound.dmarc =
+"enforce"`; the sender has to fix the message.
+
+### `452 4.3.1 Insufficient system storage, try again later`
+
+What a sending server is told when the spool's budget is spent: at MAIL
+FROM, while a message as large as `inbound.maxMessageSize` would not
+fit besides those waiting, or at the end of DATA, when the message ran
+past it as it came. The budget is `inbound.spoolBytes`, 20 times
+`inbound.maxMessageSize` by default. It is a burst of large messages at
+once, or many sessions held open mid-DATA; the sending server tries
+again. The log says `deferred: the spool is full`. Raise
+`inbound.spoolBytes` if the disk has room. There is no limit per client
+yet, so one client can fill it with `inbound.maxConnections` sessions;
+lower `inbound.maxConnections` if that is a risk.
+
+### `552 5.3.4 Message header too large`
+
+The message's header is over 256 KiB. No real mail has such a header;
+it is refused.
+
+### `550 5.1.1 No recipient of this message is here any longer`
+
+Each recipient was accepted, then removed from the directory before the
+message ended. The sending server reports it.
+
+### `451 4.3.0 Message not taken, try again later`
+
+Most often the message could not be written to the spool — a full
+disk, a permission changed under the running server — which the log
+records as [`mx: … not spooled: …`](#mx--not-spooled-). It is also the
+answer when the session ended while the message was being delivered
+([`abandoned before …`](#mx--abandoned-before--the-session-ended)). The
+sending server tries again. A message the SMTP server cut off itself
+gets that server's own reply instead: too big (`552 5.3.4`) or a bare
+line break (`550 5.6.11`); a lost connection gets no reply at all.
+
+### `451 4.3.0 Local error in processing`
+
+What a sending server is told when the store or the directory failed
+during its session, or a check ran past the 60 seconds the SMTP server
+gives it. It tries again later. The log has the reason, as
+[`mx: error in a session from …`](#mx-error-in-a-session-from--).
+
+### `421 4.3.2 … Too many connections, try later`
+
+`inbound.maxConnections` sessions are open already; one more is told
+this and closed, and its server tries again. Raise
+`inbound.maxConnections` if honest servers hit it.
+
+### `imaps: login refused from …: …`
+
+In the log (`imap:` for port 143), for every IMAP login refused, with why: `password`,
+`unknown` (no such user), `disabled`, `blocked` (the failure limiter:
+10 failures within 15 minutes), `malformed` or `busy`. The client is
+told only `NO`, except on `busy`, where it gets `NO [UNAVAILABLE]
+Temporary authentication failure` and may try again soon. The password
+is never logged. See
+[logins](directory.md#logins).
+
+### `mx: error in a session from …: …`
+
+In the log: the store or the directory failed during a session, or a
+message's checks and delivery ran past the 60 seconds the SMTP server
+gives its `onData` hook; the reason has any store password masked. The
+SMTP client got `451 4.3.0` and will try again; an IMAP client got
+`NO [UNAVAILABLE]`, or `NO [SERVERBUG]` for a failure the IMAP server
+did not expect. Check the store (`store.url`), the disk and the DNS.
+
+### `bumail: the mail store did not close cleanly: …`
+
+In the log, during a stop: closing the mail store failed (a PostgreSQL
+connection already gone, say), the reason with any password masked. The
+directory is closed anyway, and the server still exits 0. A SQLite
+store recovers its journal at the next start; nothing is lost that was
+answered `250`.
+
+### `mx: … not spooled: …`
+
+In the log: a message could not be written to `<data>/spool` — a full
+disk, a permission changed under the running server. The sending server
+got `451 4.3.0` and tries again. Free the disk.
+
+### `mx: … abandoned before …: the session ended`
+
+In the log: the session ended (the client left, the 60 seconds to answer
+ran out, the server stopped) while the message was being written for
+several users. The users before the one named have it; the sending
+server, never told `250`, sends it again, and they get it twice.
 
 ## Usage
 

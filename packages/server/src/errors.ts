@@ -14,7 +14,10 @@
  * - `IN_USE`: what would be removed is still used: a domain with users
  *   or aliases, a user an alias points to.
  * - `UNAVAILABLE`: the directory or the mail store cannot be opened or
- *   read, or is held by another process.
+ *   read, or is held by another process; or `serve` cannot bind a port,
+ *   read the certificate or use its spool directory.
+ * - `NOT_IMPLEMENTED`: `serve` was asked for what arrives in a later
+ *   release: `tls.mode = "acme"`.
  */
 export type ServerErrorCode =
 	| 'INVALID_CONFIG'
@@ -23,7 +26,8 @@ export type ServerErrorCode =
 	| 'NOT_FOUND'
 	| 'ALREADY_EXISTS'
 	| 'IN_USE'
-	| 'UNAVAILABLE';
+	| 'UNAVAILABLE'
+	| 'NOT_IMPLEMENTED';
 
 /** One thing wrong with a configuration: where, and what. */
 export interface ConfigProblem {

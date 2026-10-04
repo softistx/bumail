@@ -88,10 +88,11 @@ exits 1. No problem repeats a URL or a secret.
 
 | exit code | meaning |
 | --- | --- |
-| 0 | valid (`check-config`), or `-h`/`--help`, `-v`/`--version` |
+| 0 | valid (`check-config`), stopped cleanly (`serve`), or `-h`/`--help`, `-v`/`--version` |
 | 1 | the configuration has problems, or cannot be read |
 | 2 | bad usage: an unknown command or option |
-| 3 | `serve`: the configuration is valid, but serving is not implemented yet |
+| 3 | `serve`: the configuration is valid, but asks for what arrives later (`tls.mode = "acme"`) |
+| 5 | `serve`: a port, the certificate, the spool, the directory or the store cannot be used |
 
 ## Top-level keys
 
@@ -111,7 +112,9 @@ bind = "0.0.0.0"
 
 Each listener's port, a whole number from 0 to 65535 (`25.5` is refused;
 TOML's `25.0` reads as 25); `0` turns it off. Two listeners never share
-a port.
+a port. `bumail serve` runs `mx`, `imaps` and `imap` today, and logs the
+others as arriving later; [running the server](serve.md#the-listeners)
+says what each does.
 
 | key | default | listener |
 | --- | --- | --- |
@@ -214,6 +217,9 @@ directory = "https://acme-v02.api.letsencrypt.org/directory"   # the default
 | `acme.acceptTerms` | required with `"acme"` | must be `true`: you have read the CA's terms of service and accept them |
 | `acme.directory` | Let's Encrypt | the CA's directory URL, `https:` |
 
+`bumail serve` takes `"files"` only for now, and exits 3 with `"acme"`,
+which `check-config` still takes. The files are read once, at start.
+
 With `"acme"`, certificates come by HTTP-01 on `ports.http`, so it must
 not be 0, and port 80 must reach the server from the Internet. `cert`
 and `key` are refused there, and `[acme]` is refused with `"files"`.
@@ -280,13 +286,15 @@ refused. A route of its own takes `host`, `port`, `secure` and `tls`, as
 
 ## `[inbound]`
 
-Mail from other servers, on `ports.mx`.
+Mail from other servers, on `ports.mx`. What each DMARC outcome does is
+in [running the server](serve.md#inbound-checks-spf-dkim-dmarc).
 
 | key | default | |
 | --- | --- | --- |
 | `dmarc` | `"enforce"` | `"enforce"`: a message failing DMARC under `p=reject` is refused during the session, under `p=quarantine` it goes to Junk. `"mark"`: only recorded, in `Authentication-Results` |
 | `maxMessageSize` | 26214400 (25 MiB) | bytes, from 1 to 1073741824 |
 | `maxConnections` | 1000 | from 1 to 100000 |
+| `spoolBytes` | 20 × `maxMessageSize` (500 MiB) | bytes the messages waiting to be checked may hold on disk at once; past it, `452 4.3.1`. At least `maxMessageSize`, at most 1099511627776 (1 TiB) |
 
 ## `[submission]`
 

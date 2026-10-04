@@ -68,6 +68,16 @@ export {
 	ServerError,
 	type ServerErrorCode,
 } from './errors';
+export type { Log } from './serve/log';
+export {
+	DEFAULT_DRAIN_SECONDS,
+	type ListenerName,
+	type Listening,
+	type RunningServer,
+	type ServeOptions,
+	serve,
+} from './serve/serve';
+export { ACME_LATER } from './serve/tls';
 export {
 	MAILBOXES,
 	provisionAccount,

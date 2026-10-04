@@ -21,4 +21,13 @@ process.exitCode = await run(process.argv.slice(2), {
 		isTTY: process.stdin.isTTY === true,
 		prompt: promptHidden,
 	},
+	signals: (handler) => {
+		const on = (signal: NodeJS.Signals) => handler(signal);
+		process.on('SIGTERM', on);
+		process.on('SIGINT', on);
+		return () => {
+			process.off('SIGTERM', on);
+			process.off('SIGINT', on);
+		};
+	},
 });

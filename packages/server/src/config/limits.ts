@@ -11,28 +11,50 @@ const MiB = 1024 * 1024;
 const MAX_MESSAGE_SIZE = 1024 * MiB;
 const MAX_CONNECTIONS = 100_000;
 
-/** `[inbound]`: mail from other servers, on `ports.mx`. */
+/** The most the spool may hold: 1 TiB. */
+const MAX_SPOOL_BYTES = 1024 * 1024 * MiB;
+
+/** How many of `maxMessageSize` the spool holds at most, by default. */
+export const SPOOL_BUDGET_MESSAGES = 20;
+
+/**
+ * `[inbound]`: mail from other servers, on `ports.mx`. `spoolBytes`, what
+ * the messages waiting to be checked may hold on disk at once, is at
+ * least `maxMessageSize`; default 20 times it.
+ */
 export function checkInbound(checker: Checker, raw: unknown): InboundConfig {
 	const table = checker.table(raw, 'inbound', [
 		'dmarc',
 		'maxMessageSize',
 		'maxConnections',
+		'spoolBytes',
 	]);
+	const maxMessageSize =
+		checker.integer(table, 'maxMessageSize', 'inbound', 1, MAX_MESSAGE_SIZE) ??
+		25 * MiB;
+	let spoolBytes = checker.integer(
+		table,
+		'spoolBytes',
+		'inbound',
+		1,
+		MAX_SPOOL_BYTES,
+	);
+	if (spoolBytes !== undefined && spoolBytes < maxMessageSize) {
+		checker.add(
+			'inbound.spoolBytes',
+			`must be at least inbound.maxMessageSize (${maxMessageSize})`,
+		);
+		spoolBytes = undefined;
+	}
 	return {
 		dmarc:
 			checker.oneOf(table, 'dmarc', 'inbound', ['enforce', 'mark'] as const) ??
 			'enforce',
-		maxMessageSize:
-			checker.integer(
-				table,
-				'maxMessageSize',
-				'inbound',
-				1,
-				MAX_MESSAGE_SIZE,
-			) ?? 25 * MiB,
+		maxMessageSize,
 		maxConnections:
 			checker.integer(table, 'maxConnections', 'inbound', 1, MAX_CONNECTIONS) ??
 			1000,
+		spoolBytes: spoolBytes ?? SPOOL_BUDGET_MESSAGES * maxMessageSize,
 	};
 }
 

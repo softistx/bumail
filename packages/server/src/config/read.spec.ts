@@ -43,6 +43,7 @@ describe('readConfig', () => {
 				dmarc: 'enforce',
 				maxMessageSize: 25 * 1024 * 1024,
 				maxConnections: 1000,
+				spoolBytes: 20 * 25 * 1024 * 1024,
 			},
 			submission: {
 				maxMessageSize: 25 * 1024 * 1024,
