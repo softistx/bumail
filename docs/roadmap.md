@@ -94,28 +94,26 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Shipped
 
-### Unreleased — merged, not yet published
-
-- **`@bumail/store`, a PostgreSQL store**, as `@bumail/store/postgres` —
-  the store contract on PostgreSQL through Bun's own `Bun.sql`, so it
-  peers on no driver, as the queue's does, for a server that runs as
-  several instances sharing its mail. Every write locks its account's
-  row first, so modseqs and UIDs are given once each and in order from
-  any instance, and a client following the changes misses none. Message
-  bytes are kept in the database for now; the blob store, below, will
-  let them live on the disk or in S3. Held to the same contract specs as
-  the memory and `bun:sqlite` stores.
-
 ### Published
 
+- **`@bumail/store`, a PostgreSQL store**, in store 0.4.0, as
+  `@bumail/store/postgres` — the store contract on PostgreSQL through
+  Bun's own `Bun.sql`, so it peers on no driver, as the queue's does, for
+  a server that runs as several instances sharing its mail. Every write
+  locks its account's row first, so modseqs and UIDs are given once each
+  and in order from any instance, and a client following the changes
+  misses none. Message bytes are kept in the database for now; the blob
+  store, under Next above, will let them live on the disk or in S3. Held
+  to the same contract specs as the memory and `bun:sqlite` stores.
 - **`@bumail/queue`, a Redis store**, in queue 0.3.0, as
   `@bumail/queue/redis` — the `QueueStore` contract on Redis through
   Bun's own `Bun.redis`, so several server instances, on several
-  machines, share one queue with no driver to install. Every operation that writes is one Lua script,
-  which Redis runs whole, so two instances never take the same item, and
-  a crashed instance's items are claimed again once their leases expire.
-  One Redis, or a primary with replicas, not Cluster; its durability is
-  Redis's, as the queue's guide spells out.
+  machines, share one queue with no driver to install. Every operation
+  that writes is one Lua script, which Redis runs whole, so two instances
+  never take the same item, and a crashed instance's items are claimed
+  again once their leases expire. One Redis, or a primary with replicas,
+  not Cluster; its durability is Redis's, as the queue's guide spells
+  out.
 - **`@bumail/queue`, a PostgreSQL store**, in queue 0.2.0, as
   `@bumail/queue/postgres` — the `QueueStore` contract on PostgreSQL
   through Bun's own `Bun.sql`, so several server instances, on several
@@ -154,7 +152,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   not exactly one mailbox) gets `permerror` with disposition `reject`.
   `formatAuthenticationResults` (RFC 8601) writes the three results as one
   field.
-- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.1.1 now) —
+- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.1.2 now) —
   IMAP4rev2 (RFC 9051) on `Bun.listen`, serving any `@bumail/store`:
   STARTTLS and implicit TLS, login only once encrypted, LIST with
   special-use (RFC 6154), SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE,
@@ -177,7 +175,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   keeps addresses for later. *Kept in the same package as the server, on its
   own subpath*: both share the grammar.
 - **`@bumail/store` on `bun:sqlite`**, as `@bumail/store/sqlite`, in store
-  0.2.0 (0.3.0 now) — the same contract on disk, held to the same specs,
+  0.2.0 (0.4.0 now) — the same contract on disk, held to the same specs,
   with message bodies as blobs on disk addressed by their hash. One
   process per database, and every write flushed to disk before it is
   acknowledged.
@@ -199,12 +197,12 @@ No dates. Each entry says what someone running or embedding the server gets.
   Delivery goes through the `onData` hook — into `@bumail/store`, or
   wherever the app keeps mail — and the server **refuses to relay without
   AUTH** in every default.
-- **`@bumail/store`, its contract and memory store**, in store 0.1.0 (0.3.0 now) —
-  accounts, mailboxes with the IANA roles and a subscription, messages
-  with one id across mailboxes, a thread and a UID in each, flags, and the
-  changes since a modseq, for the account or one mailbox, behind one
-  interface, every call scoped to one account. It is where the SMTP
-  server's `onData` delivers.
+- **`@bumail/store`, its contract and memory store**, in store 0.1.0
+  (0.4.0 now) — accounts, mailboxes with the IANA roles and a
+  subscription, messages with one id across mailboxes, a thread and a UID
+  in each, flags, and the changes since a modseq, for the account or one
+  mailbox, behind one interface, every call scoped to one account. It is
+  where the SMTP server's `onData` delivers.
 - **`@bumail/dns`**, in dns 0.1.0 (0.1.1 now) — the DNS answers the other
   packages need (MX, TXT, A, AAAA, PTR) behind one small interface:
   `node:dns` in production, a fixture in specs, with a cache that honours
