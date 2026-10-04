@@ -101,7 +101,11 @@ none of it names a private application.
   password a client's reason repeats). Text PostgreSQL cannot keep as
   given — a NUL, a lone surrogate, which `Bun.sql` sends as U+FFFD —
   never reaches it: an id or a key holding one names nothing, a value to
-  keep is `INVALID`. The Redis store is one Redis or a primary
+  keep is `INVALID`. Every PostgreSQL transaction sets its isolation
+  level first (writes and migrations `READ COMMITTED`), whatever the
+  client's sessions default to, and two packages never share a
+  `tablePrefix`: both have a `<prefix>messages`, and the store refuses a
+  `<prefix>schema` it did not make. The Redis store is one Redis or a primary
   with replicas, never Cluster: its scripts reach keys they are not
   given, and its `keyPrefix` refuses `{`.
 - **The network is injected.** DNS and sockets reach a package through an
