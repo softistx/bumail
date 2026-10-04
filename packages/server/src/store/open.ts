@@ -12,7 +12,7 @@ export interface OpenedStore {
 }
 
 /** `message` with the password of `url` masked, as `@bumail/store` masks it. */
-function maskedFor(message: string, url: string): string {
+export function maskedFor(message: string, url: string): string {
 	try {
 		return masked(message, new URL(url).password);
 	} catch {

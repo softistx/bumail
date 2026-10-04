@@ -4,6 +4,7 @@ import { parseArgs } from './args';
 import { HELP } from './help';
 import { manage } from './manage';
 import type { Terminal } from './secret';
+import { serveUntilSignal } from './serve';
 import { summary } from './summary';
 
 /** Where the command writes, and what it reads. */
@@ -14,6 +15,11 @@ export interface Io {
 	readonly version: string;
 	/** Where a new password is read from. */
 	readonly terminal: Terminal;
+	/**
+	 * Calls `handler` with each SIGTERM or SIGINT, for `serve`; answers
+	 * what stops listening. Without it, `serve` stops at once.
+	 */
+	readonly signals?: (handler: (signal: string) => void) => () => void;
 }
 
 /** The exit codes `--help` lists. */
@@ -34,6 +40,7 @@ const EXIT_OF: Record<ServerErrorCode, number> = {
 	ALREADY_EXISTS: EXIT.refused,
 	IN_USE: EXIT.refused,
 	UNAVAILABLE: EXIT.unavailable,
+	NOT_IMPLEMENTED: EXIT.notImplemented,
 };
 
 /** Runs `bumail` with `argv` (without the executable), answering its exit code. */
@@ -60,10 +67,7 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 			io.out(`${summary(config)}\n`);
 			return EXIT.ok;
 		}
-		io.err(
-			`bumail serve: ${config.file} is valid, but serving is not implemented yet\n`,
-		);
-		return EXIT.notImplemented;
+		return await serveUntilSignal(config, io);
 	} catch (error) {
 		if (!(error instanceof ServerError)) throw error;
 		io.err(`bumail: ${error.message}\n`);

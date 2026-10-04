@@ -164,6 +164,22 @@ directory commands' own refusals are under
 - [`bumail: a login came from a client with no IP address; the failure limiter does not count such logins`](#bumail-a-login-came-from-a-client-with-no-ip-address-the-failure-limiter-does-not-count-such-logins)
 - [`maxVerifies must be an integer of 1 or more`](#maxverifies-must-be-an-integer-of-1-or-more)
 - [`the directory URL must be sqlite: and a path`](#the-directory-url-must-be-sqlite-and-a-path)
+**Serving** (`bumail serve`: exit code 3 or 5; the replies other servers get; the log)
+
+- [`acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`](#acme-mode-arrives-in-a-later-slice-set-tlsmode--files-with-cert-and-key-for-now)
+- [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
+- [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
+- [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
+- [`550 5.1.1 User unknown`](#550-511-user-unknown)
+- [`554 5.7.1 Relay access denied`](#554-571-relay-access-denied)
+- [`550 5.7.1 Rejected by the DMARC policy of …`](#550-571-rejected-by-the-dmarc-policy-of-)
+- [`451 4.7.0 DMARC check failed, try again later`](#451-470-dmarc-check-failed-try-again-later)
+- [`552 5.3.4 Message header too large`](#552-534-message-header-too-large)
+- [`550 5.1.1 No recipient of this message is here any longer`](#550-511-no-recipient-of-this-message-is-here-any-longer)
+- [`451 4.3.0 Message not taken, try again later`](#451-430-message-not-taken-try-again-later)
+- [`imaps: login refused from …: …`](#imaps-login-refused-from--)
+- [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `imaps:`, `imap:`
+
 **Usage** (exit code 2)
 
 - [`bumail: …; see bumail --help`](#usage)
@@ -1067,6 +1083,123 @@ more` (from `new FailureLimiter`, with `maxPending`), and
 `readConfig` refuses such a `directory.url` before.
 
 **Fix**: `sqlite:` and an absolute path: `sqlite:/data/directory.sqlite`.
+
+## Serving
+
+`bumail serve` exits 3 for what arrives in a later release, 5 for
+what it cannot open or bind, and 1 for a configuration `check-config`
+refuses. What it does is in [running the server](serve.md).
+
+### `acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`
+
+`bumail serve` with `tls.mode = "acme"`, the default. `check-config`
+takes it, so a file written for ACME stays valid, but the server does
+not obtain certificates yet. Exit code 3.
+
+Get a certificate another way (certbot, your provider) and point the
+server at it:
+
+```toml
+[tls]
+mode = "files"
+cert = "/etc/bumail/fullchain.pem"
+key = "/etc/bumail/privkey.pem"
+```
+
+Remove `[acme]`, which `"files"` refuses.
+
+### `… cannot listen on …:… (…)`
+
+`mx`, `imaps` or `imap` could not bind its port; the reason is Bun's.
+Exit code 5, with what was opened closed again.
+
+- `Failed to listen at …: EADDRINUSE`: another process holds the port —
+  another mail server, or a `bumail serve` already running. Stop it, or
+  move this listener (`[ports]`).
+- `EACCES`: ports under 1024 need privileges. Run as root in a
+  container, or give Bun the capability:
+  `setcap cap_net_bind_service=+ep "$(command -v bun)"`.
+- `EADDRNOTAVAIL`: `bind` is an address this host does not have.
+
+### `tls.cert … cannot be read (…)`
+
+The certificate or the key was readable when the configuration was
+checked, and is not a moment later: removed, or its permissions changed
+under a running renewal. Exit code 5. Check the file, then start again.
+The message never repeats the key.
+
+### `the spool directory … cannot be used (…)`
+
+`<data>/spool`, where a message waits while it is checked, could not be
+created or emptied: `data` is read-only, full, or owned by another user.
+Exit code 5. Give the server's user a writable `data`.
+
+### `550 5.1.1 User unknown`
+
+What a sending server is told for a recipient in a hosted domain that
+no user or alias has. Add the user or the alias; it counts at once, no
+restart.
+
+### `554 5.7.1 Relay access denied`
+
+What a sending server is told for a recipient in a domain this server
+does not host. That is the rule on port 25, with no exception: no AUTH
+is offered there, so no session can relay. If the domain should be
+yours, `bumail domain add` it. A user who wants to send elsewhere uses
+submission, in a later release.
+
+### `550 5.7.1 Rejected by the DMARC policy of …`
+
+The message failed DMARC — neither an aligned DKIM signature nor an
+aligned SPF pass — and the From domain publishes `p=reject`; or its
+From could not be evaluated (none, two, a group). With
+`inbound.dmarc = "enforce"`, the default, it is refused during the
+session, and logged as `refused by DMARC`. The sending server tells its
+sender.
+
+If an honest sender is refused, their mail is usually forwarded by a
+server that breaks DKIM, or sent through a service missing from their
+SPF record: the fix is on their side. To take such mail meanwhile,
+`inbound.dmarc = "mark"` records the result and delivers everything.
+
+### `451 4.7.0 DMARC check failed, try again later`
+
+The From domain's DMARC record, or an aligned check, could not be had:
+its DNS did not answer within the bound. The sending server tries
+again. Only with `inbound.dmarc = "enforce"`; with `"mark"` the message
+is delivered. Repeated for every domain: check this host's resolver.
+
+### `552 5.3.4 Message header too large`
+
+The message's header is over 256 KiB. No real mail has such a header;
+it is refused.
+
+### `550 5.1.1 No recipient of this message is here any longer`
+
+Each recipient was accepted, then removed from the directory before the
+message ended. The sending server reports it.
+
+### `451 4.3.0 Message not taken, try again later`
+
+The message was cut off, or the server was stopped while checking it.
+The sending server tries again. When the SMTP server refused the
+message itself — too big (`552 5.3.4`), a bare line break (`550
+5.6.11`) — that reply is sent instead.
+
+### `imaps: login refused from …: …`
+
+In the log, for every IMAP login refused, with why: `password`,
+`unknown` (no such user), `disabled`, `blocked` (the failure limiter:
+10 failures within 15 minutes), `malformed` or `busy`. The client is
+told only `NO`. The password is never logged. See
+[logins](directory.md#logins).
+
+### `mx: error in a session from …: …`
+
+In the log: the store or the directory failed during a session, the
+reason with any store password masked. The SMTP client got
+`451 4.3.0` and will try again; an IMAP client got `NO [UNAVAILABLE]`.
+Check the store (`store.url`) and the disk.
 
 ## Usage
 

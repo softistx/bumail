@@ -5,8 +5,9 @@ export const HELP = `Usage: bumail [--config <file>] <command>
 The bumail mail server.
 
 Commands:
-  serve          check the configuration, then run the server
-                 (not implemented yet: it checks, and exits 3)
+  serve          check the configuration, then run the server: SMTP from
+                 other servers (ports.mx, 25) and IMAP over TLS
+                 (ports.imaps, 993), until SIGTERM or SIGINT
   check-config   check the configuration, print a summary, and exit
 
   domain add <domain>         host a domain
@@ -41,8 +42,9 @@ The environment overrides URLs and secrets only, each also as *_FILE:
   BUMAIL_HOSTNAME, BUMAIL_STORE_URL, BUMAIL_QUEUE_URL,
   BUMAIL_SMARTHOST_PASSWORD
 
-Exit codes: 0 done, 1 invalid configuration, 2 bad usage,
-3 not implemented yet, 4 refused by the directory (an address, a
-password, a name taken, not found, still in use), 5 the directory or
-the mail store unavailable.
+Exit codes: 0 done (serve: stopped cleanly), 1 invalid configuration,
+2 bad usage, 3 not available yet (serve with tls.mode "acme"), 4 refused
+by the directory (an address, a password, a name taken, not found,
+still in use), 5 the directory, the mail store, a port or the
+certificate unavailable.
 `;

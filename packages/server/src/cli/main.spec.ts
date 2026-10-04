@@ -115,12 +115,12 @@ describe('the bumail command', () => {
 		);
 	});
 
-	test('serve checks the file, then says it is not implemented yet, exiting 3', async () => {
+	test('serve checks the file, then refuses tls.mode "acme" for now, exiting 3', async () => {
 		const path = writeConfig(BASE);
 		const { code, err } = await bumail(['serve', '--config', path]);
 		expect(code).toBe(3);
 		expect(err).toBe(
-			`bumail serve: ${path} is valid, but serving is not implemented yet\n`,
+			'bumail: acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now\n',
 		);
 		expect((await bumail(['serve', '--config', writeConfig('')])).code).toBe(1);
 	});
