@@ -525,8 +525,8 @@ process.on('SIGTERM', async () => {
 - **Every call sets its isolation level**, whatever the client's
   sessions default to, so a client shared with code that defaults to
   `repeatable read` or `serializable` still serves the store: writes,
-  creating an account and `migrate()` run at `READ COMMITTED`, reads at
-  `REPEATABLE READ, READ ONLY`. Every transaction a call opens sets its
+  creating an account and `migrate()`'s migration run at `READ COMMITTED`;
+  reads, and `migrate()`'s version check, at `REPEATABLE READ, READ ONLY`. Every transaction a call opens sets its
   level, reads of a single row included.
 - **Nothing connects at `open`**: a wrong option is refused there, as
   `INVALID`, and a database out of reach on the first call, as

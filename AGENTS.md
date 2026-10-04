@@ -267,8 +267,11 @@ Every PR goes into `develop`. Before merging:
   `describePostgres` in `databases.fixtures.ts`, each with its own
   package's error class and words; and `isStorable`, the queue's in
   `src/text.ts`, the store's in `src/postgres/storable.ts` (which takes
-  `unknown` and narrows to a string, for ids from a caller). One
-  difference in `migrate`: the store reads its fast-path version in a
+  `unknown` and narrows to a string, for ids from a caller). Two
+  differences in `migrate`. First, only the store refuses, before its
+  first migration, a foreign `<prefix>schema` or a table of its own name
+  already there; the queue does not, which is why a table prefix is never
+  shared between packages. Second, the store reads its fast-path version in a
   `REPEATABLE READ, READ ONLY` transaction, since every store call pins
   its level; the queue's reads it in two autocommit statements, which can
   stay, since a stale or torn answer there only sends it to the locked
