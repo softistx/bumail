@@ -432,7 +432,8 @@ Every PR goes into `develop`. Before merging:
   counted out as soon as the idle time is up, and a hang-up while the
   server paused reading, freed at once, a `node:net` client that stopped
   sending then reading the 421 and a clean end, one that reads and never
-  stops sending reset at `LINGER_MAX_MS` and freed within 1 s, having read
+  stops sending reset at `LINGER_MAX_MS`, its socket closed within
+  `LINGER_MAX_MS` plus 250 ms (750 ms) of the decision, having read
   the 421, and a `maxErrors` hang-up
   while paused on a real server, freed within 1 s of the decision with no
   RCPT the client kept pipelining behind it run;
@@ -452,9 +453,10 @@ Every PR goes into `develop`. Before merging:
   `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`.
   Both `close.spec.ts` also time the server's own `close` from its
   decision: within 100 ms for a reset with replies queued (smtp), from
-  `LINGER_QUIET_MS` to before `LINGER_MAX_MS` for a linger over a client
-  gone quiet, and within `LINGER_MAX_MS` plus 250 ms over one still
-  sending, which under load may pause long enough to half-close early
+  a millisecond under `LINGER_QUIET_MS` (19 ms, for the timer's rounding)
+  to before `LINGER_MAX_MS` for a linger over a client gone quiet, and
+  from those same 19 ms to within `LINGER_MAX_MS` plus 250 ms over one
+  still sending, which under load may pause long enough to half-close early
   (measured 30 runs each on macOS and Linux beside busy cores: at most
   12 ms, 37.5 ms, and 28 ms past `LINGER_MAX_MS`).
   The idle `timeout` (30 minutes at least) runs the same close but no imap

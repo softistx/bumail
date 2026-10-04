@@ -85,7 +85,8 @@ function watched(source: ReadableStream<Uint8Array>): {
 				chunk = await reader.read();
 			} catch (error) {
 				// Only a read that fails is the disk's failure; a reader
-				// that stopped early (an unsigned message) is not.
+				// that stopped early (an unsigned message, or one with no
+				// signature that can be checked) is not.
 				if (cancelled) return;
 				failed = true;
 				controller.error(error);
