@@ -46,13 +46,17 @@ function readOptions(
 		passwordStdin: false,
 		passwordFile: undefined,
 		purge: false,
+		selector: undefined,
+		replace: false,
 	};
 	/** The value of `--name value` or `--name=value`, and the index past it. */
 	const take = (i: number, name: string): [string, number] => {
 		const arg = argv[i] ?? '';
 		const value = arg === name ? argv[i + 1] : arg.slice(name.length + 1);
 		if (value === undefined || value === '') {
-			throw usage(`${name} needs a file`);
+			throw usage(
+				`${name} needs ${name === '--selector' ? 'a selector' : 'a file'}`,
+			);
 		}
 		return [value, arg === name ? i + 1 : i];
 	};
@@ -75,6 +79,13 @@ function readOptions(
 			options.passwordStdin = true;
 		} else if (arg === '--purge') {
 			options.purge = true;
+		} else if (arg === '--selector' || arg.startsWith('--selector=')) {
+			if (options.selector !== undefined) {
+				throw usage('--selector is given twice');
+			}
+			[options.selector, i] = take(i, '--selector');
+		} else if (arg === '--replace') {
+			options.replace = true;
 		} else if (/^-+pass/i.test(arg)) {
 			throw usage(
 				'a password is never taken from the command line: use --password-stdin or --password-file, or type it at the prompt',

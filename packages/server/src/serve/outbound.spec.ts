@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
+import { verifyDkim } from '@bumail/auth';
 import { fixtureResolver } from '@bumail/dns';
 import { readConfig } from '../config/read';
+import { Directory } from '../directory/directory';
 import { type Sink, startSink } from './outbound.fixtures';
 import { serve } from './serve';
 import { type Fixture, mailOf, RECORDS, startServer } from './serve.fixtures';
@@ -125,6 +127,54 @@ describe('outbound: by MX', () => {
 		expect(dsn).toContain('multipart/report');
 		expect(dsn).toContain('nobody@remote.example');
 		expect(dsn).toContain('Subject: bounce me');
+	});
+});
+
+describe('outbound: DKIM', () => {
+	test('signs mail From a hosted domain with its key: it verifies at the other end, and here', async () => {
+		const mx = await sink();
+		const f = await start(mx);
+		const directory = Directory.open({ file: join(f.dir, 'directory.sqlite') });
+		const key = await directory.dkim.generate('example.com', {
+			selector: 's1',
+		});
+		directory.close();
+		const { last } = await send(
+			f,
+			['carol@remote.example', 'bob@example.com'],
+			'signed',
+		);
+		expect(last).toStartWith('250 ');
+		const [taken] = await mx.until(1);
+		const text = taken?.text ?? '';
+		expect(text).toMatch(/^Received: /);
+		expect(text).toContain('DKIM-Signature: v=1; a=rsa-sha256;');
+		const resolver = fixtureResolver({ [key.name]: { txt: [key.record] } });
+		const [result] = await verifyDkim(text, { resolver });
+		expect(result).toMatchObject({ result: 'pass', domain: 'example.com' });
+		expect(f.lines.some((l) => l.includes('(unsigned)'))).toBe(false);
+
+		await f.stop();
+		fixture = undefined;
+		const [mail = ''] = await mailOf(f.dir, 'bob@example.com', 'inbox');
+		expect(mail).toStartWith(
+			'Return-Path: <alice@example.com>\r\nDKIM-Signature: ',
+		);
+		const [here] = await verifyDkim(mail, { resolver });
+		expect(here?.result).toBe('pass');
+	});
+
+	test('sends mail From a domain with no key unsigned, and says so', async () => {
+		const mx = await sink();
+		const f = await start(mx);
+		await send(f, ['carol@remote.example'], 'unsigned');
+		const [taken] = await mx.until(1);
+		expect(taken?.text).not.toContain('DKIM-Signature');
+		expect(
+			f.lines.some((l) =>
+				/queued as \S+ for carol@remote\.example \(unsigned\)$/.test(l),
+			),
+		).toBe(true);
 	});
 });
 

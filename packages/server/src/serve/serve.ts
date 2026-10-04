@@ -23,6 +23,7 @@ import {
 } from './outbound';
 import { Spool } from './spool';
 import { closeResources, stopper } from './stop';
+import { dkimSigner } from './submission/sign';
 import { readTls } from './tls';
 import { trackedStore } from './tracked';
 
@@ -237,7 +238,7 @@ export async function serve(
 		inflight,
 		imaps,
 		queue,
-		sign: async () => undefined,
+		sign: dkimSigner(directory),
 	};
 
 	let bound: Awaited<ReturnType<typeof bindListeners>>;

@@ -1,7 +1,8 @@
 import type { ServerConfig } from '../config/types';
-import { checkAddress } from '../directory/address';
+import { checkAddress, checkDomain } from '../directory/address';
 import { directoryFile } from '../directory/database';
 import { Directory } from '../directory/directory';
+import { DKIM_KEY_BITS, zoneLine } from '../directory/dkim';
 import { ServerError } from '../errors';
 import { provisionAccount, purgeAccount } from '../store/accounts';
 import {
@@ -133,6 +134,54 @@ const commands: Record<Manage['noun'], Handler> = {
 		} else {
 			await removeUser(address, args.purge === true, directory, config, out);
 		}
+	},
+
+	async dkim(args, directory, _, { out }) {
+		const [domain = ''] = args.operands;
+		if (args.verb === 'list') {
+			out(
+				table(
+					directory.dkim
+						.list()
+						.map((key) => [key.domain, `selector ${key.selector}`]),
+				),
+			);
+			return;
+		}
+		if (args.verb === 'remove') {
+			out(
+				`removed the DKIM key of ${directory.dkim.remove(domain)}; its mail goes unsigned\n`,
+			);
+			return;
+		}
+		const key =
+			args.verb === 'generate'
+				? await directory.dkim.generate(domain, {
+						...(args.selector === undefined ? {} : { selector: args.selector }),
+						replace: args.replace,
+					})
+				: directory.dkim.get(domain);
+		if (key === undefined) {
+			throw new ServerError(
+				'NOT_FOUND',
+				`the domain ${checkDomain(domain)} has no DKIM key; bumail dkim generate makes one`,
+			);
+		}
+		if (args.verb === 'generate') {
+			out(
+				`generated an RSA-${DKIM_KEY_BITS} DKIM key for ${key.domain}, selector ${key.selector}; mail from ${key.domain} is signed with it from now on\n`,
+			);
+		}
+		out(
+			[
+				'publish this TXT record:',
+				`  name   ${key.name}`,
+				`  value  ${key.record}`,
+				'as a zone file line:',
+				`  ${zoneLine(key)}`,
+				'',
+			].join('\n'),
+		);
 	},
 
 	async alias({ verb, operands }, directory, _, { out }) {

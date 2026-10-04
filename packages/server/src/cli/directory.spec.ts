@@ -492,6 +492,61 @@ describe('bumail alias', () => {
 	});
 });
 
+describe('bumail dkim', () => {
+	test('generate prints the record to publish; show, list and remove', async () => {
+		const { bumail, directory } = await seeded();
+		const generated = await bumail([
+			'dkim',
+			'generate',
+			'Example.COM',
+			'--selector=s1',
+		]);
+		expect(generated.code).toBe(0);
+		const lines = generated.out.split('\n');
+		expect(lines[0]).toBe(
+			'generated an RSA-2048 DKIM key for example.com, selector s1; mail from example.com is signed with it from now on',
+		);
+		expect(lines[1]).toBe('publish this TXT record:');
+		expect(lines[2]).toBe('  name   s1._domainkey.example.com');
+		expect(lines[3]).toMatch(
+			/^ {2}value {2}v=DKIM1; k=rsa; p=[A-Za-z0-9+/=]{392}$/,
+		);
+		expect(lines[5]).toStartWith(
+			'  s1._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=',
+		);
+		expect(generated.out).not.toContain('PRIVATE');
+		const opened = directory();
+		expect(opened.dkim.get('example.com')?.record).toBe(
+			lines[3]?.replace('  value  ', ''),
+		);
+		opened.close();
+
+		const shown = await bumail(['dkim', 'show', 'example.com']);
+		expect(shown.out).toBe(lines.slice(1).join('\n'));
+		expect((await bumail(['dkim', 'list'])).out).toBe(
+			'example.com  selector s1\n',
+		);
+		expect(await bumail(['dkim', 'generate', 'example.com'])).toEqual({
+			code: 4,
+			out: '',
+			err: 'bumail: the domain example.com has a DKIM key already; --replace makes a new one\n',
+		});
+		expect(
+			(await bumail(['dkim', 'generate', 'example.com', '--replace'])).out,
+		).toContain('selector bumail;');
+		expect(await bumail(['dkim', 'remove', 'example.com'])).toEqual({
+			code: 0,
+			out: 'removed the DKIM key of example.com; its mail goes unsigned\n',
+			err: '',
+		});
+		expect(await bumail(['dkim', 'show', 'example.com'])).toEqual({
+			code: 4,
+			out: '',
+			err: 'bumail: the domain example.com has no DKIM key; bumail dkim generate makes one\n',
+		});
+	});
+});
+
 describe('the usage of the directory commands', () => {
 	test.each([
 		[['domain'], 'domain needs a command: add, list or remove'],
@@ -527,6 +582,20 @@ describe('the usage of the directory commands', () => {
 		[
 			['user', 'add', 'a@example.com', '--password-file'],
 			'--password-file needs a file',
+		],
+		[['dkim'], 'dkim needs a command: generate, show, list or remove'],
+		[['dkim', 'generate'], 'dkim generate takes one domain'],
+		[
+			['dkim', 'show', 'example.com', '--selector', 's'],
+			'dkim show takes no --selector',
+		],
+		[
+			['user', 'remove', 'a@example.com', '--replace'],
+			'user remove takes no --replace',
+		],
+		[
+			['dkim', 'generate', 'example.com', '--selector'],
+			'--selector needs a selector',
 		],
 	])('%p exits 2', async (args, message) => {
 		const { bumail } = server();

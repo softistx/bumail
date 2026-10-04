@@ -51,7 +51,7 @@ describe('the file', () => {
 		}
 	});
 
-	test('migrates a version 1 file to 2, its users kept and given a version', async () => {
+	test('migrates a version 1 file to the last, its users kept and given a version', async () => {
 		const file = join(tempDir(), 'directory.sqlite');
 		const v1 = new Database(file, { create: true, strict: true });
 		v1.exec(MIGRATIONS[0] ?? '');
@@ -74,7 +74,7 @@ describe('the file', () => {
 		try {
 			expect(
 				db.query<{ version: number }, []>('SELECT version FROM schema').all(),
-			).toEqual([{ version: 2 }]);
+			).toEqual([{ version: MIGRATIONS.length }]);
 			expect(
 				db.query<{ version: number }, []>('SELECT version FROM users').all(),
 			).toEqual([{ version: 0 }]);
