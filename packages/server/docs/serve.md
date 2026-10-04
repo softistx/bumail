@@ -23,9 +23,11 @@ bumail serve --config /data/bumail.toml
 It reads and checks the configuration whole, as `check-config` does,
 and stops at the first thing it cannot do:
 
-1. reads the certificate and its key (`tls.mode = "files"`). With
-   `tls.mode = "acme"`, which `check-config` takes, it exits 3: ACME
-   comes in a later release;
+1. reads the certificate and its key (`tls.mode = "files"`).
+   `tls.mode = "acme"` is the **default**, and `check-config` takes it,
+   but `serve` exits 3 with it until ACME arrives in a later release: a
+   minimal configuration needs `tls.mode = "files"`, with `cert` and
+   `key`, for now;
 2. creates `<data>/spool/<pid>`, where messages wait while they are
    checked, readable by the server alone, and removes what a server no
    longer running left under `<data>/spool`;
@@ -62,9 +64,10 @@ server. Reloading it while running comes in a later release.
 | 143 | `ports.imap` | IMAP with STARTTLS; LOGIN and AUTHENTICATE are refused until TLS is on. Off unless you set it |
 
 Every listener binds to `bind` (default `0.0.0.0`). The other ports of
-`[ports]` — `submissions`, `submission`, `https`, `http`, `health` — are
-logged as arriving in a later slice (a later release) and bound to nothing; leave them
-as they are, or set them to 0 to silence the line.
+`[ports]` — `submissions`, `submission`, `https`, `http`, `health` —
+are bound to nothing: their listeners arrive in later releases, and the
+log says so at start, one line each. Leave them as they are, or set
+them to 0 to silence those lines.
 
 ## Receiving mail on 25
 
@@ -215,10 +218,11 @@ bumail: stopped
 | `mx: <id> … refused: no recipient is here any longer` | every recipient was removed between RCPT and the end of DATA |
 | `mx: <id> from <ip> not spooled: …` | the spool could not take the message (a full disk, say): the client got `451` |
 | `mx: <id> … abandoned before <user>: the session ended` | the session ended while the message was being written: the users before `<user>` have it |
-| `mx: error in a session from <ip>: …` | the store or the directory failed: the client got `451` |
+| `mx: error in a session from <ip>: …` | the store or the directory failed, or a message's checks ran past the 60 s hook timeout: the client got `451` |
 | `imaps: login refused from <ip>: <reason>` (`imap:` on 143) | `password`, `unknown`, `disabled`, `blocked`, `malformed` or `busy` |
 | `imaps: error in a session from <ip>: …` (`imap:` on 143) | the store failed: the client got `NO [UNAVAILABLE]` |
 | `bumail: SIGTERM, stopping`, `bumail: stopped` | the stop |
+| `bumail: the mail store did not close cleanly: …` | during the stop: the store's close failed; the directory is closed anyway, and it exits 0 |
 | `bumail: <signal> again, stopping now` | a second signal during the stop: the waits are skipped |
 
 A refused recipient (`550 5.1.1`, `554 5.7.1`) is not logged: on port 25

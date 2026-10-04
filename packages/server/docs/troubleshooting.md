@@ -183,6 +183,7 @@ directory commands' own refusals are under
 - [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
 - [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`
 - [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `imaps:`, `imap:`
+- [`bumail: the mail store did not close cleanly: …`](#bumail-the-mail-store-did-not-close-cleanly-)
 - [`mx: … not spooled: …`](#mx--not-spooled-)
 - [`mx: … abandoned before …: the session ended`](#mx--abandoned-before--the-session-ended)
 
@@ -1161,8 +1162,7 @@ submission, in a later release.
 ### `550 5.7.1 Rejected by the DMARC policy of …`
 
 The message failed DMARC — neither an aligned DKIM signature nor an
-aligned SPF pass — and the From domain publishes `p=reject`; or its
-From could not be evaluated (none, two, a group). With
+aligned SPF pass — and the From domain publishes `p=reject`. With
 `inbound.dmarc = "enforce"`, the default, it is refused during the
 session, and logged as `refused by DMARC`. The sending server tells its
 sender.
@@ -1199,10 +1199,14 @@ message ended. The sending server reports it.
 
 ### `451 4.3.0 Message not taken, try again later`
 
-The message was cut off, or the server was stopped while checking it.
-The sending server tries again. When the SMTP server refused the
-message itself — too big (`552 5.3.4`), a bare line break (`550
-5.6.11`) — that reply is sent instead.
+Most often the message could not be written to the spool — a full
+disk, a permission changed under the running server — which the log
+records as [`mx: … not spooled: …`](#mx--not-spooled-). It is also the
+answer when the session ended while the message was being delivered
+([`abandoned before …`](#mx--abandoned-before--the-session-ended)). The
+sending server tries again. A message the SMTP server cut off itself
+gets that server's own reply instead: too big (`552 5.3.4`) or a bare
+line break (`550 5.6.11`); a lost connection gets no reply at all.
 
 ### `451 4.3.0 Local error in processing`
 
@@ -1222,15 +1226,27 @@ this and closed, and its server tries again. Raise
 In the log (`imap:` for port 143), for every IMAP login refused, with why: `password`,
 `unknown` (no such user), `disabled`, `blocked` (the failure limiter:
 10 failures within 15 minutes), `malformed` or `busy`. The client is
-told only `NO`. The password is never logged. See
+told only `NO`, except on `busy`, where it gets `NO [UNAVAILABLE]
+Temporary authentication failure` and may try again soon. The password
+is never logged. See
 [logins](directory.md#logins).
 
 ### `mx: error in a session from …: …`
 
-In the log: the store or the directory failed during a session, the
-reason with any store password masked. The SMTP client got
-`451 4.3.0` and will try again; an IMAP client got `NO [UNAVAILABLE]`.
-Check the store (`store.url`) and the disk.
+In the log: the store or the directory failed during a session, or a
+message's checks and delivery ran past the 60 seconds the SMTP server
+gives its `onData` hook; the reason has any store password masked. The
+SMTP client got `451 4.3.0` and will try again; an IMAP client got
+`NO [UNAVAILABLE]`, or `NO [SERVERBUG]` for a failure the IMAP server
+did not expect. Check the store (`store.url`), the disk and the DNS.
+
+### `bumail: the mail store did not close cleanly: …`
+
+In the log, during a stop: closing the mail store failed (a PostgreSQL
+connection already gone, say), the reason with any password masked. The
+directory is closed anyway, and the server still exits 0. A SQLite
+store recovers its journal at the next start; nothing is lost that was
+answered `250`.
 
 ### `mx: … not spooled: …`
 

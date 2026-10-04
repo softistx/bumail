@@ -158,7 +158,7 @@ change its users, remove it and add it again.
 | 1 | the configuration is invalid ([its problems](troubleshooting.md)) |
 | 2 | bad usage: an unknown command or option, an operand missing or too many, no way to read the password |
 | 4 | the directory refused: not an address or a domain, a password refused (too short, too long, typed differently twice, its file unreadable), a name already taken, not found, still in use |
-| 5 | the directory or the mail store cannot be opened or used |
+| 5 | the directory or the mail store cannot be opened or used; for `serve`, also a port it cannot bind, the certificate or the spool directory |
 
 (3 is `serve`'s, for `tls.mode = "acme"`.) Errors go to standard error
 as `bumail: <message>`. Standard error also carries the password

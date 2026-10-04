@@ -116,7 +116,9 @@ mx: 1kq2f… from 192.0.2.10 <joe@example.org> delivered to alice@example.com (s
 - **IMAP on 993** logs users in through the directory, its failure
   limiter counting each client's IP. Port 143 (`ports.imap`) is off; on,
   it refuses logins until STARTTLS.
-- **`tls.mode = "files"`** only for now; `"acme"` exits 3.
+- **`tls.mode = "files"` only, for now.** `"acme"` is the default, so
+  a minimal configuration makes `serve` exit 3 until ACME arrives: set
+  `tls.mode = "files"`, with `cert` and `key`.
 - **SIGTERM or SIGINT** stops it cleanly: no new connection, SMTP
   sessions given 10 seconds to finish, then the store closed. It exits 0.
 
