@@ -414,6 +414,15 @@ Every PR goes into `develop`. Before merging:
   - Bun's `listener.stop(true)` no longer closes a socket STARTTLS moved
     to TLS, so each server's `stop(true)` also closes every connection it
     holds;
+  - imap's implicit-TLS listener, without a `handshake` handler, held 50
+    raw TCP sockets that never sent a ClientHello for 12 s with a 1 s
+    `loginTimeout`, counted by no `maxConnections` (a TLS client was
+    greeted past a limit of 10) and closed by no timer. With one, `open`
+    comes at the TCP connection: imap counts the socket there, bounds the
+    handshake by `handshakeTimeout`, holds the greeting and the BYE of a
+    full server until the handshake completes, and resets a socket still
+    in its handshake on `stop(true)`; the 50 were counted, then closed by
+    the server within 4 s of a 1 s `handshakeTimeout`;
   - a reset reaches the client's kernel, not always the client: one sent
     into the window a client closed by not reading can be dropped (RFC
     5961), and the client then learns of it at its next probe of the
@@ -450,7 +459,11 @@ Every PR goes into `develop`. Before merging:
   clean end, or, sending on, freed as fast with no LOGIN sent after the
   first reaching `authenticate`, or reading and never pausing its sending,
   freed as fast once reset at `LINGER_MAX_MS`, having read the BYE;
-  `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`.
+  `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`;
+`handshake.spec.ts` covers raw sockets on implicit TLS that never send a
+ClientHello: counted by `maxConnections` and freed on closing, closed at
+`handshakeTimeout`, a garbage handshake counted out at once, and
+`stop(true)` with handshakes pending.
   Both `close.spec.ts` also time the server's own `close` from its
   decision: within 100 ms for a reset with replies queued (smtp), from
   a millisecond under `LINGER_QUIET_MS` (19 ms, for the timer's rounding)

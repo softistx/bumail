@@ -47,6 +47,32 @@ without TLS could log no one in. `implicitTls` is `false` by default: the
 server starts in clear and offers `STARTTLS`, as on 143. With
 `implicitTls: true` TLS starts with the first byte (RFC 8314), as on 993.
 
+On implicit TLS the server counts a socket from the TCP connection on, not
+from the end of its handshake: a socket that has not finished its
+handshake holds a place under `maxConnections`, and is closed, without a
+reply, `handshakeTimeout` seconds (default 10) after it connected, so
+clients that open TCP connections and never send a ClientHello cannot fill
+the server. The greeting, and the `BYE` of a server already full, wait for
+the handshake, so the client reads them over TLS; `loginTimeout` starts
+with the greeting. A handshake that fails — a clear client on 993 — is
+closed at once and counted out. A STARTTLS handshake is bounded by
+`loginTimeout`, the connection already counted.
+
+```ts
+const implicit = createImapServer({
+	...sameOptions,
+	implicitTls: true,
+	handshakeTimeout: 10, // seconds from the TCP connection to the end of the TLS handshake
+});
+```
+
+Bun 1.4.2 calls a TLS listener's `open` only once the handshake completed
+unless the listener has a `handshake` handler; with one, `open` comes at
+the TCP connection and the socket's timer runs during the handshake. The
+server sets one for that reason. That timer ticks in steps of about 4
+seconds, so a stuck handshake is closed up to that much after
+`handshakeTimeout`.
+
 `server.connections` is the number of connections open at this moment,
 logged in or not; `maxConnections` caps it.
 
@@ -237,12 +263,13 @@ server.notify(accountId);
 | `maxMessageSize` | 25 MiB | APPEND; at most 4 294 967 295 |
 | `maxLiteralSize` | 64 KiB | any other literal |
 | `timeout` | 1800 s | idle time before a hang-up; at least 1800 (§5.4) |
-| `loginTimeout` | 60 s | a deadline from connecting to logged in |
+| `loginTimeout` | 60 s | a deadline from the greeting to logged in |
+| `handshakeTimeout` | 10 s | on implicit TLS, a deadline from the TCP connection to the end of the TLS handshake; past it the socket is closed without a reply. See [Running the server](#running-the-server) |
 | `idleInterval` | 10 s | seconds between two looks at the store during IDLE; a fraction such as `0.5` is allowed, 0 is not |
 | `hookTimeout` | 60 s | seconds `authenticate` has to settle; past it the login answers `NO [UNAVAILABLE] Temporary authentication failure` and `onError` gets an `ImapError` with code `HOOK_TIMEOUT` |
 
 The sizes are bytes, the timers seconds. `maxConnections`, the sizes,
-`timeout`, `loginTimeout` and `hookTimeout` are whole numbers above 0;
+`timeout`, `loginTimeout`, `handshakeTimeout` and `hookTimeout` are whole numbers above 0;
 every timer is at most 2 147 483 seconds, what `setTimeout` can wait.
 
 ```ts
@@ -309,7 +336,8 @@ same 5 seconds. A client that connects and never logs in is cut at
 not; its place under `maxConnections` is free again.
 
 `server.stop(true)` hangs up on every open connection, those moved to TLS
-by STARTTLS included, as a timeout does.
+by STARTTLS included, as a timeout does; a socket still in its implicit
+TLS handshake is reset, having no TLS to say `BYE` on.
 
 ## Errors and onError
 

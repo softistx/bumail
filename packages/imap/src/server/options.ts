@@ -59,8 +59,20 @@ export interface ImapServerOptions {
 	 * 30 minutes, and the default.
 	 */
 	readonly timeout?: number;
-	/** Seconds a client has to log in, from connecting, however much it sends. Default 60. */
+	/**
+	 * Seconds a client has to log in, from its greeting, however much it
+	 * sends. On implicit TLS the greeting waits for the handshake, which
+	 * `handshakeTimeout` bounds. Default 60.
+	 */
 	readonly loginTimeout?: number;
+	/**
+	 * Seconds a client on implicit TLS has to complete its handshake, from
+	 * the TCP connection on; past it, the socket is closed without a word.
+	 * The socket holds its slot of `maxConnections` meanwhile. Bun's socket
+	 * timer ticks in steps of about 4 s, so the close comes up to that much
+	 * later. A STARTTLS handshake is bounded by `loginTimeout`. Default 10.
+	 */
+	readonly handshakeTimeout?: number;
 	/** Seconds between two looks at the store during IDLE. Default 10; more than 0. */
 	readonly idleInterval?: number;
 	/** Seconds `authenticate` has to settle before the login fails with `NO [UNAVAILABLE]`. Default 60. */

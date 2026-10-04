@@ -31,6 +31,7 @@ export interface Settings {
 	readonly maxLiteralSize: number;
 	readonly timeout: number;
 	readonly loginTimeout: number;
+	readonly handshakeTimeout: number;
 	readonly idleInterval: number;
 	readonly hookTimeout: number;
 }
@@ -132,6 +133,12 @@ export function settingsOf(options: ImapServerOptions): Settings {
 			'loginTimeout',
 			options.loginTimeout,
 			60,
+			MAX_TIMER_SECONDS,
+		),
+		handshakeTimeout: positive(
+			'handshakeTimeout',
+			options.handshakeTimeout,
+			10,
 			MAX_TIMER_SECONDS,
 		),
 		idleInterval: intervalOf(options.idleInterval),

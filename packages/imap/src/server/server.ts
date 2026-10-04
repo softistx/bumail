@@ -14,6 +14,13 @@ interface SocketState {
 	transport?: SocketTransport;
 	/** Bytes on the raw socket after STARTTLS are the TLS stream itself: ignored. */
 	upgraded: boolean;
+	/**
+	 * Implicit TLS whose handshake has not completed: the socket is counted,
+	 * but bounded by `handshakeTimeout`, and `start` waits for the handshake.
+	 */
+	handshaking?: boolean;
+	/** What the server does once the handshake completes: greet, or turn away. */
+	start?: () => void;
 }
 
 export interface ImapServer {
@@ -43,8 +50,12 @@ function stateOf(socket: Socket<SocketState>): SocketState | undefined {
 	return socket.data as SocketState | undefined;
 }
 
-/** The handlers the clear socket and the TLS one share: input, drain, idle time. */
-function handlers(settings: Settings): SocketHandler<SocketState> {
+/**
+ * The handlers the clear socket and the TLS one share: input, drain, idle
+ * time. Each reads the state through `stateOf`: Bun may report an error or
+ * a close on a socket whose `open` never ran.
+ */
+export function handlers(settings: Settings): SocketHandler<SocketState> {
 	return {
 		data(socket, chunk) {
 			const state = stateOf(socket);
@@ -64,6 +75,8 @@ function handlers(settings: Settings): SocketHandler<SocketState> {
 		timeout(socket) {
 			const state = stateOf(socket);
 			if (!state || state.upgraded) return;
+			// A TLS handshake that never completed: nothing to say, no one to say it to.
+			if (state.handshaking) return socket.terminate();
 			void state.connection?.close('Idle for too long, closing', {
 				forced: true,
 			});
@@ -121,6 +134,8 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 	const settings = settingsOf(options);
 	let listener: TCPSocketListener<SocketState> | undefined;
 	const open = new Set<Connection>();
+	/** Implicit TLS sockets still in their handshake, for `stop(true)`. */
+	const handshaking = new Set<Socket<SocketState>>();
 	const secure = options.implicitTls === true;
 	return {
 		get connections() {
@@ -146,22 +161,48 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 					: {}),
 				socket: {
 					...handlers(settings),
+					// With a `handshake` handler, Bun calls `open` on implicit TLS
+					// as soon as TCP connects; without one, only once the
+					// handshake completed, so a client that never sends its
+					// ClientHello would be counted by no limit and bounded by no
+					// timer.
 					open(socket) {
-						socket.data = { upgraded: false };
-						socket.timeout(settings.timeout);
+						socket.data = { upgraded: false, handshaking: secure };
+						socket.timeout(
+							secure ? settings.handshakeTimeout : settings.timeout,
+						);
+						const begin = (start: () => void) => {
+							if (!secure) return start();
+							handshaking.add(socket);
+							socket.data.start = start;
+						};
 						const transport = transportOf(socket, settings, secure);
 						if (open.size >= settings.maxConnections) {
 							// Through the transport: its end is bounded, on TLS too.
-							transport.write(TOO_MANY);
-							transport.end();
-							return;
+							return begin(() => {
+								transport.write(TOO_MANY);
+								transport.end();
+							});
 						}
 						const connection = new Connection(settings, transport);
 						open.add(connection);
 						socket.data.connection = connection;
-						void connection.open();
+						begin(() => void connection.open());
+					},
+					handshake(socket, success) {
+						const state = stateOf(socket);
+						if (!state?.handshaking) return;
+						handshaking.delete(socket);
+						// A failed handshake: Bun closes the socket, and `close` counts it out.
+						if (!success) return;
+						state.handshaking = false;
+						socket.timeout(settings.timeout);
+						const start = state.start;
+						delete state.start;
+						start?.();
 					},
 					close(socket) {
+						handshaking.delete(socket);
 						const state = stateOf(socket);
 						const connection = state?.connection;
 						if (connection) open.delete(connection);
@@ -178,8 +219,16 @@ export function createImapServer(options: ImapServerOptions): ImapServer {
 			if (!closeConnections) return;
 			// Bun's `stop(true)` closes the sockets the listener holds, and a
 			// socket STARTTLS moved to TLS is no longer one of them: hang up on
-			// every connection here, as a timeout does.
+			// every connection here, as a timeout does. A socket still in its
+			// handshake has no TLS to say BYE on: it is reset.
+			const stuck = new Set<Connection | undefined>();
+			for (const socket of [...handshaking]) {
+				stuck.add(stateOf(socket)?.connection);
+				handshaking.delete(socket);
+				socket.terminate();
+			}
 			for (const connection of [...open]) {
+				if (stuck.has(connection)) continue;
 				void connection.close(undefined, { forced: true });
 			}
 		},

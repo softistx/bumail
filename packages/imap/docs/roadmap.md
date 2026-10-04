@@ -44,6 +44,14 @@ The second slice:
 
 ## Shipped
 
+### Unreleased — merged, not yet published
+
+- **The implicit TLS handshake is bounded.** A socket on an
+  `implicitTls` port is counted by `maxConnections` from the TCP
+  connection on, and closed past `handshakeTimeout` (default 10 seconds)
+  if its handshake has not completed. Before, a socket that never sent
+  its ClientHello was counted by no limit and closed by no timer.
+
 ### 0.1.1
 
 - **Keywords as the client set them**, compared without case: `SEARCH
