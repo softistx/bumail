@@ -20,6 +20,12 @@ export interface Io {
 	 * what stops listening. Without it, `serve` stops at once.
 	 */
 	readonly signals?: (handler: (signal: string) => void) => () => void;
+	/**
+	 * Calls `handler` with each SIGHUP, for `serve`, which looks for a
+	 * renewed certificate; answers what stops listening. Without it, a
+	 * SIGHUP is left to the platform.
+	 */
+	readonly reloads?: (handler: () => void) => () => void;
 }
 
 /** The exit codes `--help` lists. */

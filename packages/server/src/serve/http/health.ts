@@ -48,14 +48,16 @@ async function answers(ask: () => unknown): Promise<'ok' | 'failed'> {
 
 /** The report: every listener bound, the directory and the store answering. */
 export async function report(ctx: HealthContext): Promise<HealthReport> {
-	const listeners: Record<string, 'up' | 'down'> = {};
-	for (const name of ctx.expected) {
-		listeners[name] = ctx.up.has(name) ? 'up' : 'down';
-	}
 	const [directory, store] = await Promise.all([
 		answers(() => ctx.directory.domains.has('health.invalid')),
 		answers(() => ctx.store.findAccount('health@health.invalid')),
 	]);
+	// Read after the checks, which may take seconds: a listener that went
+	// down meanwhile is reported down, never up from before.
+	const listeners: Record<string, 'up' | 'down'> = {};
+	for (const name of ctx.expected) {
+		listeners[name] = ctx.up.has(name) ? 'up' : 'down';
+	}
 	const healthy =
 		directory === 'ok' &&
 		store === 'ok' &&

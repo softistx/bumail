@@ -7,8 +7,16 @@ export interface HttpListener {
 		port: number;
 		hostname: string;
 	}): Promise<{ port: number; hostname: string }>;
-	/** Requests under way. */
+	/** Requests under way, on a listener replaced by `setTls` too. */
 	readonly pending: number;
+	/**
+	 * Serves from now on with a renewed pair, only on a listener that has TLS.
+	 * `Bun.serve` cannot swap the certificate of a server it runs, so a second
+	 * one binds the same port (`reusePort`) with the new pair, and the first
+	 * stops accepting and finishes the requests it has. One that cannot bind
+	 * leaves the first as it was.
+	 */
+	setTls?(tls: TlsFiles): Promise<void>;
 	/** Stops accepting; without `force`, requests under way finish. Again with `force`, closes the connections. */
 	stop(force?: boolean): void;
 }
@@ -28,31 +36,57 @@ export interface HttpOptions {
 /** A listener that serves `options.fetch` once `listen` binds it. */
 export function httpListener(options: HttpOptions): HttpListener {
 	let server: Bun.Server<undefined> | undefined;
+	/** Servers `setTls` replaced, finishing their requests. */
+	let replaced: Bun.Server<undefined>[] = [];
 	let stopped = false;
+	const bind = (port: number, hostname: string, tls?: TlsFiles) =>
+		Bun.serve({
+			port,
+			hostname,
+			// Only a server with TLS is ever replaced: it shares its port.
+			...(tls === undefined ? {} : { tls, reusePort: true }),
+			fetch: options.fetch,
+			error: () => new Response('server error', { status: 500 }),
+		});
 	return {
 		get pending() {
-			return server?.pendingRequests ?? 0;
+			replaced = replaced.filter((old) => old.pendingRequests > 0);
+			return (
+				(server?.pendingRequests ?? 0) +
+				replaced.reduce((sum, old) => sum + old.pendingRequests, 0)
+			);
 		},
 		async listen({ port, hostname }) {
 			if (server !== undefined || stopped) {
 				throw new Error('an HTTP listener listens once');
 			}
 			options.check?.(hostname);
-			server = Bun.serve({
-				port,
-				hostname,
-				...(options.tls === undefined ? {} : { tls: options.tls }),
-				fetch: options.fetch,
-				error: () => new Response('server error', { status: 500 }),
-			});
+			server = bind(port, hostname, options.tls);
 			return {
 				port: server.port ?? port,
 				hostname: server.hostname ?? hostname,
 			};
 		},
+		...(options.tls === undefined
+			? {}
+			: {
+					async setTls(tls: TlsFiles) {
+						const old = server;
+						if (old === undefined || stopped) {
+							throw new Error('the HTTP listener is not listening');
+						}
+						const { port, hostname } = old;
+						if (port === undefined || hostname === undefined) {
+							throw new Error('the HTTP listener has no TCP address');
+						}
+						server = bind(port, hostname, tls);
+						replaced.push(old);
+						void old.stop();
+					},
+				}),
 		stop(force = false) {
 			stopped = true;
-			void server?.stop(force);
+			for (const one of [server, ...replaced]) void one?.stop(force);
 		},
 	};
 }

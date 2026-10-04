@@ -89,6 +89,8 @@ export type TlsConfig =
 			readonly cert: string;
 			/** Its private key, PEM. */
 			readonly key: string;
+			/** Seconds between two looks at the files for a renewed pair; 0: only on SIGHUP. Default 30. */
+			readonly pollSeconds: number;
 	  };
 
 /** Certificates from an ACME directory (RFC 8555), by HTTP-01 on `ports.http`. */

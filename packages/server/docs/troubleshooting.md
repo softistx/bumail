@@ -571,10 +571,10 @@ the credentials are to go in clear.
 
 ### `tls.…: is only for tls.mode "files"`
 
-**When**: `tls.cert` or `tls.key` without `mode = "files"`: the default
+**When**: `tls.cert`, `tls.key` or `tls.pollSeconds` without `mode = "files"`: the default
 mode is ACME, which makes its own.
 
-**Fix**: add `mode = "files"`, or remove `cert` and `key`.
+**Fix**: add `mode = "files"`, or remove `cert`, `key` and `pollSeconds`.
 
 ### `acme: is only for tls.mode "acme"`
 
@@ -1319,6 +1319,47 @@ key = "/etc/bumail/privkey.pem"
 ```
 
 Remove `[acme]`, which `"files"` refuses.
+
+### `tls: not reloaded: …`
+
+**When**: while `bumail serve` runs, the files of `tls.cert` and
+`tls.key` changed and the new pair cannot be used. The log gives the
+reason, once, after `tls: not reloaded: `:
+
+| reason | what it means |
+| --- | --- |
+| `tls.key is not the key of tls.cert` | one file was renewed and the other not yet — the usual look at a renewal under way, which the next look settles — or the key belongs to another certificate |
+| `tls.cert cannot be read (ENOENT)`, `tls.key cannot be read (…)` | a file is gone or not readable by the user the server runs as, as a swap is under way, or a mount is lost |
+| `tls.cert is not a PEM certificate`, `tls.key is not an unencrypted PEM private key` | not PEM, or an encrypted key |
+| `tls.cert expired on …`, `tls.cert is not valid until …` | the new certificate's dates |
+| `tls.cert does not name …` | it is for another host than `hostname` |
+| `<listener>: …` | a listener refused the pair, the others went back to the old one |
+
+**Why**: the server takes a pair only when it is a valid one for
+`hostname` (see [Renewing the certificate](serve.md#renewing-the-certificate)),
+and never half of one.
+
+**Fix**: nothing, when the next look logs `tls: reloaded (…)`: the log
+says it once. Otherwise fix the files and send `SIGHUP` (`docker kill -s
+HUP <container>`) to look at once. Until then **the old certificate keeps
+serving, and expires**: the log line is the only sign. To see what a
+listener serves now: `openssl s_client -connect mail.example.com:993
+</dev/null | openssl x509 -noout -subject -enddate`.
+
+### A renewed certificate is not served
+
+**When**: the files changed, the log says nothing and `openssl s_client`
+shows the old certificate.
+
+**Why**: either `tls.pollSeconds = 0` and no `SIGHUP` was sent, or the
+files the server reads are not the ones renewed: a relative path is
+read from the configuration file's directory, and a Docker bind mount
+of one file keeps the old inode when an editor or certbot replaces it
+(mount the folder instead). A connection already open keeps its TLS:
+test with a new one.
+
+**Fix**: `kill -HUP` the process (a `tls: unchanged (…)` line then says
+the files read are not new), and mount the folder holding the pair.
 
 ### `… cannot listen on …:… (…)`
 

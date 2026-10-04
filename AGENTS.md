@@ -12,13 +12,13 @@ below lists only what has landed.
 | --- | --- | --- |
 | `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
-| `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay, the PROXY protocol from trusted proxies; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
+| `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay, the PROXY protocol from trusted proxies, a renewed certificate taken by `setTls` without a restart; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, its `bun:sqlite` store as `@bumail/store/sqlite`, and its PostgreSQL store on `Bun.sql` as `@bumail/store/postgres` | — |
-| `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE, the PROXY protocol from trusted proxies | `@bumail/store`, `@bumail/mime` |
+| `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE, the PROXY protocol from trusted proxies, a renewed certificate taken by `setTls` without a restart | `@bumail/store`, `@bumail/mime` |
 | `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite`, its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres` and its Redis store on `Bun.redis` as `@bumail/queue/redis` | `@bumail/smtp`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS; an OpenAPI 3.1 document of its routes, shipped as `@bumail/jmap/openapi.json` and kept in step with them by a spec | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
-| `@bumail/server` | the server app, **private** until it is complete (`"private": true`, so neither changesets nor `scripts/publish.ts` touch it): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, its directory of domains, users, aliases and DKIM keys (a `bun:sqlite` file in WAL mode, argon2id passwords, a capped verify, a per-client failure limiter, aliases to local users only), and the `bumail` command (`check-config`, `domain`, `user`, `alias`, `dkim`, and `serve`: MX on 25 with no AUTH, SPF, DKIM and DMARC, delivery into the store; submission on 465 and 587, AUTH only after TLS, a user sending as itself or its aliases, DKIM-signed; the outbound queue, by MX or a smarthost, DSNs to the local sender's mailbox; IMAP on 993, JMAP on 443 — HTTPS from files, or plain HTTP for trusted reverse proxies, the client from `X-Forwarded-For` only from them — a health check on loopback, the PROXY protocol on the mail ports from trusted proxies, a certificate from files, a clean stop on SIGTERM) | `@bumail/store`, `@bumail/smtp`, `@bumail/imap`, `@bumail/jmap`, `@bumail/queue`, `@bumail/auth`, `@bumail/dns`; it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
+| `@bumail/server` | the server app, **private** until it is complete (`"private": true`, so neither changesets nor `scripts/publish.ts` touch it): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, its directory of domains, users, aliases and DKIM keys (a `bun:sqlite` file in WAL mode, argon2id passwords, a capped verify, a per-client failure limiter, aliases to local users only), and the `bumail` command (`check-config`, `domain`, `user`, `alias`, `dkim`, and `serve`: MX on 25 with no AUTH, SPF, DKIM and DMARC, delivery into the store; submission on 465 and 587, AUTH only after TLS, a user sending as itself or its aliases, DKIM-signed; the outbound queue, by MX or a smarthost, DSNs to the local sender's mailbox; IMAP on 993, JMAP on 443 — HTTPS from files, or plain HTTP for trusted reverse proxies, the client from `X-Forwarded-For` only from them — a health check on loopback, the PROXY protocol on the mail ports from trusted proxies, a certificate from files, reloaded when the files change or on SIGHUP, a clean stop on SIGTERM) | `@bumail/store`, `@bumail/smtp`, `@bumail/imap`, `@bumail/jmap`, `@bumail/queue`, `@bumail/auth`, `@bumail/dns`; it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
 | `@bumail/acme` | an ACME client (RFC 8555) on `fetch` and Web Crypto: `AcmeClient` (directory, nonces with the `badNonce` retry, account, orders, authorizations, challenges, finalize, the PEM chain; `https:` only, answers bounded, numbers clamped), `obtainCertificate` for the whole HTTP-01 flow, `http01Responder` for `Bun.serve`; and its primitives: a PKCS #10 CSR for DNS names on its own DER writer, the flattened JWS (ES256, RS256), the JWK thumbprint, key authorizations, P-256 and RSA keys as PKCS #8 PEM | — |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
@@ -429,8 +429,10 @@ Every PR goes into `develop`. Before merging:
     20 to 2 in 15, 16 to 96 KiB short, for a `node:tls` client reading
     slowly, in both copies. A full `shutdown()` there lost nothing in 15
     runs, and `write` gives no sign of that buffer;
-  - a TLS listener (implicit TLS) calls `open` only once the handshake
-    completed unless it has a `handshake` handler: without one, a socket
+  - a native `Bun.listen` TLS listener (implicit TLS used one before
+    **TLS hot reload**; a socket upgraded in `open`, as it now does, has
+    the `open` at the TCP connection from the start) calls `open` only
+    once the handshake completed unless it has a `handshake` handler: without one, a socket
     that never sends its ClientHello reaches no `open`, so no limit counts
     it and no `socket.timeout` closes it (50 raw sockets held 12 s with a
     1 s timeout). With a handshake handler, `open` comes at the TCP
@@ -520,7 +522,8 @@ Every PR goes into `develop`. Before merging:
   `headers.fixtures.ts`; `src/server/tls-context.ts`, which reads and
   checks `tls` at `listen()` on implicit TLS, with a proxy or without, so
   a key it cannot use fails alike (each server's `listen.spec.ts`, with
-  two `listen()` at once); and `src/server/front.fixtures.ts`, a proxy for
+  two `listen()` at once), and holds the pair in use (`TlsHolder`) that
+  `setTls` replaces, see **TLS hot reload**; and `src/server/front.fixtures.ts`, a proxy for
   specs. `src/server/admission.ts` (the listener's `open`, `handshake`
   and `close`) and `src/server/raw-socket.ts` are adapted to each
   server: smtp counts each client by `clientKey` and turns one away with
@@ -579,6 +582,58 @@ Every PR goes into `develop`. Before merging:
   before `listen()` resolved (clear and implicit TLS, with a proxy or
   without), and a key or certificate that cannot be used. A fix to one
   copy is a fix to the other.
+
+- **TLS hot reload** — `setTls({ key, cert })` on `@bumail/smtp`'s and
+  `@bumail/imap`'s server, and `src/server/tls-context.ts` in both, byte
+  for byte (`readTls`, which reads a pair whole, `Bun.file` included, and
+  makes a `node:tls` context of it, and `TlsHolder`, which holds the pair
+  in use and replaces it only once the new one checked); each server's
+  `admission.ts` (`upgradingHandlers`), `reload.spec.ts` and
+  `reload.fixtures.ts`, and the `renewed.crt` and `renewed.key` of each
+  `fixtures/`. The rules both keep:
+  - **a pair that cannot be used leaves the old one** and rejects with
+    `INVALID_OPTION` (`setTls(): tls: { key, cert } cannot be used: …`);
+  - **new connections only**: a STARTTLS upgrade reads the holder's
+    options, an implicit TLS socket is upgraded in `open` from them, and
+    `ProxiedTls` is given the holder's context; a session already
+    encrypted keeps its TLS;
+  - **implicit TLS without a proxy listens in clear** and upgrades each
+    socket in `open` with `socket.upgradeTLS`, the STARTTLS mechanism
+    from the first byte; the clear socket's own handlers drop its data,
+    which is the TLS records the encrypted socket reads.
+
+  Measured on Bun 1.4.2, macOS and Linux (`oven/bun:1.4.2`) alike:
+
+  - `Bun.listen`'s `listener.reload()` takes `{ socket }` handlers only
+    (its type says so); given a `tls`, it does nothing: a new connection
+    was still served the first certificate. `Bun.serve`'s `server.reload`
+    ignores a `tls` the same way;
+  - `socket.upgradeTLS`'s `tls` is read per call: swapping the options
+    served the new certificate to the next connection, 10 of 10 on a
+    clear listener that upgrades in `open`, with no ClientHello lost (the
+    upgrade comes before the first read), and the whole existing suites
+    for implicit TLS — handshake, quiet, close, proxy — passed on it;
+  - `Bun.listen` and `Bun.serve` take `reusePort`: a second listener binds
+    the same port beside the first when both set it, and without it the
+    bind fails (`Failed to listen`). A swap by it — bind the new, stop the
+    old — lost 1 handshake in 2 749 (macOS) and 0 to 1 in 3 300 to 3 500
+    (Linux, 5 runs) of new connections hammering the port through the
+    swap: the connection the old listener had accepted and not read. The
+    old server finishes the requests it has, a request under way
+    included. It is used for JMAP's HTTPS alone (`httpListener`'s
+    `setTls`), since `Bun.serve` offers nothing else, and never for the mail
+    ports, where upgrading in `open` has no such loss;
+  - the cost of upgrading in `open`: the clear socket's `data` handler
+    still gets every TLS record, and drops it.
+
+  `@bumail/server` (`src/serve/reload.ts`) is the caller: it reads
+  `tls.cert` and `tls.key` as `check-config` does (`checkTlsPair`), every
+  `tls.pollSeconds` and on SIGHUP, and compares **text**, not mtime and
+  size, which a bind mount or a symlink swap leaves unchanged or moves
+  without a change; a valid pair goes to every listener's `setTls`, those
+  that took it going back to the old pair should one refuse; one line a
+  change, never a poll. A fix to one copy of `tls-context.ts` is a fix to
+  the other.
 
 ## Prior work
 

@@ -134,6 +134,28 @@ describe('the report', () => {
 		});
 	});
 
+	test('reads the listeners after the checks: one that goes down during a slow store check is down', async () => {
+		const up = new Set(['mx', 'imaps']);
+		const health = await report(
+			context({
+				up,
+				store: {
+					findAccount: async () => {
+						await Bun.sleep(50);
+						// The listener stops while the store is being asked.
+						up.delete('imaps');
+						return undefined;
+					},
+				} as unknown as HealthContext['store'],
+			}),
+		);
+		expect(health).toMatchObject({
+			status: 'unavailable',
+			listeners: { mx: 'up', imaps: 'down' },
+			store: 'ok',
+		});
+	});
+
 	test('fails the directory when it throws, without its text', async () => {
 		const directory = Directory.open({
 			file: join(tempDir(), 'directory.sqlite'),

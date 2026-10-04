@@ -45,14 +45,21 @@ npm yet.
   them, so logins are counted per client. `GET /healthz` on loopback,
   200 or 503 with each part named. The PROXY protocol on the mail
   ports, from the proxies named in the file, off by default.
+- **Certificates reloaded without a restart** (merged, not published):
+  `bumail serve` looks at `tls.cert` and `tls.key` every
+  `tls.pollSeconds` (30 by default) and on SIGHUP, and a renewed pair that
+  is valid and complete — a key written before its certificate waits —
+  goes to every TLS listener (25 and 587, 465, 993 and 143, and JMAP's
+  HTTPS) for new connections, open sessions untouched; one that is not
+  keeps the old pair and logs why, once.
 
 ## Next
 
 In this order, each its own step:
 
-- **Certificates reloaded without a restart**, then **from ACME**
-  (HTTP-01 on port 80, ECDSA P-256 keys), through a separate
-  `@bumail/acme` package.
+- **Certificates from ACME** (HTTP-01 on port 80, ECDSA P-256 keys),
+  through the separate `@bumail/acme` package; the reload below is
+  what applies a renewal.
 - **The DNS records a domain needs**, written by `bumail dns`: MX, SPF,
   DKIM and DMARC, as a zone file or plain records.
 - **A Docker image**, and a compose file with Traefik: the server, its

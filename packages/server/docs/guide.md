@@ -219,12 +219,25 @@ directory = "https://acme-v02.api.letsencrypt.org/directory"   # the default
 | `tls.mode` | `"acme"` | `"acme"`: obtained and renewed from an ACME CA. `"files"`: read from `cert` and `key` |
 | `tls.cert` | required with `"files"` | the certificate chain, PEM, leaf first |
 | `tls.key` | required with `"files"` | its private key, PEM, unencrypted |
+| `tls.pollSeconds` | `30` | with `"files"`: seconds between two looks at the files for a renewed pair, 0 to 86400; 0 looks only on SIGHUP |
 | `acme.email` | required with `"acme"` | the account's contact, for the CA's expiry notices |
 | `acme.acceptTerms` | required with `"acme"` | must be `true`: you have read the CA's terms of service and accept them |
 | `acme.directory` | Let's Encrypt | the CA's directory URL, `https:` |
 
 `bumail serve` takes `"files"` only for now, and exits 3 with `"acme"`,
-which `check-config` still takes. The files are read once, at start.
+which `check-config` still takes. The files are read at start, and read
+again every `tls.pollSeconds` and on SIGHUP: a renewed pair that is valid
+takes effect on every TLS listener without a restart, and the old pair
+stays when it is not
+([Renewing the certificate](serve.md#renewing-the-certificate)).
+
+```toml
+[tls]
+mode = "files"
+cert = "/etc/bumail/fullchain.pem"
+key = "/etc/bumail/privkey.pem"
+pollSeconds = 60   # the default is 30; 0: only on SIGHUP
+```
 
 With `"acme"`, certificates come by HTTP-01 on `ports.http`, so it must
 not be 0, and port 80 must reach the server from the Internet. `cert`

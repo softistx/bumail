@@ -24,6 +24,8 @@ export interface Running {
 	readonly queue: Queue;
 	readonly queueStore: OpenedQueueStore;
 	readonly spool: Spool;
+	/** The watch on the certificate files, which a stop ends first. */
+	readonly tlsWatch?: { stop(): void } | undefined;
 	readonly log: Log;
 	describe(error: unknown): string;
 	/** Milliseconds SMTP sessions are given to end. */
@@ -83,6 +85,7 @@ export function stopper(
 	return ({ force = false } = {}) => {
 		if (force) forced = true;
 		stopping ??= (async () => {
+			running.tlsWatch?.stop();
 			running.up.clear();
 			for (const { server, kind } of running.listeners)
 				server.stop(kind === 'imap');
