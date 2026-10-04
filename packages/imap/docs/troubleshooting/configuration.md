@@ -172,8 +172,8 @@ await createImapServer({ ...options, tls, implicitTls: true }).listen({ port: 99
 
 `setTls` was given a renewed pair whose `tls.key` or `tls.cert` cannot be
 read — a `Bun.file` that does not exist, or one caught half-written — or
-is not a PEM key or certificate, or a key that is not the certificate's.
-Its `code` is `INVALID_OPTION`; the rest of the message, and its `cause`,
+is empty (`… the key is empty`, `… the cert is empty`), is not a PEM key
+or certificate, or a key that is not the certificate's. Its `code` is `INVALID_OPTION`; the rest of the message, and its `cause`,
 are the reason from the file system or `node:tls` (`ENOENT: …`,
 `…PEM routines…`, `key values mismatch`). The pair in use stays, for new
 connections too: the server serves on as before. Write both files, then

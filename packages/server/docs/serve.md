@@ -629,7 +629,8 @@ checks), and the key its own. A key written before its certificate is
 not applied half-way: the pair does not match yet, so the old one stays,
 and the next look takes the new one once both files are there. Every
 listener takes the pair, or none does: should one fail, those already
-switched go back to the old pair.
+switched go back to the old pair; if putting one back fails too, the
+line names it (`; <listener> left on the new pair, the rollback failed`).
 
 One line says the outcome, once per change, never per look:
 
@@ -774,6 +775,7 @@ bumail: stopped
 | `bumail: postmaster <address> is in <domain>, a domain not hosted here; mail for <postmaster> is refused until it is` | at start: `postmaster` names a domain the directory does not host (`bumail domain add`) |
 | `tls: reloaded (<subject>, expires <date>)` | a renewed pair was found, valid, and every TLS listener switched to it; its first certificate's subject and expiry |
 | `tls: reloaded (…); https keeps the old certificate until restart` | with `jmap.reloadTls = false`: the other listeners took the pair, JMAP did not |
+| `tls: not reloaded: <reason>; <listener> left on the new pair, the rollback failed` | a listener refused the pair and putting another back on the old one failed: it serves the new pair, the others the old |
 | `tls: not reloaded: <reason>` | a pair that changed cannot be taken — a file that cannot be read, not PEM, expired, naming another host, a key that is not the certificate's, or a listener that refused — and the old pair stays; once per distinct reason, or at each `SIGHUP` |
 | `tls: unchanged (<subject>, expires <date>)` | a `SIGHUP` found the files as the listeners already have them |
 | `bumail: SIGHUP, looking for a renewed certificate` | the signal; one of the three lines above follows |
