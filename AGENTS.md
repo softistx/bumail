@@ -15,7 +15,7 @@ below lists only what has landed.
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
 | `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
-| `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory` and its `bun:sqlite` store as `@bumail/queue/sqlite` | `@bumail/smtp`, `@bumail/mime` |
+| `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite` and its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres` | `@bumail/smtp`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
 
@@ -71,7 +71,10 @@ none of it names a private application.
   uses a store never knows which one it was given. The contract's specs are
   a `describe…` function in a `<subject>.fixtures.ts` beside the stores,
   run by each store's spec; `tsconfig.build.json` keeps fixtures out of
-  `dist`.
+  `dist`. A store on a server database (`@bumail/queue/postgres`) runs
+  them against the PostgreSQL that `BUMAIL_TEST_POSTGRES_URL` names —
+  `bun run postgres:test` starts one in Docker, and CI's "CI" job runs
+  one as a service — and they are skipped, saying so, without it.
 - **The network is injected.** DNS and sockets reach a package through an
   option, so a spec never leaves the machine: a spec that needs MX, TXT or a
   peer server gets one from a fixture, never from the Internet.

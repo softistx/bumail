@@ -6,20 +6,17 @@ only number on it.
 
 ## Now
 
-Nothing in progress: the PostgreSQL store, first under Next, is the next
-one taken.
+Nothing in progress: the Redis store, first under Next, is the next one
+taken. The PostgreSQL store is merged (see Shipped).
 
 ## Next
 
 More answers to the `QueueStore` contract, built for several instances of
 a server sharing one queue — each claim atomic across them, each lease
 taken back from an instance that crashed — and each held to the same
-contract specs as the memory and `bun:sqlite` stores. None adds a
-dependency.
+contract specs as the memory, `bun:sqlite` and PostgreSQL stores. None
+adds a dependency.
 
-- **A PostgreSQL store**, on Bun's own `Bun.sql` — the claim a
-  `SELECT … FOR UPDATE SKIP LOCKED`, so instances on several machines
-  never take the same item.
 - **A Redis store**, on Bun's own `Bun.redis` — the due items in a sorted
   set, the claim and the lease in one script.
 - **A MongoDB store** — the contract answered structurally, against a
@@ -57,9 +54,9 @@ Then:
 ## Not planned
 
 - **A runtime dependency.** The memory store needs none, the `bun:sqlite`
-  store uses Bun's own SQLite, the stores to come use Bun's own `Bun.sql`
-  and `Bun.redis`, and the MongoDB store takes the application's own
-  collection, typed by its shape.
+  store uses Bun's own SQLite, the PostgreSQL store Bun's own `Bun.sql`,
+  the Redis store to come `Bun.redis`, and the MongoDB store will take
+  the application's own collection, typed by its shape.
 - **Relaying on its own.** The queue sends what the app enqueues; who may
   send is decided before, by the SMTP server's AUTH or the app. No option
   will make the queue accept mail from the network.
@@ -67,6 +64,20 @@ Then:
   enqueued, with `@bumail/auth`, so what is kept is exactly what leaves.
 
 ## Shipped
+
+### Unreleased — merged, not yet published
+
+- **A PostgreSQL store**, `@bumail/queue/postgres`, on Bun's own
+  `Bun.sql`, for instances of a server on several machines sharing one
+  queue: `PostgresQueueStore.open({ sql })` takes a `Bun.SQL` client or a
+  `postgres://` URL, and needs no driver. A claim is one `UPDATE …
+  RETURNING` whose item a `SELECT … FOR UPDATE SKIP LOCKED` picks, so two
+  instances never take the same item; a crashed instance's leases expire
+  and its items are claimed again. The tables — the `bun:sqlite` store's,
+  the message as `bytea` — are made by `migrate()` or the first call,
+  once however many instances start together, under a `tablePrefix`.
+  Held to the same contract specs as the other stores, and to specs of
+  two instances delivering every item exactly once.
 
 ### 0.1.0
 
