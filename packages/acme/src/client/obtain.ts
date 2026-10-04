@@ -4,8 +4,8 @@ import { AcmeError } from '../errors';
 import { jwkThumbprint } from '../jws/jwk';
 import { isOptions } from './body';
 import { checkLeaf } from './certificate';
+import { flowError, Uncleaned } from './cleanup';
 import { AcmeClient } from './client';
-import { abortedError } from './failure';
 import { integerOption, MAX_WAIT_MS, signalOf } from './options';
 import { type Http01Hooks, Http01Tokens } from './tokens';
 import type { AcmeOrder } from './types';
@@ -102,44 +102,8 @@ export async function obtainCertificate(
 	try {
 		return await run(client, csr, certificateKey, http01, signal, timeoutMs);
 	} catch (thrown) {
-		const { error, cleanup } =
-			thrown instanceof Uncleaned
-				? thrown
-				: { error: thrown, cleanup: undefined };
-		if (caller?.aborted) {
-			throw withCleanup(abortedError(where, caller), cleanup);
-		}
-		if (deadline.aborted) {
-			throw new AcmeError(
-				'TIMEOUT',
-				`${where}: no certificate within ${timeoutMs} ms`,
-				{ cause: cleanup ?? error },
-			);
-		}
-		if (cleanup !== undefined && error instanceof AcmeError) {
-			throw error.cause === undefined ? withCleanup(error, cleanup) : error;
-		}
-		throw error;
+		throw flowError(thrown, { where, caller, deadline, timeoutMs });
 	}
-}
-
-/** The flow's failure, and the cleanup's after it: the first is thrown, the second its `cause`. */
-class Uncleaned {
-	constructor(
-		readonly error: unknown,
-		readonly cleanup: unknown,
-	) {}
-}
-
-/** `error` again, its code, message and problem kept, with `cleanup` as its `cause`. */
-function withCleanup(error: AcmeError, cleanup: unknown): AcmeError {
-	if (cleanup === undefined) return error;
-	return new AcmeError(error.code, error.message, {
-		cause: cleanup,
-		...(error.problem === undefined ? {} : { problem: error.problem }),
-		...(error.status === undefined ? {} : { status: error.status }),
-		...(error.retryAfter === undefined ? {} : { retryAfter: error.retryAfter }),
-	});
 }
 
 async function run(

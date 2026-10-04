@@ -429,8 +429,11 @@ What it does, in order:
    that lands late cannot serve its token again; the removes run all at
    once, within one 10-second grace, and a `set` still pending then is
    removed once it lands. A `remove` that throws does not stop the
-   others; its error is thrown when nothing else failed, and is the
-   `cause` of the error thrown otherwise;
+   others; its error is thrown when nothing else failed. When the flow
+   failed too, the cleanup error is the `cause` of a `TIMEOUT`, an
+   `ABORTED`, or an `AcmeError` with no cause of its own; it is lost when
+   a hook's own error (not an `AcmeError`) or a `NETWORK_ERROR` is
+   rethrown;
 6. waits for the order to be `ready` — one already `valid`, before any
    CSR was sent, is refused — finalizes it with the CSR, waits for it to
    be `valid`;

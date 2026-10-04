@@ -95,7 +95,7 @@ export async function checkLeaf(
 	if (Buffer.compare(expected, actual) !== 0) {
 		throw bad(where, "the CA's certificate is not for certificateKey");
 	}
-	if (new Date(leaf.validTo).getTime() <= Date.now()) {
+	if (leaf.validToDate.getTime() <= Date.now()) {
 		throw bad(
 			where,
 			`the CA's certificate expired already, on ${shown(leaf.validTo)}`,
