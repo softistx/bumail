@@ -110,7 +110,10 @@ export function outcomesOf(
 			updates.get(address) ?? {
 				address,
 				status: 'deferred',
-				reply: { text: 'The delivery said nothing of this recipient', host },
+				reply: {
+					text: 'The delivery said nothing of this recipient',
+					...(host ? { host: cleanText(host, 255) } : {}),
+				},
 			},
 	);
 }

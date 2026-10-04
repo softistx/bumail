@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { SmtpError } from '@bumail/smtp/client';
-import { accepted, MESSAGE, reply, setup } from './queue.fixtures';
+import { accepted, MESSAGE, MINUTE, reply, setup } from './queue.fixtures';
 
 /** The events about mary's own message, not about the DSN it caused. */
 const own = <E extends { from: string }>(events: E[]) =>
@@ -185,5 +185,32 @@ describe('what a server says is bounded and cleaned', () => {
 		const dsn = sender.calls.find((c) => c.options.from === '')?.text ?? '';
 		expect(dsn).toContain('Diagnostic-Code: smtp; 550 no Subject: injected');
 		expect(dsn).not.toContain('\r\nSubject: injected');
+	});
+
+	test('a recipient a sender says nothing of keeps a cleaned host: the outcome is recorded, nothing sent twice', async () => {
+		const { queue, events, sender, store, clock } = setup((call) => ({
+			...accepted(call.options),
+			accepted: [
+				{ recipient: 'a@example.com', reply: reply(250, '2.1.5', 'OK') },
+			],
+			host: 'mx\ud800.example.com\r\n',
+		}));
+		const item = await queue.enqueue(
+			MESSAGE,
+			to('a@example.com', 'b@example.com'),
+		);
+		await queue.deliverDue();
+		expect(events.error).toEqual([]);
+		const kept = await store.get(item.id);
+		expect(kept?.attempts).toBe(1);
+		expect(kept?.lease).toBeUndefined();
+		expect(kept?.recipients[1]).toMatchObject({
+			status: 'deferred',
+			reply: { host: 'mx\ufffd.example.com' },
+		});
+		clock.advance(30 * MINUTE);
+		await queue.deliverDue();
+		const toA = sender.calls.filter((c) => c.to.includes('a@example.com'));
+		expect(toA).toHaveLength(1);
 	});
 });
