@@ -119,14 +119,14 @@ Received: from mx.example.org ([192.0.2.10])
 already had is removed, and so is every `Authentication-Results` but
 those plainly from another server (RFC 8601 §5): one is kept only when
 its authserv-id, after comments and folding and unquoted, is an ASCII
-host name (letters, digits, hyphens and dots), followed by nothing but
-a version number and `;`, and is neither `hostname` nor a domain the
+host name (letters, digits, hyphens and dots), followed by nothing but a
+version number and `;`, and is neither `hostname` nor a domain the
 directory hosts — an administrative domain often signs its results with
 its domain — compared in any case, without a trailing dot, as A-labels.
-A field with no authserv-id at all, as some large providers write
-them, is removed too: that is intended, as nothing in it says whose it
-is. `ARC-Authentication-Results` is another field, sealed by ARC
-(RFC 8617) and checked against that seal, so it is kept as is. Anything else — a control or
+A field with no authserv-id at all, as some large providers write them,
+is removed too: that is intended, as nothing in it says whose it is.
+`ARC-Authentication-Results` (RFC 8617) is another field: it is kept as
+is, and bumail does not check ARC. Anything else — a control or
 invisible character, a byte outside ASCII, a fullwidth or look-alike
 letter or dot, an empty id, a field that does not parse — is removed,
 since a reader might take it for your server's and a sender could
@@ -269,6 +269,7 @@ bumail: stopped
 | `bumail: <listener> listening on <address>:<port>: …` | at start, one per listener |
 | `bumail: <name> (port <n>) arrives in a later slice; not listening` | at start, for each later port not 0 |
 | `bumail: the spool folder <path> is kept: <reason>` | at start, for an entry under `<data>/spool` whose age cannot be read, or that cannot be removed |
+| `bumail: the spool folder <path> was removed while in use; made it again` | another server swept this one's spool folder (the process was paused past 5 minutes, or the clocks disagree): the next heartbeat, or the next message, made it again |
 | `mx: <id> from <ip> <sender> delivered to <users> (…)` | a message taken; `(Junk)` when quarantined |
 | `mx: <id> … refused by DMARC (…)` | `550 5.7.1`, with `inbound.dmarc = "enforce"` |
 | `mx: <id> … deferred: DMARC or DKIM did not finish (…)` | `451 4.7.0` |

@@ -173,6 +173,7 @@ directory commands' own refusals are under
 - [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
 - [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
 - [`bumail: the spool folder … is kept: …`](#bumail-the-spool-folder--is-kept-)
+- [`bumail: the spool folder … was removed while in use; made it again`](#bumail-the-spool-folder--was-removed-while-in-use-made-it-again)
 - [`550 5.1.1 User unknown`](#550-511-user-unknown)
 - [`554 5.7.1 Relay access denied`](#554-571-relay-access-denied)
 - [`550 5.7.1 Rejected by the DMARC policy of …`](#550-571-rejected-by-the-dmarc-policy-of-)
@@ -1165,7 +1166,10 @@ created, cleared of what a stopped server left, or given this server's
 folder (`<pid>-<random>`, with its `owner` file): `data` is read-only,
 full, or owned by another user. Exit code 5. Give the server's user a
 writable `data`. A folder is removed only once its `owner` file has
-gone 5 minutes untouched, whichever machine wrote it.
+gone 5 minutes untouched, whichever machine wrote it. A folder with no
+`owner` file — one another server is still making, or one left half
+made — is judged by the folder's own modification time instead, with
+the same 5 minutes.
 
 ### `bumail: the spool folder … is kept: …`
 
@@ -1183,6 +1187,22 @@ starts anyway.
 **Fix**: remove the entry by hand, or give it to the server's user.
 Nothing in it was acknowledged to a sending server, which sends it
 again.
+
+### `bumail: the spool folder … was removed while in use; made it again`
+
+Logged by a running server when its own spool folder was gone: another
+server sharing `data` swept it, judging it left behind. That happens
+when this server's heartbeat stopped for more than 5 minutes — the
+process was paused or suspended (a stopped container, a laptop asleep,
+a debugger) — or when the machines' clocks, or the file server's,
+disagree by more than that. The server makes the folder again, with
+its `owner` file, at its next heartbeat or its next message, whichever
+comes first, and goes on taking mail; it logs this once each time.
+
+A message that was being checked when the folder went can fail with a
+temporary error, which its sending server retries. **Fix**: if it recurs, keep the clocks within a minute of each
+other with NTP, and do not pause a server for minutes while others
+share its `data`.
 
 ### `550 5.1.1 User unknown`
 
