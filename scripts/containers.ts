@@ -1,5 +1,5 @@
 /**
- * What `postgres.ts` and `redis.ts` share: a throwaway container for the
+ * What `postgres.ts`, `redis.ts` and `mongo.ts` share: a throwaway container for the
  * specs of a store on a server, started (or reused) in Docker, published
  * on loopback only.
  */

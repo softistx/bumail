@@ -15,6 +15,7 @@ workers share it.
 - [The stores](#the-stores)
 - [PostgreSQL](#postgresql)
 - [Redis](#redis)
+- [MongoDB](#mongodb)
 - [Testing](#testing)
 - [Writing a store](#writing-a-store)
 - [Options](#options)
@@ -237,8 +238,8 @@ is written as `utf-8; j\x{F6}rg@…`, RFC 6533), and every field is folded.
 ## Several workers, leases and stopping
 
 Any number of queues may share one store, in one process or several —
-or, with [PostgreSQL](#postgresql) or [Redis](#redis), on several
-machines:
+or, with [PostgreSQL](#postgresql), [Redis](#redis) or
+[MongoDB](#mongodb), on several machines:
 
 ```ts
 const store = SqliteQueueStore.open({ directory: '/var/lib/bumail/queue' });
@@ -364,7 +365,8 @@ store.close(); // closing twice is fine
   each item is claimed once; a writer waits up to `busyTimeout`
   milliseconds for another.
   Not on a network file system: SQLite's locks do not hold there. For
-  several machines, use [PostgreSQL](#postgresql) or [Redis](#redis).
+  several machines, use [PostgreSQL](#postgresql), [Redis](#redis) or
+  [MongoDB](#mongodb).
 - **Messages in a table of their own**, `messages`, dropped with their
   item in the same transaction. A queue holds a message for days at most
   and never shares one between items, so content addressing (as
@@ -381,6 +383,11 @@ On PostgreSQL, for instances on several machines: see
 ### `RedisQueueStore`
 
 On Redis, for instances on several machines: see [Redis](#redis).
+
+### `MongoQueueStore`
+
+On MongoDB, through your own driver, for instances on several machines:
+see [MongoDB](#mongodb).
 
 ## PostgreSQL
 
@@ -659,6 +666,294 @@ Measured on Bun 1.4.2 against Redis 7:
   reconnection attempts reached`; a URL that is not one is not refused by
   `new Bun.RedisClient`, only by its first call, so the store checks the
   scheme itself.
+
+## MongoDB
+
+```ts
+import { createQueue } from '@bumail/queue';
+import { MongoQueueStore } from '@bumail/queue/mongo';
+import { MongoClient } from 'mongodb';
+
+const client = new MongoClient(Bun.env['MONGO_URL'], { timeoutMS: 30_000 });
+const store = MongoQueueStore.open({ db: client.db('mail'), collectionPrefix: 'mail_queue_' });
+const queue = createQueue({ store, hostname, resolver, owner: `${host}-${process.pid}` });
+queue.start();
+
+process.on('SIGTERM', async () => {
+	await queue.stop();
+	await client.close(); // yours: the store never closes it
+});
+```
+
+`@bumail/queue/mongo` runs on the MongoDB driver your application
+already has: the package depends on none, not even as a peer. Every
+instance of your server opens a store on the same database, and they
+share one queue. It is held to the same contract specs as the other
+stores, and to the same specs of two instances delivering every item
+exactly once, against `mongo:7`.
+
+### The client
+
+- **`db`** is a database of a client of yours — `client.db('mail')` of
+  the `mongodb` driver — which you configure, connect (or let the driver
+  connect at the first operation) and close. The store never closes it,
+  and has no `url` option: with no driver of its own, it has nothing to
+  open one with.
+- It is typed by its shape, `MongoQueueDb`: `collection(name, options)`,
+  returning a `MongoQueueCollection` with the nine methods the store
+  calls — `findOne`, `find` (whose cursor it only reads whole with
+  `toArray`), `insertOne`, `insertMany`, `findOneAndUpdate`,
+  `findOneAndDelete`, `deleteMany`, `countDocuments` and `createIndex`.
+  A `Db` of the `mongodb` driver 6 or 7 fits it, which a spec checks
+  against 7; 5 does not, since its `findOneAndUpdate` resolves with a
+  `ModifyResult` rather than the document, and its types say so.
+- **The store sets how its collections are read and written**, through
+  the options it gives `collection()`, whatever your client was opened
+  with: writes `{ w: 'majority', j: true }`, reads `readConcern:
+  'majority'` from the `primary`, and the plain values the store reads
+  (`raw: false`, `useBigInt64: false`, `promoteLongs` and
+  `promoteValues`, `ignoreUndefined`). The rest is your client's:
+  timeouts, TLS, the pool, retryable writes (on by default, which the
+  store counts on: see [Durability and failover](#durability-and-failover)).
+- **Nothing connects at `open`**: a wrong option is refused there, and a
+  server out of reach on the first call, once the driver's server
+  selection gives up (`serverSelectionTimeoutMS`, 30 seconds by
+  default). The password your client holds is masked in what that first
+  call repeats of the driver's reason.
+
+### The collections and indexes
+
+Three collections, each named by `collectionPrefix` (`bumail_queue_` by
+default) — lowercase letters, digits and underscores, starting with a
+letter or an underscore, 40 characters at most, so nothing MongoDB reads
+in a name (`$`, `.`, `system.`) — in the database you give:
+
+| collection | what it holds |
+| --- | --- |
+| `<prefix>items` | an item a document: `_id` (the item's id), `seq` (the order among items equally due), `from`, `recipients` (an array of documents, each recipient's state), `size`, `createdAt`, `nextAttemptAt`, `attempts`, `delayNotified`, `rev` (how many outcomes were recorded), `chunks` (how many its message has), `slot` (its place under `limits.maxItems`, when added with it), and while leased `owner` and `expiresAt` |
+| `<prefix>messages` | the message as enqueued, byte for byte, in chunks of 4 MiB at most, each `{ _id: '<id>:<n>', item, n, data }`, `data` BSON binary: a message can be larger than the 16 MiB a document holds |
+| `<prefix>schema` | two documents: `{ _id: 'layout', version }`, the layout version, and `{ _id: 'seq', n }`, the counter `seq` is drawn from |
+
+Times are milliseconds since the epoch as BSON doubles, written from the
+numbers JavaScript holds, so each reads back exactly, fractions of a
+millisecond included — never BSON dates, which keep whole milliseconds.
+The store makes two indexes on the items, besides `_id`'s:
+
+| index | keys | serves |
+| --- | --- | --- |
+| `bumail_due` | `{ nextAttemptAt: 1, seq: 1 }` | the claim, and `list`: the earliest due first, then the oldest, read in order with no sort |
+| `bumail_slot` | `{ slot: 1 }`, unique, partial on `{ slot: { $exists: true } }` | `limits.maxItems`: one item a place |
+
+The chunks need none: a message's are an `_id` range, `<id>:` to
+`<id>;`, which `_id`'s index serves. An id the store did not make
+(`crypto.randomUUID()`'s form) is one no item has: no id a caller gives
+— an object such as `{ $ne: null }` included — reaches a filter.
+
+### The layout
+
+The first call on a store reads the `layout` document. On a new queue it
+makes the indexes, then writes the version (with `$max`, so instances
+starting together all end at the same one, and none undoes another);
+once a queue is current it only reads it. A layout newer than the
+store's is refused, and so is a `layout` document that holds no version
+(the prefix is another application's), before any index is made. A
+failure is `INVALID`, `The MongoDB queue cannot be set up: …`, and the
+next call tries again: making an index that exists changes nothing. A
+change to the layout will be a migration at the end of the list, run
+the same way.
+
+### The operations
+
+Every write that decides is one command on one item's document, which
+MongoDB applies whole, its filter checked against the document as it is
+written: there is no transaction anywhere, so a standalone server works
+as well as a replica set.
+
+- **A claim** is one `findOneAndUpdate`: the earliest due item, then the
+  oldest, whose lease is absent or expired, leased to the owner.
+
+  ```js
+  findOneAndUpdate(
+  	{ nextAttemptAt: { $lte: now }, expiresAt: { $not: { $gt: now } } },
+  	{ $set: { owner, expiresAt: now + leaseMs } },
+  	{ sort: { nextAttemptAt: 1, seq: 1 }, returnDocument: 'after' },
+  )
+  ```
+
+  An expired lease is taken in the same order as an item never claimed,
+  by the same command: no sweep. Two instances never take the same item:
+  when two pick the same document, the second's write conflicts, and
+  MongoDB runs its command again, on the next item.
+- **`renew`** is a `findOneAndUpdate` filtered on `{ _id, owner }`.
+- **`complete`** reads the item, applies the outcome in JavaScript, then
+  records it with a `findOneAndUpdate` — or, when the item is done, a
+  `findOneAndDelete` — filtered on `{ _id, owner, rev }`: only while the
+  owner holds the lease and no other outcome was recorded since. Missed,
+  it reads again, at most 8 times, then records nothing (`LEASE_LOST`),
+  as it does when the lease was lost. It checks who owns the lease, not
+  when it expires.
+- **`reschedule`** with an owner is filtered on `{ _id, owner }` and
+  lets go of the lease; without, on `{ _id }`, and the lease stays.
+  **`cancel`** is a `findOneAndDelete`.
+- **An add** writes the message's chunks first, then the item: the
+  item's insert is what makes it visible, and a message is read only
+  when its item says how many chunks and bytes it has, and they are all
+  there. Dropping an item — done, or cancelled — deletes the item, then
+  its chunks.
+- **The clocks** of the instances must agree, as on PostgreSQL: the
+  store keeps no clock, and MongoDB's is never read.
+
+### `limits.maxItems`
+
+A counter document beside the items would need a transaction to stay
+true: an instance that died between counting an item and writing it, or
+between deleting it and counting it out, would leave the count wrong
+for good, and a queue that reads itself full. Instead an item added with
+`maxItems` takes a **place**, its `slot`, a number below `maxItems` that
+`bumail_slot`, a unique index, lets one item hold at a time. Two adds
+racing for the last place both insert, and the index refuses the
+second; a place is free again the moment its item's document is
+deleted, in that same write. So the items added with `maxItems` never
+outnumber it, whatever the concurrency, and nothing drifts.
+
+An add first counts the items, and is refused (`QUEUE_FULL`, with the
+count) when there are `maxItems` already, before its message is
+written. It tries the place its sequence number gives modulo `maxItems`
+— items leave roughly in the order they came, so the place of the item
+added `maxItems` adds before is most likely free — then a few more
+numbers, then reads the places from the index for the lowest free one.
+
+Two limits of that, both narrower than PostgreSQL's lock:
+
+- the items added without `maxItems` — the DSNs the queue writes, which
+  bypass it — take no place. An add counts them, but two adds racing
+  past that count can each find a free place, so the queue can then hold
+  `maxItems` plus the DSNs in it;
+- give every instance the same `limits.maxItems`: an instance with a
+  higher one hands out places the others do not count as theirs.
+
+### Deploying MongoDB
+
+- **A replica set, or a standalone server.** The store needs no
+  transaction, so a standalone server serves it — for one machine, or
+  for trials. For instances that must outlive a server, use a replica
+  set (three data-bearing members, or a primary, a secondary and an
+  arbiter, with the caveat below). The store reads and writes on the
+  primary only; your connection string names the set
+  (`?replicaSet=rs0`) or a service that finds its primary, so a failover
+  is followed.
+- **Not sharded.** The specs run against one server. Keep the queue's
+  three collections unsharded: they then live on the database's primary
+  shard, which is enough for a queue.
+- **Size.** Every message is on disk, whole, until its item is done:
+  bound the queue with `limits.maxItems` and `limits.maxMessageSize`, and
+  size the disk for both.
+
+### Durability and failover
+
+Every write the store makes is acknowledged once a majority of the
+replica set has it in its journal (`w: 'majority', j: true`), and every
+read sees only what a majority has (`readConcern: 'majority'`), from the
+primary:
+
+- **an acknowledged write survives a crash and a failover.** A primary
+  that fails before a majority has a write rolls it back when it comes
+  back, but that write was never acknowledged: the caller got an error,
+  not a success. A standalone server journals the write before
+  acknowledging it, so a crash of the process loses nothing
+  acknowledged; it has no copy, so a lost disk loses the queue;
+- **no read returns a write that is rolled back later**: a claim's item,
+  a `list`, a message;
+- **a write in flight when the primary fails** — sent, its answer lost —
+  is retried once on the new primary by the driver's retryable writes
+  (on by default; keep them on), which never applies it twice. If that
+  fails too, the caller gets the error, not knowing whether it applied:
+  - an `enqueue` that rejects may have been kept (the item there), or
+    left only its message's chunks (see below): enqueued again, it may
+    be sent twice;
+  - a claim whose answer was lost leaves the item leased to an owner
+    that does not know it: claimed again once the lease expires — a
+    delay, nothing lost;
+  - an outcome whose answer was lost: if it was recorded, the item is
+    done or rescheduled and the instance reports an error; if not, the
+    item is claimed again once its lease expires, and its recipients may
+    get the message twice, as on the other stores;
+- **without a majority, writes wait.** The store asks for a majority and
+  sets no write timeout of its own: on a replica set that cannot reach a
+  majority — a primary, a secondary and an arbiter with the secondary
+  down — every write waits until one is back, or until your client's
+  `timeoutMS` when you set one, as in the example above. Reads with
+  `majority` stay possible, but nothing is claimed;
+- **a message's chunks can be left behind** when an instance dies, or
+  its connection drops, between the two writes of an add (chunks then
+  item) or of a drop (item then chunks). They are never read — no item
+  names them — but take room. With every instance stopped, so no add is
+  between its two writes, `mongosh` deletes them:
+
+  ```js
+  db.bumail_queue_messages.aggregate([
+  	{ $lookup: { from: 'bumail_queue_items', localField: 'item', foreignField: '_id', as: 'of' } },
+  	{ $match: { of: { $size: 0 } } },
+  	{ $project: { _id: 1 } },
+  ]).forEach((chunk) => db.bumail_queue_messages.deleteOne({ _id: chunk._id }));
+  ```
+
+  An item whose chunks are gone, or damaged, reads as no message: the
+  queue then leaves it, and claims it again at each lease's end; cancel
+  it.
+
+### Permissions
+
+- **To set a queue up** — its first call, and the first after an upgrade
+  that adds a migration — a user needs to create indexes:
+  `readWrite` on the database is enough, and is all a worker needs if
+  you keep one user.
+- **To run a queue that is set up**, `find`, `insert`, `update` and
+  `remove` on its three collections are enough (a spec runs the whole
+  contract so), and the first call only reads the layout. In `mongosh`,
+  on the queue's database:
+
+  ```js
+  db.createRole({
+  	role: 'bumailQueueWorker',
+  	privileges: ['bumail_queue_items', 'bumail_queue_messages', 'bumail_queue_schema'].map((collection) => ({
+  		resource: { db: db.getName(), collection },
+  		actions: ['find', 'insert', 'update', 'remove'],
+  	})),
+  	roles: [],
+  });
+  db.createUser({ user: 'bumail_worker', pwd: passwordPrompt(), roles: ['bumailQueueWorker'] });
+  ```
+
+  Such a user cannot set a new queue up: its first call fails with
+  `The MongoDB queue cannot be set up: not authorized on …`. Make that
+  first call once with a `readWrite` user — from a deploy step — then
+  start the workers.
+
+### What the driver does with bytes, text and numbers
+
+Measured on Bun 1.4.2, the `mongodb` driver 7.7.0 and MongoDB 7:
+
+- A `Uint8Array` (a `subarray` included) is written as BSON binary,
+  every byte value. It reads back as the driver's `Binary`, whose
+  `buffer` holds the bytes up to its `position`; the store copies them
+  into a `Uint8Array` of its own. A message of 256 KiB, and one of
+  four chunks and a bit, come back byte for byte in the specs.
+- A string is encoded as UTF-8, and a lone surrogate becomes U+FFFD
+  without a word; a NUL in a string is kept. The contract's checks
+  refuse both before anything is written, so what is read back is what
+  was given, and the stores keep the same text.
+- A whole number that fits 32 bits is written as an `int32`, any other
+  as a `double`; both read back as the same JavaScript number, and
+  MongoDB compares them as numbers. A field `undefined` is written as
+  `null` unless `ignoreUndefined` is set: the store sets it, and writes
+  the recipients through JSON, as the other stores do.
+- `findOneAndUpdate` resolves with the document itself (since driver
+  6), or `null` when the filter matched none.
+- An error is the driver's — `MongoServerError`,
+  `MongoServerSelectionError`, `MongoNotConnectedError: Client must be
+  connected before running operations` once the client is closed — and
+  none of those met repeats the connection string.
 
 ## Testing
 

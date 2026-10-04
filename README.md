@@ -18,7 +18,7 @@ does, and which package does it.
 | [`@bumail/imap`](./packages/imap) | an IMAP4rev2 server that serves a store's mail to Thunderbird, Apple Mail and the rest, logging in only over TLS |
 | [`@bumail/jmap`](./packages/jmap) | a JMAP server (RFC 8620, RFC 8621) mounted in an alxia app: mailboxes, emails, threads and blobs of a store over HTTP and JSON |
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
-| [`@bumail/queue`](./packages/queue) | the outbound queue: each recipient's state, retries with back-off, delivery status notifications, leases for several workers, a memory, a `bun:sqlite`, a PostgreSQL and a Redis store (the last merged, not yet on npm) |
+| [`@bumail/queue`](./packages/queue) | the outbound queue: each recipient's state, retries with back-off, delivery status notifications, leases for several workers, a memory, a `bun:sqlite`, a PostgreSQL, a Redis and a MongoDB store (the last merged, not yet on npm) |
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH; and, on `@bumail/smtp/client`, a client that sends it out to a smarthost or by MX |
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store and a `bun:sqlite` store on disk |
 
@@ -37,17 +37,21 @@ bun run test
 bun run verify:artifacts # pack, install and import every package
 ```
 
-The specs of `@bumail/queue/postgres` need a PostgreSQL, and those of
-`@bumail/queue/redis` a Redis; each is skipped, saying so, without one.
-`bun run postgres:test` starts `postgres:17` in Docker, `bun run
-redis:test` starts `redis:7`, and each prints the line to export:
+The specs of `@bumail/queue/postgres` need a PostgreSQL, those of
+`@bumail/queue/redis` a Redis, and those of `@bumail/queue/mongo` a
+MongoDB; each is skipped, saying so, without one. `bun run
+postgres:test` starts `postgres:17` in Docker, `bun run redis:test`
+starts `redis:7`, `bun run mongo:test` starts `mongo:7`, and each prints
+the line to export:
 
 ```sh
 eval "$(bun run --silent postgres:test)"   # sets BUMAIL_TEST_POSTGRES_URL
 eval "$(bun run --silent redis:test)"      # sets BUMAIL_TEST_REDIS_URL
+eval "$(bun run --silent mongo:test)"      # sets BUMAIL_TEST_MONGO_URL
 bun run test
 bun run postgres:test stop                  # removes the container
 bun run redis:test stop
+bun run mongo:test stop
 ```
 
 How the repository is laid out and the rules every package keeps are in

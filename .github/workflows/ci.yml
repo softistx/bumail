@@ -30,7 +30,7 @@ jobs:
     # It starts while the runner checks out, and `bun run test` reaches it
     # only after the build. Not in "Newest peers": those specs exercise
     # Bun.sql and the database, which no peer range changes. The same goes
-    # for Redis and Bun.redis, below.
+    # for Redis and Bun.redis, and for MongoDB, below.
     services:
       postgres:
         image: postgres:17
@@ -55,12 +55,32 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
+      # The MongoDB the `@bumail/queue/mongo` specs run against, on the same
+      # terms. Standalone: the store needs no transaction, so no replica set
+      # (a service cannot be given the command one needs). A root user turns
+      # access control on, so the roles specs mean something; the image
+      # restarts the server once it made the user, and the driver waits
+      # through that restart.
+      mongo:
+        image: mongo:7
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: bumail
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 1"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     env:
       BUMAIL_TEST_POSTGRES_URL: postgres://postgres:bumail@localhost:5432/bumail_test
       # Without the URL the PostgreSQL specs fail here rather than skip.
       BUMAIL_TEST_POSTGRES_REQUIRED: 1
       BUMAIL_TEST_REDIS_URL: redis://localhost:6379
       BUMAIL_TEST_REDIS_REQUIRED: 1
+      BUMAIL_TEST_MONGO_URL: mongodb://root:bumail@localhost:27017/bumail_test?authSource=admin
+      BUMAIL_TEST_MONGO_REQUIRED: 1
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

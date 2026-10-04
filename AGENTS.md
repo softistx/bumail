@@ -15,7 +15,7 @@ below lists only what has landed.
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
 | `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
-| `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite`, its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres` and its Redis store on `Bun.redis` as `@bumail/queue/redis` | `@bumail/smtp`, `@bumail/mime` |
+| `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite`, its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres`, its Redis store on `Bun.redis` as `@bumail/queue/redis` and its MongoDB store on the application's own driver, typed by shape, as `@bumail/queue/mongo` | `@bumail/smtp`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS; an OpenAPI 3.1 document of its routes, shipped as `@bumail/jmap/openapi.json` and kept in step with them by a spec | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
 
@@ -75,11 +75,14 @@ none of it names a private application.
   environment variable names: `@bumail/queue/postgres` the PostgreSQL of
   `BUMAIL_TEST_POSTGRES_URL` (`bun run postgres:test` starts one in
   Docker), `@bumail/queue/redis` the Redis of `BUMAIL_TEST_REDIS_URL`
-  (`bun run redis:test`); CI's "CI" job runs both as services. They are
-  skipped, saying so, without it, except where
-  `BUMAIL_TEST_POSTGRES_REQUIRED` or `BUMAIL_TEST_REDIS_REQUIRED` is set,
-  as in that job: there they fail. Both scripts start their container
-  through `scripts/containers.ts`. Such a store also runs the queue's
+  (`bun run redis:test`), `@bumail/queue/mongo` the MongoDB of
+  `BUMAIL_TEST_MONGO_URL` (`bun run mongo:test`, a standalone `mongo:7`
+  with a root user, so the roles specs mean something); CI's "CI" job
+  runs all three as services. They are skipped, saying so, without it,
+  except where `BUMAIL_TEST_POSTGRES_REQUIRED`,
+  `BUMAIL_TEST_REDIS_REQUIRED` or `BUMAIL_TEST_MONGO_REQUIRED` is set,
+  as in that job: there they fail. The three scripts start their
+  container through `scripts/containers.ts`. Such a store also runs the queue's
   multi-instance specs, `src/queue/instances.fixtures.ts`: two
   instances on two clients deliver every item exactly once. "Newest
   peers" runs none, on purpose.
@@ -87,7 +90,11 @@ none of it names a private application.
   shape**, or a URL for which it opens one of its own: `PostgresClient`
   for a `Bun.SQL`, `RedisQueueClient` for a `Bun.RedisClient`, so the
   shipped `.d.ts` names nothing of Bun's, and an `open.spec.ts` asserts
-  Bun's client fits. It closes only a client it opened, checks every
+  Bun's client fits. `MongoQueueDb` is a `Db` of the `mongodb` driver,
+  with only the methods the store calls: Bun has no MongoDB client, so
+  that store takes no URL, and the driver is a devDependency of
+  `@bumail/queue` for its specs (and `open.spec.ts`'s fit), never a
+  peer. It closes only a client it opened, checks every
   option at `open` and connects to nothing until the first call, and
   never repeats a URL in an error (`src/masked.ts` masks a password a
   client's reason repeats). The Redis store is one Redis or a primary
@@ -111,7 +118,7 @@ smtp            (standalone; its specs use store and dns, its Mailpit example au
 store           (standalone)
 auth            → dns, mime
 imap            → store, mime
-queue           → smtp, mime (its specs use dns, as a devDependency)
+queue           → smtp, mime (its specs use dns and the mongodb driver, as devDependencies)
 jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam and @alxia/openapi-routes as devDependencies)
 ```
 

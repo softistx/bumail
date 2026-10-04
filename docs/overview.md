@@ -367,11 +367,14 @@ top of it:
 
 Several server instances, on several machines, share one queue through
 a PostgreSQL store on `Bun.sql`, `@bumail/queue/postgres` (published in
-0.2.0), each claim a `SELECT … FOR UPDATE SKIP LOCKED`; or through a
-Redis store on `Bun.redis`, `@bumail/queue/redis` (merged, not yet
-published), each claim a Lua script Redis runs whole — on one Redis or a
-primary with replicas, with Redis's weaker durability. Next, MongoDB,
-typed by shape so the queue needs no driver.
+0.2.0), each claim a `SELECT … FOR UPDATE SKIP LOCKED`; through a Redis
+store on `Bun.redis`, `@bumail/queue/redis` (published in 0.3.0), each
+claim a Lua script Redis runs whole — on one Redis or a primary with
+replicas, with Redis's weaker durability; or through a MongoDB store,
+`@bumail/queue/mongo` (merged, not yet published), on the application's
+own driver, typed by shape so the queue needs none, each claim one
+`findOneAndUpdate` — on a standalone server or a replica set, every
+write acknowledged by a majority's journal.
 
 DKIM signing happens before a message is enqueued, with `@bumail/auth`.
 The queue sends what the app enqueues: the app decides who may send.

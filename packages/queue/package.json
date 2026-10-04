@@ -1,7 +1,7 @@
 {
 	"name": "@bumail/queue",
 	"version": "0.3.0",
-	"description": "The outbound mail queue of a mail server: every recipient's state, retries with back-off, delivery status notifications (RFC 3464), leases for several workers, and a memory, a bun:sqlite, a PostgreSQL (Bun.sql) and a Redis (Bun.redis) store, delivering through @bumail/smtp/client",
+	"description": "The outbound mail queue of a mail server: every recipient's state, retries with back-off, delivery status notifications (RFC 3464), leases for several workers, and a memory, a bun:sqlite, a PostgreSQL (Bun.sql), a Redis (Bun.redis) and a MongoDB (the application's driver, typed by shape) store, delivering through @bumail/smtp/client",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -39,6 +39,11 @@
 			"import": "./dist/redis/index.js",
 			"default": "./dist/redis/index.js"
 		},
+		"./mongo": {
+			"types": "./dist/mongo/index.d.ts",
+			"import": "./dist/mongo/index.js",
+			"default": "./dist/mongo/index.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"repository": {
@@ -61,14 +66,16 @@
 			"src/memory/index.ts",
 			"src/sqlite/index.ts",
 			"src/postgres/index.ts",
-			"src/redis/index.ts"
+			"src/redis/index.ts",
+			"src/mongo/index.ts"
 		]
 	},
 	"devDependencies": {
 		"@bumail/dns": "workspace:^",
 		"@bumail/mime": "workspace:^",
 		"@bumail/smtp": "workspace:^",
-		"@types/bun": "^1.4.2"
+		"@types/bun": "^1.4.2",
+		"mongodb": "^7.7.0"
 	},
 	"peerDependencies": {
 		"@bumail/mime": "workspace:^",

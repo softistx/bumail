@@ -40,6 +40,7 @@ parts shown as … vary.
 - [`SQLiteError: database is locked`, or another store error, during a delivery](#sqliteerror-database-is-locked-or-another-store-error-during-a-delivery)
 - [`PostgresError: …`, or a connection error, during a delivery](#postgreserror--or-a-connection-error-during-a-delivery)
 - [`RedisError: …` during a delivery: `Connection closed`, `OOM command not allowed …`, `READONLY …`](#rediserror--during-a-delivery-connection-closed-oom-command-not-allowed--readonly-)
+- [`MongoServerSelectionError: …`, `MongoNotConnectedError: …` or another driver error during a delivery](#mongoserverselectionerror--mongonotconnectederror--or-another-driver-error-during-a-delivery)
 
 **The `bun:sqlite` store** (`@bumail/queue/sqlite`)
 
@@ -66,6 +67,16 @@ parts shown as … vary.
 - [`QueueError: The URL in url cannot be opened: …`](#queueerror-the-url-in-url-cannot-be-opened-)
 - [`QueueError: The Redis queue cannot be set up: …`](#queueerror-the-redis-queue-cannot-be-set-up-)
 - [`QueueError: The key …schema does not hold a layout version: is the prefix another application's?`](#queueerror-the-key-schema-does-not-hold-a-layout-version-is-the-prefix-another-applications)
+- [`QueueError: The database is at schema version …, newer than this store's …`](#queueerror-the-database-is-at-schema-version--newer-than-this-stores-), and [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed), as for `bun:sqlite`
+
+**The MongoDB store** (`@bumail/queue/mongo`)
+
+- [`QueueError: A MongoDB queue store needs db: a Db of the mongodb driver, or an object of its shape`](#queueerror-a-mongodb-queue-store-needs-db-a-db-of-the-mongodb-driver-or-an-object-of-its-shape)
+- [`QueueError: collectionPrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`](#queueerror-collectionprefix-must-be-lowercase-letters-digits-and-underscores-starting-with-a-letter-or-an-underscore-at-most-40-characters-not-)
+- [`QueueError: db cannot give the queue's collections: …`](#queueerror-db-cannot-give-the-queues-collections-)
+- [`QueueError: The MongoDB queue cannot be set up: …`](#queueerror-the-mongodb-queue-cannot-be-set-up-)
+- [`QueueError: The collection …schema does not hold a layout version: is the prefix another application's?`](#queueerror-the-collection-schema-does-not-hold-a-layout-version-is-the-prefix-another-applications)
+- [`QueueError: The collection …schema holds a sequence that is not a number`](#queueerror-the-collection-schema-holds-a-sequence-that-is-not-a-number)
 - [`QueueError: The database is at schema version …, newer than this store's …`](#queueerror-the-database-is-at-schema-version--newer-than-this-stores-), and [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed), as for `bun:sqlite`
 
 **Listing** (`list`)
@@ -387,6 +398,36 @@ your provider's endpoint or Sentinel's, which follows a failover). For
 `maxmemory-policy noeviction` (the guide's [Redis](guide.md#redis)), or
 Redis drops queue items to make room instead of refusing.
 
+### `MongoServerSelectionError: …`, `MongoNotConnectedError: …` or another driver error during a delivery
+
+**When:** the `error` event, with the item's `id`, while it is delivered,
+on `@bumail/queue/mongo`. A call of yours — `enqueue`, `list`, `get`,
+`retryNow`, `cancel` — rejects with the same error for the same
+reasons. The store passes the driver's errors on as they are; only the
+first call's are wrapped (`The MongoDB queue cannot be set up: …`).
+**Why:** a lease renewal failed. `MongoServerSelectionError: Server
+selection timed out after … ms` or `connect ECONNREFUSED …`: no server
+the store may use — the primary, since it reads and writes there only —
+answered within the client's `serverSelectionTimeoutMS` (30 seconds by
+default): it is down, or a replica set is electing a new one, or has no
+majority left to elect one. `MongoNotConnectedError: Client must be
+connected before running operations`: your code closed the client while
+the queue still ran. A write that waits rather than fails: a replica
+set that cannot get a majority to acknowledge it (the store asks `w:
+'majority'`), such as a primary, a secondary and an arbiter with the
+secondary down, holds it until it can, or until the client's
+`timeoutMS`, when you set one. As on PostgreSQL, the next renewal tries again, only a
+lease taken by another instance stops them, a claim that fails rejects
+`deliverDue()` or is told on `error` under `start()`, and an outcome
+that cannot be recorded leaves the item to be claimed again once its
+lease expires — its recipients may then get the message twice.
+**Fix:** check the server or the replica set is up and has a primary
+and a majority; stop the queue (`await queue.stop()`) before closing the
+client; give the client a `timeoutMS` so a write that waits for a
+majority fails rather than hangs. The guide's
+[Durability and failover](guide.md#durability-and-failover) says what a
+failover can cost.
+
 ## The `bun:sqlite` store
 
 ### `QueueError: A SQLite queue store needs a directory`
@@ -405,8 +446,9 @@ should read the queue.
 
 **Code:** `INVALID`. A newer version of the package wrote the database
 (`queue.sqlite`, on PostgreSQL the prefix's tables, on Redis the
-prefix's keys, whose layout version is `<prefix>schema`): upgrade this
-one.
+prefix's keys, whose layout version is `<prefix>schema`, on MongoDB the
+prefix's collections, whose layout version is the `layout` document of
+`<prefix>schema`): upgrade this one.
 
 ### `QueueError: busyTimeout must be an integer of at least 0, not …`
 
@@ -415,8 +457,8 @@ one.
 ### `QueueError: The queue store is closed`
 
 **Code:** `CLOSED`. The store was used after `close()`: call
-`queue.stop()` first, then `store.close()`. The PostgreSQL and Redis
-stores say the same.
+`queue.stop()` first, then `store.close()`. The PostgreSQL, Redis and
+MongoDB stores say the same.
 
 ## The PostgreSQL store
 
@@ -546,6 +588,93 @@ something other than a whole number of at least 1.
 **Why:** the store keeps its layout version there; anything else means
 another application, or a hand, wrote under the same prefix.
 **Fix:** give the queue a `keyPrefix` of its own. Nothing was written.
+
+## The MongoDB store
+
+### `QueueError: A MongoDB queue store needs db: a Db of the mongodb driver, or an object of its shape`
+
+**Code:** `INVALID`.
+**When:** `MongoQueueStore.open` without `db`, or with something that has
+no `collection` method: a connection string, a `MongoClient` rather than
+its `db()`, a collection. The message never repeats what was given,
+which may be a URL holding a password.
+**Why:** the store opens no connection of its own — the package depends
+on no driver — so it takes a database from a client of yours.
+**Fix:**
+
+```ts
+import { MongoClient } from 'mongodb';
+
+const client = new MongoClient('mongodb://bumail:secret@db.internal:27017/?replicaSet=rs0');
+MongoQueueStore.open({ db: client.db('mail') });
+```
+
+### `QueueError: collectionPrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`
+
+**Code:** `INVALID`.
+**Why:** the prefix starts the name of each of the queue's three
+collections. Anything MongoDB reads in a collection's name is refused —
+`$`, `.` (and so `system.`), a NUL — with spaces, capitals and anything
+not ASCII, as for the PostgreSQL store's `tablePrefix`.
+**Fix:** `collectionPrefix: 'mail_queue_'`. Give each queue in one
+database its own prefix; to keep the queue in another database, give
+the store that `client.db('…')`.
+
+### `QueueError: db cannot give the queue's collections: …`
+
+**Code:** `INVALID`.
+**When:** `MongoQueueStore.open`, when `db.collection(name, options)`
+throws: an object of your own shape that refuses the options the store
+gives, or a driver that refuses the name. The rest is its reason, the
+client's password masked should it name it.
+**Fix:** a `Db` of the `mongodb` driver, 6 or later; an object of your
+own must take the options of `MongoQueueCollectionOptions`.
+
+### `QueueError: The MongoDB queue cannot be set up: …`
+
+**Code:** `INVALID`.
+**When:** the first call on a store, which reads the layout version in
+`<prefix>schema` and, on a new queue, makes the indexes and writes it.
+The rest of the message is the driver's: `connect ECONNREFUSED …` or
+`Server selection timed out after 30000 ms` (out of reach),
+`Authentication failed.`, `not authorized on mail to execute command {
+createIndexes: "bumail_queue_items", … }` (a user who may not create an
+index, on a new queue). The client's password is masked wherever it
+appears, as `…` — inside other words too, when it is a short one.
+**Why:** the server is out of reach, the credentials are wrong, or the
+queue is new, or behind after an upgrade, and the user may not make its
+indexes: a user with `find`, `insert`, `update` and `remove` on the
+queue's collections runs a queue that is set up, never sets one up.
+**Fix:** check the URL and that the server answers. For `not
+authorized`, make the first call once with a user that has `readWrite`
+on the database — on a new queue, and after an upgrade that adds a
+migration — and keep the workers on their narrower role (the guide's
+[Permissions](guide.md#permissions)). The next call tries again: each
+migration is safe to run twice.
+
+### `QueueError: The collection …schema does not hold a layout version: is the prefix another application's?`
+
+**Code:** `INVALID`.
+**When:** the first call on a store whose `<prefix>schema` collection
+has a `layout` document without a whole `version` of at least 1.
+**Why:** the store keeps its layout version there; anything else means
+another application, or a hand, wrote under the same prefix.
+**Fix:** give the queue a `collectionPrefix` of its own. Nothing was
+written: no index is made before the version is read.
+
+### `QueueError: The collection …schema holds a sequence that is not a number`
+
+**Code:** `INVALID`.
+**When:** `add`, when the `seq` document of `<prefix>schema`, the
+counter that orders items equally due, holds a number that is not whole
+once incremented. One that holds no number at all is refused by MongoDB
+itself, as a `MongoServerError: … Cannot apply $inc to a value of
+non-numeric type`.
+**Why:** a hand, or another application, wrote it.
+**Fix:** set it back to a whole number at least as high as the highest
+`seq` of the items: `db.bumail_queue_schema.updateOne({ _id: 'seq' },
+{ $set: { n: db.bumail_queue_items.find().sort({ seq: -1 }).limit(1).next()?.seq ?? 0 } })`
+in `mongosh`. Nothing was stored by the add refused.
 
 ## Listing
 

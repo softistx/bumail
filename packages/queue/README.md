@@ -4,9 +4,9 @@ The outbound queue of a mail server: it keeps every message your server
 sends to another one, delivers it through `@bumail/smtp/client`, retries
 what failed for now, and sends a delivery status notification (RFC 3464)
 back when it gives up. Each recipient has its own state, the queue
-survives a restart on `bun:sqlite`, PostgreSQL or Redis, and several
-workers — on one machine, or on many with PostgreSQL or Redis — can
-share one queue. No runtime dependency: only peers.
+survives a restart on `bun:sqlite`, PostgreSQL, Redis or MongoDB, and
+several workers — on one machine, or on many with PostgreSQL, Redis or
+MongoDB — can share one queue. No runtime dependency: only peers.
 
 ## Install
 
@@ -28,6 +28,7 @@ queue that only uses a smarthost needs none.
 | `@bumail/queue/sqlite` | `SqliteQueueStore`: on disk with `bun:sqlite`, shared by the processes of one machine |
 | `@bumail/queue/postgres` | `PostgresQueueStore`: on PostgreSQL through Bun's own `Bun.sql`, shared by instances on several machines |
 | `@bumail/queue/redis` | `RedisQueueStore`: on Redis through Bun's own `Bun.redis`, shared by instances on several machines |
+| `@bumail/queue/mongo` | `MongoQueueStore`: on MongoDB through your own driver's `Db`, typed by its shape, shared by instances on several machines |
 
 ## Usage
 
@@ -208,6 +209,42 @@ lose acknowledged ones, so keep `appendonly yes`, `appendfsync always`
 and `maxmemory-policy noeviction` where a lost message matters (the
 guide's Redis section). No driver to install: `Bun.redis` is Bun's.
 
+## MongoDB, for several machines
+
+```ts
+import { nodeResolver } from '@bumail/dns';
+import { createQueue } from '@bumail/queue';
+import { MongoQueueStore } from '@bumail/queue/mongo';
+import { MongoClient } from 'mongodb'; // your driver, 6 or later: the package depends on none
+
+// In each instance, on the same database.
+const client = new MongoClient(Bun.env['MONGO_URL'] ?? 'mongodb://localhost:27017/?replicaSet=rs0');
+const store = MongoQueueStore.open({
+	db: client.db('mail'),
+	collectionPrefix: 'bumail_queue_', // the default: bumail_queue_items, …_messages, …_schema
+});
+const queue = createQueue({ store, hostname: 'mail.example.net', resolver: nodeResolver() });
+queue.start();
+
+process.on('SIGTERM', async () => {
+	await queue.stop();
+	await client.close(); // yours: the store never closes it
+});
+```
+
+Every write that decides — claim, renew, complete, reschedule, cancel —
+is one `findOneAndUpdate` or `findOneAndDelete` on one item's document,
+filtered on its lease: two instances never take the same item, and a
+crashed instance's items are claimed again once their leases expire.
+The message is kept byte for byte, as BSON binary, in chunks of 4 MiB,
+so one larger than a document's 16 MiB fits. `maxItems` holds through a
+unique index, with no transaction, so a standalone server works as well
+as a replica set. Every collection is written with `w: 'majority', j:
+true` and read with `readConcern: 'majority'` from the primary, whatever
+your client says: on a replica set an acknowledged write survives a
+failover. `mongodb` is neither a dependency nor a peer: the store takes
+your `Db`, typed by the methods it calls (the guide's MongoDB section).
+
 ## Events and admin
 
 ```ts
@@ -277,7 +314,8 @@ control character in it.
 ## Traps
 
 - **Bun only.** The stores use `bun:sqlite`, `Bun.sql` and `Bun.redis`,
-  so the package runs on Bun 1.4.2 or later, not on Node.
+  so the package runs on Bun 1.4.2 or later, not on Node; the MongoDB
+  store runs on your driver, on Bun too.
 - **It sends what you enqueue, to anyone.** The queue is not a relay
   policy: enqueue only what an authenticated user submitted, or what your
   own server writes, never what an unauthenticated client handed you.
@@ -298,12 +336,13 @@ control character in it.
 | `SqliteQueueStore`, `SqliteQueueStoreOptions` | from `@bumail/queue/sqlite`: `SqliteQueueStore.open({ directory, busyTimeout? })`, `close()` |
 | `PostgresQueueStore`, `PostgresQueueStoreOptions`, `PostgresClient`, `PostgresQueryable` | from `@bumail/queue/postgres`: `PostgresQueueStore.open({ sql, tablePrefix? })`, `migrate()`, `close()`; `sql` a `Bun.SQL` client or a `postgres://` URL |
 | `RedisQueueStore`, `RedisQueueStoreOptions`, `RedisQueueClientOptions`, `RedisQueueUrlOptions`, `RedisQueueClient` | from `@bumail/queue/redis`: `RedisQueueStore.open({ client \| url, keyPrefix? })`, `close()`; `client` a `Bun.RedisClient`, `url` a `redis://` URL |
+| `MongoQueueStore`, `MongoQueueStoreOptions`, `MongoQueueDb`, `MongoQueueCollection`, `MongoQueueCollectionOptions`, `MongoQueueCursor`, `MongoQueueDocument` | from `@bumail/queue/mongo`: `MongoQueueStore.open({ db, collectionPrefix? })`, `close()`; `db` a `Db` of the `mongodb` driver, 6 or later, or any object of `MongoQueueDb`'s shape |
 
 ## Documentation
 
 These pages ship in the package, under `docs/`.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/README.md): the pages, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/guide.md): enqueuing, delivery and routing, the retry schedule, DSNs, several workers and leases, events and admin, the stores (PostgreSQL and Redis included), testing, and writing a store of your own.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/guide.md): enqueuing, delivery and routing, the retry schedule, DSNs, several workers and leases, events and admin, the stores (PostgreSQL, Redis and MongoDB included), testing, and writing a store of your own.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/troubleshooting.md): every `QueueError`, and what to do about it.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/roadmap.md): what is coming, and what is not planned.
