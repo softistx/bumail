@@ -30,6 +30,10 @@ describe('clientKey', () => {
 		['2001:0db8:0001:0002:ffff::1', '2001:db8:1:2::/64'],
 		['2001:db8::1', '2001:db8:0:0::/64'],
 		['::1', '0:0:0:0::/64'],
+		['::ffff:c000:201', '192.0.2.1'],
+		['64:ff9b::c633:6401', '198.51.100.1'],
+		['64:ff9b::198.51.100.1', '198.51.100.1'],
+		['64:ff9b::c633:6402', '198.51.100.2'],
 		['[2001:db8:1:2::9]', '2001:db8:1:2::/64'],
 		['fe80::1%en0', 'fe80:0:0:0::/64'],
 		['', ''],
@@ -97,6 +101,24 @@ describe('FailureLimiter', () => {
 		expect(limiter.blocked('192.0.2.2')).toBe(false);
 		expect(limiter.blocked('192.0.2.1')).toBe(true);
 		expect(limiter.blocked('192.0.2.3')).toBe(true);
+	});
+
+	test('counts logins under way until they end, a success included', () => {
+		const { limiter } = clocked();
+		expect([1, 2, 3].map(() => limiter.begin('192.0.2.1'))).toEqual([
+			true,
+			true,
+			true,
+		]);
+		expect(limiter.begin('192.0.2.1')).toBe(false);
+		expect(limiter.blocked('192.0.2.1')).toBe(true);
+		limiter.end('192.0.2.1', false);
+		expect(limiter.blocked('192.0.2.1')).toBe(false);
+		limiter.end('192.0.2.1', true);
+		limiter.end('192.0.2.1', true);
+		expect(limiter.begin('192.0.2.1')).toBe(true);
+		limiter.end('192.0.2.1', true);
+		expect(limiter.blocked('192.0.2.1')).toBe(true);
 	});
 
 	test('refuses options that are not positive integers', () => {

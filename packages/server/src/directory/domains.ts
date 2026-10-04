@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { ServerError } from '../errors';
 import { checkDomain, domainOf } from './address';
+import { immediate } from './database';
 
 /** A domain the server hosts. */
 export interface DomainEntry {
@@ -90,43 +91,39 @@ export class Domains {
 	/** Adds a domain: `INVALID` for what is not a domain name, `ALREADY_EXISTS`. */
 	add(name: string): DomainEntry {
 		const domain = checkDomain(name);
-		return this.#db
-			.transaction(() => {
-				if (this.#get(domain) !== undefined) {
-					throw new ServerError(
-						'ALREADY_EXISTS',
-						`the domain ${domain} already exists`,
-					);
-				}
-				this.#db
-					.query('INSERT INTO domains (name, created) VALUES (?, ?)')
-					.run(domain, Date.now());
-				return entry(this.#get(domain) as DomainRow);
-			})
-			.immediate();
+		return immediate(this.#db, () => {
+			if (this.#get(domain) !== undefined) {
+				throw new ServerError(
+					'ALREADY_EXISTS',
+					`the domain ${domain} already exists`,
+				);
+			}
+			this.#db
+				.query('INSERT INTO domains (name, created) VALUES (?, ?)')
+				.run(domain, Date.now());
+			return entry(this.#get(domain) as DomainRow);
+		});
 	}
 
 	/** Removes a domain with no user and no alias left: `NOT_FOUND`, `IN_USE`. Answers its name. */
 	remove(name: string): string {
 		const domain = checkDomain(name);
-		this.#db
-			.transaction(() => {
-				const row = this.#get(domain);
-				if (row === undefined) {
-					throw new ServerError(
-						'NOT_FOUND',
-						`the domain ${domain} does not exist`,
-					);
-				}
-				if (row.users > 0 || row.aliases > 0) {
-					throw new ServerError(
-						'IN_USE',
-						`the domain ${domain} still has ${holding(row)}; remove them first`,
-					);
-				}
-				this.#db.query('DELETE FROM domains WHERE name = ?').run(domain);
-			})
-			.immediate();
+		immediate(this.#db, () => {
+			const row = this.#get(domain);
+			if (row === undefined) {
+				throw new ServerError(
+					'NOT_FOUND',
+					`the domain ${domain} does not exist`,
+				);
+			}
+			if (row.users > 0 || row.aliases > 0) {
+				throw new ServerError(
+					'IN_USE',
+					`the domain ${domain} still has ${holding(row)}; remove ${row.users + row.aliases === 1 ? 'it' : 'them'} first`,
+				);
+			}
+			this.#db.query('DELETE FROM domains WHERE name = ?').run(domain);
+		});
 		return domain;
 	}
 }

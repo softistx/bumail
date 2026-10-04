@@ -1,6 +1,12 @@
+import { Gate } from './gate';
 import { FailureLimiter } from './limiter';
-import { byteLength, Gate, hashPassword, MAX_PASSWORD_BYTES } from './password';
-import type { UserEntry, Users } from './users';
+import {
+	byteLength,
+	hashPassword,
+	MAX_PASSWORD_BYTES,
+	normalizePassword,
+} from './password';
+import type { UserEntry, UserRecord } from './users';
 
 /**
  * Why a login was refused, for the server's log; a client is told only
@@ -45,19 +51,20 @@ export interface AuthenticatorOptions {
 export class Authenticator {
 	readonly limiter: FailureLimiter;
 	readonly gate: Gate;
-	readonly #users: Users;
-	#dummy: Promise<string> | undefined;
+	/** The user at a login, with its hash. */
+	readonly #find: (login: string) => UserRecord | undefined;
+	/** A hash of a password nobody knows, made at once with the users' parameters, verified for an unknown login. */
+	readonly #dummy: Promise<string>;
 
-	constructor(users: Users, options: AuthenticatorOptions = {}) {
-		this.#users = users;
+	constructor(
+		find: (login: string) => UserRecord | undefined,
+		options: AuthenticatorOptions = {},
+	) {
+		this.#find = find;
 		this.limiter = options.limiter ?? new FailureLimiter();
 		this.gate = new Gate(options.maxVerifies, options.maxQueuedVerifies);
-	}
-
-	/** A hash of a password nobody knows, made with the users' parameters, verified for an unknown user. */
-	#dummyHash(): Promise<string> {
-		this.#dummy ??= hashPassword(crypto.randomUUID());
-		return this.#dummy;
+		// Made now, so the first unknown login takes no longer than any other.
+		this.#dummy = hashPassword(crypto.randomUUID());
 	}
 
 	/**
@@ -70,11 +77,18 @@ export class Authenticator {
 		ip: string,
 	): Promise<AuthResult> {
 		const { limiter } = this;
-		if (limiter.blocked(ip)) return { ok: false, reason: 'blocked' };
-		const refuse = (reason: AuthFailure): AuthResult => {
-			limiter.fail(ip);
-			return { ok: false, reason };
-		};
+		if (!limiter.begin(ip)) return { ok: false, reason: 'blocked' };
+		let failed = true;
+		try {
+			const result = await this.#check(login, password);
+			failed = !result.ok && result.reason !== 'busy';
+			return result;
+		} finally {
+			limiter.end(ip, failed);
+		}
+	}
+
+	async #check(login: string, password: string): Promise<AuthResult> {
 		if (
 			typeof login !== 'string' ||
 			typeof password !== 'string' ||
@@ -82,17 +96,17 @@ export class Authenticator {
 			byteLength(login) > MAX_PASSWORD_BYTES ||
 			byteLength(password) > MAX_PASSWORD_BYTES
 		) {
-			return refuse('malformed');
+			return { ok: false, reason: 'malformed' };
 		}
-		const user = this.#users.record(login);
-		const hash = user?.hash ?? (await this.#dummyHash());
+		const user = this.#find(login);
+		const hash = user?.hash ?? (await this.#dummy);
 		const verified = await this.gate.run(() =>
-			Bun.password.verify(password, hash),
+			Bun.password.verify(normalizePassword(password), hash),
 		);
 		if (verified === undefined) return { ok: false, reason: 'busy' };
-		if (user === undefined) return refuse('unknown');
-		if (!verified.value) return refuse('password');
-		if (user.disabled) return refuse('disabled');
+		if (user === undefined) return { ok: false, reason: 'unknown' };
+		if (!verified.value) return { ok: false, reason: 'password' };
+		if (user.disabled) return { ok: false, reason: 'disabled' };
 		const { hash: _, ...entry } = user;
 		return { ok: true, user: entry };
 	}

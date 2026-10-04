@@ -56,16 +56,24 @@ export async function readPassword(
 	return first;
 }
 
+/** The terminal's bytes decoded across chunks, and what came after the last Enter: a pasted second line. */
+const decoder = new TextDecoder();
+let typedAhead = '';
+
 /**
  * Reads a line from the process's terminal without echoing it: raw mode,
- * Backspace erasing, Enter ending it, Ctrl-C and Ctrl-D giving up.
+ * Backspace erasing, Enter ending it, Ctrl-C and Ctrl-D giving up. A
+ * character split across two reads is decoded whole, and what follows
+ * an Enter is kept for the next prompt, so `pw⏎pw⏎` pasted at once
+ * answers both.
  */
 export function promptHidden(label: string): Promise<string> {
 	const { stdin, stderr } = process;
 	stderr.write(label);
 	return new Promise((resolve, reject) => {
 		let text = '';
-		const finish = (error?: ServerError) => {
+		const finish = (rest: string, error?: ServerError) => {
+			typedAhead = rest;
 			stdin.off('data', onData);
 			stdin.setRawMode(false);
 			stdin.pause();
@@ -73,11 +81,22 @@ export function promptHidden(label: string): Promise<string> {
 			if (error === undefined) resolve(text);
 			else reject(error);
 		};
-		const onData = (chunk: Buffer) => {
-			for (const char of chunk.toString('utf8')) {
-				if (char === '\r' || char === '\n') return finish();
+		/** Takes `input`; `true` once the line is over. */
+		const take = (input: string): boolean => {
+			const chars = [...input];
+			for (let i = 0; i < chars.length; i++) {
+				const char = chars[i] ?? '';
+				const rest = chars
+					.slice(i + 1)
+					.join('')
+					.replace(/^\n/, '');
+				if (char === '\r' || char === '\n') {
+					finish(rest);
+					return true;
+				}
 				if (char === '\u0003' || char === '\u0004') {
-					return finish(new ServerError('INVALID', 'no password typed'));
+					finish('', new ServerError('INVALID', 'no password typed'));
+					return true;
 				}
 				if (char === '\u007f' || char === '\b') {
 					text = [...text].slice(0, -1).join('');
@@ -85,8 +104,15 @@ export function promptHidden(label: string): Promise<string> {
 					text += char;
 				}
 			}
+			return false;
 		};
+		const onData = (chunk: Uint8Array) => {
+			take(decoder.decode(chunk, { stream: true }));
+		};
+		const ahead = typedAhead;
+		typedAhead = '';
 		stdin.setRawMode(true);
+		if (take(ahead)) return;
 		stdin.resume();
 		stdin.on('data', onData);
 	});

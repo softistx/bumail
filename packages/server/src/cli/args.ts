@@ -105,12 +105,18 @@ interface Options {
 }
 
 /**
- * Reads `bumail [--config <file>] <command> [operands] [options]`,
- * `--help` and `--version`. Throws `ServerError('USAGE')` for anything
- * else, never repeating what may be a password: an operand of a
- * directory command, or what follows an option's `=`.
+ * A command word as a message names it: as given when it reads like one
+ * — lowercase letters and hyphens, 20 at most — and `…` otherwise, so a
+ * password typed where a command goes is not repeated.
  */
-export function parseArgs(argv: readonly string[]): Args {
+function word(text: string): string {
+	return /^[a-z][a-z-]{0,19}$/.test(text) ? text : '…';
+}
+
+/** `argv` split into its words and its options; `help` or `version` when asked. */
+function readOptions(
+	argv: readonly string[],
+): { words: string[]; options: Options } | Args {
 	const words: string[] = [];
 	const options: Options = {
 		config: undefined,
@@ -156,11 +162,24 @@ export function parseArgs(argv: readonly string[]): Args {
 			words.push(arg);
 		}
 	}
+	return { words, options };
+}
 
+/**
+ * Reads `bumail [--config <file>] <command> [operands] [options]`,
+ * `--help` and `--version`. Throws `ServerError('USAGE')` for anything
+ * else, never repeating what may be a password: an operand, a command
+ * word that does not read like one, or what follows an option's `=`.
+ */
+export function parseArgs(argv: readonly string[]): Args {
+	const read = readOptions(argv);
+	if (!('words' in read)) return read;
+	const { words, options } = read;
 	const [first, ...rest] = words;
 	if (first === undefined) throw usage('no command given');
 	if ((COMMANDS as readonly string[]).includes(first)) {
-		if (rest.length > 0) throw usage(`unexpected argument ${rest[0]}`);
+		if (rest.length > 0)
+			throw usage(`unexpected argument ${word(rest[0] ?? '')}`);
 		refuseOptions(first, options, {});
 		return {
 			kind: 'command',
@@ -168,8 +187,18 @@ export function parseArgs(argv: readonly string[]): Args {
 			config: options.config,
 		};
 	}
-	if (!Object.hasOwn(VERBS, first)) throw usage(`unknown command ${first}`);
-	const noun = first as Noun;
+	if (!Object.hasOwn(VERBS, first)) {
+		throw usage(`unknown command ${word(first)}`);
+	}
+	return resolveManage(first as Noun, rest, options);
+}
+
+/** `bumail <noun> <verb> <operands>`, checked against what the verb takes. */
+function resolveManage(
+	noun: Noun,
+	rest: readonly string[],
+	options: Options,
+): Args {
 	const verbs = VERBS[noun];
 	const [verb, ...operands] = rest;
 	if (verb === undefined) {
@@ -178,7 +207,7 @@ export function parseArgs(argv: readonly string[]): Args {
 	const spec = Object.hasOwn(verbs, verb) ? verbs[verb] : undefined;
 	if (spec === undefined) {
 		throw usage(
-			`unknown command ${noun} ${verb}; ${noun} takes ${oneOf(Object.keys(verbs))}`,
+			`unknown command ${noun} ${word(verb)}; ${noun} takes ${oneOf(Object.keys(verbs))}`,
 		);
 	}
 	const name = `${noun} ${verb}`;

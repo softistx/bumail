@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { ServerError } from '../errors';
 import { addressOf, checkAddress, checkDomain } from './address';
+import { immediate } from './database';
 import { requireDomain } from './domains';
 import { checkPassword, hashPassword } from './password';
 
@@ -44,6 +45,25 @@ export function isAlias(db: Database, address: string): boolean {
 			.query<unknown, [string]>('SELECT 1 FROM aliases WHERE address = ?')
 			.get(address) !== null
 	);
+}
+
+/**
+ * The user at any spelling of `address`, with its hash, for
+ * `authenticate` alone: kept out of `Users`, so nothing exported hands a
+ * hash out.
+ */
+export function findRecord(
+	db: Database,
+	address: string,
+): UserRecord | undefined {
+	const parsed = addressOf(address);
+	if (parsed === undefined) return undefined;
+	const row = db
+		.query<UserRow & { hash: string }, [string]>(
+			`SELECT ${COLUMNS}, hash FROM users WHERE address = ?`,
+		)
+		.get(parsed.address);
+	return row === null ? undefined : { ...entry(row), hash: row.hash };
 }
 
 /** The users: who logs in, and whose mailbox mail is delivered to. */
@@ -95,18 +115,6 @@ export class Users {
 		return key;
 	}
 
-	/** The user and its hash, for `authenticate`. */
-	record(address: string): UserRecord | undefined {
-		const parsed = addressOf(address);
-		if (parsed === undefined) return undefined;
-		const row = this.#db
-			.query<UserRow & { hash: string }, [string]>(
-				`SELECT ${COLUMNS}, hash FROM users WHERE address = ?`,
-			)
-			.get(parsed.address);
-		return row === null ? undefined : { ...entry(row), hash: row.hash };
-	}
-
 	/** Every user, or a domain's, by address. */
 	list(domain?: string): UserEntry[] {
 		if (domain === undefined) {
@@ -134,17 +142,15 @@ export class Users {
 		checkPassword(password);
 		this.#free(key, domain);
 		const hash = await hashPassword(password);
-		return this.#db
-			.transaction(() => {
-				this.#free(key, domain);
-				this.#db
-					.query(
-						'INSERT INTO users (address, domain, hash, disabled, created) VALUES (?, ?, ?, 0, ?)',
-					)
-					.run(key, domain, hash, Date.now());
-				return entry(this.#require(key));
-			})
-			.immediate();
+		return immediate(this.#db, () => {
+			this.#free(key, domain);
+			this.#db
+				.query(
+					'INSERT INTO users (address, domain, hash, disabled, created) VALUES (?, ?, ?, 0, ?)',
+				)
+				.run(key, domain, hash, Date.now());
+			return entry(this.#require(key));
+		});
 	}
 
 	/** Refuses an address that is taken, or in a domain not hosted. */
@@ -170,28 +176,24 @@ export class Users {
 		checkPassword(password);
 		this.#require(key);
 		const hash = await hashPassword(password);
-		this.#db
-			.transaction(() => {
-				this.#require(key);
-				this.#db
-					.query('UPDATE users SET hash = ? WHERE address = ?')
-					.run(hash, key);
-			})
-			.immediate();
+		immediate(this.#db, () => {
+			this.#require(key);
+			this.#db
+				.query('UPDATE users SET hash = ? WHERE address = ?')
+				.run(hash, key);
+		});
 	}
 
 	/** Disables a user, or enables it again: `NOT_FOUND`. Answers the user. */
 	setDisabled(address: string, disabled: boolean): UserEntry {
 		const { address: key } = checkAddress(address);
-		return this.#db
-			.transaction(() => {
-				this.#require(key);
-				this.#db
-					.query('UPDATE users SET disabled = ? WHERE address = ?')
-					.run(disabled ? 1 : 0, key);
-				return entry(this.#require(key));
-			})
-			.immediate();
+		return immediate(this.#db, () => {
+			this.#require(key);
+			this.#db
+				.query('UPDATE users SET disabled = ? WHERE address = ?')
+				.run(disabled ? 1 : 0, key);
+			return entry(this.#require(key));
+		});
 	}
 
 	/**
@@ -224,12 +226,10 @@ export class Users {
 	 * points to it.
 	 */
 	remove(address: string): UserEntry {
-		return this.#db
-			.transaction(() => {
-				const user = this.checkRemovable(address);
-				this.#db.query('DELETE FROM users WHERE address = ?').run(user.address);
-				return user;
-			})
-			.immediate();
+		return immediate(this.#db, () => {
+			const user = this.checkRemovable(address);
+			this.#db.query('DELETE FROM users WHERE address = ?').run(user.address);
+			return user;
+		});
 	}
 }

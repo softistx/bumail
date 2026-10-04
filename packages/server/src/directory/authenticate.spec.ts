@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import type { Directory } from './directory';
 import { PASSWORD, seededDirectory } from './directory.fixtures';
+import { Gate } from './gate';
 import { FailureLimiter } from './limiter';
-import { Gate } from './password';
 
 const IP = '192.0.2.1';
 const opened: Directory[] = [];
@@ -97,6 +97,48 @@ describe('authenticate', () => {
 		).toBe(true);
 	});
 
+	test('verifies no more than maxFailures guesses sent at once from one client', async () => {
+		const dir = await directory({
+			limiter: new FailureLimiter({ maxFailures: 5 }),
+		});
+		const verify = spyOn(Bun.password, 'verify');
+		try {
+			const guesses = await Promise.all(
+				Array.from({ length: 30 }, () =>
+					dir.authenticate('alice@example.com', 'wrong guess', IP),
+				),
+			);
+			expect(verify).toHaveBeenCalledTimes(5);
+			const reasons = guesses.map((result) =>
+				result.ok ? 'ok' : result.reason,
+			);
+			expect(reasons.filter((reason) => reason === 'password').length).toBe(5);
+			expect(reasons.filter((reason) => reason === 'blocked').length).toBe(25);
+			expect(await dir.authenticate('alice@example.com', PASSWORD, IP)).toEqual(
+				{
+					ok: false,
+					reason: 'blocked',
+				},
+			);
+		} finally {
+			verify.mockRestore();
+		}
+	});
+
+	test('takes a password typed in another Unicode form', async () => {
+		const dir = await directory();
+		await dir.users.add('carol@example.com', 'caf\u00e9 au lait, please');
+		expect(
+			(
+				await dir.authenticate(
+					'carol@example.com',
+					'cafe\u0301 au lait, please',
+					IP,
+				)
+			).ok,
+		).toBe(true);
+	});
+
 	test('runs at most maxVerifies verifies at once; the rest wait their turn', async () => {
 		const dir = await directory({ maxVerifies: 2 });
 		let running = 0;
@@ -163,7 +205,6 @@ describe('authenticate', () => {
 			);
 			return performance.now() - start;
 		};
-		await time('nobody@example.com'); // the dummy hash is made once
 		const known: number[] = [];
 		const unknown: number[] = [];
 		for (let i = 0; i < 5; i++) {

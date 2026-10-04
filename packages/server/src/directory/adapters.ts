@@ -6,7 +6,7 @@
  */
 import type { MailStore } from '@bumail/store';
 import { ServerError } from '../errors';
-import { provisionAccount } from './accounts';
+import { provisionAccount } from '../store/accounts';
 import type { AuthFailure, AuthResult } from './authenticate';
 
 /** What checks a login: a `Directory`. */

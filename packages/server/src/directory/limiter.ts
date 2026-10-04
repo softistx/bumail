@@ -24,36 +24,55 @@ function positive(
 	return value;
 }
 
-/** The 4 groups of an IPv6 address's /64, expanded and lowercase. */
-function prefix64(ip: string): string {
-	const [head = '', tail] = ip.toLowerCase().split('::');
+/** The 8 groups of an IPv6 address, as numbers; a dotted tail is its last two. */
+function groups(ip: string): number[] {
+	const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);
+	let text = ip;
+	if (dotted !== null) {
+		const [a, b, c, d] = dotted.slice(1).map(Number) as [
+			number,
+			number,
+			number,
+			number,
+		];
+		text = `${ip.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+	}
+	const [head = '', tail] = text.split('::');
 	const left = head === '' ? [] : head.split(':');
 	const right = tail === undefined || tail === '' ? [] : tail.split(':');
-	const groups =
+	const all =
 		tail === undefined
 			? left
 			: [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
-	return `${groups
-		.slice(0, 4)
-		.map((group) => group.replace(/^0+(?=.)/, ''))
-		.join(':')}::/64`;
+	return all.map((group) => Number.parseInt(group, 16));
+}
+
+/** The IPv4 address in the last 32 bits. */
+function ipv4Of(g: readonly number[]): string {
+	const [high = 0, low = 0] = g.slice(6);
+	return [high >> 8, high & 255, low >> 8, low & 255].join('.');
 }
 
 /**
- * Who a failure is counted against: an IPv4 address as it is (an
- * IPv4-mapped IPv6 address, `::ffff:192.0.2.1`, as its IPv4), an IPv6
- * address by its /64, which one machine usually holds whole, and
- * anything else — a Unix socket, an empty string — as given.
+ * Who a failure is counted against: an IPv4 address as it is; an IPv6
+ * address that embeds one — IPv4-mapped (`::ffff:192.0.2.1`, in dotted
+ * or hex form) or NAT64 (`64:ff9b::/96`) — as that IPv4 address; any
+ * other IPv6 address by its /64, which one machine usually holds whole;
+ * and anything else — a Unix socket, an empty string — as given.
  */
 export function clientKey(ip: string): string {
 	const address = ip.replace(/^\[|\]$/g, '').replace(/%.*$/, '');
-	const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
-	if (mapped?.[1] !== undefined) return mapped[1];
 	if (isIP(address) === 4) return address;
-	// A dotted tail (::ffff:0:192.0.2.1 and the like) is past the /64.
-	if (isIP(address) === 6)
-		return prefix64(address.replace(/:\d+\.\d+\.\d+\.\d+$/, ':0:0'));
-	return ip;
+	if (isIP(address) !== 6) return ip;
+	const g = groups(address.toLowerCase());
+	const prefix = g.slice(0, 6).join(':');
+	if (prefix === '0:0:0:0:0:65535' || prefix === '100:65435:0:0:0:0') {
+		return ipv4Of(g);
+	}
+	return `${g
+		.slice(0, 4)
+		.map((group) => group.toString(16))
+		.join(':')}::/64`;
 }
 
 /**
@@ -63,6 +82,10 @@ export function clientKey(ip: string): string {
  * - A client is blocked once `maxFailures` of its failures fall within
  *   the last `windowSeconds`, and free again as soon as fewer do: a
  *   sliding window, so the oldest failure ageing out frees one try.
+ * - A login under way counts as a failure until it ends (`begin`,
+ *   `end`): logins sent at once get no more guesses than logins sent
+ *   in turn. A client may so have at most `maxFailures` logins under
+ *   way at once.
  * - While blocked, `authenticate` refuses it without verifying, and does
  *   not count those tries, so trying harder never extends a block: each
  *   failure ageing out gives back one try, and `windowSeconds` after its
@@ -80,6 +103,8 @@ export class FailureLimiter {
 	readonly #now: () => number;
 	/** Each client's failures within the window, oldest first, in the order clients last failed. */
 	readonly #failures = new Map<string, number[]>();
+	/** Each client's logins under way: begun, not yet ended. */
+	readonly #pending = new Map<string, number>();
 
 	constructor(options: FailureLimiterOptions = {}) {
 		this.maxFailures = positive(options.maxFailures, 10, 'maxFailures');
@@ -99,9 +124,41 @@ export class FailureLimiter {
 		return times;
 	}
 
-	/** Whether `ip` is blocked now. */
+	/** The failures of `key` in the window, and its logins under way. */
+	#count(key: string): number {
+		return (
+			this.#recent(key, this.#now()).length + (this.#pending.get(key) ?? 0)
+		);
+	}
+
+	/**
+	 * Whether `ip` is blocked now: its failures within the window and its
+	 * logins under way reach `maxFailures`.
+	 */
 	blocked(ip: string): boolean {
-		return this.#recent(clientKey(ip), this.#now()).length >= this.maxFailures;
+		return this.#count(clientKey(ip)) >= this.maxFailures;
+	}
+
+	/**
+	 * Starts a login from `ip`: `false`, starting nothing, when it is
+	 * blocked. A login under way counts as a failure until `end`, so a
+	 * client sending many at once gets no more verified than one sending
+	 * them in turn.
+	 */
+	begin(ip: string): boolean {
+		const key = clientKey(ip);
+		if (this.#count(key) >= this.maxFailures) return false;
+		this.#pending.set(key, (this.#pending.get(key) ?? 0) + 1);
+		return true;
+	}
+
+	/** Ends a login `begin` started, counting it as a failure when `failed`. */
+	end(ip: string, failed: boolean): void {
+		const key = clientKey(ip);
+		const pending = (this.#pending.get(key) ?? 0) - 1;
+		if (pending > 0) this.#pending.set(key, pending);
+		else this.#pending.delete(key);
+		if (failed) this.fail(ip);
 	}
 
 	/** Counts a failed login from `ip`. */

@@ -1,6 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { ServerError } from '../errors';
 import { addressOf, checkAddress, checkDomain } from './address';
+import { immediate } from './database';
 import { requireDomain } from './domains';
 
 /**
@@ -98,59 +99,55 @@ export class Aliases {
 		const users = [
 			...new Set(targets.map((target) => checkAddress(target).address)),
 		];
-		return this.#db
-			.transaction(() => {
-				requireDomain(this.#db, domain);
-				if (this.#row(key) !== undefined) {
+		return immediate(this.#db, () => {
+			requireDomain(this.#db, domain);
+			if (this.#row(key) !== undefined) {
+				throw new ServerError(
+					'ALREADY_EXISTS',
+					`the alias ${key} already exists`,
+				);
+			}
+			const user = this.#db.query<unknown, [string]>(
+				'SELECT 1 FROM users WHERE address = ?',
+			);
+			if (user.get(key) !== null) {
+				throw new ServerError(
+					'ALREADY_EXISTS',
+					`${key} is a user; an alias cannot take its address`,
+				);
+			}
+			for (const target of users) {
+				if (user.get(target) === null) {
 					throw new ServerError(
-						'ALREADY_EXISTS',
-						`the alias ${key} already exists`,
+						'INVALID',
+						`${target} is not a user here: an alias points to local users only, never elsewhere`,
 					);
 				}
-				const user = this.#db.query<unknown, [string]>(
-					'SELECT 1 FROM users WHERE address = ?',
-				);
-				if (user.get(key) !== null) {
-					throw new ServerError(
-						'ALREADY_EXISTS',
-						`${key} is a user; an alias cannot take its address`,
-					);
-				}
-				for (const target of users) {
-					if (user.get(target) === null) {
-						throw new ServerError(
-							'INVALID',
-							`${target} is not a user here: an alias points to local users only, never elsewhere`,
-						);
-					}
-				}
-				this.#db
-					.query(
-						'INSERT INTO aliases (address, domain, created) VALUES (?, ?, ?)',
-					)
-					.run(key, domain, Date.now());
-				const insert = this.#db.query(
-					'INSERT INTO alias_targets (alias, target) VALUES (?, ?)',
-				);
-				for (const target of users) insert.run(key, target);
-				return this.#entry(this.#row(key) as AliasRow);
-			})
-			.immediate();
+			}
+			this.#db
+				.query(
+					'INSERT INTO aliases (address, domain, created) VALUES (?, ?, ?)',
+				)
+				.run(key, domain, Date.now());
+			const insert = this.#db.query(
+				'INSERT INTO alias_targets (alias, target) VALUES (?, ?)',
+			);
+			for (const target of users) insert.run(key, target);
+			return this.#entry(this.#row(key) as AliasRow);
+		});
 	}
 
 	/** Removes an alias: `NOT_FOUND`. Answers it. */
 	remove(address: string): AliasEntry {
 		const { address: key } = checkAddress(address);
-		return this.#db
-			.transaction(() => {
-				const row = this.#row(key);
-				if (row === undefined) {
-					throw new ServerError('NOT_FOUND', `the alias ${key} does not exist`);
-				}
-				const removed = this.#entry(row);
-				this.#db.query('DELETE FROM aliases WHERE address = ?').run(key);
-				return removed;
-			})
-			.immediate();
+		return immediate(this.#db, () => {
+			const row = this.#row(key);
+			if (row === undefined) {
+				throw new ServerError('NOT_FOUND', `the alias ${key} does not exist`);
+			}
+			const removed = this.#entry(row);
+			this.#db.query('DELETE FROM aliases WHERE address = ?').run(key);
+			return removed;
+		});
 	}
 }

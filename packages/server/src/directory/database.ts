@@ -1,5 +1,12 @@
 import { Database } from 'bun:sqlite';
-import { chmodSync, existsSync, mkdirSync } from 'node:fs';
+import {
+	chmodSync,
+	closeSync,
+	constants,
+	existsSync,
+	mkdirSync,
+	openSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
 import { ServerError } from '../errors';
 import { migrate } from './schema';
@@ -28,6 +35,24 @@ function keepPrivate(file: string): void {
 	}
 }
 
+/**
+ * Creates `file` empty and 0600 when it is missing, so it is never
+ * readable by others, even between SQLite creating it and a `chmod`.
+ */
+function createPrivate(file: string): void {
+	try {
+		closeSync(
+			openSync(
+				file,
+				constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
+				PRIVATE_FILE,
+			),
+		);
+	} catch (error) {
+		if ((error as { code?: unknown }).code !== 'EEXIST') throw error;
+	}
+}
+
 function reason(error: unknown): string {
 	const code = (error as { code?: unknown } | null)?.code;
 	if (typeof code === 'string') return code;
@@ -44,6 +69,7 @@ export function openDatabase(file: string): Database {
 	let db: Database | undefined;
 	try {
 		mkdirSync(dirname(file), { recursive: true, mode: PRIVATE_DIRECTORY });
+		createPrivate(file);
 		db = new Database(file, { create: true, readwrite: true, strict: true });
 		keepPrivate(file);
 		db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
@@ -61,5 +87,27 @@ export function openDatabase(file: string): Database {
 			'UNAVAILABLE',
 			`the directory ${file} cannot be opened (${reason(error)})`,
 		);
+	}
+}
+
+/**
+ * Runs `fn` in a `BEGIN IMMEDIATE` transaction, so its checks and its
+ * writes see no other writer between them. A lock another process holds
+ * past the busy timeout, or any other failure of SQLite's, is
+ * `ServerError('UNAVAILABLE')`; a `ServerError` of `fn` passes as it is.
+ */
+export function immediate<T>(db: Database, fn: () => T): T {
+	try {
+		return db.transaction(fn).immediate();
+	} catch (error) {
+		if (error instanceof ServerError) throw error;
+		const code = reason(error);
+		if (code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED') {
+			throw new ServerError(
+				'UNAVAILABLE',
+				`the directory is in use by another process (${code})`,
+			);
+		}
+		throw new ServerError('UNAVAILABLE', `the directory failed (${code})`);
 	}
 }

@@ -98,7 +98,7 @@ describe('bumail domain', () => {
 			err: 'bumail: the domain example.com already exists\n',
 		});
 		expect((await bumail(['domain', 'add', 'localhost'])).err).toBe(
-			'bumail: "localhost" is not a domain name\n',
+			'bumail: the value given is not a domain name\n',
 		);
 		expect(await bumail(['domain', 'remove', 'example.com'])).toEqual({
 			code: 4,
@@ -421,13 +421,16 @@ describe('a password', () => {
 				`${typed}2`,
 			],
 			[['user', 'add', 'nobody@example.net', '--password-stdin'], typed],
+			[['user', 'passwd', typed], undefined],
+			[[typed], undefined],
+			[['user', typed], undefined],
 			[['user', 'list'], undefined],
 		];
 		const codes: number[] = [];
 		for (const [args, stdin] of cases) {
 			codes.push((await it.bumail(args, stdin)).code);
 		}
-		expect(codes).toEqual([2, 2, 2, 2, 4, 4, 4, 0, 0, 4, 0]);
+		expect(codes).toEqual([2, 2, 2, 2, 4, 4, 4, 0, 0, 4, 4, 2, 2, 0]);
 		const everything = it.seen.join('');
 		expect(everything).not.toContain(typed);
 		expect(everything).not.toContain('Zq9');

@@ -17,11 +17,6 @@ export const HASH_OPTIONS = {
 	timeCost: 2,
 } as const;
 
-/** Verifies running at once, by default; the rest wait their turn. */
-export const DEFAULT_MAX_VERIFIES = 4;
-/** Verifies waiting, by default; past it, `authenticate` answers `busy`. */
-export const DEFAULT_MAX_QUEUED_VERIFIES = 1000;
-
 const encoder = new TextEncoder();
 
 /** The UTF-8 length of `text`. */
@@ -38,14 +33,14 @@ export function byteLength(text: string): number {
 export function checkPassword(password: string): void {
 	if (
 		typeof password !== 'string' ||
-		[...password].length < MIN_PASSWORD_LENGTH
+		[...normalizePassword(password)].length < MIN_PASSWORD_LENGTH
 	) {
 		throw new ServerError(
 			'INVALID',
 			`the password must be at least ${MIN_PASSWORD_LENGTH} characters`,
 		);
 	}
-	if (byteLength(password) > MAX_PASSWORD_BYTES) {
+	if (byteLength(normalizePassword(password)) > MAX_PASSWORD_BYTES) {
 		throw new ServerError(
 			'INVALID',
 			`the password must be at most ${MAX_PASSWORD_BYTES} bytes`,
@@ -60,73 +55,16 @@ export function checkPassword(password: string): void {
 	}
 }
 
-/** The argon2id hash of `password`, as `Bun.password` encodes it. */
-export function hashPassword(password: string): Promise<string> {
-	return Bun.password.hash(password, HASH_OPTIONS);
+/**
+ * A password as it is hashed and verified: in Unicode NFC, as RFC 8265's
+ * OpaqueString prepares one, so a passphrase typed on two systems that
+ * compose `é` differently is one password.
+ */
+export function normalizePassword(password: string): string {
+	return password.normalize('NFC');
 }
 
-/**
- * At most `max` tasks at once; the others wait in order, at most
- * `maxQueued` of them. Argon2id takes 19 MiB and tens of milliseconds a
- * verify: without a cap, a burst of logins takes the memory and the CPU
- * of everything else.
- */
-export class Gate {
-	readonly #max: number;
-	readonly #maxQueued: number;
-	readonly #queue: (() => void)[] = [];
-	#running = 0;
-
-	constructor(
-		max = DEFAULT_MAX_VERIFIES,
-		maxQueued = DEFAULT_MAX_QUEUED_VERIFIES,
-	) {
-		if (!Number.isInteger(max) || max < 1) {
-			throw new ServerError(
-				'INVALID',
-				'maxVerifies must be an integer of 1 or more',
-			);
-		}
-		if (!Number.isInteger(maxQueued) || maxQueued < 0) {
-			throw new ServerError(
-				'INVALID',
-				'maxQueuedVerifies must be an integer of 0 or more',
-			);
-		}
-		this.#max = max;
-		this.#maxQueued = maxQueued;
-	}
-
-	/** Tasks running now. */
-	get running(): number {
-		return this.#running;
-	}
-
-	/** Tasks waiting now. */
-	get queued(): number {
-		return this.#queue.length;
-	}
-
-	/** Whether a task given now would be refused: as many waiting as allowed. */
-	get full(): boolean {
-		return this.#running >= this.#max && this.#queue.length >= this.#maxQueued;
-	}
-
-	/** Runs `task` once a place is free; `undefined`, without running it, when the queue is full. */
-	async run<T>(task: () => Promise<T>): Promise<{ value: T } | undefined> {
-		if (this.#running >= this.#max) {
-			if (this.#queue.length >= this.#maxQueued) return undefined;
-			await new Promise<void>((resolve) => this.#queue.push(resolve));
-		} else {
-			this.#running++;
-		}
-		try {
-			return { value: await task() };
-		} finally {
-			const next = this.#queue.shift();
-			// The place passes to the next in line, or is freed.
-			if (next === undefined) this.#running--;
-			else next();
-		}
-	}
+/** The argon2id hash of `password`, normalized, as `Bun.password` encodes it. */
+export function hashPassword(password: string): Promise<string> {
+	return Bun.password.hash(normalizePassword(password), HASH_OPTIONS);
 }

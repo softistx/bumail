@@ -1,14 +1,14 @@
 import type { ServerConfig } from '../config/types';
-import { provisionAccount, purgeAccount } from '../directory/accounts';
 import { directoryFile } from '../directory/database';
 import { Directory } from '../directory/directory';
+import { ServerError } from '../errors';
+import { provisionAccount, purgeAccount } from '../store/accounts';
 import {
 	isHeld,
 	type OpenedStore,
 	openStore,
 	storeFailure,
-} from '../directory/store';
-import { ServerError } from '../errors';
+} from '../store/open';
 import type { Args } from './args';
 import { readPassword, type Terminal } from './secret';
 
@@ -132,8 +132,10 @@ const commands: Record<Manage['noun'], Handler> = {
 		} else if (args.purge) {
 			const user = directory.users.checkRemovable(address);
 			await withStore(config, async ({ store }) => {
-				directory.users.remove(user.address);
+				// The mail first: should the store fail, the user is still
+				// there, and the same command can be run again.
 				await purgeAccount(store, user.address);
+				directory.users.remove(user.address);
 			});
 			out(`removed the user ${user.address} and its mail\n`);
 		} else {

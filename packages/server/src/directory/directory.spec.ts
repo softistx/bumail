@@ -6,12 +6,9 @@ import { tempDir } from '../config/config.fixtures';
 import { ServerError } from '../errors';
 import { directoryFile } from './database';
 import { Directory } from './directory';
-import {
-	freshDirectory,
-	PASSWORD,
-	seededDirectory,
-} from './directory.fixtures';
+import { PASSWORD, seededDirectory } from './directory.fixtures';
 import { MIGRATIONS } from './schema';
+import { findRecord } from './users';
 
 const opened: Directory[] = [];
 afterEach(() => {
@@ -84,6 +81,22 @@ describe('the file', () => {
 		);
 	});
 
+	test('a write another process holds past the busy timeout is UNAVAILABLE', async () => {
+		const file = join(tempDir(), 'directory.sqlite');
+		const directory = keep(Directory.open({ file }));
+		const other = new Database(file);
+		other.exec('BEGIN IMMEDIATE');
+		try {
+			expect(await failure(() => directory.domains.add('example.com'))).toBe(
+				'UNAVAILABLE: the directory is in use by another process (SQLITE_BUSY)',
+			);
+		} finally {
+			other.exec('ROLLBACK');
+			other.close();
+		}
+		expect(directory.domains.add('example.com').name).toBe('example.com');
+	}, 15_000);
+
 	test('directoryFile reads a sqlite: URL', () => {
 		expect(directoryFile('sqlite:/data/directory.sqlite')).toBe(
 			'/data/directory.sqlite',
@@ -133,7 +146,10 @@ describe('domains', () => {
 			'ALREADY_EXISTS: the domain example.com already exists',
 		);
 		expect(await failure(() => directory.domains.add('localhost'))).toBe(
-			'INVALID: "localhost" is not a domain name',
+			'INVALID: the value given is not a domain name',
+		);
+		expect(await failure(() => directory.domains.add('exa mple.com'))).toBe(
+			'INVALID: "exa mple.com" is not a domain name',
 		);
 		expect(await failure(() => directory.domains.remove('example.net'))).toBe(
 			'NOT_FOUND: the domain example.net does not exist',
@@ -144,14 +160,15 @@ describe('domains', () => {
 		directory.aliases.remove('sales@example.com');
 		directory.users.remove('bob@example.com');
 		expect(await failure(() => directory.domains.remove('example.com'))).toBe(
-			'IN_USE: the domain example.com still has 1 user; remove them first',
+			'IN_USE: the domain example.com still has 1 user; remove it first',
 		);
 	});
 });
 
 describe('users', () => {
 	test('are kept lowercase, with an argon2id hash, never the password', async () => {
-		const directory = keep(freshDirectory());
+		const file = join(tempDir(), 'directory.sqlite');
+		const directory = keep(Directory.open({ file }));
 		directory.domains.add('example.com');
 		const user = await directory.users.add('Alice@Example.com', PASSWORD);
 		expect(user).toMatchObject({
@@ -159,7 +176,9 @@ describe('users', () => {
 			domain: 'example.com',
 			disabled: false,
 		});
-		const record = directory.users.record('ALICE@example.com');
+		const db = new Database(file, { readonly: true });
+		const record = findRecord(db, 'ALICE@example.com');
+		db.close();
 		expect(record?.hash).toStartWith('$argon2id$v=19$m=19456,t=2,');
 		expect(record?.hash).not.toContain(PASSWORD);
 		expect(directory.users.get('alice@EXAMPLE.COM')?.address).toBe(
@@ -197,7 +216,7 @@ describe('users', () => {
 			'ALREADY_EXISTS: sales@example.com is an alias; a user cannot take its address',
 		);
 		expect(await failure(() => directory.users.add('carol', PASSWORD))).toBe(
-			'INVALID: "carol" is not an e-mail address',
+			'INVALID: the value given is not an e-mail address',
 		);
 	});
 

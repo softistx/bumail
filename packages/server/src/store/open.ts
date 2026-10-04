@@ -3,6 +3,7 @@ import { PostgresMailStore } from '@bumail/store/postgres';
 import { SqliteMailStore } from '@bumail/store/sqlite';
 import type { StoreConfig } from '../config/types';
 import { ServerError } from '../errors';
+import { masked } from '../masked';
 
 /** A mail store the server opened, and closes. */
 export interface OpenedStore {
@@ -10,15 +11,13 @@ export interface OpenedStore {
 	close(): Promise<void>;
 }
 
-/** Bun's and the store's own reasons, with the URL's password masked, should one repeat it. */
-function masked(message: string, url: string): string {
-	let password = '';
+/** `message` with the password of `url` masked, as `@bumail/store` masks it. */
+function maskedFor(message: string, url: string): string {
 	try {
-		password = decodeURIComponent(new URL(url).password);
+		return masked(message, new URL(url).password);
 	} catch {
-		password = '';
+		return message;
 	}
-	return password === '' ? message : message.split(password).join('***');
 }
 
 /** What `openStore` says of a SQLite store another process holds. */
@@ -54,7 +53,7 @@ export function openStore(config: StoreConfig): OpenedStore {
 		}
 		throw new ServerError(
 			'UNAVAILABLE',
-			`the mail store cannot be opened (${masked(message, url)})`,
+			`the mail store cannot be opened (${maskedFor(message, url)})`,
 		);
 	}
 }
@@ -65,6 +64,6 @@ export function storeFailure(error: unknown, config: StoreConfig): ServerError {
 	const message = error instanceof Error ? error.message : String(error);
 	return new ServerError(
 		'UNAVAILABLE',
-		`the mail store failed (${masked(message, config.url)})`,
+		`the mail store failed (${maskedFor(message, config.url)})`,
 	);
 }

@@ -85,9 +85,15 @@ export function checkAddress(text: string): Address {
 	return address;
 }
 
-/** What was given, quoted and cut to 80 characters with its controls escaped, for a message. */
+/**
+ * What was given, quoted, cut to 80 characters with its controls
+ * escaped, for a message — when it holds an `@` or a `.`, as an address
+ * or a domain mistyped does. Anything else may be a password typed in
+ * the wrong place, and is not repeated: it is `the value given`.
+ */
 export function shown(text: string): string {
 	const value = String(text);
+	if (!/[@.]/.test(value)) return 'the value given';
 	const cut = value.length > 80 ? `${value.slice(0, 80)}…` : value;
 	return JSON.stringify(cut);
 }
