@@ -1379,7 +1379,8 @@ more` (from `new FailureLimiter`, with `maxPending`), and
 
 `bumail serve` exits 5 for what it cannot open or bind, or for a
 certificate that does not come, and 1 for a configuration `check-config`
-refuses. What it does is in [running the server](serve.md). It also
+refuses. Exit 3 (`NOT_IMPLEMENTED`) is reserved: nothing raises it
+now. What it does is in [running the server](serve.md). It also
 prints the directory's and the store's own messages, such as
 [`the mail store is in use by another process, such as the running server`](#the-mail-store-is-in-use-by-another-process-such-as-the-running-server):
 see [the directory and the store](#the-directory-and-the-store), exit

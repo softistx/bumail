@@ -323,7 +323,7 @@ be used 5.
 | `readConfig(options?)` | reads, checks and fills in the configuration: `path`, `env` (default `process.env`), `now` (for the certificate's validity) |
 | `configPath(options?)` | the file `readConfig` reads: `path`, else `BUMAIL_CONFIG`, else `DEFAULT_CONFIG_PATH` |
 | `DEFAULT_CONFIG_PATH` | `/data/bumail.toml` |
-| `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`, `NOT_IMPLEMENTED`) and, for a configuration, its `problems` |
+| `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`, and `NOT_IMPLEMENTED`, reserved: nothing raises it now) and, for a configuration, its `problems` |
 | `serve(config, options?)` | runs the server: `mx`, `submissions`, `submission`, `imaps`, `imap`, `https` and `health` for the ports not 0, `http` with ACME, and the queue; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds`, `outbound`, `acme` (a test's CA `fetch`, clock and timings), `signal` (ends the wait for a first certificate) |
 | `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `AcmeOptions`, `OutboundOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`, `reloadTls()` (look at the certificate files, or with ACME the stored pair, now, as SIGHUP does; never a renewal); the types around them; `OutboundOptions` is `mxPort`, `ca`, `pollInterval`, `send`, and `AcmeOptions` is `fetch`, `now` and the timings, for a test |
 | `DEFAULT_DRAIN_SECONDS` | 10, the seconds a stop waits for SMTP sessions |
