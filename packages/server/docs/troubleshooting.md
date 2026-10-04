@@ -802,12 +802,14 @@ alias's users.
 
 #### `the user … does not exist`
 
-**When**: `user passwd`, `disable`, `enable` or `remove` with an
-address no user has (an alias is not a user). With `--purge`, only
-when the mail store has no account for it either: an account left
-there, by a plain `remove` or by a login under way during a purge, is
-deleted, and the command prints `… is not a user; deleted its account
-and mail left in the mail store`.
+**When**: `user passwd`, `disable`, `enable` or `remove` with an address
+no user has (an alias is not a user). With `--purge`, only when the mail
+store has no account for it either: an account left there, by a plain
+`remove` or by a login under way during a purge, is deleted, and the
+command prints `… is not a user; deleted its account and mail left in
+the mail store`. Since `--purge` looks in the store first, a store the
+running server holds or one that cannot be reached answers before this:
+exit 5, not 4.
 
 **Fix**: check it against `bumail user list`.
 

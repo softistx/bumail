@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 import { join } from 'node:path';
 import { tempDir } from '../config/config.fixtures';
+import { ServerError } from '../errors';
+import { Authenticator } from './authenticate';
 import { Directory } from './directory';
 import { PASSWORD, seededDirectory } from './directory.fixtures';
 import { Gate } from './gate';
@@ -242,6 +244,37 @@ describe('authenticate', () => {
 		expect(dir.limiter.blocked(IP)).toBe(false);
 		await dir.authenticate('alice@example.com', '', IP);
 		expect(dir.limiter.size).toBe(0);
+	});
+
+	test('counts no failure when the lookup throws before any verify answered', async () => {
+		const limiter = new FailureLimiter({ maxFailures: 1 });
+		const auth = new Authenticator(
+			{
+				find: () => {
+					throw new ServerError('UNAVAILABLE', 'the directory failed');
+				},
+				version: () => undefined,
+			},
+			{ limiter },
+		);
+		for (let i = 0; i < 3; i++) {
+			await expect(
+				auth.authenticate('alice@example.com', 'wrong guess', IP),
+			).rejects.toThrow('the directory failed');
+		}
+		expect(limiter.blocked(IP)).toBe(false);
+		expect(limiter.size).toBe(0);
+		expect(limiter.begin(IP)).toBe('started');
+	});
+
+	test('logs in with a spelling whose lowercase NFC decomposes, as it was added', async () => {
+		const dir = await directory();
+		const spelling = 'T\u0308om@example.com';
+		const user = await dir.users.add(spelling, PASSWORD);
+		expect(user.address).toBe('\u1e97om@example.com');
+		expect((await dir.authenticate(spelling, PASSWORD, IP)).ok).toBe(true);
+		expect(dir.users.get(spelling)?.address).toBe(user.address);
+		expect(dir.users.remove(spelling).address).toBe(user.address);
 	});
 
 	test('takes a password typed in another Unicode form', async () => {

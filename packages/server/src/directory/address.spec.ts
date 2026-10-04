@@ -38,6 +38,21 @@ describe('domainOf', () => {
 });
 
 describe('addressOf', () => {
+	test.each([
+		'T\u0308om@example.com',
+		'\u0391\u0345\u03a9@example.com',
+		'\u03b1\u0345\u0301@example.com',
+		'\u0130stanbul@example.com',
+		'\u01c4ec@example.com',
+		'Stra\u1e9ee@example.com',
+		'A\u030a\u0301@example.com',
+	])('reads %p, and reads what it keeps back as itself', (given) => {
+		const kept = addressOf(given)?.address;
+		expect(kept).toBeDefined();
+		expect(addressOf(kept ?? '')?.address).toBe(kept);
+		expect(kept).toBe(kept?.normalize('NFC'));
+	});
+
 	test('lowercases the domain and the local part', () => {
 		expect(addressOf('Alice.Smith@Example.COM')).toEqual({
 			address: 'alice.smith@example.com',

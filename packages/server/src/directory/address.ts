@@ -61,7 +61,14 @@ export function addressOf(text: string): Address | undefined {
 	if (typeof text !== 'string') return undefined;
 	const at = text.lastIndexOf('@');
 	if (at < 1) return undefined;
-	const local = text.slice(0, at).normalize('NFC').toLowerCase();
+	// NFC again after lowercasing, which can leave a decomposed pair
+	// (`T̈` → `t` + U+0308, which NFC composes to `ẗ`): a fixed point, so
+	// the address kept is read back as itself.
+	const local = text
+		.slice(0, at)
+		.normalize('NFC')
+		.toLowerCase()
+		.normalize('NFC');
 	const domain = domainOf(text.slice(at + 1));
 	if (
 		domain === undefined ||

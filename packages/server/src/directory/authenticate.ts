@@ -193,7 +193,9 @@ export class Authenticator {
 		if (hit !== undefined) return { ok: true, user: hit };
 		const begun = limiter.begin(ip);
 		if (begun !== 'started') return { ok: false, reason: begun };
-		let failed = true;
+		// Counted only once the verify answered: a throw (the directory
+		// unavailable, say) is no guess.
+		let failed = false;
 		try {
 			const result = await this.#verify(login, password, key);
 			failed = !result.ok && result.reason !== 'busy';

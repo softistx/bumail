@@ -113,9 +113,8 @@ export type Begun = 'started' | 'blocked' | 'busy';
  *   one verify (argon2id, 19 MiB, two passes) measured about 14 ms on
  *   a recent laptop core, so 4 at once make about 290 a second, and
  *   with 900 s and 10 failures that is about 26 000, under the default
- *   100 000; a slower core verifies fewer. Keep `maxClients` above the
- *   figure for the verify time measured on the machine, and no spray
- *   can make room by forgetting a block.
+ *   100 000. Keep `maxClients` above the figure for the machine's own
+ *   verify time, and no spray can make room by forgetting a block.
  * - A login whose client is not an IP address (`clientKey` answers
  *   `undefined`) is not limited at all.
  */

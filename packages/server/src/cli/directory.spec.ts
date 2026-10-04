@@ -418,6 +418,39 @@ describe('bumail user remove --purge, with the user gone', () => {
 	});
 });
 
+describe('an address whose lowercase NFC decomposes', () => {
+	test('adds, logs in, removes and purges with the spelling it was added with', async () => {
+		const it = await seeded();
+		const spelling = 'T\u0308om@example.com';
+		const kept = '\u1e97om@example.com';
+		expect(
+			await it.bumail(
+				['user', 'add', spelling, '--password-stdin'],
+				`${SECRET}\n`,
+			),
+		).toMatchObject({ code: 0 });
+		const directory = it.directory();
+		try {
+			expect(
+				(await directory.authenticate(spelling, SECRET, '192.0.2.1')).ok,
+			).toBe(true);
+		} finally {
+			directory.close();
+		}
+		expect(await it.bumail(['user', 'remove', spelling, '--purge'])).toEqual({
+			code: 0,
+			out: `removed the user ${kept} and its mail\n`,
+			err: '',
+		});
+		const store = it.store();
+		try {
+			expect(await store.findAccount(kept)).toBeUndefined();
+		} finally {
+			store.close();
+		}
+	});
+});
+
 describe('bumail alias', () => {
 	test('add, list and remove; never to an address elsewhere', async () => {
 		const it = await seeded();
