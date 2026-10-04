@@ -38,7 +38,11 @@ export interface QueueStore {
 	/** How many items the store holds. */
 	count(): Promise<number>;
 
-	/** The message of an item, or `undefined` once the item is gone. */
+	/**
+	 * The message of an item, or `undefined` once the item is gone. A
+	 * store that holds the item but has lost its message gives `undefined`
+	 * too: the queue then fails the item's pending recipients.
+	 */
 	readMessage(id: string): Promise<Uint8Array | undefined>;
 
 	/**

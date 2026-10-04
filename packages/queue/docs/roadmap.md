@@ -65,6 +65,25 @@ Then:
 
 ### Unreleased — merged, not yet published
 
+- **The PostgreSQL store's writes run at `READ COMMITTED`** — whatever
+  the client's sessions default to, so a client shared with code that
+  defaults to `repeatable read` or `serializable` serves the queue:
+  concurrent claims, outcomes, adds with `maxItems` and migrations no
+  longer fail with SQLSTATE 40001, and `maxItems` holds under them.
+- **A message the store lost no longer loops** — an item whose message
+  is gone (a Redis key evicted or deleted, a row removed by hand) fails
+  its pending recipients at once as `5.3.0`, `Message unreadable`, says
+  so on the `error` event (`MESSAGE_UNREADABLE`), sends its failure DSN
+  without the original and leaves the queue, rather than be claimed
+  again at every lease, forever, holding its `maxItems` place.
+- **A set-up error never shows the password** — `The PostgreSQL queue
+  cannot be set up` and `The Redis queue cannot be set up` mask it
+  should the database's reason repeat it; and a password under 4
+  characters is masked only where a URL holds it, so the rest of the
+  reason stays readable.
+
+### 0.3.0
+
 - **A Redis store**, `@bumail/queue/redis`, on Bun's own `Bun.redis`,
   for instances of a server on several machines sharing one queue:
   `RedisQueueStore.open({ client })` takes a `Bun.RedisClient`, or
