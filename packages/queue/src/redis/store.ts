@@ -35,13 +35,6 @@ import {
 	type Script,
 } from './scripts';
 
-export type {
-	RedisQueueClient,
-	RedisQueueClientOptions,
-	RedisQueueStoreOptions,
-	RedisQueueUrlOptions,
-} from './options';
-
 /**
  * A `QueueStore` on Redis through Bun's own `Bun.RedisClient`: several
  * instances, on one machine or many, share one queue. Every operation
@@ -202,23 +195,25 @@ export class RedisQueueStore implements QueueStore {
 		if (!isId(id)) return undefined;
 		const k = this.#keys;
 		const client = await this.#redis();
-		for (;;) {
+		for (let read = 0; read < MAX_READS; read++) {
 			const fields = fieldsOf(
 				await client.send('HGETALL', [`${k.prefix}item:${id}`]),
 			);
 			if (!fields || fields['owner'] !== owner) return undefined;
+			const rev = fields['rev']; // none: damaged by hand, nothing recorded
+			if (rev === undefined) return undefined;
 			const item = applyAttempt(itemOf(fields), result);
-			// Recorded only on the item as read: another outcome since, and it is read again.
 			const done = Number(
 				await this.#run(
 					COMPLETE,
 					[k.items, k.ready, k.leases],
-					[id, owner, fields['rev'] ?? '', ...outcomeOf(item)],
+					[id, owner, rev, ...outcomeOf(item)],
 				),
 			);
 			if (done === 1) return item;
 			if (done === 0) return undefined;
 		}
+		return undefined; // outrun MAX_READS times: told as a lease lost
 	}
 
 	async reschedule(id: string, at: number, owner?: string): Promise<boolean> {
@@ -245,5 +240,8 @@ export class RedisQueueStore implements QueueStore {
 		return fields ? itemOf(fields) : undefined;
 	}
 }
+
+/** How often `complete` reads an item, another outcome recorded since each read. */
+const MAX_READS = 8;
 
 const closed = () => new QueueError('CLOSED', 'The queue store is closed');

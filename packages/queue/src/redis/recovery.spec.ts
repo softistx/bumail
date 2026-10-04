@@ -33,6 +33,24 @@ describeRedis('RedisQueueStore when something went wrong', (url) => {
 		).toBe(0);
 	});
 
+	test('complete records nothing on a hash with no rev, damaged by hand, and returns at once', async () => {
+		const store = create();
+		const item = await store.add(entry());
+		await store.claim({ owner: 'w', now: T0, ...lease });
+		await admin.send('HDEL', [`${prefixFor(store)}item:${item.id}`, 'rev']);
+		const done = await store.complete(item.id, 'w', {
+			now: T0,
+			recipients: [{ address: 'joe@example.com', status: 'delivered' }],
+			nextAttemptAt: T0 + MINUTE,
+			attempts: 1,
+			delayNotified: false,
+		});
+		expect(done).toBeUndefined();
+		const kept = await store.get(item.id);
+		expect(kept?.attempts).toBe(0);
+		expect(kept?.lease?.owner).toBe('w');
+	}, 2000);
+
 	test('a schema key that holds no layout version is refused', async () => {
 		const keyPrefix = prefix();
 		await admin.send('SET', [`${keyPrefix}schema`, 'hello']);

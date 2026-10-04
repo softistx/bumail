@@ -1,7 +1,7 @@
-export {
-	type RedisQueueClient,
-	type RedisQueueClientOptions,
-	RedisQueueStore,
-	type RedisQueueStoreOptions,
-	type RedisQueueUrlOptions,
-} from './store';
+export type {
+	RedisQueueClient,
+	RedisQueueClientOptions,
+	RedisQueueStoreOptions,
+	RedisQueueUrlOptions,
+} from './options';
+export { RedisQueueStore } from './store';

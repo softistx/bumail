@@ -60,7 +60,7 @@ parts shown as … vary.
 
 - [`QueueError: A Redis queue store needs client, a Bun.RedisClient, or url, a redis:// URL`](#queueerror-a-redis-queue-store-needs-client-a-bunredisclient-or-url-a-redis-url)
 - [`QueueError: A Redis queue store takes client or url, not both`](#queueerror-a-redis-queue-store-takes-client-or-url-not-both)
-- [`QueueError: keyPrefix must be lowercase letters, digits, '_', ':', '.' and '-', starting with a letter, at most 40 characters, not …`](#queueerror-keyprefix-must-be-lowercase-letters-digits------and---starting-with-a-letter-at-most-40-characters-not-)
+- [`QueueError: keyPrefix must be lowercase letters, digits, '_', ':', '.' and '-', starting with a letter, at most 40 characters, not …`](#queueerror-keyprefix-must-be-lowercase-letters-digits-_---and---starting-with-a-letter-at-most-40-characters-not-)
 - [`QueueError: The URL in url cannot be opened: …`](#queueerror-the-url-in-url-cannot-be-opened-)
 - [`QueueError: The Redis queue cannot be set up: …`](#queueerror-the-redis-queue-cannot-be-set-up-)
 - [`QueueError: The key …schema does not hold a layout version: is the prefix another application's?`](#queueerror-the-key-schema-does-not-hold-a-layout-version-is-the-prefix-another-applications)

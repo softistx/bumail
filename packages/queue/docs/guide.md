@@ -715,6 +715,8 @@ codes, and keeps its promises:
   dropped with its message.
 - Times are given by the caller; the store keeps no clock.
 - Nothing it returns is shared with what it keeps.
+- `reschedule` with an owner refuses an empty owner as `INVALID`, even
+  for an id no item has.
 - Text it keeps holds no NUL and no lone surrogate: the contract's
   checks refuse them (`INVALID`) in what is added, claimed and recorded,
   since PostgreSQL cannot keep them, and an id holding one is unknown.
