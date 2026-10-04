@@ -88,6 +88,31 @@ describe('RedisQueueStore.open', () => {
 		).rejects.toMatchObject({ code: 'CLOSED' });
 		client.close();
 	});
+
+	test('a set-up error that repeats the URL’s password masks it', async () => {
+		// A server whose every reply is an error naming the password it was sent.
+		const server = Bun.listen({
+			hostname: '127.0.0.1',
+			port: 0,
+			socket: {
+				data(socket) {
+					socket.write('-ERR no user for s3cretpw\r\n');
+				},
+			},
+		});
+		const store = RedisQueueStore.open({
+			url: `redis://bob:s3cretpw@127.0.0.1:${server.port}`,
+		});
+		try {
+			await expect(store.count()).rejects.toMatchObject({
+				code: 'INVALID',
+				message: 'The Redis queue cannot be set up: ERR no user for …',
+			});
+		} finally {
+			await store.close();
+			server.stop(true);
+		}
+	});
 });
 
 describeRedis('RedisQueueStore on Redis', (url) => {

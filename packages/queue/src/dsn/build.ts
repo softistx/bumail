@@ -31,8 +31,11 @@ export interface DsnInput {
 	readonly recipients: readonly DsnRecipient[];
 	/** With `delayed`: when the queue gives up. */
 	readonly willRetryUntil?: Date;
-	/** The original message, as enqueued. */
-	readonly original: Uint8Array;
+	/**
+	 * The original message, as enqueued; absent when it could not be read,
+	 * and the DSN then has no third part (RFC 6522 §3 makes it optional).
+	 */
+	readonly original?: Uint8Array;
 	readonly returnContent: 'headers' | 'full';
 	/** The most bytes of the original returned. */
 	readonly maxReturn: number;
@@ -62,6 +65,12 @@ function humanText(input: DsnInput): string {
 					: []),
 				'You do not need to send it again.',
 			];
+	if (!input.original) {
+		lines.push(
+			'',
+			'Your message could not be read from the queue, so it is not returned.',
+		);
+	}
 	lines.push('');
 	for (const r of input.recipients) {
 		const said = r.reply
@@ -123,17 +132,16 @@ function boundaryFor(content: Uint8Array): string {
  * (RFC 6522) of `report-type=delivery-status` holding the text a person
  * reads, the `message/delivery-status` fields a program reads, and the
  * original's header fields (or the whole original, when asked and small
- * enough), bounded by `maxReturn`. Nothing from the remote server or the
+ * enough), bounded by `maxReturn` — or, with no `original`, no third
+ * part at all. Nothing from the remote server or the
  * envelope reaches a header field raw: control characters, CR and LF are
  * taken out first.
  */
 export function buildDsn(input: DsnInput): Uint8Array {
-	const original = returned(
-		input.original,
-		input.returnContent,
-		input.maxReturn,
-	);
-	const boundary = boundaryFor(original.body);
+	const original = input.original
+		? returned(input.original, input.returnContent, input.maxReturn)
+		: undefined;
+	const boundary = boundaryFor(original?.body ?? new Uint8Array());
 	const text = encodeQuotedPrintable(humanText(input));
 	const status = deliveryStatus({
 		kind: input.kind,
@@ -142,7 +150,7 @@ export function buildDsn(input: DsnInput): Uint8Array {
 		recipients: input.recipients,
 		...(input.willRetryUntil ? { willRetryUntil: input.willRetryUntil } : {}),
 	});
-	const head = [
+	const parts = [
 		...headerFields(input, boundary),
 		'',
 		'This is a MIME-formatted delivery status notification.',
@@ -156,6 +164,11 @@ export function buildDsn(input: DsnInput): Uint8Array {
 		'Content-Type: message/delivery-status',
 		'',
 		status,
+	];
+	const end = `--${boundary}--\r\n`;
+	if (!original) return encoder.encode(`${parts.join('\r\n')}\r\n${end}`);
+	const head = [
+		...parts,
 		`--${boundary}`,
 		`Content-Type: ${original.type}`,
 		...(original.eightBit ? ['Content-Transfer-Encoding: 8bit'] : []),
@@ -165,6 +178,6 @@ export function buildDsn(input: DsnInput): Uint8Array {
 	return concat([
 		encoder.encode(head),
 		original.body,
-		encoder.encode(`\r\n--${boundary}--\r\n`),
+		encoder.encode(`\r\n${end}`),
 	]);
 }

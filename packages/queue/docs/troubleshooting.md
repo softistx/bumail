@@ -36,10 +36,12 @@ parts shown as … vary.
 - [`QueueError: The lease on … was lost while it was delivered`](#queueerror-the-lease-on--was-lost-while-it-was-delivered)
 - [`QueueError: The lease on … expired before its outcome was recorded, and the item is gone: lost to another worker that finished it, the message then sent twice, or cancelled`](#queueerror-the-lease-on--expired-before-its-outcome-was-recorded-and-the-item-is-gone-lost-to-another-worker-that-finished-it-the-message-then-sent-twice-or-cancelled)
 - [`QueueError: The lease on … was lost while it was delivered, and the item is gone: finished by the worker that took it, the message then sent twice, or cancelled`](#queueerror-the-lease-on--was-lost-while-it-was-delivered-and-the-item-is-gone-finished-by-the-worker-that-took-it-the-message-then-sent-twice-or-cancelled)
+- [`QueueError: The message of … is unreadable: the store holds the item but not its message, so every pending recipient failed`](#queueerror-the-message-of--is-unreadable-the-store-holds-the-item-but-not-its-message-so-every-pending-recipient-failed)
 - [`SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`](#smtperror-sendmail--invalid_option-with-recipients-deferred-as-435)
 - [`SQLiteError: database is locked`, or another store error, during a delivery](#sqliteerror-database-is-locked-or-another-store-error-during-a-delivery)
 - [`PostgresError: …`, or a connection error, during a delivery](#postgreserror--or-a-connection-error-during-a-delivery)
 - [`RedisError: …` during a delivery: `Connection closed`, `OOM command not allowed …`, `READONLY …`](#rediserror--during-a-delivery-connection-closed-oom-command-not-allowed--readonly-)
+- [`PostgresError: could not serialize access due to concurrent update` (SQLSTATE `40001`)](#postgreserror-could-not-serialize-access-due-to-concurrent-update-sqlstate-40001)
 
 **The `bun:sqlite` store** (`@bumail/queue/sqlite`)
 
@@ -87,6 +89,7 @@ parts shown as … vary.
 - [Every delivery fails at once with `5.7.1`, or with a reply naming your IP or EHLO name](#every-delivery-fails-at-once-with-571-or-with-a-reply-naming-your-ip-or-ehlo-name)
 - [A recipient fails with `5.1.3`, `The address is not one SMTP can carry`](#a-recipient-fails-with-513-the-address-is-not-one-smtp-can-carry)
 - [Every recipient fails with `5.1.7`, `The sender's address is not one SMTP can carry`](#every-recipient-fails-with-517-the-senders-address-is-not-one-smtp-can-carry)
+- [Every pending recipient fails with `5.3.0`, `Message unreadable: the queue store holds the item but not its message`](#every-pending-recipient-fails-with-530-message-unreadable-the-queue-store-holds-the-item-but-not-its-message)
 - [`retryNow` returns `false` for an item that is in the queue](#retrynow-returns-false-for-an-item-that-is-in-the-queue)
 
 ## Enqueuing
@@ -323,6 +326,29 @@ the store keeps no record of which happened, so the message names both.
 **Fix:** a longer `leaseMs`, find what stalled the process, and keep the
 machines on NTP.
 
+### `QueueError: The message of … is unreadable: the store holds the item but not its message, so every pending recipient failed`
+
+**Code:** `MESSAGE_UNREADABLE`, with the item's `id`.
+**When:** a worker claimed an item, the store gave no message for it
+while it still held the item, and the failures were then recorded: it
+comes after the record, before the `failed` events. With the lease lost
+before the record, only `LEASE_LOST` is told, and the next worker tells
+this; with the item cancelled meanwhile, nothing is.
+**Why:** the message is gone and the item is not: on Redis, its
+`<prefix>message:<id>` key evicted under a `maxmemory-policy` other than
+`noeviction`, or deleted; on any store, a message row or key removed by
+hand, or a store of your own that loses it. Nothing can be sent, so
+every recipient still pending fails as `5.3.0` (see
+[below](#every-pending-recipient-fails-with-530-message-unreadable-the-queue-store-holds-the-item-but-not-its-message)),
+the failure DSN goes to the sender without the original, and the item
+leaves the queue. Before this, such an item stayed leased and was
+claimed again at every lease, forever, with no event.
+**Fix:** find what removed the message. On Redis, set
+`maxmemory-policy noeviction` and size `maxmemory` for the queue (the
+guide's [Redis](guide.md#redis)); never delete a queue's keys or rows by
+hand, `cancel(id)` drops an item with its message. The sender has the
+DSN and may send again.
+
 ### `SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`
 
 **When:** `sendMail` refused the options of a session — the route, the
@@ -387,6 +413,26 @@ your provider's endpoint or Sentinel's, which follows a failover). For
 `maxmemory-policy noeviction` (the guide's [Redis](guide.md#redis)), or
 Redis drops queue items to make room instead of refusing.
 
+### `PostgresError: could not serialize access due to concurrent update` (SQLSTATE `40001`)
+
+**When:** on `@bumail/queue/postgres` 0.3.0 or earlier — a claim, an
+outcome, an `enqueue` with `limits.maxItems` or a migration rejecting, or
+told on `error`, with `could not serialize access due to concurrent
+update` or `… due to read/write dependencies among transactions`, while
+several workers run — or `limits.maxItems` letting more items in than
+its limit.
+**Why:** the client's sessions default to `repeatable read` or
+`serializable` (`connection: { default_transaction_isolation }`, or the
+role's or database's own default). The claim's `FOR UPDATE SKIP LOCKED`
+and the `maxItems` advisory lock need `READ COMMITTED`: under a stricter
+level, a row another worker changed since the transaction's snapshot
+fails, and the count taken after the lock reads a snapshot from before
+it.
+**Fix:** upgrade: every transaction the store writes in now starts with
+`SET TRANSACTION ISOLATION LEVEL READ COMMITTED`, whatever the client's
+default. The error from a transaction of your own on the same client is
+yours to retry.
+
 ## The `bun:sqlite` store
 
 ### `QueueError: A SQLite queue store needs a directory`
@@ -447,7 +493,8 @@ PostgresQueueStore.open({ sql: new Bun.SQL({ url, max: 10 }) });
 **Why:** the prefix is written into every statement, never bound as a
 value, so anything that is not a plain name is refused — and 40
 characters keep the longest name built on it within PostgreSQL's 63.
-**Fix:** `tablePrefix: 'mail_queue_'`. To put the tables in another
+**Fix:** `tablePrefix: 'mail_queue_'`, a prefix of the queue's own: never
+one another package's or application's tables use. To put the tables in another
 schema, set the connection's `search_path` rather than a dotted prefix.
 
 ### `QueueError: The URL in sql cannot be opened: …`
@@ -457,7 +504,10 @@ schema, set the connection's `search_path` rather than a dotted prefix.
 connecting, such as a `sslmode` it does not know. The rest is Bun's
 reason (`The argument 'sslmode' must be one of: disable, allow, prefer,
 require, verify-ca, verify-full. Received '…'`); the URL is never
-repeated, and the password is masked should the reason name it.
+repeated, and the password is masked should the reason name it: always
+where a URL holds it (`:…@`), and alone, elsewhere, when it is 4
+characters or more — masking `x` everywhere would turn "execute" into
+"e…ecute".
 **Fix:** correct the parameter: `?sslmode=require`, or `verify-full` to
 check the server's certificate.
 
@@ -467,7 +517,10 @@ check the server's certificate.
 **When:** the first call on a store, or `migrate()`, when the tables
 cannot be made or brought up to date. The rest of the message is the
 database's: `Failed to connect`, `password authentication failed for
-user "…"`, `permission denied for schema public`.
+user "…"`, `permission denied for schema public`. The password — the
+URL's, or a given `Bun.SQL`'s — is masked should the reason name it, as
+for `The URL in sql cannot be opened`: a `…` where you expect a role or
+a database name is one that equals the password.
 **Why:** the database is out of reach, the credentials are wrong, or the
 tables are missing or behind and the role may not create them: a role
 without `CREATE` can use tables that are current, never make them.
@@ -516,7 +569,8 @@ database its own prefix.
 **When:** `RedisQueueStore.open` with a URL `Bun.RedisClient` refuses
 before connecting, such as a database that is not a number (`Invalid
 database number in Redis URL: "…"`). The URL is never repeated, and the
-password is masked should the reason name it.
+password is masked should the reason name it, as on PostgreSQL: always
+in a URL, and alone from 4 characters.
 **Fix:** correct the URL: the database is the path, `/0` to `/15` on a
 default Redis.
 
@@ -528,7 +582,8 @@ its keys (`<prefix>schema`), writing it on a new queue. The rest of the
 message is Redis's or Bun's: `Max reconnection attempts reached` (out of
 reach), `WRONGPASS invalid username-password pair or user is disabled.`,
 `ERR DB index is out of range`, `NOPERM …` (an ACL user without
-`EVALSHA`, `EVAL` or the keys).
+`EVALSHA`, `EVAL` or the keys). The URL's password is masked should the
+reason repeat it; a given client's is not known to the store.
 **Why:** the server is out of reach, the credentials or the database are
 wrong, or the user may not run scripts. With `Bun.RedisClient`'s
 defaults an unreachable server takes about half a minute of reconnecting
@@ -696,6 +751,22 @@ other.
 **Fix:** enqueue through `queue.enqueue`, or check the sender with
 `@bumail/smtp/client`'s `isMailbox` (or let it be `''`) before a store of
 your own keeps it.
+
+### Every pending recipient fails with `5.3.0`, `Message unreadable: the queue store holds the item but not its message`
+
+**When:** the store held the item but gave no message for it, and the
+failures were recorded: the `error` event says
+[`The message of … is unreadable`](#queueerror-the-message-of--is-unreadable-the-store-holds-the-item-but-not-its-message-so-every-pending-recipient-failed)
+for the same item, just before these `failed` events. An item cancelled
+before the record tells no `5.3.0` failure; with the lease lost, this
+attempt tells none and the next worker tells them.
+**Why:** no session can send a message that cannot be read, and an
+attempt left without an outcome would be claimed again at every lease,
+forever, keeping its `maxItems` place. Recipients already delivered keep
+their state; the others fail in one attempt, with one failure DSN —
+none for a message from `<>` — that returns nothing of the original.
+**Fix:** as for that error: find what removed the message, and on Redis
+keep `maxmemory-policy noeviction`.
 
 ### `retryNow` returns `false` for an item that is in the queue
 

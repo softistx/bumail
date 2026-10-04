@@ -98,6 +98,7 @@ recipient's outcome is recorded with the reply that decided it.
 | `sendMail` refuses the route's options (`INVALID_OPTION`) | `deferred`, as `4.3.5` | tried again later, and an `error` event: the configuration is yours to fix |
 | a recipient a store holds that `sendMail` would refuse | `failed`, as `5.1.3` | final, alone; a DSN |
 | a sender a store holds that `sendMail` would refuse | `failed`, as `5.1.7` | final, every recipient, with no session; a DSN to that sender, which itself fails as `5.1.3` |
+| a message the store lost ([below](#a-message-the-store-lost)) | `failed`, as `5.3.0` | final, every pending recipient, with no session; a DSN without the original, and a `MESSAGE_UNREADABLE` error |
 
 An error is read by its `name` (`SmtpError`) and `code`, not by its
 class: an app with a second copy of `@bumail/smtp` installed, or a
@@ -160,6 +161,40 @@ seconds (RFC 5321 §4.5.3.2's by default) and the whole session's (1800
 seconds, DNS included). `createQueue` checks each one: above 0, and at
 most 2147483 seconds, the longest a timer waits.
 
+### A message the store lost
+
+An item whose message the store no longer gives — a Redis key evicted
+or deleted, a row removed by hand — cannot be sent. Rather than leave it
+leased, claimed again at every lease and holding its `limits.maxItems`
+place, the attempt fails every recipient still pending, at once:
+
+- the failures are recorded, and the attempt counts; then
+- the `error` event gets a `QueueError` of code `MESSAGE_UNREADABLE`,
+  `The message of … is unreadable: the store holds the item but not its
+  message, so every pending recipient failed`, with the item's `id`;
+- each recipient's `failed` event follows, its `reply` `{ status:
+  '5.3.0', text: 'Message unreadable: the queue store holds the item but
+  not its message' }`, with no `code`, since no server answered;
+- the failure DSN goes to the sender as usual — never about a message
+  from `<>` — with no third part, since there is nothing to return;
+- the item leaves the queue. Recipients already delivered keep their
+  state, and are not told again.
+
+In that order: the record, the `error`, the `failed` events, the `dsn`
+event. Nothing is told before the record: when the lease was lost
+meanwhile, the attempt reports `LEASE_LOST` only, and the worker that
+holds the item next tells the failures; when `complete` throws, the
+`error` event gets that error alone; when the item was cancelled
+meanwhile, its lease still held, nothing is told at all — no session
+ran, and nothing was recorded. An item that is gone along with its
+message (cancelled, or finished by another worker) is left alone, as
+before.
+
+A store keeps an item from being claimed before its message can be read
+— the message written first, or both in one step — so a message missing
+at a claim is always damage, never an add still under way. Every store
+here adds both in one step.
+
 ## Retries
 
 ```ts
@@ -196,7 +231,9 @@ final, and the item's `attempts` counts them.
 The queue writes DSNs (RFC 3464) as a `multipart/report`
 (`report-type=delivery-status`, RFC 6522) of three parts: text for a
 person, the `message/delivery-status` fields a program reads, and the
-original's header fields.
+original's header fields. The third is left out, as RFC 6522 §3
+allows, for [a message the store lost](#a-message-the-store-lost): the
+text then says it could not be read.
 
 ```
 Reporting-MTA: dns; mail.example.net
@@ -309,11 +346,19 @@ off(); // stops listening
 | `deferred` | the same, and `nextAttemptAt` |
 | `failed` | the same as `delivered` |
 | `dsn` | `{ kind: 'delayed' \| 'failed', id, of, to, recipients }`: `id` is the DSN's own item, `of` the item it reports on |
-| `error` | `{ error, id? }`: a store that failed (a lease renewal included), a DSN that could not be enqueued, a lease lost, a route `sendMail` refused (`INVALID_OPTION`) |
+| `error` | `{ error, id? }`: a store that failed (a lease renewal included), a DSN that could not be enqueued, a lease lost (`LEASE_LOST`), a message the store lost (`MESSAGE_UNREADABLE`), a route `sendMail` refused (`INVALID_OPTION`) |
 
-Events come once the outcome is recorded. A listener that throws is
-ignored. `reply.code` is absent when no server answered: a connection
-error, a timeout, the DNS.
+Events about an outcome come once it is recorded, in this order: a
+`MESSAGE_UNREADABLE` error when the store lost the message, each
+recipient's `delivered`, `deferred` or `failed`, then the `dsn` events.
+An item cancelled while it was delivered, its lease still held, has
+what its sessions did told, with no DSN, though nothing is recorded;
+for a message the store lost, no session ran, and nothing is told.
+Other errors are told as they happen: a route `sendMail` refused during
+its session, a lease lost or a store that failed in place of the
+outcome, and a DSN that could not be enqueued, during the `dsn` step.
+A listener that throws is ignored. `reply.code` is absent
+when no server answered: a connection error, a timeout, the DNS.
 
 ## Admin
 
@@ -413,8 +458,23 @@ a store on the same database, and they share one queue.
 - It is typed by its shape, `PostgresClient` (`unsafe`, `begin` and
   `close`), so the declarations need nothing of `@types/bun`; a `Bun.SQL`
   client fits it.
+- **Writes run at `READ COMMITTED`**, whatever the client's sessions
+  default to: each transaction that writes — a claim, a renewal, an
+  outcome, an add, a reschedule, a cancel, a migration — starts with
+  `SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE`. A client
+  shared with code that sets `default_transaction_isolation` to
+  `repeatable read` or `serializable` (`new Bun.SQL({ url, connection: {
+  default_transaction_isolation: 'serializable' } })`) still serves the
+  queue: the claim's `FOR UPDATE SKIP LOCKED` and the `maxItems` lock
+  need that level, and under a stricter one concurrent writes would fail
+  with SQLSTATE 40001. Reads are one statement each, at the client's
+  level.
 - **Nothing connects at `open`**: a wrong option is refused there, and a
-  database out of reach on the first call.
+  database out of reach on the first call. A URL is never repeated in an
+  error, and the password — the URL's, or a given `Bun.SQL`'s — is
+  masked should the database's reason name it: always where it stands
+  in a URL (`:…@`), and alone, elsewhere, when it is 4 characters or
+  more (masking a shorter one everywhere would garble the reason).
 
 ### The schema
 
@@ -431,7 +491,10 @@ They are the `bun:sqlite` store's tables, column for column. The prefix
 is lowercase letters, digits and underscores, starting with a letter or
 an underscore, 40 characters at most: it is written into the statements,
 never bound. Give each queue its own prefix to keep several in one
-database. A `bytea` holds 1 GB at most, far above `limits.maxMessageSize`
+database, and never share a prefix with another package's or
+application's tables: the store cannot tell another `<prefix>schema` or
+`<prefix>messages` from its own, and would read that version as the
+queue's. A `bytea` holds 1 GB at most, far above `limits.maxMessageSize`
 (25 MiB by default).
 
 ### Migrations
@@ -490,8 +553,9 @@ RETURNING …
 
 ### Pool size
 
-Each call holds a connection for one statement, `complete` and an add
-with `limits.maxItems` for one short transaction. A worker has at most
+A read holds a connection for one statement, and each write for one
+short transaction: the isolation level, then its statement or two, then
+the commit. A worker has at most
 `concurrency` items (20) in flight, each mostly waiting on a remote SMTP
 server, not the database: `Bun.SQL`'s default pool of 10 connections is
 enough for one, and a call waits for a free connection rather than fail.
@@ -543,6 +607,9 @@ exactly once, against `redis:7`.
   and a claim or an outcome is told on `error` (see Troubleshooting).
 - One client is one connection, pipelined: every call of one store goes
   through it, so there is no pool to size.
+- A URL is never repeated in an error, and its password is masked should
+  Redis's or Bun's reason name it, as on PostgreSQL. A given client's
+  password is not known to the store, and not masked.
 
 ### The keys
 
@@ -626,7 +693,9 @@ instance between its steps.
   `noeviction` it refuses the write (`OOM command not allowed`), and
   `enqueue` rejects with that `RedisError`. An item whose hash is gone
   all the same (evicted, or deleted by hand) is dropped by the next
-  claim that meets it, its message with it, and never leased. Bound the queue with `limits.maxItems` and
+  claim that meets it, its message with it, and never leased. An item
+  whose message alone is gone fails its pending recipients at once
+  ([a message the store lost](#a-message-the-store-lost)). Bound the queue with `limits.maxItems` and
   `limits.maxMessageSize`, and size `maxmemory` for both.
 - **An ACL user** needs the commands the store sends and the ones its
   scripts call, on its prefix's keys (`~<keyPrefix>*`; here the
@@ -716,8 +785,15 @@ points at it, and `mxPort` its port.
 A store implements `QueueStore`, throws `QueueError` with the contract's
 codes, and keeps its promises:
 
+- `add` never makes an item claimable before its message is readable:
+  write the message first, or both in one step.
 - `claim` is atomic: two claimers, in any process, never get the same
   item; an item whose lease expired is claimable again.
+- `readMessage` gives `undefined` once the item is gone, and also when
+  the store still holds the item but has lost its message: the queue
+  then fails the item's pending recipients as `5.3.0`
+  ([a message the store lost](#a-message-the-store-lost)), so never
+  throw for a missing message.
 - `complete` applies the outcome, the schedule and the count, and lets go
   of the lease, in one step and only for the lease's owner; a final
   status is never changed; an item whose every recipient is final is

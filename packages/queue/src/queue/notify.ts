@@ -16,12 +16,13 @@ export interface NotifyContext {
  * recipients, from the null sender, so it never causes one of its own.
  * Nothing for an item from the null sender (RFC 5321 §4.5.5, RFC 3464
  * §2: a DSN is never sent about a DSN). It bypasses `maxItems`: a full
- * queue loses no bounce. A failure goes to the `error` event.
+ * queue loses no bounce. A failure goes to the `error` event. With no
+ * `message` — the store lost it — the DSN returns nothing of it.
  */
 export async function notify(
 	ctx: NotifyContext,
 	item: QueueItem,
-	message: Uint8Array,
+	message: Uint8Array | undefined,
 	kind: DsnKind,
 	recipients: readonly RecipientUpdate[],
 	now: number,
@@ -45,7 +46,7 @@ export async function notify(
 			...(kind === 'delayed'
 				? { willRetryUntil: new Date(giveUpAt(item.createdAt, settings.retry)) }
 				: {}),
-			original: message,
+			...(message ? { original: message } : {}),
 			returnContent: settings.dsn.returnContent,
 			maxReturn: settings.limits.maxDsnReturn,
 		});

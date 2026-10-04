@@ -41,9 +41,14 @@ export function describePostgres(
  * Stores for one test each, every one on tables of its own (a random
  * prefix), through a client of its own: each store and client is closed,
  * and its tables dropped, once its test has run. Call inside
- * `describePostgres`.
+ * `describePostgres`. `connection` sets the run-time parameters of every
+ * client's sessions, as an application's client may
+ * (`default_transaction_isolation`).
  */
-export function temporaryStores(url: string) {
+export function temporaryStores(
+	url: string,
+	connection: Record<string, string> = {},
+) {
 	const admin = new Bun.SQL(url, { max: 1 });
 	let clients: PostgresClient[] = [];
 	let prefixes: string[] = [];
@@ -61,7 +66,10 @@ export function temporaryStores(url: string) {
 	afterAll(() => admin.close());
 	/** A client of its own, as another instance of a server would hold. */
 	const client = (max = 4): PostgresClient => {
-		const made = new Bun.SQL(url, { max }) as unknown as PostgresClient;
+		const made = new Bun.SQL(url, {
+			max,
+			connection,
+		}) as unknown as PostgresClient;
 		clients.push(made);
 		return made;
 	};

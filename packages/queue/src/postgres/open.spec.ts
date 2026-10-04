@@ -172,4 +172,26 @@ describePostgres('PostgresQueueStore on PostgreSQL', (url) => {
 		await owned.close();
 		await expect(owned.count()).rejects.toMatchObject({ code: 'CLOSED' });
 	});
+
+	test('a set-up error that repeats the password masks it, for a URL and for a given client', async () => {
+		// A role that does not exist, named as its password: PostgreSQL's
+		// reason names the role.
+		const wrong = new URL(url);
+		wrong.username = 'bumailnobody';
+		wrong.password = 'bumailnobody';
+		const refused = 'password authentication failed for user "…"';
+		const owned = PostgresQueueStore.open({ sql: wrong });
+		await expect(owned.count()).rejects.toMatchObject({
+			code: 'INVALID',
+			message: `The PostgreSQL queue cannot be set up: ${refused}`,
+		});
+		await owned.close();
+		const given = new Bun.SQL(wrong.href, { max: 1 });
+		const store = PostgresQueueStore.open({ sql: fits(given) });
+		await expect(store.count()).rejects.toMatchObject({
+			code: 'INVALID',
+			message: `The PostgreSQL queue cannot be set up: ${refused}`,
+		});
+		await given.close();
+	});
 });
