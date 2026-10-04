@@ -44,7 +44,17 @@ The second slice:
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.1.1
+
+- **Keywords as the client set them**, compared without case: `SEARCH
+  KEYWORD` and `UNKEYWORD` match whatever the case, and FLAGS and
+  PERMANENTFLAGS list a keyword once.
+- **A hang-up frees its slot within 500 ms** for a client the server had
+  stopped reading because it sent more than the server could take, where
+  it used to wait out the 5-second grace; a client that went quiet still
+  reads the BYE.
+
+### 0.1.0
 
 - **The first slice** — what Thunderbird and Apple Mail need to log in,
   list folders, read messages and set flags: STARTTLS and implicit TLS,

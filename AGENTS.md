@@ -24,14 +24,16 @@ workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
 `scripts/publish.ts` and `verify:artifacts`. A check added there is a check
 to port here.
 
-The repository is **private** until the owner says otherwise.
+The repository is **public**, on GitHub as `softistx/bumail`: what is
+committed — code, docs, issues and pull requests — anyone can read, so
+none of it names a private application.
 
 ## Principles
 
 - **No package has a dependency.** What one needs at runtime is a peer: a
   sibling `@bumail/*`, `@alxia/core` for what speaks HTTP, or — for a store
   answer only, as the roadmap plans — the published client it wraps
-  (`@nxgt/drizzle` and `drizzle-orm`, `@nxgt/mongo`, `mongodb` and `zod`,
+  (`@nxgt/mongo`, `mongodb` and `zod`,
   `@nxgt/s3`). Apart from those store answers, nothing peers outside
   `@bumail/*` and `@alxia/core`; every package also names `typescript` as
   an optional peer, for its types only. Any peer only once it is on npm:
@@ -180,9 +182,9 @@ reads `$NPM_TOKEN`, which must be an npm **granular** access token: npm no
 longer accepts a classic token for publishing, and says "two-factor
 authentication is required".
 
-Every package is **public on npm** — the repository's privacy is a separate
-matter — and MIT, with its own copy of `LICENSE`. A package that embeds
-a file under another license declares `MIT AND <SPDX id>` and ships that
+Every package is **public on npm**, as the repository is, and MIT, with
+its own copy of `LICENSE`. A package that embeds a file under another
+license declares `MIT AND <SPDX id>` and ships that
 license's text as `LICENSE-<id>`, which `verify:artifacts` checks:
 `@bumail/auth` is `MIT AND MPL-2.0`, for its Public Suffix List. Its manifest sets
 `publishConfig: { "registry": "https://registry.npmjs.org", "access":

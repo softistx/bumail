@@ -52,11 +52,11 @@ them one by one.
 | [Message format](#the-message-mime) | What an e-mail is: headers, body, attachments | [`@bumail/mime`](../packages/mime) | published |
 | [SMTP, receiving](#smtp-receiving-mail) | Takes mail in: MX on 25, submission on 587 | [`@bumail/smtp`](../packages/smtp) | published, with the client on `@bumail/smtp/client` |
 | [DNS](#dns) | MX, TXT, A, AAAA, PTR lookups; the records a domain publishes | [`@bumail/dns`](../packages/dns) | lookups published; record helpers next |
-| [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | DKIM and SPF published; DMARC merged, not yet published |
+| [Authentication](#authentication-spf-dkim-dmarc) | SPF, DKIM, DMARC, Authentication-Results | [`@bumail/auth`](../packages/auth) | published; DMARC reports and ARC next |
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
-| [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | client published; queue in review |
-| [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap), then `@bumail/jmap` | IMAP published; JMAP in review |
-| [The server app](#the-server-app) | Wires everything together | an app on alxia | next |
+| [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | published |
+| [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap) and [`@bumail/jmap`](../packages/jmap) | published |
+| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | an app on alxia | next |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
 
@@ -289,7 +289,7 @@ broke SPF, or the list's edits broke DKIM.
 
 - `verifyDkim` and `signDkim`: published in 0.1.0;
 - `checkSpf`: published in 0.2.0;
-- `checkDmarc` and `formatAuthenticationResults`: merged, not yet published;
+- `checkDmarc` and `formatAuthenticationResults`: published in 0.3.0;
 - DMARC reports and ARC: next.
 
 Every check answers with RFC 8601's words and never throws on a hostile
@@ -326,7 +326,8 @@ S3 and the metadata in a database.
 - an in-memory store;
 - a store on disk, on `bun:sqlite`, which writes the bytes with fsync before
   it commits;
-- Next: PostgreSQL, MongoDB, and a separate blob store (disk, S3, GridFS).
+- Next: PostgreSQL on `Bun.sql`, for a server that runs as several instances; then
+  MongoDB, and a separate blob store (disk, S3, GridFS).
 
 Every implementation passes the same contract tests, so the SMTP server,
 IMAP and JMAP never need to know which one they were given.
@@ -349,8 +350,8 @@ IMAP and JMAP never need to know which one they were given.
 **In bumail.** The SMTP client is published, as
 [`@bumail/smtp/client`](../packages/smtp): `sendMail` delivers one message,
 to a smarthost or by MX, and says whether a failure is temporary.
-[`@bumail/queue`](../packages/queue), in review, is the
-queue on top of it:
+[`@bumail/queue`](../packages/queue), published in 0.1.0, is the queue on
+top of it:
 
 - each recipient has its own state — pending, delivered, deferred or
   failed — with the last reply;
@@ -363,6 +364,10 @@ queue on top of it:
 - a `QueueStore` contract with a memory and a `bun:sqlite` store, like the
   store; a worker claims an item with a lease, so several workers share
   one queue, and a crashed worker's items are claimed again.
+
+Next, more stores for that contract, so several server instances share
+one queue: PostgreSQL on `Bun.sql` first, then Redis on `Bun.redis`, then
+MongoDB, typed by shape so the queue needs no driver.
 
 DKIM signing happens before a message is enqueued, with `@bumail/auth`.
 The queue sends what the app enqueues: the app decides who may send.
@@ -383,24 +388,42 @@ what a real mail client tests bumail with. Its first slice is published in
 0.1.0: IMAP4rev2, login only over TLS, IDLE, MOVE and SPECIAL-USE, serving
 any `@bumail/store`. Its second slice will add CONDSTORE and QRESYNC (RFC 7162)
 for quick resync, UIDPLUS (RFC 4315) and BINARY (RFC 3516).
-`@bumail/jmap`, in review, follows as an
+[`@bumail/jmap`](../packages/jmap) followed, published in 0.1.0, as an
 [alxia](https://github.com/softistx/alxia) app: alxia already provides the
-routing, validation and typed client. Later, bumail
-gets its own web mail client on JMAP, built on the same stack (alxia's
-typed client, `@nxgt/material`); any other JMAP or IMAP client keeps
-working.
+routing, validation and typed client. Its second slice adds
+`queryChanges`, push over EventSource, then sending through Identity and
+EmailSubmission. bumail is the server side only: any JMAP or IMAP client
+works with it, and it ships no client of its own.
 
 ## The server app
 
 **What it is.** The program an operator runs. It wires the packages
-together:
+together, in one process:
 
-- SMTP on 25 (MX) and 587 (submission);
-- the queue, the store, IMAP and JMAP;
+- SMTP on 25 (MX), 465 (submission over implicit TLS) and 587
+  (submission with STARTTLS);
+- IMAP on 993, and JMAP over HTTPS on 443;
+- the queue, delivering out, and the store;
+- TLS certificates, obtained and renewed through ACME;
 - an admin API for domains, accounts, aliases and DKIM keys;
 - health checks and metrics.
 
-**In bumail.** It is next, built on alxia, once `@alxia/core` is on npm.
+It is **never an open relay**: mail for a domain it does not host is taken
+only from an authenticated session. And **AUTH only after TLS**: no
+password crosses the network in clear, over SMTP, IMAP or JMAP.
+
+**In bumail.** It is next, built on alxia, whose `@alxia/core` is on npm.
+Then **a Docker image, all in one**: the server app with ports 25, 465,
+587, 993 and 443, and one volume for the mail, the queue and the
+certificates. It holds the server only; any JMAP or IMAP client connects
+to it.
+
+**Sending from a container.** Many cloud hosts and home connections block
+outbound port 25, and receiving servers distrust an address without
+**reverse DNS**: a PTR record naming the server, whose name resolves back
+to that address. Where port 25 is closed, or no PTR can be set, send
+through a **smarthost** instead, a relay provider on 587 or 465: the queue
+already takes one.
 
 ## Trying it
 
@@ -423,8 +446,8 @@ why.
   - **Rate limits:** per sender, on submission.
 - **Outbound TLS policy**
   - **MTA-STS and TLS-RPT:** a domain demands TLS, and gets reports on it.
-  - **DANE:** not planned, since it needs DNSSEC validation, which
-    `node:dns` does not give.
+  - **DANE:** once the queue can be given a resolver that validates
+    DNSSEC, which `node:dns` does not.
 - **Webhooks:** on delivery, bounce or inbound mail.
 
 ## Words used across the docs
@@ -453,7 +476,7 @@ These hold for every package. [AGENTS.md](../AGENTS.md) has the full rules.
 
 - **No runtime dependency.** A package needs only Bun, other `@bumail/*`
   packages, and the peers AGENTS.md allows (such as the clients a store
-  for PostgreSQL or MongoDB will use).
+  for MongoDB will use).
 - **Bun only.** The repository is built and tested on Bun 1.4.2.
 - **Never an open relay.** Relaying requires AUTH in every default and
   every test, and AUTH is offered only once the connection is encrypted.

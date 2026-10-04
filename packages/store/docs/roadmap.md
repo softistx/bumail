@@ -10,8 +10,13 @@ Nothing in progress: the next entry is picked from Next.
 
 ## Next
 
+- **A PostgreSQL adapter** — the same contract on PostgreSQL through
+  `Bun.sql`, with no driver to install, for a mail
+  server that runs as several instances sharing one store, held to the
+  same contract specs as the memory and `bun:sqlite` stores, with message
+  bytes on the disk or S3. It comes before a MongoDB answer.
 - **Searching and sorting** what IMAP's `SEARCH` and JMAP's `Email/query`
-  need, once those protocols land.
+  need, which `@bumail/imap` and `@bumail/jmap` do on their own today.
 - **The contract's specs, exported**, so a store written outside this
   package can hold itself to them.
 - **Uploaded blobs** — content stored before it is a message, as JMAP's
@@ -31,7 +36,14 @@ Nothing in progress: the next entry is picked from Next.
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.3.0
+
+- **Keywords keep the case they were stored with** — `$Forwarded`,
+  `$MDNSent`, `NonJunk` — in the memory and the SQLite stores alike, and
+  still compare without case (RFC 9051 §2.3.2): a message never holds two
+  that differ only by case. Serve it with `@bumail/imap` 0.1.1 or later.
+
+### 0.2.0
 
 - **A `bun:sqlite` store**, as `@bumail/store/sqlite` — the same contract
   on disk, held to the same specs: `SqliteMailStore.open({ directory })`
@@ -40,6 +52,8 @@ Nothing in progress: the next entry is picked from Next.
   files addressed by their hash, read lazily; directories are 0700 and
   files 0600; what a crash leaves behind is swept on open, and the schema
   migrates itself, refusing a newer one.
+- **How long a content `Blob` stays valid**, stated by the contract:
+  until its message leaves the account.
 
 ### 0.1.0
 

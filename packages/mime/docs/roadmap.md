@@ -34,6 +34,12 @@ Nothing scheduled yet.
 
 ## Shipped
 
+### 0.1.2
+
+- **Encoded-words in linear time.** A run of adjacent RFC 2047
+  encoded-words in one charset is joined once, where a hostile header of
+  tens of thousands of words used to cost the square of its length.
+
 ### 0.1.1
 
 - **Dates with comments, in one pass.** `parseDate` reads nested comments
