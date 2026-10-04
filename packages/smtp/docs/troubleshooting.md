@@ -580,9 +580,10 @@ await server.listen({ port: 465 }); // not Promise.all([server.listen(…), serv
 
 ### `SmtpError: listen(): stop() was called before the server bound its port`
 
-**When**: `stop()` ran while `listen` was still reading the TLS key and
-certificate, which an `implicitTls` server does before it binds. `listen`
-rejects with `code: 'STOPPED'` and binds nothing; a later `listen` binds as
+**When**: `stop()` ran before `listen` resolved: on an `implicitTls` server
+while it reads the TLS key and certificate, on any other at once, since
+`listen` resolves a tick after it binds. `listen` rejects with
+`code: 'STOPPED'` and leaves nothing listening; a later `listen` binds as
 usual.
 
 **Why**: `stop()` means the server is not to serve; binding afterwards would

@@ -76,8 +76,10 @@ describe('listen, called twice at the same moment', () => {
 
 describe('stop() while listen() reads the key and certificate', () => {
 	test.each([
-		['with proxyProtocol', proxied],
-		['without', {}],
+		['implicit TLS, with proxyProtocol', proxied],
+		['implicit TLS, without', {}],
+		['clear (25, 587, 143), without', { implicitTls: false }],
+		['clear, with proxyProtocol', { implicitTls: false, ...proxied }],
 	])(
 		'%s: nothing is bound, and listen rejects with STOPPED',
 		async (_, overrides) => {

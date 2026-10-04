@@ -36,7 +36,9 @@ export function protocolOf(
 
 /** The client's address as a domain literal (RFC 5321 §4.1.3): an IPv6 address is tagged `IPv6:`. */
 export function addressLiteral(address: string): string {
-	return isIPv6(address) ? `IPv6:${address}` : printable(address);
+	// A zone (`fe80::1%en0`) names an interface of this host: not part of the literal.
+	const bare = address.replace(/%.*$/, '');
+	return isIPv6(bare) ? `IPv6:${bare}` : printable(address);
 }
 
 /** Keeps a client-given name printable in a header: anything else becomes `?`. */

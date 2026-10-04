@@ -12,6 +12,9 @@ import { tlsContext } from './tls-context';
 const invalidTls = (message: string, cause: unknown) =>
 	new SmtpError('INVALID_OPTION', message, { cause });
 
+/** What a `listen` that a `stop()` came before says. */
+const STOPPED = 'listen(): stop() was called before the server bound its port';
+
 /** Binds the port, once `listen`'s guard passed. */
 async function bind(
 	options: SmtpServerOptions,
@@ -28,10 +31,7 @@ async function bind(
 			: undefined;
 	// `stop()` came while the key was being read: nothing is bound.
 	if (stopped()) {
-		throw new SmtpError(
-			'STOPPED',
-			'listen(): stop() was called before the server bound its port',
-		);
+		throw new SmtpError('STOPPED', STOPPED);
 	}
 	// Behind a proxy: a clear listener, TLS after the header.
 	const proxied = listening.settings.trusts ? context : undefined;
@@ -78,9 +78,9 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 	/** Implicit TLS sockets still in their handshake, for `stop(true)`. */
 	const handshaking = new Set<Socket<SocketState>>();
 	const secure = options.implicitTls === true;
-	/** `listen` is reading the TLS material, before it binds. */
+	/** `listen` has not resolved yet: it may be reading the TLS material, before it binds. */
 	let starting = false;
-	/** `stop()` was called while `starting`: `listen` binds nothing. */
+	/** `stop()` was called while `starting`: `listen` leaves nothing bound. */
 	let stopRequested = false;
 	return {
 		get connections() {
@@ -99,13 +99,19 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 			starting = true;
 			stopRequested = false;
 			try {
-				listener = await bind(
+				const bound = await bind(
 					options,
 					{ settings, slots, handshaking, secure },
 					port,
 					hostname,
 					() => stopRequested,
 				);
+				// `stop()` came before `listen` resolved: nothing is left listening.
+				if (stopRequested) {
+					bound.stop(true);
+					throw new SmtpError('STOPPED', STOPPED);
+				}
+				listener = bound;
 				return { port: listener.port, hostname: listener.hostname };
 			} finally {
 				starting = false;

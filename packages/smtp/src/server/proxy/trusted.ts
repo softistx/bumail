@@ -47,8 +47,9 @@ function contains(network: Network, address: Uint8Array): boolean {
 /**
  * `proxyProtocol.trusted` as a test of a peer's address: IPv4 and IPv6
  * addresses and CIDRs, an IPv4-mapped address or peer matched as its IPv4
- * address; a zone, or a prefix of 0, which trusts everyone, is refused. An entry that is neither throws, through `invalid`, and so
- * does an empty list: it would trust nobody, which is no proxy at all.
+ * address. An entry that is neither throws, through `invalid`, and so does
+ * an empty list (it would trust nobody, which is no proxy at all), a zone
+ * (`fe80::1%eth0`) and a prefix of 0, which would trust everyone.
  */
 export function trustedPeers(
 	entries: unknown,

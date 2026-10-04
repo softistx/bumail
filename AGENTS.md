@@ -528,7 +528,17 @@ Every PR goes into `develop`. Before merging:
     socket a `SocketTransport` drives (`RawSocket`), so the transport's
     rules above hold over it unchanged: `write` takes nothing while TLS
     holds past its high-water mark, and the `Duplex` waits for the raw
-    socket's `drain`.
+    socket's `drain`;
+  - **`ProxiedTls` ends its `Duplex` on the TLS socket's `finish`**:
+    `tls.end()` sends the close_notify and fires `finish`, but `node:tls`
+    never ends the stream under it before the client answers, so without
+    that a client that stopped reading held its slot of `maxConnections`
+    for good (measured: a paused client after QUIT, and one paused at the
+    idle timeout, both still counted after 2 s and 7 s);
+  - **`trusted` refuses what would trust the wrong peer**: an address
+    with a zone (`fe80::1%eth0`, which names an interface of this host)
+    and a prefix of 0 (`0.0.0.0/0`, `::/0`, `::ffff:0.0.0.0/96`), which
+    would trust every peer.
 
   Measured on Bun 1.4.2: `socket.upgradeTLS` on a clear socket reads
   only what arrives after it is called, and Bun gives a socket's bytes
@@ -542,11 +552,18 @@ Every PR goes into `develop`. Before merging:
   covers the clear and STARTTLS ports — v1 and v2, `LOCAL`, `UNSPEC`,
   garbage, a long v1 line, oversized TLVs, a truncated header and a
   slowloris closed at `handshakeTimeout`, `stop(true)` with headers
-  pending, the limits keyed on the client — and `proxy-tls.spec.ts`
-  implicit TLS behind the header, the ClientHello in the header's
-  segment and apart, through `front.fixtures.ts` (smtp: 1 MiB of DATA
-  then QUIT; imap: a slow reader of a 4 MiB FETCH), and a peer not
-  trusted. A fix to one copy is a fix to the other.
+  pending, the limits keyed on the client — `proxy-tls.spec.ts` implicit
+  TLS behind the header, the ClientHello in the header's segment and
+  apart, through `front.fixtures.ts` (smtp: 1 MiB of DATA then QUIT;
+  imap: a slow reader of a 4 MiB FETCH), and a peer not trusted — and
+  `proxy-quiet.spec.ts` the clients that stop reading through
+  `ProxiedTls`, as smtp's `quiet.spec.ts` does (smtp: at the idle
+  timeout, and after QUIT; imap: at `loginTimeout`, and after LOGOUT):
+  freed within the bound, then reading the last reply and a clean end.
+  Each server's `listen.spec.ts` covers two `listen()` at once, a `stop()`
+  before `listen()` resolved (clear and implicit TLS, with a proxy or
+  without), and a key or certificate that cannot be used. A fix to one
+  copy is a fix to the other.
 
 ## Prior work
 

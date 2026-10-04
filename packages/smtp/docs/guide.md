@@ -126,8 +126,8 @@ await server.listen({ port: 25 });
 
 `listen` a second time throws an `SmtpError` with `code:
 'ALREADY_LISTENING'`: create another server for another port. A `stop()`
-called while `listen` still reads the TLS key and certificate (implicit TLS
-only) makes that `listen` reject with `code: 'STOPPED'`, and nothing is bound.
+called before `listen` resolved makes that `listen` reject with
+`code: 'STOPPED'`, and nothing is left listening.
 
 What to do about each is in [Troubleshooting](troubleshooting.md).
 

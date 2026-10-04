@@ -37,6 +37,8 @@ describe('the Received field (RFC 5321 §4.4)', () => {
 		);
 		expect(addressLiteral('192.0.2.10')).toBe('192.0.2.10');
 		expect(addressLiteral('')).toBe('');
+		// A zone is no part of the literal.
+		expect(addressLiteral('fe80::1%en0')).toBe('IPv6:fe80::1');
 	});
 
 	test('with, per RFC 3848: SMTP, ESMTP, ESMTPS, ESMTPSA', () => {
