@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/jmap",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "A JMAP server (RFC 8620, RFC 8621) on alxia: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any @bumail/store",
 	"license": "MIT",
 	"type": "module",

@@ -1,5 +1,15 @@
 # @bumail/jmap
 
+## 0.2.0
+
+### Minor Changes
+
+- [#42](https://github.com/softistx/bumail/pull/42) [`0f49971`](https://github.com/softistx/bumail/commit/0f499710528a2d331236941f141a60f0845f7be9) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The `@alxia/core` peer moves from `^0.2.1` to `^0.3.0`, which drops 0.2: an app on `@alxia/core` 0.2 upgrades it, with every other `@alxia/*` package it uses, to take this release. The server's routes, refusals and answers are unchanged.
+
+### Patch Changes
+
+- [#39](https://github.com/softistx/bumail/pull/39) [`7f9d036`](https://github.com/softistx/bumail/commit/7f9d036df3dc488d0d18718bd88c6815f1530a0f) Thanks [@SteveGT96](https://github.com/SteveGT96)! - A mailbox's `unreadEmails` and `unreadThreads` follow RFC 8621 §2: an email with `$seen` is read however the store keeps it — `\Seen`, or a `$Seen` keyword in any case — and an email with `$draft` (`\Draft` or a `$Draft` keyword) is never unread. They no longer come from the store's IMAP `unseen` count, which looks for `\Seen` alone; they are counted in the same pass over the mailbox as the thread counts, within `maxQueryScan`; past `maxQueryScan`, the store's `unseen` still stands in.
+
 ## 0.1.0
 
 ### Minor Changes
