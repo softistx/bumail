@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { canonical } from '../../proxy/canonical';
 import { forwardedClient } from './client';
 import { trustsOf } from './trusted';
 
@@ -33,7 +34,36 @@ describe('trustsOf', () => {
 	});
 });
 
+describe('trustsOf never crosses families', () => {
+	test('an IPv6 network, however wide, trusts no IPv4 peer, mapped or not', () => {
+		for (const entry of ['::/1', '::/8', '::/80']) {
+			const some = trustsOf([entry]);
+			expect(some('8.8.8.8')).toBe(false);
+			expect(some('::ffff:8.8.8.8')).toBe(false);
+		}
+		expect(trustsOf(['::/8'])('8.8.8.8')).toBe(false);
+	});
+});
+
+describe('canonical', () => {
+	test('is RFC 5952 form, IPv4-mapped as IPv4, nothing for a zone or a non-address', () => {
+		expect(canonical('::ffff:203.0.113.7')).toBe('203.0.113.7');
+		expect(canonical('2001:0DB8:0:0:0:0:0:1')).toBe('2001:db8::1');
+		expect(canonical('fe80::1%eth0')).toBeUndefined();
+		expect(canonical('proxy')).toBeUndefined();
+	});
+});
+
 describe('forwardedClient', () => {
+	test('counts a client under one text: a mapped or upper-case entry is normalised', () => {
+		expect(
+			forwardedClient('10.0.0.1', headers('::ffff:203.0.113.7'), trusts).ip,
+		).toBe('203.0.113.7');
+		expect(
+			forwardedClient('::ffff:10.0.0.1', headers('2001:DB8:9:0::1'), trusts).ip,
+		).toBe('2001:db8:9::1');
+	});
+
 	test('takes the right-most entry that is not a trusted proxy', () => {
 		const client = forwardedClient(
 			'10.0.0.1',

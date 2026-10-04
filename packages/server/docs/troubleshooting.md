@@ -215,6 +215,7 @@ directory commands' own refusals are under
 - [`https: error in a request from …: …`](#https-error-in-a-request-from--)
 - [`https: a request with no client address was refused`](#https-a-request-with-no-client-address-was-refused)
 - [`Basic authentication is refused on a clear connection: use HTTPS`](#basic-authentication-is-refused-on-a-clear-connection-use-https), the 403 of JMAP
+- [`forbidden`, the 403 of a peer `jmap.trusted` does not list](#forbidden-the-403-of-a-peer-jmaptrusted-does-not-list)
 - [`https: login refused from …: blocked`, with the proxy's address](#https-login-refused-from--blocked-with-the-proxys-address)
 - [`health: unhealthy: …`](#health-unhealthy-), `health: healthy again`, and a 503 from `/healthz`
 - [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `submissions:`, `submission:`, `imaps:`, `imap:`
@@ -1577,20 +1578,28 @@ take for TLS, and is refused before the password is read.
 - **Direct** (`jmap.mode = "https"`): the client used `http:` on the
   HTTPS port, which Bun does not serve, or a test tool did. Use
   `https:`.
-- **Behind a proxy**: the request did not come from a `jmap.trusted`
-  peer, or the proxy did not send `X-Forwarded-Proto: https`. Check that
-  the proxy's address is in `trusted` (the log shows nothing for the
-  403; look at the address Traefik connects from, on its network), and
-  that it ends TLS and sets the header, as Traefik does.
+- **Behind a proxy**: the proxy did not send `X-Forwarded-Proto:
+  https`. Check that it ends TLS and sets the header, as Traefik does.
+  A peer not in `jmap.trusted` never gets this far: see
+  [`forbidden`](#forbidden-the-403-of-a-peer-jmaptrusted-does-not-list).
+
+### `forbidden`: the 403 of a peer `jmap.trusted` does not list
+
+With `jmap.mode = "proxy"`, every request is answered `403` with the
+body `forbidden` when its TCP peer is not in `jmap.trusted`: before any
+header, login or route is looked at, and not logged. Usually the proxy
+connects from an address you did not list (another Docker network, or
+its container's address instead of the network's): put the address or
+CIDR it connects from in `trusted`. A client reaching the plain HTTP port
+directly gets the same, as it should.
 
 ### `https: login refused from …: blocked`, with the proxy's address
 
 Every login behind the proxy is `blocked` after a few failures, from an
-address that is Traefik's. The server counted the proxy, not the
-clients: the peer is not in `jmap.trusted` (so `X-Forwarded-For` was
-ignored), or the proxy sends no `X-Forwarded-For`. Put the proxy's
-address or network in `trusted`; the logged `<ip>` is then each
-client's.
+address that is Traefik's: the proxy sends no `X-Forwarded-For`, or
+puts its own address last, an address `trusted` does not cover. Check
+the header Traefik sends, and that `trusted` lists every proxy of the
+chain; the logged `<ip>` is then each client's.
 
 ### `health: unhealthy: …`
 

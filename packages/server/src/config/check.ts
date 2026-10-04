@@ -5,10 +5,11 @@ import { checkCertificates } from './certificates';
 import type { Checker, Table } from './checker';
 import { checkRoutes, checkSmarthost } from './delivery';
 import type { Env, Overrides } from './env';
-import { checkHealth, checkJmap, checkProxyProtocol } from './jmap';
+import { checkHealth, checkJmap } from './jmap';
 import { checkInbound, checkSubmission } from './limits';
 import { isDomainName } from './names';
 import { checkPorts } from './ports';
+import { checkProxyProtocol } from './proxy-protocol';
 import { checkStorage } from './storage';
 import type { ServerConfig } from './types';
 

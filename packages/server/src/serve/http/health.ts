@@ -7,6 +7,9 @@ import { type HttpListener, httpListener } from './listener';
 /** Milliseconds the store has to answer a health check. */
 export const STORE_TIMEOUT_MS = 3000;
 
+/** Milliseconds a report is shared by the requests that follow it. */
+export const CACHE_MS = 1000;
+
 /** What the health check looks at. */
 export interface HealthContext {
 	readonly config: ServerConfig;
@@ -78,11 +81,21 @@ function failing(health: HealthReport): string[] {
 /**
  * `GET /healthz`: 200 with the report when every listener is up and the
  * directory and the store answer, else 503; any other path is 404, any
- * other method 405. The log says when it turns unhealthy, and when it is
+ * other method 405. One report is made at a time and shared for about
+ * a second. The log says when it turns unhealthy, and when it is
  * well again, not at each look.
  */
 export function createHealth(ctx: HealthContext): HttpListener {
 	let healthy = true;
+	let latest: { at: number; report: Promise<HealthReport> } | undefined;
+	// One report in flight, shared by the requests that come while it is
+	// made and for `CACHE_MS` after: a flood of looks costs one look.
+	const current = () => {
+		if (latest === undefined || Date.now() - latest.at > CACHE_MS) {
+			latest = { at: Date.now(), report: report(ctx) };
+		}
+		return latest.report;
+	};
 	return httpListener({
 		async fetch(request) {
 			const { pathname } = new URL(request.url);
@@ -95,7 +108,7 @@ export function createHealth(ctx: HealthContext): HttpListener {
 					headers: { allow: 'GET, HEAD' },
 				});
 			}
-			const health = await report(ctx);
+			const health = await current();
 			const ok = health.status === 'ok';
 			if (ok !== healthy) {
 				healthy = ok;

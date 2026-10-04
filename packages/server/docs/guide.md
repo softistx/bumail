@@ -356,7 +356,7 @@ bind = "0.0.0.0"
 | --- | --- | --- |
 | `mode` | `"https"` | `"https"`: TLS from `tls.cert` and `tls.key`, on `ports.https`. `"proxy"`: plain HTTP on `ports.https`, accepted for the `trusted` proxies' forwarded client and scheme |
 | `origin` | `https://<hostname>`, with `:<ports.https>` when it is neither 443 nor 0. **Required** with `"proxy"` | the public URL clients reach JMAP at: an `https:` origin, no path. The session's `apiUrl`, `downloadUrl` and `uploadUrl` start with it. It is configuration, never taken from the request's `Host` or `X-Forwarded-Host` |
-| `trusted` | required with `"proxy"`; refused with `"https"` | the proxies: IPv4 and IPv6 addresses and CIDRs, at least one (`["10.0.0.5", "172.18.0.0/16", "fd00::/8"]`). A `0` prefix, a host name or a zone is refused |
+| `trusted` | required with `"proxy"`; refused with `"https"` | the proxies: IPv4 and IPv6 addresses and CIDRs, at least one (`["10.0.0.5", "172.18.0.0/16", "fd00::/8"]`). The rules are `@bumail/smtp`'s: a `0` prefix, a host name, a zone or an IPv4-mapped prefix below 96 is refused, an IPv4-mapped entry is its IPv4 address, and a network of one family never matches the other |
 | `bind` | `bind` | the address JMAP binds to: an IPv4 or IPv6 address. Behind a proxy, never a unix socket |
 
 `ports.https` must be set explicitly with `"proxy"`: its default, 443,
@@ -374,11 +374,18 @@ is the TCP peer. With `"proxy"`:
   past that entry, so a spoofed `X-Forwarded-For` does not choose the
   bucket. With no usable entry (none, only proxies, or one that is no IP
   address) the client is the peer;
-- a request from a peer that is **not** trusted: `X-Forwarded-For` and
-  `X-Forwarded-Proto` are ignored. The client is the peer, and the
-  request is not TLS, so Basic is refused with a 403;
+- a request from a peer that is **not** trusted is answered **403**
+  before anything else is read: no header, no login, no route. Only the
+  proxies are served, so `X-Forwarded-For` and `X-Forwarded-Proto` from
+  anyone else count for nothing;
+- an address is counted as one text, whichever listener it came to:
+  RFC 5952's form, an IPv4-mapped address as its IPv4 address. So one
+  client is one entry of the failure limiter across JMAP, IMAP and
+  submission;
 - a listener with no client address to count (a unix socket) is not
-  started: `serve` exits 5.
+  started: `serve` exits 5. `check-config` takes only IP addresses for
+  `jmap.bind`, so this can only come from code that builds the
+  configuration itself.
 
 The environment sets none of these keys. Behind Traefik: [running the
 server](serve.md#behind-traefik).

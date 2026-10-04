@@ -440,8 +440,9 @@ curl -u alice@example.com https://mail.example.com/.well-known/jmap
 
 The session's `apiUrl`, `downloadUrl` and `uploadUrl` begin with
 `jmap.origin`, the public URL (default `https://<hostname>`), whatever
-`Host` the request carried. A JMAP request is cut off with the
-connection at a stop, and the store call it is in finishes.
+`Host` the request carried. At a stop, JMAP stops
+accepting and its requests under way get the drain time (10 seconds)
+to finish, as SMTP sessions do; then their connections are closed.
 
 A login refused is logged, as IMAP's is, never with the password:
 `https: login refused from <ip>: <reason>`, the reason one of
@@ -466,10 +467,10 @@ trusted = ["172.18.0.0/16"]   # the Docker network Traefik reaches bumail on
 `trusted` is required: the proxies' addresses or CIDRs. `origin` is
 required: the public URL, which Traefik serves. `ports.https` must be
 set, to the port Traefik connects to; keep it unpublished, on the
-network the proxy shares with the server alone. With no `trusted`
-proxy to speak for it, a request from anyone else is a plain-HTTP
-request: its Basic is refused with a 403 and its `X-Forwarded-*` headers
-ignored. `check-config` refuses a file that leaves out any of the three.
+network the proxy shares with the server alone. A request from
+any peer not in `trusted` is answered **403** at once, before any
+header, login or route is looked at: only the proxies are served.
+`check-config` refuses a file that leaves out any of the three.
 
 The server then reads, from a trusted proxy only, the client in
 `X-Forwarded-For` (the right-most entry that is not a trusted proxy)
@@ -532,7 +533,8 @@ healthcheck:
   interval: 30s
 ```
 
-The log says when it turns unhealthy, and when it is well again, not at
+Looks that come together share one check, reused for about a
+second, so a flood of them costs the store one call. The log says when it turns unhealthy, and when it is well again, not at
 each look: `health: unhealthy: store`, then `health: healthy again`.
 The queue is not part of it: a delivery failing shows in `outbound:`
 lines.
@@ -556,9 +558,47 @@ header read, so Internet clients can still reach a port the proxy does
 not front. What a header makes of the connection, and what is refused,
 is in the guides of [`@bumail/smtp`](../../smtp/docs/guide.md#running-behind-a-tcp-proxy)
 and [`@bumail/imap`](../../imap/docs/guide.md#running-behind-a-tcp-proxy).
-Traefik's side is a TCP router per port, with `HostSNI(`*`)` and no
+Traefik's side is a TCP router per port, with ``HostSNI(`*`)`` and no
 `tls` section so STARTTLS and implicit TLS pass through to the server,
-and a `serversTransport` with `proxyProtocol.version: 2`.
+and a `serversTransport` with `proxyProtocol.version: 2`, in the
+dynamic configuration, one entry point per port in the static one:
+
+```yaml
+tcp:
+  routers:
+    smtp:
+      entryPoints: [smtp]          # ':25' in the static configuration
+      rule: 'HostSNI(`*`)'
+      service: smtp
+    submissions:
+      entryPoints: [submissions]   # ':465'
+      rule: 'HostSNI(`*`)'
+      service: submissions
+    imaps:
+      entryPoints: [imaps]         # ':993'
+      rule: 'HostSNI(`*`)'
+      service: imaps
+  serversTransports:
+    proxy-v2:
+      proxyProtocol:
+        version: 2
+  services:
+    smtp:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers: [{ address: 'bumail:25' }]
+    submissions:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers: [{ address: 'bumail:465' }]
+    imaps:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers: [{ address: 'bumail:993' }]
+```
+
+`[proxyProtocol] trusted` holds Traefik's address on the network it
+reaches `bumail` on. Port 587 is the same, with an entry point of its own.
 
 Whatever the proxy, the certificate is the server's, from `[tls]`.
 
@@ -569,15 +609,15 @@ cleanly:
 
 1. no listener accepts a new connection, and the queue claims nothing
    more;
-2. IMAP sessions are closed at once (clients reconnect), and so are
-   the connections of JMAP and the health check; a command or a request
-   under way is cut off with its connection, but the store call it is
-   in finishes;
-3. SMTP sessions, on 25, 465 and 587, get 10 seconds to finish what
-   they are sending; a message under way when the signal came is still
+2. IMAP sessions are closed at once (clients reconnect); a command
+   under way is cut off with its session, but the store call it is in
+   finishes;
+3. SMTP sessions, on 25, 465 and 587, and the requests under way on
+   JMAP and the health check, get 10 seconds to finish what they are
+   doing; a message under way when the signal came is still
    taken and answered, and one for another domain is kept in the queue
    for the next start;
-4. sessions still open after that are hung up on, and the server waits
+4. sessions and connections still open after that are hung up on, and the server waits
    up to 5 more seconds for deliveries, every store call under way,
    IMAP's included, and the queue's deliveries under way; the queue
    gives back what it claimed and did not begin, due at once for the

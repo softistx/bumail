@@ -7,7 +7,9 @@ export interface HttpListener {
 		port: number;
 		hostname: string;
 	}): Promise<{ port: number; hostname: string }>;
-	/** Stops accepting; `force` closes the connections too. */
+	/** Requests under way. */
+	readonly pending: number;
+	/** Stops accepting; without `force`, requests under way finish. Again with `force`, closes the connections. */
 	stop(force?: boolean): void;
 }
 
@@ -28,6 +30,9 @@ export function httpListener(options: HttpOptions): HttpListener {
 	let server: Bun.Server<undefined> | undefined;
 	let stopped = false;
 	return {
+		get pending() {
+			return server?.pendingRequests ?? 0;
+		},
 		async listen({ port, hostname }) {
 			if (server !== undefined || stopped) {
 				throw new Error('an HTTP listener listens once');

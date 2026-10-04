@@ -1,12 +1,7 @@
 import { isIP } from 'node:net';
 import type { Checker, Table } from './checker';
 import { checkTrusted } from './trusted';
-import type {
-	HealthConfig,
-	JmapConfig,
-	PortsConfig,
-	ProxyProtocolConfig,
-} from './types';
+import type { HealthConfig, JmapConfig, PortsConfig } from './types';
 import { checkHttpsUrl } from './urls';
 
 /** An address a listener binds to, or the default; anything else is refused. */
@@ -98,22 +93,4 @@ export function checkJmap(
 export function checkHealth(checker: Checker, raw: unknown): HealthConfig {
 	const table = checker.table(raw, 'health', ['bind']);
 	return { bind: checkBind(checker, table, 'health', '127.0.0.1') };
-}
-
-/** The top-level `[proxyProtocol]`: `trusted`, required when the table is there. Absent: off. */
-export function checkProxyProtocol(
-	checker: Checker,
-	raw: unknown,
-): ProxyProtocolConfig | undefined {
-	const table = checker.table(raw, 'proxyProtocol', ['trusted']);
-	if (table === undefined) return undefined;
-	if (table['trusted'] === undefined) {
-		checker.add(
-			'proxyProtocol.trusted',
-			'is required: the addresses or CIDRs of the proxies, or remove [proxyProtocol] to turn it off',
-		);
-		return undefined;
-	}
-	const trusted = checkTrusted(checker, table, 'trusted', 'proxyProtocol');
-	return trusted.length === 0 ? undefined : { trusted };
 }

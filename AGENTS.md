@@ -271,16 +271,20 @@ Every PR goes into `develop`. Before merging:
 
 ## Deliberate duplications
 
-- **The list of trusted proxies**, in `@bumail/server`
-  (`src/config/trusted.ts`, which checks it, and
-  `src/serve/http/trusted.ts`, which matches a peer against it with
-  `node:net`'s `BlockList`) and in `@bumail/smtp` and `@bumail/imap`
-  (their `proxyProtocol.trusted`): the same rules — IP addresses and
-  CIDRs, no zone, no prefix of 0, 96 and up for an IPv4-mapped address
-  — written again, since neither package exports its own and the server
-  needs them for `jmap.trusted` too. The server checks every entry
-  itself, so a bad one is a line of `check-config`, never a throw from a
-  listener at start. A change to the rules is a change to all three.
+- **The trusted proxies and the address rules**, in `@bumail/smtp` and
+  `@bumail/imap` (`src/server/proxy/address.ts`, `trusted.ts` and its
+  spec, byte for byte the same) and in `@bumail/server` (`src/proxy/`,
+  the same three files byte for byte): IP addresses and CIDRs, no
+  zone, no prefix of 0, an IPv4-mapped address or peer matched as its
+  IPv4 address, and never a match across families (an IPv6 network,
+  however wide, trusts no IPv4 peer). Neither package exports them, and
+  the server needs them for `jmap.trusted` and `proxyProtocol.trusted`
+  alike: `check-config` runs `trustedPeers` on each entry, so whatever a
+  listener would refuse at start is a line of it, and JMAP matches its
+  peers with it. `src/proxy/canonical.ts` (the server's own) writes
+  every client's address, for the limiter and the log, in RFC 5952's
+  form with a mapped address as IPv4. A change to the rules is a change
+  to all three copies.
 
 - **The PostgreSQL plumbing**, in `@bumail/queue` and `@bumail/store`:
   `src/masked.ts` (and its spec) byte for byte — and in `@bumail/server`

@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { canonical } from '../../proxy/canonical';
 import type { Trusts } from './trusted';
 
 /** Who a request is from, as the server decides, never as the request claims. */
@@ -12,9 +13,9 @@ export interface Client {
 /** `203.0.113.7`, `[2001:db8::1]` or `203.0.113.7:51000` as an IP address, or `undefined`. */
 function addressOf(entry: string): string | undefined {
 	const bare = /^\[([^\]]*)\](?::\d+)?$/.exec(entry)?.[1] ?? entry;
-	if (isIP(bare) !== 0) return bare;
+	if (isIP(bare) !== 0) return canonical(bare);
 	const port = /^(\d+\.\d+\.\d+\.\d+):\d+$/.exec(bare)?.[1];
-	return port !== undefined && isIP(port) === 4 ? port : undefined;
+	return port !== undefined ? canonical(port) : undefined;
 }
 
 /**
@@ -23,7 +24,8 @@ function addressOf(entry: string): string | undefined {
  *
  * - from a peer that is not trusted, `X-Forwarded-For` and
  *   `X-Forwarded-Proto` are ignored: the client is the peer, and the
- *   request is not secure;
+ *   request is not secure (the JMAP listener refuses such a peer
+ *   before it asks);
  * - from a trusted peer, the client is the right-most `X-Forwarded-For`
  *   entry that is not itself a trusted proxy — what a client put on the
  *   left of the chain, spoofed or not, is never read past it — and the
@@ -36,12 +38,13 @@ export function forwardedClient(
 	headers: Headers,
 	trusts: Trusts,
 ): Client {
-	if (!trusts(peer)) return { ip: peer, secure: false };
+	const self = canonical(peer) ?? peer;
+	if (!trusts(peer)) return { ip: self, secure: false };
 	const chain = (headers.get('x-forwarded-for') ?? '')
 		.split(',')
 		.map((entry) => entry.trim())
 		.filter((entry) => entry !== '');
-	let ip = peer;
+	let ip = self;
 	for (let i = chain.length - 1; i >= 0; i--) {
 		const address = addressOf(chain[i] ?? '');
 		if (address !== undefined && trusts(address)) continue;

@@ -6,7 +6,7 @@ import { Directory } from '../../directory/directory';
 import { serve } from '../serve';
 import { prepare, startServer } from '../serve.fixtures';
 import type { HealthContext } from './health';
-import { report, STORE_TIMEOUT_MS } from './health';
+import { createHealth, report, STORE_TIMEOUT_MS } from './health';
 
 let stop: (() => Promise<void>) | undefined;
 
@@ -160,5 +160,31 @@ describe('the report', () => {
 		expect(throws.store).toBe('failed');
 		expect(JSON.stringify(throws)).not.toContain('hunter2');
 		expect(STORE_TIMEOUT_MS).toBeGreaterThan(0);
+	});
+});
+
+describe('concurrent looks', () => {
+	test('share one report', async () => {
+		let calls = 0;
+		const ctx = context({
+			store: {
+				findAccount: async () => {
+					calls++;
+					await Bun.sleep(50);
+					return undefined;
+				},
+			} as unknown as HealthContext['store'],
+		});
+		const health = createHealth(ctx);
+		const { port } = await health.listen({ port: 0, hostname: '127.0.0.1' });
+		try {
+			const answers = await Promise.all(
+				Array.from({ length: 10 }, () => get(port)),
+			);
+			expect(answers.map((r) => r.status)).toEqual(Array(10).fill(200));
+			expect(calls).toBe(1);
+		} finally {
+			health.stop(true);
+		}
 	});
 });

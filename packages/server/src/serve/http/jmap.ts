@@ -4,6 +4,7 @@ import type { MailStore } from '@bumail/store';
 import type { ServerConfig } from '../../config/types';
 import { jmapAuthenticate } from '../../directory/adapters';
 import type { Directory } from '../../directory/directory';
+import { canonical } from '../../proxy/canonical';
 import type { Log } from '../log';
 import type { TlsFiles } from '../tls';
 import { type Client, forwardedClient } from './client';
@@ -54,8 +55,9 @@ function readClient(headers: Headers): Client | undefined {
  * JMAP (`@bumail/jmap`) over the directory and the store, on `ports.https`:
  *
  * - `jmap.mode = "https"`: TLS from files, the client the TCP peer;
- * - `jmap.mode = "proxy"`: plain HTTP for the proxies of `jmap.trusted`,
- *   which end TLS; the client and whether TLS was used come from
+ * - `jmap.mode = "proxy"`: plain HTTP for the proxies of `jmap.trusted`
+ *   alone (a peer not listed gets a 403, before anything is read), which
+ *   end TLS; the client and whether TLS was used come from
  *   `X-Forwarded-For` and `X-Forwarded-Proto` only when the peer is
  *   trusted (`forwardedClient`).
  *
@@ -98,10 +100,16 @@ export function createJmap(ctx: JmapContext): HttpListener {
 			if (proxied && isIP(hostname) === 0) throw new Error(NO_CLIENT_ADDRESS);
 		},
 		fetch(request, server) {
-			const peer = server.requestIP(request)?.address;
+			const address = server.requestIP(request)?.address;
+			const peer = address === undefined ? undefined : canonical(address);
 			if (peer === undefined) {
 				log('https: a request with no client address was refused');
 				return new Response('the client address is unknown', { status: 500 });
+			}
+			// Behind a proxy, only the proxies are served: a request from
+			// anyone else never reaches a header, a login or the app.
+			if (proxied && !trusts(peer)) {
+				return new Response('forbidden', { status: 403 });
 			}
 			const client = proxied
 				? forwardedClient(peer, request.headers, trusts)

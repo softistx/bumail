@@ -134,6 +134,27 @@ describe('jmap behind a proxy that ends TLS', () => {
 		expect((await fixture.session(forwarded('203.0.113.7'))).status).toBe(403);
 	});
 
+	test('answers 403 to every request of a peer it does not trust, before it reads a header', async () => {
+		fixture = await startJmap(
+			PROXY_CONFIG.replace('["127.0.0.1", "::1"]', '["10.9.9.9"]'),
+		);
+		for (const headers of [
+			{},
+			forwarded('203.0.113.7'),
+			{ 'x-forwarded-proto': 'https' },
+		]) {
+			expect((await fixture.session(headers)).status).toBe(403);
+		}
+		expect(fixture.lines.join('\n')).not.toContain('login refused');
+	});
+
+	test('a network of the other family trusts nobody: ::/8 does not trust 127.0.0.1', async () => {
+		fixture = await startJmap(
+			PROXY_CONFIG.replace('["127.0.0.1", "::1"]', '["::/8"]'),
+		);
+		expect((await fixture.session(forwarded('203.0.113.7'))).status).toBe(403);
+	});
+
 	test('refuses to start without a client address to count: a unix socket', async () => {
 		const { file } = await prepare(PROXY_CONFIG);
 		const config = await readConfig({ path: file, env: {} });

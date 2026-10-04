@@ -98,6 +98,19 @@ describe('trusted lists', () => {
 		]);
 	});
 
+	test('refuse what smtp refuses at start, so serve never throws it', async () => {
+		const problems = await problemsOf(
+			`${BASE}\n${jmap('["::ffff:0:0/96", "::ffff:0.0.0.0/96", "::ffff:a00:0/90", "0:0:0:0:0:ffff:10.0.0.0/90", "::/0"]')}`,
+		);
+		expect(problems).toEqual([
+			'jmap.trusted[0]: has a prefix length of 0, which trusts every peer',
+			'jmap.trusted[1]: has a prefix length of 0, which trusts every peer',
+			'jmap.trusted[2]: has a prefix length out of range',
+			'jmap.trusted[3]: has a prefix length out of range',
+			'jmap.trusted[4]: has a prefix length of 0, which trusts every peer',
+		]);
+	});
+
 	test('must be a non-empty array', async () => {
 		for (const list of ['[]', '"10.0.0.1"']) {
 			expect(await problemsOf(`${BASE}\n${jmap(list)}`)).toEqual([
