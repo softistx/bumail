@@ -56,12 +56,33 @@ jobs:
           --health-interval 2s
           --health-timeout 5s
           --health-retries 30
+      # Pebble, Let's Encrypt's ACME test server, for `@bumail/acme`'s
+      # client specs: skipped elsewhere without BUMAIL_TEST_PEBBLE_URL,
+      # failed here. It validates HTTP-01 for real: each name the specs
+      # order resolves, inside the container, to the runner (host-gateway),
+      # where the specs answer on port 5002. Its image has no shell for a
+      # health check; the specs reach it minutes later, after the build.
+      # The names must stay those of `scripts/pebble.ts`, which its spec
+      # checks.
+      pebble:
+        image: ghcr.io/letsencrypt/pebble:2.10.1
+        env:
+          PEBBLE_VA_NOSLEEP: 1
+        ports:
+          - 14000:14000
+        options: >-
+          --add-host a.bumail.test:host-gateway
+          --add-host b.bumail.test:host-gateway
+          --add-host c.bumail.test:host-gateway
+          --add-host d.bumail.test:host-gateway
     env:
       BUMAIL_TEST_POSTGRES_URL: postgres://postgres:bumail@localhost:5432/bumail_test
       # Without the URL the PostgreSQL specs fail here rather than skip.
       BUMAIL_TEST_POSTGRES_REQUIRED: 1
       BUMAIL_TEST_REDIS_URL: redis://localhost:6379
       BUMAIL_TEST_REDIS_REQUIRED: 1
+      BUMAIL_TEST_PEBBLE_URL: https://localhost:14000/dir
+      BUMAIL_TEST_PEBBLE_REQUIRED: 1
       # `@bumail/acme`'s openssl cross-checks fail here rather than skip.
       BUMAIL_TEST_OPENSSL_REQUIRED: 1
     steps:
@@ -72,6 +93,12 @@ jobs:
           fetch-depth: 0
       - name: Setup
         uses: ./.github/actions/setup
+      # Pebble serves its API under a test CA of its own, which its image
+      # holds: the specs' fetch trusts that file, named here.
+      - name: Pebble's CA
+        run: |
+          docker cp ${{ job.services.pebble.id }}:/test/certs/pebble.minica.pem "$RUNNER_TEMP/pebble-ca.pem"
+          echo "BUMAIL_TEST_PEBBLE_CA=$RUNNER_TEMP/pebble-ca.pem" >> "$GITHUB_ENV"
       # The Biome bun.lock resolved, as `bun run check` runs it locally: one
       # version, the one biome.json's $schema names, and never `latest`.
       - name: Lint code
