@@ -129,7 +129,7 @@ describe.each(STORES)('blobs on the %s store', (kind) => {
 		expect(await html.text()).toBe('<p>See the <b>report</b>.</p>');
 	});
 
-	test('RFC 9110 §14.1.1: a suffix range of an empty blob serves it whole; one from 0 is a 416', async () => {
+	test('RFC 9110 §14.1.1 and §14.2: a suffix range of an empty blob serves it whole; one from 0 is a 416', async () => {
 		h = await harness(kind);
 		const upload = (await (
 			await h.fetch(`/jmap/upload/${h.alice.id}`, {

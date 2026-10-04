@@ -350,7 +350,7 @@
 						"name": "Range",
 						"in": "header",
 						"required": false,
-						"description": "One byte range, `bytes=start-end`, `bytes=start-` or `bytes=-suffix`. Several ranges, or a header that is not one of these, is ignored and the whole blob served; so is a suffix range of an empty blob (RFC 9110 §14.1.1).",
+						"description": "One byte range, `bytes=start-end`, `bytes=start-` or `bytes=-suffix`. Several ranges, or a header that is not one of these, is ignored and the whole blob served; so is a suffix range of an empty blob (satisfiable by RFC 9110 §14.1.1, ignored as §14.2 allows).",
 						"schema": {
 							"type": "string",
 							"example": "bytes=0-1023"
