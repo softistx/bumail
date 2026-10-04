@@ -34,6 +34,12 @@ Nothing in progress.
 
 ### Unreleased — merged, not yet published
 
+- **A renewed certificate without a restart**, `server.setTls({ key, cert
+  })`: the next STARTTLS upgrade and the next implicit TLS connection use
+  it, the sessions open keep their TLS, and a pair that cannot be used
+  throws `INVALID_OPTION` and leaves the old one. Implicit TLS without a
+  proxy now listens in clear and upgrades each socket as it opens, since
+  a native Bun TLS listener cannot swap its certificate.
 - **Behind a TCP proxy, the client's own address**, with `proxyProtocol:
   { trusted: [...] }`: the server reads the PROXY protocol, versions 1 and
   2, from the proxies listed — a Traefik TCP router, HAProxy — so

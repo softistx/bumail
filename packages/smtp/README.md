@@ -110,6 +110,26 @@ handshake, and holds a slot of `maxConnections` and
 `maxConnectionsPerClient` meanwhile: a socket that never sends its
 ClientHello is closed, without a word.
 
+## Renew the certificate without a restart
+
+`setTls` takes a renewed key and certificate: the next STARTTLS upgrade or
+implicit TLS connection uses them, and the sessions already open keep the
+TLS they have. The pair is read and checked first; one that cannot be used
+rejects with `INVALID_OPTION` and the old pair stays in use.
+
+```ts
+// After certbot, Traefik or an ACME client wrote new files:
+await server.setTls({
+	key: Bun.file('/etc/ssl/smtp.example.com.key'),
+	cert: Bun.file('/etc/ssl/smtp.example.com.crt'),
+});
+```
+
+Call it on each server that holds the pair (the MX on 25, submission on
+587 and on 465). The
+[guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md#renewing-the-certificate-without-a-restart)
+says how it works on each kind of port.
+
 ## Hooks for policy
 
 A hook returns nothing to accept, or a `reply(code, status, text)` with a
@@ -458,7 +478,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | export | |
 | --- | --- |
 | `createSmtpServer(options)` | the server; throws an `SmtpError` (`INVALID_OPTION`) on a bad option |
-| `SmtpServer` | `listen({ port, hostname? })` (once; again, even before the first resolved, throws `ALREADY_LISTENING`; on implicit TLS, a key or certificate it cannot read or use throws `INVALID_OPTION`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `connections` |
+| `SmtpServer` | `listen({ port, hostname? })` (once; again, even before the first resolved, throws `ALREADY_LISTENING`; on implicit TLS, a key or certificate it cannot read or use throws `INVALID_OPTION`), `setTls({ key, cert })` (a renewed pair for new STARTTLS upgrades and new implicit TLS connections; open sessions keep theirs; a pair that cannot be used throws `INVALID_OPTION` and the old one stays), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `connections` |
 | `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits (`maxConnectionsPerClient` among them), `hookTimeout`, `handshakeTimeout`, `greetingDelay`, `proxyProtocol`, `onError`, and the hooks |
 | `ProxyProtocolOptions` | `trusted`: the proxies' IPv4 and IPv6 addresses and CIDRs, the only peers whose PROXY header (v1 or v2) is read |
 | `SmtpError`, `SmtpErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, `STOPPED` (a `stop()` came before `listen` resolved), and what a content stream or `onError` can get: `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `CONNECTION_LOST`, `HOOK_TIMEOUT`, `INVALID_HOOK_REPLY`, `MESSAGE_NOT_READ`; `sendMail`'s are listed below. `temporary`, `reply` and `rejected` are set for `sendMail`'s errors |

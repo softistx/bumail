@@ -1,14 +1,17 @@
 import type { Socket, TCPSocketListener } from 'bun';
 import { SmtpError } from '../errors';
-import { type Listening, listenerHandlers } from './admission';
+import {
+	type Listening,
+	listenerHandlers,
+	upgradingHandlers,
+} from './admission';
 import type { Connection } from './connection';
 import { handlers, type SocketState } from './listener';
-import type { SmtpServerOptions } from './options';
+import type { SmtpServerOptions, TlsOptions } from './options';
 import { settingsOf } from './settings';
 import { Slots } from './slots';
-import { tlsContext } from './tls-context';
 
-/** A key or certificate `listen` cannot use: `INVALID_OPTION`, the reason as its `cause`. */
+/** A key or certificate `listen` or `setTls` cannot use: `INVALID_OPTION`, the reason as its `cause`. */
 const invalidTls = (message: string, cause: unknown) =>
 	new SmtpError('INVALID_OPTION', message, { cause });
 
@@ -17,7 +20,6 @@ const STOPPED = 'listen(): stop() was called before the server bound its port';
 
 /** Binds the port, once `listen`'s guard passed. */
 async function bind(
-	options: SmtpServerOptions,
 	listening: Omit<Listening, 'proxied'>,
 	port: number,
 	hostname: string,
@@ -25,29 +27,32 @@ async function bind(
 ): Promise<TCPSocketListener<SocketState>> {
 	// Implicit TLS: the key and certificate are checked first, so one
 	// that cannot be used fails here alike, with a proxy or without.
-	const context =
-		listening.secure && options.tls
-			? await tlsContext(options.tls, invalidTls)
-			: undefined;
+	const { tls } = listening.settings;
+	if (listening.secure && tls) await tls.load(invalidTls, 'listen()');
 	// `stop()` came while the key was being read: nothing is bound.
 	if (stopped()) {
 		throw new SmtpError('STOPPED', STOPPED);
 	}
-	// Behind a proxy: a clear listener, TLS after the header.
-	const proxied = listening.settings.trusts ? context : undefined;
+	// Behind a proxy: a clear listener, TLS after the header. Without
+	// one, the listener is clear too, and every socket upgrades at once:
+	// the pair `setTls` replaced is read per connection, which a native
+	// TLS listener, bound to one context, cannot do.
+	const proxied =
+		listening.secure && listening.settings.trusts ? tls : undefined;
+	const full = {
+		...handlers(listening.settings),
+		...listenerHandlers({
+			...listening,
+			...(proxied ? { proxied } : {}),
+		}),
+	};
 	return Bun.listen<SocketState>({
 		hostname,
 		port,
-		...(listening.secure && options.tls && !proxied
-			? { tls: { key: options.tls.key, cert: options.tls.cert } }
-			: {}),
-		socket: {
-			...handlers(listening.settings),
-			...listenerHandlers({
-				...listening,
-				...(proxied ? { proxied } : {}),
-			}),
-		},
+		socket:
+			listening.secure && !proxied
+				? upgradingHandlers(full, listening.settings)
+				: full,
 	});
 }
 
@@ -57,6 +62,14 @@ export interface SmtpServer {
 		port: number;
 		hostname?: string;
 	}): Promise<{ port: number; hostname: string }>;
+	/**
+	 * Uses a renewed key and certificate from the next STARTTLS upgrade or
+	 * implicit TLS connection on; the sessions open keep the TLS they have.
+	 * The pair is read and checked first: one that cannot be used throws
+	 * `INVALID_OPTION` and leaves the one in use. Needs a server made with
+	 * `tls`.
+	 */
+	setTls(tls: TlsOptions): Promise<void>;
 	/** Stops listening; `closeConnections` hangs up on every client too. */
 	stop(closeConnections?: boolean): void;
 	/** Open connections. */
@@ -86,6 +99,15 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 		get connections() {
 			return slots.size;
 		},
+		async setTls(tls) {
+			if (!settings.tls) {
+				throw new SmtpError(
+					'INVALID_OPTION',
+					'setTls(): the server was made without tls, so it has none to replace',
+				);
+			}
+			await settings.tls.replace(tls, invalidTls, 'setTls()');
+		},
 		async listen({ port, hostname = '0.0.0.0' }) {
 			if (listener || starting) {
 				throw new SmtpError(
@@ -100,7 +122,6 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 			stopRequested = false;
 			try {
 				const bound = await bind(
-					options,
 					{ settings, slots, handshaking, secure },
 					port,
 					hostname,

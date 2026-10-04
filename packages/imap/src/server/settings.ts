@@ -2,6 +2,7 @@ import type { MailStore } from '@bumail/store';
 import { ImapError } from '../errors';
 import type { ImapServerOptions } from './options';
 import { trustedPeers } from './proxy/trusted';
+import { TlsHolder } from './tls-context';
 
 /** The longest delay `setTimeout` takes, in whole seconds: past 2^31 − 1 ms it fires after 1 ms. */
 export const MAX_TIMER_SECONDS = Math.floor(2_147_483_647 / 1000);
@@ -33,6 +34,8 @@ export interface Settings {
 	readonly timeout: number;
 	readonly loginTimeout: number;
 	readonly handshakeTimeout: number;
+	/** The key and certificate in use, which `setTls` replaces. */
+	readonly tls: TlsHolder;
 	readonly idleInterval: number;
 	readonly hookTimeout: number;
 	/** With `proxyProtocol`: whether a peer is a proxy trusted to send a PROXY header. */
@@ -118,6 +121,7 @@ export function settingsOf(options: ImapServerOptions): Settings {
 	}
 	return {
 		options,
+		tls: new TlsHolder(options.tls),
 		store: options.store,
 		maxConnections: positive('maxConnections', options.maxConnections, 1000),
 		maxMessageSize: positive(

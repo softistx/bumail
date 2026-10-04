@@ -39,6 +39,7 @@ fixed part of the text.
 - [`ImapError: listen(): the server is already listening on …`](troubleshooting/configuration.md#imaperror-listen-the-server-is-already-listening-on-)
 - [`ImapError: listen(): the server is already starting to listen`](troubleshooting/configuration.md#imaperror-listen-the-server-is-already-starting-to-listen)
 - [`ImapError: listen(): tls: { key, cert } cannot be used: …`](troubleshooting/configuration.md#imaperror-listen-tls--key-cert--cannot-be-used-)
+- [`ImapError: setTls(): tls: { key, cert } cannot be used: …`](troubleshooting/configuration.md#imaperror-settls-tls--key-cert--cannot-be-used-)
 - [`ImapError: listen(): stop() was called before the server bound its port`](troubleshooting/configuration.md#imaperror-listen-stop-was-called-before-the-server-bound-its-port)
 - [`ImapError: authenticate did not settle within hookTimeout (… s)`](troubleshooting/configuration.md#imaperror-authenticate-did-not-settle-within-hooktimeout--s)
 - [`Error: authenticate answered the account "…", which the store does not have`](troubleshooting/configuration.md#error-authenticate-answered-the-account--which-the-store-does-not-have)

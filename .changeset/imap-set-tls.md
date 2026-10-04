@@ -1,0 +1,5 @@
+---
+"@bumail/imap": minor
+---
+
+`server.setTls({ key, cert })` takes a renewed key and certificate without a restart: the next STARTTLS upgrade and the next implicit TLS connection use it, with or without `proxyProtocol`, and the sessions already open keep the TLS they have. The pair is read (a `Bun.file` included) and checked as a TLS context first; one that cannot be used rejects with `ImapError` `INVALID_OPTION` (`setTls(): tls: { key, cert } cannot be used: …`) and the old pair stays in use. To make this possible, implicit TLS without a proxy now listens in clear and upgrades each socket to TLS as it opens (`socket.upgradeTLS`, as STARTTLS does) with the pair in use then, because a native `Bun.listen` TLS listener keeps the context it was created with.

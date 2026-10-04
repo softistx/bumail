@@ -1,6 +1,7 @@
 import { SmtpError } from '../errors';
 import type { SmtpServerOptions } from './options';
 import { trustedPeers } from './proxy/trusted';
+import { TlsHolder } from './tls-context';
 
 /** The options with their defaults, checked once. */
 export interface Settings {
@@ -15,6 +16,8 @@ export interface Settings {
 	readonly hookTimeout: number;
 	readonly handshakeTimeout: number;
 	readonly greetingDelay: number;
+	/** The key and certificate in use, which `setTls` replaces; with `options.tls`. */
+	readonly tls?: TlsHolder;
 	/** With `proxyProtocol`: whether a peer is a proxy trusted to send a PROXY header. */
 	readonly trusts?: (peer: string) => boolean;
 	isLocal(domain: string): boolean | Promise<boolean>;
@@ -117,6 +120,7 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 	}
 	return {
 		options,
+		...(options.tls ? { tls: new TlsHolder(options.tls) } : {}),
 		mode: options.mode ?? 'mx',
 		maxMessageSize: positive(
 			'maxMessageSize',
