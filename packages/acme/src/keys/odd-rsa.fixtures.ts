@@ -1,0 +1,67 @@
+/**
+ * Two RSA keys of odd sizes, as PKCS #8 PEM, made once with
+ * `openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2047` (and 2049)
+ * and kept here so the specs are deterministic. Web Crypto in Bun reports
+ * their `modulusLength` as 2048 and 2056: the byte count times 8. Test keys
+ * only, generated for these specs; they protect nothing.
+ */
+
+export const RSA_2047_PEM = `-----BEGIN PRIVATE KEY-----
+MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAHQAH1zcYfuf0X33
+ov+sr9FVOUCaObXoXMyoRTdeW/kR1D6fKOgbQ+r5fQZK1k6zwd/nkfAiQdNqOqR5
+OOTP/hWbGRKcTO9PXn7JtMN02+6oqZ0E+ovBvqeCrmir+UlHfyiOPJFAeoH2zp3H
+4ynw4gSQl4Wh0A5rALTMWSA1TNxtg1/Csjr7cnG/KwcaPho3Qhwi4JFrg6fW/bsF
+eiiznU5SGqARsrBu0KWMs4mldJjOIT0ZGdPdv/ChGu/p+UaZHOVVCuRAKgEe4qA2
+zJQvveeuIVP1mTohfFLM7TTMVSReOAIkJm5lCbuInzaGglhyuasUSGTV0R4jeVUl
+qykaytkCAwEAAQKCAQBH8feBubIPxSzCav+ugaU+ORRcTAs1FpvP1yGu2JhEn1k7
+Sa2uX5K9PuXbLDlE8NpzC4YJIMYg4MbkUccGqzXUorBnSYex+VELZAD4JRdvKy6f
+k4HtgknETRntE5R2baChP66zDAGvb6rwUxRCZANaf29q01ReTOFQQVmZz1UPdP8Y
+KAd+XBzYqfQRmGZpCQVn3odrgldAxfBVDIlZ+vyaXDUtkxxmuaUnZIWKJaxWtsg1
+EScIWFqFy/pW+BNZEuisku85S4mZHalziPDEOx5xl+sTElRdHKZZsjDoDDV7Uh8o
+5yScbEPZAX0hMU57G0lIVUQ9IqYUZyaHdFe+pBZxAoGBAPA2dcUMtqKun6nKE73e
+Sbug+LUI/PhYGdwWf0Z/QoUUj7ehi4vWe8/rfmJiO6xp1gBCvee+Q77dGXn3ENsd
+HY8BP4wW3QlsdFTwsGNc5kZVQZI4PaCQ2cySknp6jhsQSjNlyXb+6aGJDIrl5mRw
+V9lvICijoOsZcdPTcTG7Nin1AoGAe5/PxBh5NFNoe6Es3nubASTmUYkdD31UaWqN
+AFKVCMygZgs89hx2paY5pGrTuD8sb22qmHN1zA7FhQcREYIW4VnHkEWYQ+ceoxEJ
+V0PlhJEbABcn/+uS89mxzNiOI/ZdunADdZPKosFn7khVmXRVkm+R0bshMLhYuUKU
+Y/JLGtUCgYAhJEJnZ3OjSlh5AopqvcqKepEV2SGd2fnnZas1vMUeu1GA0mcAah02
++JS9WjRFe2ytKIgu+w85vCORska/FGtJmbB80YK5lB8QwQx1CRI0Tfr4A45tIs8J
+7IcNIu+MSFkUckyzgEQXp2L1nvaEkQNt2mkjcj/3b9FGmnuZkuzMKQKBgCUckqiR
+mEEnEOScO/YGMUAkraeoe7rcquyCehWwtODRXQ2FLiXL4apUvlUnZKuY+2PwDhh6
+ANDjVlRbDLquzOOVqh0bZ1xrE31sbdtunIYxcWOTkAR52cGuhnuyPul42iZP3hn7
+5gb5/JNBz8CjddTh/WpyvMH9dVUYMafXYsiJAoGBAKUC8yGHSlGB/m/XlE54yAUP
+YdGXWs4nivksLi6BRcO/mRQaGpixkSB6GRdBxjWfxrfyCiMBFE24IEFnx04U/8mY
+kTmyTK0nMwZGFnn3ljrtWrxgZHaGjJ/+fyRxapxJf4sxs//Xs0D8bvw6P7Ht9sM4
+cqvYUhlI8+oUrqU/QiaQ
+-----END PRIVATE KEY-----
+`;
+
+export const RSA_2049_PEM = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQHPbkA9qnpf7ZrL
+gIj6w82JCfz37NNPO9W/Y8oBEWTmGq4YCj7L0HD65kAkJ5nQQJ5/1kJgUQX96OBr
+Rb+rq0isXNtMGbmgkDJaLAndFfuF5sCovP6bwBrLT63DS7ns5mum5+8eTJf7HlUH
+Ric0faGnUCg+7H5Qg5tgXBode+IrmR/PPcV/Wp78ymRj+VCz+hZhbVPwwpyPTzFV
+l9fT4TUeBGhh+lPeUa6le+76o1sQpe8/nyp/e3+UnUL4mqiXdk2J1bheVkCPTaV6
+Ux3nRwPRlgZYsuWhoK9REIrxp1dc9MhDe7nqPh5KlzHsgORgBwyejQdP8zWJ8zVz
+dtiZVzUpAgMBAAECggEBAVfMd9YHoc+Gqt6r1XMLTXCLu2KGC+FtB058DkEqkUrv
+ohXti9aSJS7NH+pygnZvaeZ2ojloAmTynYKXdPE7GafdH0dekkpejyw8HXkptLYK
+kQTdaJlNM9N+oe8PP7hS3KwuxkMZGWrPfs7tqWoUhZdlLOY5dh/u8pbS3QDghdJG
+JsQKU2u2jT3e6vzF1KYDw2EzgMpRuZFApROfHa/wNVKM7frh/tFvDdRVO848xxcy
+pNPcx+Kgl/uDkR9TJ2MmzDhPcCg2zbGeM0OCQqdwf+BauiMUhJsXKLrgyRt89vyK
+KyhkZEodhp/OtEcUZuokPbLzl1H7y/fDVkMSeDlvdzECgYEB2RVQ/uU7/53M/Ej8
+UDLFpCwIS0HfTyPZ+1c+DH2iKshzvuIaWDkgHYtwFgF3uj0kYaNPCiud0kHhdxt1
+EbPZ/gBdB5gz0sforaJLAmDpsSf96mqJdirxOro9UyKJ5ZesQ+Z2wSKDHgZ0hWp5
+ESP8kZl5LZ1R3O2/IWuiqDZ/VD0CgYEA+sbUeomTZkaYIyqw1dWflGxsnxdUjUog
+ZhzpCek3LCUUZSe7U54rkseFVgu/wkW4TZCCjKQA1h0pAjFx5x9EVtQ8svH1eRpE
+gIqQWt6cw7Dk5x/TxLvr+NMzeFyeKnla3Qe/hb5f8SnDshBo1eFTyA1VC6c1e+l0
+y6ezBT82t10CgYAYO5RLijh5jn66iY6LGR6wmyTNnhEvP5nh2wUtpJ3S7TOomnJZ
+BIwVl1fleKvGWW1spu3cioFqDL/c1wY3IuxOq3wYcH5vFJhhlIedFpPB5FeIU265
+I9f5dyK/CGzh2tQTIlIA8KCgwBnl359V9m7wklj3sjBITdFVh+rsDOaWzQKBgHDR
++s2WD0Y4BEHt9th83uo7TTLVoChgbOsDnqPi0/t8QwyvL0uTIS9Lq+TmLEMOcrgS
+h2kWb3nkbIqcDA5atrgJi7VFvZXaB2985yy6cfRoJNMGMpOTp7mt6r3/jPi21/YQ
+gk19NFSe4Xe+giuWz8Z0mQpBE4LHqM/mhleZ9NfRAoGBAa6bsnh1QHjKfIUtXyTc
+vMc8s5AftoR3P3dBHUkpdGjhXjxe6mzMK7GQ07edRyZejxe4+Ijj9CtIDFBnfYM/
+r7eVuq3Lvn9sj1P8EWBvUmFivvWob9QzfFA8g3zlE+vFcLnGO9iY0DQ+75qGU1OC
+me2mwoJ9W6LIWzkHT+DOMd2v
+-----END PRIVATE KEY-----
+`;

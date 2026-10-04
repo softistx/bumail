@@ -32,7 +32,7 @@ at its start names the function and the argument, as
 - [`AcmeError: createCsr(): "…" is given twice`](#acmeerror-createcsr--is-given-twice)
 - [`AcmeError: signJws(): options must be an object`](#acmeerror-signjws-options-must-be-an-object)
 - [`AcmeError: signJws(): nonce must be the server's Replay-Nonce, a non-empty base64url string, not …`](#acmeerror-signjws-nonce-must-be-the-servers-replay-nonce-a-non-empty-base64url-string-not-)
-- [`AcmeError: signJws(): … must be an https: URL as the server gave it, in its normal form, not …`](#acmeerror-signjws--must-be-an-https-url-as-the-server-gave-it-in-its-normal-form-not-)
+- [`AcmeError: signJws(): … must be an https: URL without white space, credentials or a fragment, not …`](#acmeerror-signjws--must-be-an-https-url-without-white-space-credentials-or-a-fragment-not-)
 - [`AcmeError: signJws(): payload must be an object or left out for POST-as-GET, not …`](#acmeerror-signjws-payload-must-be-an-object-or-left-out-for-post-as-get-not-)
 - [`AcmeError: signJws(): payload cannot be written as JSON: …`](#acmeerror-signjws-payload-cannot-be-written-as-json-)
 - [`AcmeError: signJws(): payload does not write a JSON object; its toJSON() returns something else`](#acmeerror-signjws-payload-does-not-write-a-json-object-its-tojson-returns-something-else)
@@ -285,13 +285,13 @@ const response = await fetch(directory.newNonce, { method: 'HEAD' });
 const nonce = response.headers.get('replay-nonce') ?? '';
 ```
 
-### `AcmeError: signJws(): … must be an https: URL as the server gave it, in its normal form, not …`
+### `AcmeError: signJws(): … must be an https: URL without white space, credentials or a fragment, not …`
 
-**When**: `url` or `kid` (the first `…` says which) is not an absolute `https:` URL, holds white space or a control character (a line end read with it), or is not in the form `new URL(…).href` gives: an upper-case host, a bare origin without its `/`, a default port spelled out.
+**When**: `url` or `kid` (the first `…` says which) is not an absolute `https:` URL, holds white space or a control character (a line end read with it), or carries credentials (`https://user:pw@…`) or a fragment (`#…`).
 
 **Why**: RFC 8555 §6.1 runs ACME over HTTPS only, `url` must be the exact URL posted to (§6.4), and `kid` is the account URL the server returned in `Location`.
 
-**Fix**: pass the URLs as the directory and the server gave them, whole and trimmed. What is signed is compared with the URL the server sees, so a URL that changes when parsed would sign one thing and post to another.
+**Fix**: pass the URLs as the directory and the server gave them, whole and trimmed. They are signed exactly as given, never normalised: the header's `url` must be the URL the request is sent to (RFC 8555 §6.4).
 
 ### `AcmeError: signJws(): payload must be an object or left out for POST-as-GET, not …`
 

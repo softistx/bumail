@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { connect } from 'node:tls';
+import { createCsr } from '../csr/csr';
 import { pem } from '../encoding';
 import { AcmeError } from '../errors';
 import { jwkThumbprint } from '../jws/jwk';
+import { signJws } from '../jws/sign';
 import { OPENSSL, openssl } from '../openssl.fixtures';
 import { exportPrivateKeyPem, generateKeyPair, importKeyPairPem } from './keys';
+import { RSA_2047_PEM, RSA_2049_PEM } from './odd-rsa.fixtures';
 import { selfSignedCertificate } from './x509.fixtures';
 
 const pairs = {
@@ -271,6 +274,63 @@ describe("RSA keys outside Let's Encrypt's policy", () => {
 			/^[A-Za-z0-9_-]{43}$/,
 		);
 	});
+});
+
+describe('RSA keys of odd sizes, measured by their modulus', () => {
+	async function load(text: string): Promise<CryptoKeyPair> {
+		const der = new Uint8Array(
+			Buffer.from(text.replace(/-----[^-]+-----|\s/g, ''), 'base64'),
+		);
+		const params = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+		const privateKey = await crypto.subtle.importKey(
+			'pkcs8',
+			der,
+			params,
+			true,
+			['sign'],
+		);
+		const { n = '', e = '' } = await crypto.subtle.exportKey('jwk', privateKey);
+		const publicKey = await crypto.subtle.importKey(
+			'jwk',
+			{ kty: 'RSA', n, e },
+			params,
+			true,
+			['verify'],
+		);
+		return { publicKey, privateKey };
+	}
+
+	for (const [bits, text, reported] of [
+		[2047, RSA_2047_PEM, 2048],
+		[2049, RSA_2049_PEM, 2056],
+	] as const) {
+		test(`${bits} bits, which Web Crypto reports as ${reported}, is refused everywhere`, async () => {
+			const keyPair = await load(text);
+			expect(
+				(keyPair.privateKey.algorithm as RsaHashedKeyAlgorithm).modulusLength,
+			).toBe(reported);
+			const size = `is an RSA key of ${bits} bits; only 2048, 3072 and 4096 are supported`;
+			await expect(importKeyPairPem(text)).rejects.toThrow(
+				new AcmeError('INVALID_KEY', `importKeyPairPem(): the key ${size}`),
+			);
+			await expect(exportPrivateKeyPem(keyPair.privateKey)).rejects.toThrow(
+				`exportPrivateKeyPem(): the key ${size}`,
+			);
+			await expect(
+				createCsr({ names: ['example.com'], keyPair }),
+			).rejects.toThrow(`createCsr(): keyPair.publicKey ${size}`);
+			await expect(
+				signJws({
+					keyPair,
+					nonce: 'oFvnlFP1wIhRlYS2jTaXbA',
+					url: 'https://example.com/acme/new-account',
+				}),
+			).rejects.toThrow(`signJws(): keyPair.publicKey ${size}`);
+			await expect(jwkThumbprint(keyPair.publicKey)).rejects.toThrow(
+				`jwkThumbprint(): the key ${size}`,
+			);
+		});
+	}
 });
 
 describe.skipIf(!OPENSSL)('exportPrivateKeyPem, read by openssl', () => {

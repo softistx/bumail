@@ -2,6 +2,8 @@ import { pem, pemBytes, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import {
 	algorithmOf,
+	checkRsaJwk,
+	checkRsaKey,
 	ECDSA_P256,
 	expectType,
 	MIN_RSA_BITS,
@@ -60,6 +62,7 @@ export async function exportPrivateKeyPem(
 			`${where} is not extractable; generate or import it with extractable: true`,
 		);
 	}
+	await checkRsaKey(privateKey, where);
 	const der = await crypto.subtle.exportKey('pkcs8', privateKey);
 	return pem('PRIVATE KEY', new Uint8Array(der));
 }
@@ -119,6 +122,9 @@ export async function importKeyPairPem(
 		}
 		algorithmOf(full, `${where}: the key`);
 		const jwk = await crypto.subtle.exportKey('jwk', full);
+		if (algorithm === RSA_SHA256) {
+			checkRsaJwk(jwk.n ?? '', jwk.e ?? '', `${where}: the key`);
+		}
 		const { d: _d, p: _p, q: _q, dp: _dp, dq: _dq, qi: _qi, ...pub } = jwk;
 		const publicKey = await crypto.subtle.importKey(
 			'jwk',

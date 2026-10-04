@@ -19,8 +19,8 @@ export const MIN_RSA_BITS = 2048;
 
 /**
  * The JWS algorithm of a key, refusing any other with `INVALID_KEY`:
- * ECDSA on P-256, or RSASSA-PKCS1-v1_5 with SHA-256 of 2048, 3072 or 4096 bits
- * with the exponent 65537.
+ * ECDSA on P-256, or RSASSA-PKCS1-v1_5 with SHA-256; an RSA key's size
+ * and exponent are checked by `checkRsaKey`, which is async.
  * `where` names the caller and the argument, for the message.
  */
 export function algorithmOf(key: unknown, where: string): JwsAlgorithm {
@@ -37,11 +37,6 @@ export function algorithmOf(key: unknown, where: string): JwsAlgorithm {
 		algorithm.name === 'RSASSA-PKCS1-v1_5' &&
 		algorithm.hash?.name === 'SHA-256'
 	) {
-		checkRsa(
-			algorithm.modulusLength ?? 0,
-			algorithm.publicExponent ?? new Uint8Array(),
-			where,
-		);
 		return 'RS256';
 	}
 	throw new AcmeError(
@@ -88,6 +83,41 @@ export function bitLength(bytes: Uint8Array): number {
 	return (bytes.length - start - 1) * 8 + (32 - Math.clz32(first));
 }
 
+/**
+ * Refuses an RSA key outside Let's Encrypt's policy, measuring its modulus
+ * from the key's JWK `n`: Web Crypto's `modulusLength` is a byte count
+ * times 8 in Bun, so a 2047-bit key reads as 2048 and a 2049-bit one as
+ * 2056. A key that cannot be exported (a public key imported as not
+ * extractable) falls back to `modulusLength`. Other keys pass.
+ */
+export async function checkRsaKey(
+	key: CryptoKey,
+	where: string,
+): Promise<void> {
+	if (key.algorithm.name !== 'RSASSA-PKCS1-v1_5') return;
+	let jwk: JsonWebKey | undefined;
+	try {
+		jwk = await crypto.subtle.exportKey('jwk', key);
+	} catch {
+		jwk = undefined;
+	}
+	if (typeof jwk?.n === 'string' && typeof jwk.e === 'string') {
+		checkRsaJwk(jwk.n, jwk.e, where);
+		return;
+	}
+	const algorithm = key.algorithm as RsaHashedKeyAlgorithm;
+	checkRsa(algorithm.modulusLength, algorithm.publicExponent, where);
+}
+
+/** `checkRsa` on a JWK's base64url `n` and `e`. */
+export function checkRsaJwk(n: string, e: string, where: string): void {
+	checkRsa(
+		bitLength(new Uint8Array(Buffer.from(n, 'base64url'))),
+		new Uint8Array(Buffer.from(e, 'base64url')),
+		where,
+	);
+}
+
 function describe(
 	algorithm: Partial<EcKeyAlgorithm & RsaHashedKeyAlgorithm>,
 ): string {
@@ -110,7 +140,10 @@ export function expectType(
 }
 
 /** The key pair given, both halves checked, and its algorithm. */
-export function keyPairOf(keyPair: unknown, where: string): JwsAlgorithm {
+export async function keyPairOf(
+	keyPair: unknown,
+	where: string,
+): Promise<JwsAlgorithm> {
 	const pair = keyPair as Partial<CryptoKeyPair> | null | undefined;
 	if (typeof pair !== 'object' || pair === null) {
 		throw new AcmeError(
@@ -128,5 +161,6 @@ export function keyPairOf(keyPair: unknown, where: string): JwsAlgorithm {
 			`${where}'s public and private keys are not of the same algorithm`,
 		);
 	}
+	await checkRsaKey(pair.publicKey as CryptoKey, `${where}.publicKey`);
 	return algorithm;
 }

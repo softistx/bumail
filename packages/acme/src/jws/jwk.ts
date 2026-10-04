@@ -1,11 +1,6 @@
 import { base64url, shown } from '../encoding';
 import { AcmeError } from '../errors';
-import {
-	algorithmOf,
-	bitLength,
-	checkRsa,
-	expectType,
-} from '../keys/algorithm';
+import { algorithmOf, checkRsaJwk, expectType } from '../keys/algorithm';
 
 /**
  * A public key as a JWK (RFC 7517) with its required members only, as the
@@ -56,11 +51,7 @@ function requiredMembers(jwk: JsonWebKey, where: string): PublicJwk {
 	if (jwk.kty === 'RSA') {
 		const n = text('n');
 		const e = text('e');
-		checkRsa(
-			bitLength(new Uint8Array(Buffer.from(n, 'base64url'))),
-			new Uint8Array(Buffer.from(e, 'base64url')),
-			where,
-		);
+		checkRsaJwk(n, e, where);
 		return { kty: 'RSA', n, e };
 	}
 	throw new AcmeError(

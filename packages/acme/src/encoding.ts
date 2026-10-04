@@ -43,6 +43,15 @@ export function shown(value: unknown): string {
 		return JSON.stringify(value.length > 80 ? `${value.slice(0, 80)}…` : value);
 	}
 	if (value === null) return 'null';
-	if (Array.isArray(value)) return 'an array';
+	if (isArray(value)) return 'an array';
 	return typeof value;
+}
+
+/** `Array.isArray`, false where it throws (a revoked Proxy). */
+export function isArray(value: unknown): boolean {
+	try {
+		return Array.isArray(value);
+	} catch {
+		return false;
+	}
 }

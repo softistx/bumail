@@ -51,5 +51,8 @@ describe('shown', () => {
 		looped['self'] = looped;
 		expect(shown(looped)).toBe('object');
 		expect(shown(undefined)).toBe('undefined');
+		const { proxy, revoke } = Proxy.revocable({}, {});
+		revoke();
+		expect(shown(proxy)).toBe('object');
 	});
 });

@@ -137,31 +137,23 @@ describe('signJws (RFC 7515 flattened, RFC 8555 §6.2)', () => {
 		],
 		[
 			{ url: 'http://example.com/acme' },
-			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "http://example.com/acme"',
+			'signJws(): url must be an https: URL without white space, credentials or a fragment, not "http://example.com/acme"',
 		],
 		[
 			{ url: 'not a url' },
-			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "not a url"',
+			'signJws(): url must be an https: URL without white space, credentials or a fragment, not "not a url"',
 		],
 		[
 			{ kid: 'acct/1' },
-			'signJws(): kid must be an https: URL as the server gave it, in its normal form, not "acct/1"',
+			'signJws(): kid must be an https: URL without white space, credentials or a fragment, not "acct/1"',
 		],
 		[
 			{ url: 'https://example.com/acme/new-order\n' },
-			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "https://example.com/acme/new-order\\n"',
-		],
-		[
-			{ url: 'https://EXAMPLE.com/acme/new-order' },
-			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "https://EXAMPLE.com/acme/new-order"',
-		],
-		[
-			{ url: 'https://example.com' },
-			'signJws(): url must be an https: URL as the server gave it, in its normal form, not "https://example.com"',
+			'signJws(): url must be an https: URL without white space, credentials or a fragment, not "https://example.com/acme/new-order\\n"',
 		],
 		[
 			{ url: 1n },
-			'signJws(): url must be an https: URL as the server gave it, in its normal form, not bigint',
+			'signJws(): url must be an https: URL without white space, credentials or a fragment, not bigint',
 		],
 		[
 			{ nonce: 1n },
@@ -230,6 +222,30 @@ describe('signJws (RFC 7515 flattened, RFC 8555 §6.2)', () => {
 				),
 			);
 		}
+	});
+
+	test('a URL is signed as given, not normalised (RFC 8555 §6.4)', async () => {
+		for (const url of [
+			'https://EXAMPLE.com:443/acme/./new-order',
+			'https://example.com',
+			"https://example.com/acme/o'1",
+		]) {
+			const jws = await signJws({ keyPair: p256, nonce: NONCE, url, kid: KID });
+			expect((decode(jws.protected) as { url: string }).url).toBe(url);
+		}
+	});
+
+	test('a revoked Proxy as payload is an AcmeError, not a TypeError', async () => {
+		const { proxy, revoke } = Proxy.revocable({}, {});
+		revoke();
+		await expect(
+			signJws({
+				keyPair: p256,
+				nonce: NONCE,
+				url: NEW_ACCOUNT,
+				payload: proxy,
+			}),
+		).rejects.toMatchObject({ code: 'INVALID_OPTION' });
 	});
 
 	test('options that are not an object, a key that is not a pair', async () => {

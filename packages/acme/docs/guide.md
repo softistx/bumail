@@ -193,7 +193,7 @@ Its protected header holds what RFC 8555 §6.2 requires, in this order:
 | --- | --- |
 | `alg` | `ES256` for a P-256 key, `RS256` for an RSA key |
 | `nonce` | the `nonce` you give: the last `Replay-Nonce` the server sent |
-| `url` | the `url` you give: exactly the URL the request is POSTed to, `https:` only, in the form `new URL(url).href` gives |
+| `url` | the `url` you give: exactly the URL the request is POSTed to, `https:` only, signed exactly as given; no white space, credentials or fragment |
 | `jwk` or `kid` | without a `kid`, the account's public key as a JWK (`newAccount`); with one, the account URL |
 
 ```ts

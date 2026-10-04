@@ -1,4 +1,4 @@
-import { base64url, isBase64url, shown } from '../encoding';
+import { base64url, isArray, isBase64url, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import { type JwsAlgorithm, keyPairOf, SIGN_PARAMS } from '../keys/algorithm';
 import { jwkOf, type PublicJwk } from './jwk';
@@ -56,7 +56,7 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 		);
 	}
 	const { keyPair, nonce, url, kid, payload } = options;
-	const alg = keyPairOf(keyPair, `${where}: keyPair`);
+	const alg = await keyPairOf(keyPair, `${where}: keyPair`);
 	if (typeof nonce !== 'string' || !isBase64url(nonce)) {
 		throw new AcmeError(
 			'INVALID_OPTION',
@@ -67,7 +67,7 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 	if (kid !== undefined) checkUrl(kid, 'kid');
 	if (
 		payload !== undefined &&
-		(typeof payload !== 'object' || payload === null || Array.isArray(payload))
+		(typeof payload !== 'object' || payload === null || isArray(payload))
 	) {
 		throw new AcmeError(
 			'INVALID_OPTION',
@@ -125,10 +125,15 @@ function checkUrl(value: unknown, name: string): void {
 	} catch {
 		parsed = undefined;
 	}
-	if (parsed?.protocol !== 'https:' || parsed.href !== value) {
+	if (
+		parsed?.protocol !== 'https:' ||
+		parsed.username !== '' ||
+		parsed.password !== '' ||
+		(value as string).includes('#')
+	) {
 		throw new AcmeError(
 			'INVALID_OPTION',
-			`signJws(): ${name} must be an https: URL as the server gave it, in its normal form, not ${shown(value)}`,
+			`signJws(): ${name} must be an https: URL without white space, credentials or a fragment, not ${shown(value)}`,
 		);
 	}
 }

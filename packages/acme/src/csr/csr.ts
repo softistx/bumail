@@ -64,7 +64,7 @@ export async function createCsr(options: CsrOptions): Promise<Csr> {
 	}
 	const names = checkNames(options.names);
 	const { keyPair } = options;
-	const alg = keyPairOf(keyPair, 'createCsr(): keyPair');
+	const alg = await keyPairOf(keyPair, 'createCsr(): keyPair');
 	const spki = new Uint8Array(
 		await crypto.subtle.exportKey('spki', keyPair.publicKey),
 	);
