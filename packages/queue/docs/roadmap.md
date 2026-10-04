@@ -6,23 +6,9 @@ only number on it.
 
 ## Now
 
-Nothing in progress: the MongoDB store, first under Next, is the next
-one taken. The Redis store shipped in 0.3.0 (see Shipped).
+Nothing in progress. The Redis store shipped in 0.3.0 (see Shipped).
 
 ## Next
-
-More answers to the `QueueStore` contract, built for several instances of
-a server sharing one queue — each claim atomic across them, each lease
-taken back from an instance that crashed — and each held to the same
-contract specs as the memory, `bun:sqlite`, PostgreSQL and Redis
-stores. None adds a dependency.
-
-- **A MongoDB store** — the contract answered structurally, against a
-  collection of the shape a MongoDB driver gives, so the package peers on
-  no driver: the application passes in its own collection; the claim a
-  `findOneAndUpdate`.
-
-Then:
 
 - **MTA-STS (RFC 8461) and TLS-RPT (RFC 8460)** — a recipient domain's
   policy fetched, cached and enforced, `mxTls: 'required'` with the
@@ -53,8 +39,10 @@ Then:
 
 - **A runtime dependency.** The memory store needs none, the `bun:sqlite`
   store uses Bun's own SQLite, the PostgreSQL store Bun's own `Bun.sql`,
-  the Redis store Bun's own `Bun.redis`, and the MongoDB store will take
-  the application's own collection, typed by its shape.
+  and the Redis store Bun's own `Bun.redis`.
+- **A MongoDB store.** Several instances share one queue through
+  PostgreSQL, the database the mail store already needs for them, or
+  through Redis; a MongoDB store would add nothing a deployment lacks.
 - **Relaying on its own.** The queue sends what the app enqueues; who may
   send is decided before, by the SMTP server's AUTH or the app. No option
   will make the queue accept mail from the network.
@@ -63,7 +51,7 @@ Then:
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.4.0
 
 - **The PostgreSQL store's writes run at `READ COMMITTED`** — whatever
   the client's sessions default to, so a client shared with code that

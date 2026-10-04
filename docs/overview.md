@@ -370,10 +370,9 @@ top of it:
 Several server instances, on several machines, share one queue through
 a PostgreSQL store on `Bun.sql`, `@bumail/queue/postgres` (published in
 0.2.0), each claim a `SELECT … FOR UPDATE SKIP LOCKED`; or through a
-Redis store on `Bun.redis`, `@bumail/queue/redis` (merged, not yet
-published), each claim a Lua script Redis runs whole — on one Redis or a
-primary with replicas, with Redis's weaker durability. Next, MongoDB,
-typed by shape so the queue needs no driver.
+Redis store on `Bun.redis`, `@bumail/queue/redis` (published in 0.3.0),
+each claim a Lua script Redis runs whole — on one Redis or a primary
+with replicas, with Redis's weaker durability.
 
 DKIM signing happens before a message is enqueued, with `@bumail/auth`.
 The queue sends what the app enqueues: the app decides who may send.
@@ -481,8 +480,8 @@ why.
 These hold for every package. [AGENTS.md](../AGENTS.md) has the full rules.
 
 - **No runtime dependency.** A package needs only Bun, other `@bumail/*`
-  packages, and the peers AGENTS.md allows (such as the clients a store
-  for MongoDB will use).
+  packages, and the peers AGENTS.md allows (such as the S3 client a
+  blob store will use).
 - **Bun only.** The repository is built and tested on Bun 1.4.2.
 - **Never an open relay.** Relaying requires AUTH in every default and
   every test, and AUTH is offered only once the connection is encrypted.

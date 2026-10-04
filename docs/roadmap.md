@@ -21,13 +21,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
-- **`@bumail/queue`, more stores for several instances** — more answers
-  to the `QueueStore` contract, so several server instances share one
-  queue, each held to the same contract specs, none a dependency. The
-  PostgreSQL store is published and the Redis store merged (see
-  Shipped); MongoDB comes next, typed structurally against the
-  collection a MongoDB driver hands it, so the package peers on no
-  driver.
 - **The server app** — the packages wired into one process: SMTP on 25
   (MX), 465 (submission over implicit TLS) and 587 (submission with
   STARTTLS), IMAP on 993, JMAP over HTTPS on 443, the queue delivering
@@ -94,6 +87,10 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **A built-in spam classifier** — scoring stays behind a hook, so the
   choice of scorer is the operator's.
 - **Relaying without authentication** — not even as an option.
+- **MongoDB** — neither for the mail store nor for the queue. Several
+  instances already share their mail through the PostgreSQL store, and
+  the queue can use that same database, or Redis: a MongoDB store would
+  add maintenance and CI cost and nothing a deployment lacks.
 
 ## Shipped
 
@@ -108,17 +105,17 @@ No dates. Each entry says what someone running or embedding the server gets.
   bytes are kept in the database for now; the blob store, below, will
   let them live on the disk or in S3. Held to the same contract specs as
   the memory and `bun:sqlite` stores.
-- **`@bumail/queue`, a Redis store**, as `@bumail/queue/redis` — the
-  `QueueStore` contract on Redis through Bun's own `Bun.redis`, so
-  several server instances, on several machines, share one queue with no
-  driver to install. Every operation that writes is one Lua script,
+
+### Published
+
+- **`@bumail/queue`, a Redis store**, in queue 0.3.0, as
+  `@bumail/queue/redis` — the `QueueStore` contract on Redis through
+  Bun's own `Bun.redis`, so several server instances, on several
+  machines, share one queue with no driver to install. Every operation that writes is one Lua script,
   which Redis runs whole, so two instances never take the same item, and
   a crashed instance's items are claimed again once their leases expire.
   One Redis, or a primary with replicas, not Cluster; its durability is
   Redis's, as the queue's guide spells out.
-
-### Published
-
 - **`@bumail/queue`, a PostgreSQL store**, in queue 0.2.0, as
   `@bumail/queue/postgres` — the `QueueStore` contract on PostgreSQL
   through Bun's own `Bun.sql`, so several server instances, on several
