@@ -1,16 +1,13 @@
 # @bumail/acme
 
-The primitives of an ACME client (RFC 8555), the protocol Let's Encrypt
-and other CAs issue certificates through: a certificate signing request
-for DNS names, the signed JWS every ACME request is, the JWK thumbprint,
-key authorizations and the HTTP-01 path, and the keys themselves, written
-as PKCS #8 PEM that Bun's TLS takes. All on Web Crypto, with its own small
-DER writer. No dependency; `typescript` is an optional peer, for the
-types.
-
-The client that talks to a CA — directory, nonces, account, order,
-challenges, finalize — comes next, on top of these; see the
-[roadmap](https://github.com/softistx/bumail/blob/develop/packages/acme/docs/roadmap.md).
+An ACME client (RFC 8555), the protocol Let's Encrypt and other CAs issue
+certificates through: `obtainCertificate` runs the whole HTTP-01 flow,
+`AcmeClient` each request of it, and `http01Responder` answers the CA on
+port 80. Under them, the primitives: a certificate signing request for
+DNS names, the signed JWS every ACME request is, the JWK thumbprint, key
+authorizations, and the keys themselves, written as PKCS #8 PEM that
+Bun's TLS takes. All on Web Crypto and `fetch`, with its own small DER
+writer. No dependency; `typescript` is an optional peer, for the types.
 
 **Bun only**, like every `@bumail/*` package: it runs on Bun 1.4.2 or
 later.
@@ -18,6 +15,125 @@ later.
 ```sh
 bun add @bumail/acme
 ```
+
+## Obtaining a certificate
+
+```ts
+import {
+	AcmeClient,
+	exportPrivateKeyPem,
+	generateKeyPair,
+	http01Responder,
+	obtainCertificate,
+} from '@bumail/acme';
+
+const client = new AcmeClient({
+	directoryUrl: 'https://acme-staging-v02.api.letsencrypt.org/directory', // staging first
+	accountKey: await generateKeyPair(), // keep it: write it out with exportPrivateKeyPem
+});
+await client.newAccount({ termsOfServiceAgreed: true, contact: ['mailto:admin@example.com'] });
+
+const http01 = http01Responder();
+Bun.serve({ port: 80, fetch: http01.fetch }); // the CA fetches http://<name>/.well-known/acme-challenge/<token>
+
+const certificateKey = await generateKeyPair(); // never the account key
+const { certificate } = await obtainCertificate({
+	client,
+	names: ['example.com', 'mail.example.com'],
+	certificateKey,
+	http01,
+	timeoutMs: 300_000, // the default: the whole flow
+});
+
+await Bun.write('/data/tls/fullchain.pem', certificate); // the leaf first: Bun's tls.cert
+await Bun.write('/data/tls/key.pem', await exportPrivateKeyPem(certificateKey.privateKey));
+```
+
+`obtainCertificate` orders the names, serves each pending authorization's
+`http-01` key authorization through `http01.set`, answers the challenge,
+waits for the authorizations, finalizes with a CSR and downloads the
+chain. It **always** calls `http01.remove` for every token it set — after
+success, a failed validation, an abort or a timeout. Hooks of your own
+work as well as the responder: `{ set(token, keyAuthorization), remove(token) }`,
+each sync or async.
+
+## The client, step by step
+
+```ts
+import { AcmeClient, createCsr, generateKeyPair, http01Responder } from '@bumail/acme';
+
+const client = new AcmeClient({
+	directoryUrl: 'https://acme-staging-v02.api.letsencrypt.org/directory',
+	accountKey: await generateKeyPair(),
+});
+const kid = await client.newAccount({ termsOfServiceAgreed: true }); // the account URL; new AcmeClient({ …, kid }) reuses it
+const http01 = http01Responder();
+Bun.serve({ port: 80, fetch: http01.fetch });
+
+let order = await client.newOrder({ identifiers: [{ type: 'dns', value: 'example.com' }] });
+for (const url of order.authorizations) {
+	const authorization = await client.authorization(url); // POST-as-GET
+	const challenge = authorization.challenges.find((c) => c.type === 'http-01');
+	if (authorization.status === 'valid' || !challenge?.token) continue;
+	http01.set(challenge.token, await client.keyAuthorization(challenge.token));
+	await client.challenge(challenge.url); // POSTs {}: ready to be validated
+	await client.waitForAuthorization(url, { timeoutMs: 60_000 });
+	http01.remove(challenge.token);
+}
+order = await client.waitForOrder(order); // 'ready'
+
+const certificateKey = await generateKeyPair();
+const csr = await createCsr({ names: ['example.com'], keyPair: certificateKey });
+order = await client.waitForOrder(await client.finalize(order, csr)); // 'valid'
+const chain = await client.certificate(order.certificate ?? ''); // PEM, the leaf first
+```
+
+Every request is a JWS signed with the account key; every fetch is a
+POST-as-GET. Nonces are kept from each answer and fetched with a HEAD
+(`newNonce()`) only when none is left, and a `badNonce` refusal is
+retried with the nonce it carries, 3 times at most. The waits poll as the
+CA's `Retry-After` says, clamped from `pollIntervalMs` (1 s) to a minute,
+within `timeoutMs` (2 minutes). Every method takes `{ signal }`.
+
+What the client checks of the CA: every URL must be `https:` (only
+`allowInsecure: true` takes `http:`, for a test CA), a redirect is
+refused, an answer is read up to 256 KiB (1 MiB for a chain), and every
+number is clamped. The account key never appears in an error or in
+`inspect`.
+
+```ts
+import { AcmeClient, generateKeyPair } from '@bumail/acme';
+
+// a CA under a private root, as Pebble in tests: give fetch the root
+const ca = await Bun.file('pebble.minica.pem').text();
+const client = new AcmeClient({
+	directoryUrl: 'https://localhost:14000/dir',
+	accountKey: await generateKeyPair(),
+	fetch: (url, init) => fetch(url, { ...init, tls: { ca } }),
+	requestTimeoutMs: 30_000, // the default: one request
+	pollIntervalMs: 1000, // the default
+});
+```
+
+## Answering HTTP-01
+
+```ts
+import { type AcmeClient, http01Responder } from '@bumail/acme';
+
+declare const client: AcmeClient; // its account made
+const http01 = http01Responder();
+Bun.serve({ port: 80, fetch: http01.fetch });
+
+const token = 'LoqXcYV8q5ONbJQxbmR7SCTNo3tiAXDfowyjxAjEuX0'; // a challenge's
+http01.set(token, await client.keyAuthorization(token)); // `${token}.${thumbprint}`
+// GET /.well-known/acme-challenge/<token> → 200, the key authorization; anything else → 404
+http01.remove(token);
+http01.size; // tokens served
+```
+
+Only a base64url token and its own key authorization are taken; any
+other path, an unknown token, or a method other than GET and HEAD is
+answered 404.
 
 ## Keys
 
@@ -155,16 +271,46 @@ try {
 	await createCsr({ names: ['*.example.com'], keyPair: await generateKeyPair() });
 } catch (error) {
 	if (!(error instanceof AcmeError)) throw error;
-	error.code; // 'INVALID_NAME' | 'INVALID_OPTION' | 'INVALID_KEY' | 'INVALID_TOKEN'
+	error.code; // 'INVALID_NAME'
 	error.message; // 'createCsr(): "*.example.com" is a wildcard name, which this package does not request'
 }
 ```
 
+```ts
+import { AcmeError, type AcmeClient } from '@bumail/acme';
+
+declare const client: AcmeClient;
+try {
+	await client.newOrder({ identifiers: [{ type: 'dns', value: 'example.com' }] });
+} catch (error) {
+	if (!(error instanceof AcmeError)) throw error;
+	if (error.code === 'RATE_LIMITED') {
+		error.retryAfter; // seconds the CA asked to wait, when it said
+	}
+	error.problem?.type; // 'urn:ietf:params:acme:error:rateLimited', or another problem type
+	error.problem?.detail; // the CA's words
+	error.status; // 429
+}
+```
+
 Every function checks what it is given and throws an `AcmeError` for
-anything it cannot take; none is worth retrying as is.
+anything it cannot take: `INVALID_NAME`, `INVALID_OPTION`, `INVALID_KEY`,
+`INVALID_TOKEN` and `NO_ACCOUNT`, none worth retrying as is. What the CA
+answers, or the way to it, is `SERVER_PROBLEM`, `RATE_LIMITED`,
+`BAD_RESPONSE`, `NETWORK_ERROR`, `TIMEOUT`, `ABORTED`,
+`AUTHORIZATION_FAILED` or `ORDER_FAILED`, with `problem`, `status` and
+`retryAfter` when the CA gave them.
 
 ## Traps
 
+- **Staging first.** Let's Encrypt's production limits count failed
+  validations; run a new setup against
+  `https://acme-staging-v02.api.letsencrypt.org/directory`, whose
+  certificates no client trusts, then switch.
+- **Port 80, for every name.** The CA fetches each name's key
+  authorization over plain HTTP on port 80; HTTP-01 cannot use another.
+- **Keep the account key.** An account is its key: a new key is a new
+  account, and rate limits count per account.
 - **Two keys, not one.** The account key signs requests; the
   certificate's key is in the CSR. A CA refuses a CSR made with the
   account key (RFC 8555 §11.1).
@@ -182,6 +328,11 @@ anything it cannot take; none is worth retrying as is.
 
 | export | |
 | --- | --- |
+| `obtainCertificate({ client, names, certificateKey, http01, timeoutMs?, signal? })`, `ObtainCertificateOptions`, `ObtainedCertificate`, `Http01Hooks` | the whole HTTP-01 flow: `{ certificate, order, csr }`; every token set is removed |
+| `new AcmeClient({ directoryUrl, accountKey, fetch?, kid?, allowInsecure?, requestTimeoutMs?, pollIntervalMs? })`, `AcmeClientOptions`, `AcmeFetch` | an ACME client: `directory()`, `newNonce()`, `newAccount()`, `newOrder()`, `order()`, `authorization()`, `challenge()`, `waitForAuthorization()`, `waitForOrder()`, `finalize()`, `certificate()`, `keyAuthorization()`, `accountThumbprint()`, `kid` |
+| `NewAccountOptions`, `NewOrderOptions`, `AcmeRequestOptions`, `AcmeWaitOptions` | the methods' options |
+| `AcmeDirectory`, `AcmeDirectoryMeta`, `AcmeOrder`, `AcmeOrderStatus`, `AcmeAuthorization`, `AcmeAuthorizationStatus`, `AcmeChallenge`, `AcmeChallengeStatus`, `AcmeIdentifier`, `AcmeProblem` | the resources, as the client returns them |
+| `http01Responder()`, `Http01Responder` | `{ set, remove, fetch, size }`: HTTP-01 answers from memory, `fetch` a `Bun.serve` handler |
 | `createCsr({ names, keyPair })`, `CsrOptions`, `Csr`, `MAX_NAMES` | a PKCS #10 request for DNS names: `{ der, pem, names }`; 100 names at most |
 | `signJws({ keyPair, nonce, url, kid?, payload? })`, `JwsOptions`, `FlattenedJws`, `ProtectedHeader` | an ACME request body: the flattened JWS, ES256 or RS256 |
 | `jwkThumbprint(key)` | the RFC 7638 SHA-256 thumbprint of a public `CryptoKey` or a JWK, base64url |
@@ -192,11 +343,11 @@ anything it cannot take; none is worth retrying as is.
 | `exportPrivateKeyPem(privateKey)` | the private key as PKCS #8 PEM |
 | `importKeyPairPem(pem, options?)`, `ImportKeyPairOptions` | a key pair from that PEM; `extractable` defaults to false |
 | `JwsAlgorithm` | `'ES256' \| 'RS256'` |
-| `AcmeError`, `AcmeErrorCode` | `INVALID_NAME`, `INVALID_OPTION`, `INVALID_KEY`, `INVALID_TOKEN` |
+| `AcmeError`, `AcmeErrorCode`, `AcmeErrorOptions` | `code`, and `problem`, `status`, `retryAfter` from the CA: `INVALID_NAME`, `INVALID_OPTION`, `INVALID_KEY`, `INVALID_TOKEN`, `NO_ACCOUNT`, `SERVER_PROBLEM`, `RATE_LIMITED`, `BAD_RESPONSE`, `NETWORK_ERROR`, `TIMEOUT`, `ABORTED`, `AUTHORIZATION_FAILED`, `ORDER_FAILED` |
 
 ## Documentation
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/acme/docs/README.md): the pages below, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/acme/docs/guide.md): where each primitive fits in an ACME exchange, the CSR's structure and its name rules, the JWS header, HTTP-01, and keeping keys.
-- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/acme/docs/troubleshooting.md): every `AcmeError`, and what to do about it.
-- [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/acme/docs/roadmap.md): what is coming — the client next — and what is not planned.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/acme/docs/guide.md): the client and the full flow, serving HTTP-01, Let's Encrypt staging, the client's limits, testing against Pebble; and where each primitive fits, the CSR's structure and its name rules, the JWS header, and keeping keys.
+- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/acme/docs/troubleshooting.md): every `AcmeError` message, from what you passed or from the CA, and what to do about it.
+- [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/acme/docs/roadmap.md): what is coming — DNS-01, key rollover and revocation, ARI — and what is not planned.

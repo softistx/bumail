@@ -1,13 +1,19 @@
 # Troubleshooting
 
 Each entry is headed by the message of the `AcmeError` thrown; its `code`
-is the group it is listed under. The parts shown as … vary. A value you passed is shown quoted and cut to 80
-characters when it is a string, and by its kind (`number`, `bigint`,
-`null`, `an array`) otherwise. Every
-message starts with the function that threw it, except where the `…`
-at its start names the function and the argument, as
+is the group it is listed under. The parts shown as … vary. A value you
+passed is shown quoted and cut to 80 characters when it is a string, and
+by its kind (`number`, `bigint`, `null`, `an array`) otherwise. Every
+message starts with the function that threw it — for the client, its
+method (`newOrder():`), or `AcmeClient:` for its constructor — except
+where the `…` at its start names the function and the argument, as
 `signJws(): keyPair.privateKey`. `keyAuthorization` throws
-`jwkThumbprint`'s messages for its key.
+`jwkThumbprint`'s messages for its key. Text from the CA, a problem's
+`detail`, is shown on one line, its control characters dropped, cut to
+300 characters; `error.problem` keeps it to 1024.
+
+The first five groups are about what you passed, and retrying as is
+changes nothing; the others are about the CA's answer, or the way to it.
 
 **INVALID_NAME**
 
@@ -39,6 +45,23 @@ at its start names the function and the argument, as
 - [`AcmeError: generateKeyPair(): the type is 'P-256' or 'RSA-2048', not …`](#acmeerror-generatekeypair-the-type-is-p-256-or-rsa-2048-not-)
 - [`AcmeError: importKeyPairPem(): options must be an object`](#acmeerror-importkeypairpem-options-must-be-an-object)
 - [`AcmeError: importKeyPairPem(): extractable must be a boolean`](#acmeerror-importkeypairpem-extractable-must-be-a-boolean)
+- [`AcmeError: …: options must be an object`](#acmeerror--options-must-be-an-object)
+- [`AcmeError: AcmeClient: allowInsecure must be a boolean`](#acmeerror-acmeclient-allowinsecure-must-be-a-boolean)
+- [`AcmeError: …: … must be an https: URL without credentials or a fragment (http: only with allowInsecure), not …`](#acmeerror---must-be-an-https-url-without-credentials-or-a-fragment-http-only-with-allowinsecure-not-)
+- [`AcmeError: AcmeClient: fetch must be a function`](#acmeerror-acmeclient-fetch-must-be-a-function)
+- [`AcmeError: …: … must be an integer from … to …, not …`](#acmeerror---must-be-an-integer-from--to--not-)
+- [`AcmeError: …: signal must be an AbortSignal`](#acmeerror--signal-must-be-an-abortsignal)
+- [`AcmeError: newAccount(): contact must be an array of at most 10 mailto: URLs, not …`](#acmeerror-newaccount-contact-must-be-an-array-of-at-most-10-mailto-urls-not-)
+- [`AcmeError: newAccount(): a contact is a mailto: URL with one address, not …`](#acmeerror-newaccount-a-contact-is-a-mailto-url-with-one-address-not-)
+- [`AcmeError: newAccount(): … must be a boolean`](#acmeerror-newaccount--must-be-a-boolean)
+- [`AcmeError: newOrder(): identifiers must be an array of 1 to 100 identifiers, not …`](#acmeerror-neworder-identifiers-must-be-an-array-of-1-to-100-identifiers-not-)
+- [`AcmeError: newOrder(): an identifier is { type: 'dns', value: <a name> }, its value printable ASCII of at most 253 characters, not …`](#acmeerror-neworder-an-identifier-is--type-dns-value-a-name--its-value-printable-ascii-of-at-most-253-characters-not-)
+- [`AcmeError: finalize(): order must be an order from newOrder() or waitForOrder()`](#acmeerror-finalize-order-must-be-an-order-from-neworder-or-waitfororder)
+- [`AcmeError: finalize(): csr must be a Csr from createCsr() or its DER bytes`](#acmeerror-finalize-csr-must-be-a-csr-from-createcsr-or-its-der-bytes)
+- [`AcmeError: obtainCertificate(): client must be an AcmeClient`](#acmeerror-obtaincertificate-client-must-be-an-acmeclient)
+- [`AcmeError: obtainCertificate(): http01 must be { set(token, keyAuthorization), remove(token) }`](#acmeerror-obtaincertificate-http01-must-be--settoken-keyauthorization-removetoken-)
+- [`AcmeError: http01Responder(): the key authorization of a token is "<token>.<thumbprint>", not …`](#acmeerror-http01responder-the-key-authorization-of-a-token-is-tokenthumbprint-not-)
+- [`AcmeError: http01Responder(): it already serves 1000 tokens; remove some first`](#acmeerror-http01responder-it-already-serves-1000-tokens-remove-some-first)
 
 **INVALID_KEY**
 
@@ -57,10 +80,60 @@ at its start names the function and the argument, as
 - [`AcmeError: … has kty …; only "EC" and "RSA" are supported`](#acmeerror--has-kty--only-ec-and-rsa-are-supported)
 - [`AcmeError: … is an EC key on …; only P-256 is supported`](#acmeerror--is-an-ec-key-on--only-p-256-is-supported)
 - [`AcmeError: … has no base64url "…" member`](#acmeerror--has-no-base64url--member)
+- [`AcmeError: obtainCertificate(): certificateKey is the account key; a certificate needs a key of its own`](#acmeerror-obtaincertificate-certificatekey-is-the-account-key-a-certificate-needs-a-key-of-its-own)
 
 **INVALID_TOKEN**
 
 - [`AcmeError: …: a challenge token is a non-empty base64url string of at most 1024 characters, not …`](#acmeerror--a-challenge-token-is-a-non-empty-base64url-string-of-at-most-1024-characters-not-)
+
+**NO_ACCOUNT**
+
+- [`AcmeError: …: no account yet; call newAccount() first, or give the client its kid`](#acmeerror--no-account-yet-call-newaccount-first-or-give-the-client-its-kid)
+- [`AcmeError: obtainCertificate(): the client has no account yet; call newAccount() first, or give the client its kid`](#acmeerror-obtaincertificate-the-client-has-no-account-yet-call-newaccount-first-or-give-the-client-its-kid)
+
+**SERVER_PROBLEM**
+
+- [`AcmeError: …: the CA answered …: …`](#acmeerror--the-ca-answered--)
+- [`AcmeError: …: the CA answered … without a problem document`](#acmeerror--the-ca-answered--without-a-problem-document)
+
+**RATE_LIMITED**
+
+- [`AcmeError: …: the CA's rate limit: …`](#acmeerror--the-cas-rate-limit-)
+
+**BAD_RESPONSE**
+
+- [`AcmeError: …: the CA's … must be an https: URL without credentials or a fragment, not …`](#acmeerror--the-cas--must-be-an-https-url-without-credentials-or-a-fragment-not-)
+- [`AcmeError: …: the CA's answer is over … bytes`](#acmeerror--the-cas-answer-is-over--bytes)
+- [`AcmeError: …: the CA's … is not a JSON object`](#acmeerror--the-cas--is-not-a-json-object)
+- [`AcmeError: …: the CA's … has a missing or invalid "…"`](#acmeerror--the-cas--has-a-missing-or-invalid-)
+- [`AcmeError: …: the CA answered a redirect (…), which an ACME client does not follow`](#acmeerror--the-ca-answered-a-redirect--which-an-acme-client-does-not-follow)
+- [`AcmeError: …: the CA's newNonce answer has no valid Replay-Nonce`](#acmeerror--the-cas-newnonce-answer-has-no-valid-replay-nonce)
+- [`AcmeError: certificate(): the CA's answer is not a PEM certificate chain`](#acmeerror-certificate-the-cas-answer-is-not-a-pem-certificate-chain)
+- [`AcmeError: obtainCertificate(): the CA's order is "valid" but has no "certificate"`](#acmeerror-obtaincertificate-the-cas-order-is-valid-but-has-no-certificate)
+
+**NETWORK_ERROR**
+
+- [`AcmeError: …: fetch failed: …`](#acmeerror--fetch-failed-)
+
+**TIMEOUT**
+
+- [`AcmeError: …: no answer within … ms`](#acmeerror--no-answer-within--ms)
+- [`AcmeError: …: the signal timed out`](#acmeerror--the-signal-timed-out)
+- [`AcmeError: …: still … after … ms`](#acmeerror--still--after--ms)
+- [`AcmeError: obtainCertificate(): no certificate within … ms`](#acmeerror-obtaincertificate-no-certificate-within--ms)
+
+**ABORTED**
+
+- [`AcmeError: …: aborted`](#acmeerror--aborted)
+
+**AUTHORIZATION_FAILED**
+
+- [`AcmeError: …: the authorization for … is "…"`](#acmeerror--the-authorization-for--is-)
+- [`AcmeError: obtainCertificate(): the authorization for … offers no http-01 challenge`](#acmeerror-obtaincertificate-the-authorization-for--offers-no-http-01-challenge)
+
+**ORDER_FAILED**
+
+- [`AcmeError: …: the order is "invalid"`](#acmeerror--the-order-is-invalid)
 
 ## INVALID_NAME
 
@@ -346,6 +419,167 @@ what `toJSON()` returns.
 
 **Fix**: pass a boolean, or leave it out for `false`.
 
+### `AcmeError: …: options must be an object`
+
+**When**: `new AcmeClient`, one of its methods (`newAccount()`, `newOrder()`, `waitForOrder()`…) or `obtainCertificate` was given something other than an object as its options; the `…` names which.
+
+**Why**: each takes one options object.
+
+**Fix**: pass one, `{}` when nothing is needed.
+
+### `AcmeError: AcmeClient: allowInsecure must be a boolean`
+
+**When**: `allowInsecure` is a string or a number, as an environment variable read as is.
+
+**Why**: it turns off the `https:` check, so it takes nothing but `true` or `false`.
+
+**Fix**: compare explicitly, and keep it for a test CA.
+
+```ts
+import { AcmeClient, generateKeyPair } from '@bumail/acme';
+
+const client = new AcmeClient({
+	directoryUrl: 'http://localhost:4001/dir', // a test CA on plain HTTP
+	accountKey: await generateKeyPair(),
+	allowInsecure: process.env.ACME_TEST_CA === '1',
+});
+```
+
+### `AcmeError: …: … must be an https: URL without credentials or a fragment (http: only with allowInsecure), not …`
+
+**When**: a URL you gave is not an absolute `https:` URL, or holds white space, credentials or a fragment: `directoryUrl` or `kid` of `new AcmeClient`, the `url` of `authorization()`, `challenge()`, `order()`, `waitForAuthorization()` or `certificate()`, or `order.url` and `order.finalize` of `finalize()`.
+
+**Why**: ACME runs over HTTPS only (RFC 8555 §6.1); the account key signs every request, and the CA's answers decide what you install.
+
+**Fix**: use the URLs as the directory and the CA gave them. Only a test CA on plain HTTP takes `allowInsecure: true`; Pebble serves HTTPS, so give its CA to `fetch` instead (see the [guide](guide.md#testing-against-pebble)).
+
+### `AcmeError: AcmeClient: fetch must be a function`
+
+**When**: `fetch` is given and is not a function.
+
+**Why**: every request goes through it.
+
+**Fix**: leave it out for the global `fetch`, or pass `(url, init) => fetch(url, { ...init, … })`.
+
+### `AcmeError: …: … must be an integer from … to …, not …`
+
+**When**: `requestTimeoutMs` (1 to 600000) or `pollIntervalMs` (10 to 60000) of `new AcmeClient`, or `timeoutMs` of `waitForOrder()`, `waitForAuthorization()` (1 to 3600000) or `obtainCertificate()` (1 to 3600000), is not an integer in its range.
+
+**Why**: every wait is bounded, and none is meant to be zero or forever.
+
+**Fix**: give milliseconds within the range, or leave the option out for its default (30 s a request, 1 s between polls, 2 min a wait, 5 min for `obtainCertificate`).
+
+### `AcmeError: …: signal must be an AbortSignal`
+
+**When**: `signal` is given and is not an `AbortSignal`: a controller, a boolean.
+
+**Why**: requests and waits listen to it.
+
+**Fix**: pass `controller.signal`, or `AbortSignal.timeout(ms)`.
+
+### `AcmeError: newAccount(): contact must be an array of at most 10 mailto: URLs, not …`
+
+**When**: `contact` is a string, or holds more than 10 entries.
+
+**Why**: RFC 8555 §7.3 sends contacts as an array of URLs.
+
+**Fix**: `contact: ['mailto:admin@example.com']`.
+
+### `AcmeError: newAccount(): a contact is a mailto: URL with one address, not …`
+
+**When**: an entry of `contact` is not `mailto:` followed by one address: an `https:` URL, a bare address, two addresses after a comma, a space.
+
+**Why**: Let's Encrypt and most CAs take `mailto:` only, one address each; anything else they refuse with `unsupportedContact` or `invalidContact`.
+
+**Fix**: one `mailto:` entry per address.
+
+```ts
+const contact = ['admin@example.com', 'ops@example.com'].map((address) => `mailto:${address}`);
+```
+
+### `AcmeError: newAccount(): … must be a boolean`
+
+**When**: `termsOfServiceAgreed` or `onlyReturnExisting` is not `true` or `false`.
+
+**Why**: both are sent as JSON booleans (RFC 8555 §7.3).
+
+**Fix**: pass `true` or `false`, or leave it out.
+
+### `AcmeError: newOrder(): identifiers must be an array of 1 to 100 identifiers, not …`
+
+**When**: `identifiers` is missing, empty, not an array, or longer than 100.
+
+**Why**: an order is for one name at least, and Let's Encrypt takes 100 at most.
+
+**Fix**: split more names over several orders.
+
+```ts
+const identifiers = ['example.com', 'www.example.com'].map((value) => ({ type: 'dns', value }));
+```
+
+### `AcmeError: newOrder(): an identifier is { type: 'dns', value: <a name> }, its value printable ASCII of at most 253 characters, not …`
+
+**When**: an identifier is not an object, its `type` is not a lowercase word, or its `value` is empty, longer than 253 characters, or holds a space or a character outside ASCII.
+
+**Why**: the CA checks the name itself; this only refuses what no CA would take.
+
+**Fix**: give A-labels for an internationalized name (`new URL('http://bücher.example').hostname`).
+
+### `AcmeError: finalize(): order must be an order from newOrder() or waitForOrder()`
+
+**When**: `finalize` was given something other than an order object.
+
+**Why**: it needs the order's `url` and its `finalize` URL.
+
+**Fix**: pass the order `newOrder()` or `waitForOrder()` returned.
+
+### `AcmeError: finalize(): csr must be a Csr from createCsr() or its DER bytes`
+
+**When**: the CSR is a PEM string, an empty array, or missing.
+
+**Why**: finalize sends the DER, base64url (RFC 8555 §7.4).
+
+**Fix**: pass `createCsr`'s result, or its `der`.
+
+### `AcmeError: obtainCertificate(): client must be an AcmeClient`
+
+**When**: `client` is missing, or an object of another class.
+
+**Why**: the flow runs through the client's requests.
+
+**Fix**: `new AcmeClient({ directoryUrl, accountKey })`, then `newAccount()`.
+
+### `AcmeError: obtainCertificate(): http01 must be { set(token, keyAuthorization), remove(token) }`
+
+**When**: `http01` is missing, or lacks one of the two functions.
+
+**Why**: the key authorizations must be served on port 80 for the CA to validate, then removed.
+
+**Fix**: pass `http01Responder()`, served on port 80, or hooks of your own.
+
+```ts
+import { http01Responder } from '@bumail/acme';
+
+const http01 = http01Responder();
+Bun.serve({ port: 80, fetch: http01.fetch });
+```
+
+### `AcmeError: http01Responder(): the key authorization of a token is "<token>.<thumbprint>", not …`
+
+**When**: `set(token, keyAuthorization)` was given a key authorization that does not start with the token and a dot, or whose thumbprint is not base64url.
+
+**Why**: what is served is exactly what RFC 8555 §8.1 defines; anything else fails validation anyway.
+
+**Fix**: pass what `client.keyAuthorization(token)` or `keyAuthorization(token, accountKey.publicKey)` returns.
+
+### `AcmeError: http01Responder(): it already serves 1000 tokens; remove some first`
+
+**When**: a responder holds 1000 tokens, and `set` was called with another.
+
+**Why**: an order has 100 names at most; that many tokens means they are set and never removed.
+
+**Fix**: call `remove(token)` once each authorization is settled, as `obtainCertificate` does.
+
 ## INVALID_KEY
 
 ### `AcmeError: … must be a CryptoKeyPair ({ publicKey, privateKey })`
@@ -494,6 +728,21 @@ openssl pkcs8 -topk8 -nocrypt -in key.pem -out key.pk8.pem
 
 **Fix**: pass a whole public JWK, as `publicJwk` gives it.
 
+### `AcmeError: obtainCertificate(): certificateKey is the account key; a certificate needs a key of its own`
+
+**When**: `certificateKey` has the same public key as the client's `accountKey`.
+
+**Why**: a CA refuses a CSR whose key is the account's (RFC 8555 §11.1), after the whole validation.
+
+**Fix**: generate a second key for the certificate, and keep it beside the chain.
+
+```ts
+import { exportPrivateKeyPem, generateKeyPair } from '@bumail/acme';
+
+const certificateKey = await generateKeyPair('P-256');
+await Bun.write('/data/tls/key.pem', await exportPrivateKeyPem(certificateKey.privateKey));
+```
+
 ## INVALID_TOKEN
 
 ### `AcmeError: …: a challenge token is a non-empty base64url string of at most 1024 characters, not …`
@@ -503,3 +752,254 @@ openssl pkcs8 -topk8 -nocrypt -in key.pem -out key.pk8.pem
 **Why**: RFC 8555 §8.1 makes a token base64url; anything else could turn the path into another one (`../`).
 
 **Fix**: pass the `token` of the challenge as the server sent it. A server that sends anything else is broken or hostile: do not answer that challenge.
+
+## NO_ACCOUNT
+
+### `AcmeError: …: no account yet; call newAccount() first, or give the client its kid`
+
+**When**: `newOrder()`, `order()`, `authorization()`, `challenge()`, a wait, `finalize()` or `certificate()` was called on a client that has no account URL.
+
+**Why**: every request after `newAccount` is signed with the account URL as `kid` (RFC 8555 §6.2).
+
+**Fix**: call `newAccount()` once per client; it creates the account or finds the existing one of the key. Or keep the URL it returned and give it back as `kid`.
+
+```ts
+import { AcmeClient, importKeyPairPem } from '@bumail/acme';
+
+const client = new AcmeClient({
+	directoryUrl: 'https://acme-staging-v02.api.letsencrypt.org/directory',
+	accountKey: await importKeyPairPem(await Bun.file('/data/acme/account.pem').text()),
+});
+await client.newAccount({ termsOfServiceAgreed: true }); // or new AcmeClient({ …, kid })
+```
+
+### `AcmeError: obtainCertificate(): the client has no account yet; call newAccount() first, or give the client its kid`
+
+**When**: `obtainCertificate` was given a client before its `newAccount()`.
+
+**Why**: as above; `obtainCertificate` does not agree to a CA's terms on your behalf.
+
+**Fix**: `await client.newAccount({ termsOfServiceAgreed: true, contact })` first.
+
+## SERVER_PROBLEM
+
+### `AcmeError: …: the CA answered …: …`
+
+**When**: the CA refused a request with a problem document (RFC 8555 §6.7): the status, the problem's `type`, its `detail`, and up to three subproblems with their names. `error.problem` holds it whole, `error.status` the status.
+
+**Why**: what the type says. The ones met most:
+
+| `type` (after `urn:ietf:params:acme:error:`) | means |
+| --- | --- |
+| `accountDoesNotExist` | `onlyReturnExisting: true` for a key with no account |
+| `userActionRequired` | new terms to agree to: `newAccount({ termsOfServiceAgreed: true })` again |
+| `rejectedIdentifier` | the CA will not issue for a name (policy, a blocked domain) |
+| `caa` | a CAA record of the name does not allow this CA |
+| `orderNotReady` | `finalize` before the authorizations are valid: `waitForOrder` first |
+| `badCSR` | the CSR's names differ from the order's, or its key is refused |
+| `malformed`, `unauthorized` | the request itself: a bug worth reporting |
+| `badNonce` | thrown only after 3 retries in a row, each with a fresh nonce |
+
+**Fix**: act on the type; `error.problem.subproblems` names each identifier at fault.
+
+```ts
+import { AcmeError } from '@bumail/acme';
+
+try {
+	await client.newOrder({ identifiers: [{ type: 'dns', value: 'example.com' }] });
+} catch (error) {
+	if (error instanceof AcmeError && error.code === 'SERVER_PROBLEM') {
+		console.error(error.problem?.type, error.problem?.subproblems?.map((sub) => sub.identifier?.value));
+	}
+	throw error;
+}
+```
+
+### `AcmeError: …: the CA answered … without a problem document`
+
+**When**: the CA, or something in front of it, answered an error status with a body that is not a problem document: a proxy's 502, a 404 page.
+
+**Why**: the request did not reach the ACME server, or the URL is not one.
+
+**Fix**: check the directory URL; retry a 5xx later. `error.retryAfter` holds a `Retry-After` when there was one.
+
+## RATE_LIMITED
+
+### `AcmeError: …: the CA's rate limit: …`
+
+**When**: the CA refused with `urn:ietf:params:acme:error:rateLimited`: too many certificates for a domain, too many failed validations, too many orders. The message ends with `(retry after … s)` when the CA said when; `error.retryAfter` holds those seconds, clamped to a week.
+
+**Why**: Let's Encrypt limits issuance per registered domain and per account; failed validations count too.
+
+**Fix**: wait `error.retryAfter` seconds before the next attempt, and test against Let's Encrypt's staging directory, whose limits are far higher.
+
+```ts
+import { AcmeError } from '@bumail/acme';
+
+try {
+	await obtain();
+} catch (error) {
+	if (error instanceof AcmeError && error.code === 'RATE_LIMITED') {
+		scheduleRetry((error.retryAfter ?? 3600) * 1000);
+	} else throw error;
+}
+```
+
+## BAD_RESPONSE
+
+### `AcmeError: …: the CA's … must be an https: URL without credentials or a fragment, not …`
+
+**When**: a URL the CA gave — in the directory, an order, an authorization, a challenge, or a `Location` header — is not `https:`, or holds credentials or a fragment. The second `…` names the member: `directory "newNonce"`, `order "finalize"`, `account URL (Location)`.
+
+**Why**: the client sends signed requests to those URLs, so it follows none that is not HTTPS.
+
+**Fix**: check the directory URL is the CA's. A test CA on plain HTTP takes `allowInsecure: true`, in tests only.
+
+### `AcmeError: …: the CA's answer is over … bytes`
+
+**When**: an answer was larger than its cap: 256 KiB for JSON (a directory, an order, an authorization, a problem), 1 MiB for a certificate chain. An announced `Content-Length` over the cap is refused before reading; otherwise reading stops at the cap.
+
+**Why**: a real answer is a few KiB; a larger one is a misconfigured proxy or a hostile server.
+
+**Fix**: check the directory URL points at an ACME server.
+
+### `AcmeError: …: the CA's … is not a JSON object`
+
+**When**: an answer that should be JSON is not: an HTML page, an empty body, an array.
+
+**Why**: the URL answered, but not as an ACME server.
+
+**Fix**: check the directory URL, which ends in `/directory` for Let's Encrypt and `/dir` for Pebble.
+
+### `AcmeError: …: the CA's … has a missing or invalid "…"`
+
+**When**: an order, authorization or challenge misses a member RFC 8555 §7.1 requires, or has one of the wrong type: a `status` not among the RFC's, no `identifiers`, more than 1000 entries in a list.
+
+**Why**: the client reads the members it acts on, and trusts none it cannot check.
+
+**Fix**: report it to the CA; it is not an ACME answer.
+
+### `AcmeError: …: the CA answered a redirect (…), which an ACME client does not follow`
+
+**When**: the CA answered 3xx.
+
+**Why**: a redirect could lead a signed request to another URL than the one signed, or off HTTPS; ACME servers do not redirect their API.
+
+**Fix**: use the final directory URL, as the CA documents it.
+
+### `AcmeError: …: the CA's newNonce answer has no valid Replay-Nonce`
+
+**When**: the HEAD to `newNonce` came back without a `Replay-Nonce`, or with one that is not base64url or longer than 512 characters.
+
+**Why**: every signed request needs a nonce (RFC 8555 §7.2).
+
+**Fix**: check nothing between you and the CA strips response headers.
+
+### `AcmeError: certificate(): the CA's answer is not a PEM certificate chain`
+
+**When**: the certificate URL answered with something other than one or more `CERTIFICATE` PEM blocks.
+
+**Why**: the chain is installed as it is; anything else in it would break a TLS listener later.
+
+**Fix**: download it again; if it persists, report it to the CA.
+
+### `AcmeError: obtainCertificate(): the CA's order is "valid" but has no "certificate"`
+
+**When**: the order became `valid` without a certificate URL.
+
+**Why**: RFC 8555 §7.1.3 requires one once the order is valid.
+
+**Fix**: report it to the CA.
+
+## NETWORK_ERROR
+
+### `AcmeError: …: fetch failed: …`
+
+**When**: `fetch` threw: the host does not resolve, the connection is refused, the TLS certificate is not trusted. The cause is kept as `error.cause`.
+
+**Why**: the request never got an answer.
+
+**Fix**: check the directory URL and the network. For Pebble, or any CA under a private root, give `fetch` that root:
+
+```ts
+import { AcmeClient, generateKeyPair } from '@bumail/acme';
+
+const ca = await Bun.file('pebble.minica.pem').text();
+const client = new AcmeClient({
+	directoryUrl: 'https://localhost:14000/dir',
+	accountKey: await generateKeyPair(),
+	fetch: (url, init) => fetch(url, { ...init, tls: { ca } }),
+});
+```
+
+## TIMEOUT
+
+### `AcmeError: …: no answer within … ms`
+
+**When**: one request, its answer read, took longer than `requestTimeoutMs` (30 s by default).
+
+**Why**: every request is bounded, so a CA that hangs never holds the client.
+
+**Fix**: retry later; raise `requestTimeoutMs` only for a CA known to be slow.
+
+### `AcmeError: …: the signal timed out`
+
+**When**: the `signal` you gave was `AbortSignal.timeout(…)`'s, and its time ran out.
+
+**Why**: a timeout's abort is reported as one.
+
+**Fix**: give it more time, or leave it out: each wait has a `timeoutMs` of its own.
+
+### `AcmeError: …: still … after … ms`
+
+**When**: `waitForAuthorization()` or `waitForOrder()` saw the resource stay `pending` (or `processing`) for `timeoutMs`.
+
+**Why**: an authorization stays `pending` until the CA validated its challenge, and an order until all its authorizations are `valid`: the challenge was never answered with `challenge()`, or the CA cannot reach the key authorization yet.
+
+**Fix**: answer the challenge first, check `http://<name>/.well-known/acme-challenge/<token>` answers from outside, or give the wait more time.
+
+### `AcmeError: obtainCertificate(): no certificate within … ms`
+
+**When**: the whole flow took longer than its `timeoutMs` (5 minutes by default). The step it was in is `error.cause`. Every token set was removed.
+
+**Why**: the CA was slow to validate or to issue, or could not reach port 80.
+
+**Fix**: read `error.cause`; check port 80 is reachable from the Internet for every name.
+
+## ABORTED
+
+### `AcmeError: …: aborted`
+
+**When**: the `signal` you gave fired with another reason than a timeout; that reason is `error.cause`. `obtainCertificate` removed every token it set first.
+
+**Why**: you asked it to stop.
+
+**Fix**: nothing, unless the abort was not meant: it is thrown at once, mid-request or between two polls.
+
+## AUTHORIZATION_FAILED
+
+### `AcmeError: …: the authorization for … is "…"`
+
+**When**: an authorization ended `invalid`, `deactivated`, `expired` or `revoked`. When a challenge failed, the message goes on with its problem — `urn:ietf:params:acme:error:unauthorized: …` for a wrong key authorization, `connection` or `dns` when the CA could not reach the name — and `error.problem` holds it.
+
+**Why**: the CA could not validate the name: port 80 does not reach the responder, the name resolves elsewhere, or the answer served is not the key authorization of this account's key.
+
+**Fix**: check that `http://<name>/.well-known/acme-challenge/<token>` reaches your responder from outside, over plain HTTP on port 80, for every name, then order again: a failed authorization is not retried.
+
+### `AcmeError: obtainCertificate(): the authorization for … offers no http-01 challenge`
+
+**When**: the CA offered no `http-01` challenge for a name: some CAs offer only `dns-01` for some names, and a wildcard name never has one.
+
+**Why**: `obtainCertificate` answers HTTP-01 only.
+
+**Fix**: leave that name out, or answer its other challenge yourself with the client's steps.
+
+## ORDER_FAILED
+
+### `AcmeError: …: the order is "invalid"`
+
+**When**: the order became `invalid`, after an authorization failed or at finalize (a CSR the CA refused). The message goes on with the order's problem when it gave one; `error.problem` holds it.
+
+**Why**: an invalid order is final.
+
+**Fix**: read the problem, fix the cause, and place a new order.

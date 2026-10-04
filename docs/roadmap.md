@@ -38,11 +38,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
-- **`@bumail/acme`, the client** — on the primitives published below: the
-  directory, nonces, the account, an order, HTTP-01 challenges answered
-  on port 80, finalize and the certificate chain, tested against Pebble,
-  Let's Encrypt's test CA. The server app obtains and renews its
-  certificates through it. DNS-01, and with it wildcard names, later.
 - **A Docker image, all in one** — the server app in one container: ports
   25, 465, 587, 993, 443 and 80, and one volume for the mail, the queue and
   the certificates. Its guide says what sending mail from a container
@@ -105,6 +100,18 @@ No dates. Each entry says what someone running or embedding the server gets.
   add maintenance and CI cost and nothing a deployment lacks.
 
 ## Shipped
+
+### Merged, not yet published
+
+- **`@bumail/acme`, the client**, for acme 0.2.0 — on the primitives
+  published below: the directory, nonces (with the `badNonce` retry), the
+  account, an order, HTTP-01 challenges answered on port 80 through
+  `http01Responder`, finalize and the certificate chain, or all of it in
+  one call, `obtainCertificate`; `https:` only, answers bounded in size,
+  numbers from the CA clamped. Tested against Pebble, Let's Encrypt's
+  test CA, which validates HTTP-01 for real. The server app obtains and
+  renews its certificates through it. DNS-01, and with it wildcard names,
+  later.
 
 ### Published
 

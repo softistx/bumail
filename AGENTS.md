@@ -19,7 +19,7 @@ below lists only what has landed.
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS; an OpenAPI 3.1 document of its routes, shipped as `@bumail/jmap/openapi.json` and kept in step with them by a spec | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
 | `@bumail/server` | the server app, **private** until it serves mail (`"private": true`, so neither changesets nor `scripts/publish.ts` touch it): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, its directory of domains, users and aliases (a `bun:sqlite` file in WAL mode, argon2id passwords, a capped verify, a per-client failure limiter, aliases to local users only), and the `bumail` command (`check-config`, `domain`, `user`, `alias`; `serve` checks, then exits 3, not implemented yet) | `@bumail/store`; it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
-| `@bumail/acme` | the primitives of an ACME client (RFC 8555) on Web Crypto: a PKCS #10 CSR for DNS names on its own DER writer, the flattened JWS (ES256, RS256), the JWK thumbprint, key authorizations and the HTTP-01 path, P-256 and RSA keys as PKCS #8 PEM | — |
+| `@bumail/acme` | an ACME client (RFC 8555) on `fetch` and Web Crypto: `AcmeClient` (directory, nonces with the `badNonce` retry, account, orders, authorizations, challenges, finalize, the PEM chain; `https:` only, answers bounded, numbers clamped), `obtainCertificate` for the whole HTTP-01 flow, `http01Responder` for `Bun.serve`; and its primitives: a PKCS #10 CSR for DNS names on its own DER writer, the flattened JWS (ES256, RS256), the JWK thumbprint, key authorizations, P-256 and RSA keys as PKCS #8 PEM | — |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
 workspace, the root `build.ts`, Biome, changesets, `scripts/workspace.ts`,
@@ -68,7 +68,12 @@ none of it names a private application.
   printed in the RFC — and names the section each one comes from.
   `@bumail/acme`'s specs also have `openssl` read what it writes; they
   skip, saying so, without it on the PATH, except where
-  `BUMAIL_TEST_OPENSSL_REQUIRED` is set, as in CI's "CI" job.
+  `BUMAIL_TEST_OPENSSL_REQUIRED` is set, as in CI's "CI" job. Its
+  client's specs run the whole flow against Pebble, Let's Encrypt's test
+  CA, validating HTTP-01 for real, at `BUMAIL_TEST_PEBBLE_URL` under the
+  CA file `BUMAIL_TEST_PEBBLE_CA` (`bun run pebble:test` starts it in
+  Docker); skipped without, failed where `BUMAIL_TEST_PEBBLE_REQUIRED`
+  is set, as in that job, which runs Pebble as a service.
 - **A store is a contract, with several answers.** What keeps state — the
   mailbox store, the outbound queue — defines its interface and ships a
   memory answer; `bun:sqlite` answers the same interface on disk. Whoever
