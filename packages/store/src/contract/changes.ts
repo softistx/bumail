@@ -149,13 +149,14 @@ export function mailboxItems(
 	return liveAndDestroyed(live, destroyed, since);
 }
 
-/** The answer to `messageChanges`: the items paged at `limit`. */
+/** The answer to `messageChanges`: the items paged at `limit`; `more` as `page` takes it. */
 export function messageChangesOf(
 	account: Counter,
 	items: Item[],
 	limit: number | undefined,
+	more = false,
 ): MessageChanges {
-	const { items: kept, modseq, hasMore } = page(account, items, limit);
+	const { items: kept, modseq, hasMore } = page(account, items, limit, more);
 	return {
 		modseq,
 		hasMore,
@@ -166,13 +167,14 @@ export function messageChangesOf(
 	};
 }
 
-/** The answer to `mailboxChanges`: the items paged at `limit`. */
+/** The answer to `mailboxChanges`: the items paged at `limit`; `more` as `page` takes it. */
 export function mailboxChangesOf(
 	account: Counter,
 	items: Item[],
 	limit: number | undefined,
+	more = false,
 ): MailboxChanges {
-	const { items: kept, modseq, hasMore } = page(account, items, limit);
+	const { items: kept, modseq, hasMore } = page(account, items, limit, more);
 	return {
 		modseq,
 		hasMore,
