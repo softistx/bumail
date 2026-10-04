@@ -47,6 +47,12 @@ export const runArgs = (port: number) => [
 	IMAGE,
 ];
 
+/** What `docker inspect` said of the container: running or not, and its published port. */
+export function containerOf(out: string): { running: boolean; port: number } {
+	const [running, port] = out.trim().split(' ');
+	return { running: running === 'true', port: Number(port ?? 0) };
+}
+
 function docker(
 	args: string[],
 	stderr: 'inherit' | 'ignore' = 'inherit',
@@ -59,10 +65,22 @@ function docker(
 function start(port: number): void {
 	// Not there yet is an answer, not an error.
 	const state = docker(
-		['docker', 'inspect', '--format', '{{.State.Running}}', CONTAINER],
+		[
+			'docker',
+			'inspect',
+			'--format',
+			'{{.State.Running}} {{range .HostConfig.PortBindings}}{{range .}}{{.HostPort}}{{end}}{{end}}',
+			CONTAINER,
+		],
 		'ignore',
 	);
-	if (state.out === 'true') return;
+	const { running, port: published } = containerOf(state.out);
+	if (state.ok && published !== port) {
+		throw new Error(
+			`${CONTAINER} exists on port ${published || 'none'}, not ${port}: run \`bun run postgres:test stop\` first, or set BUMAIL_TEST_POSTGRES_PORT=${published}`,
+		);
+	}
+	if (running) return;
 	const started = state.ok
 		? docker(['docker', 'start', CONTAINER])
 		: docker(runArgs(port));
@@ -93,8 +111,13 @@ if (import.meta.main) {
 	if (process.argv[2] === 'stop') {
 		docker(['docker', 'rm', '--force', CONTAINER]);
 	} else {
-		start(port);
-		await ready(urlOf(port));
+		try {
+			start(port);
+			await ready(urlOf(port));
+		} catch (error) {
+			console.error(error instanceof Error ? error.message : error);
+			process.exit(1);
+		}
 		console.log(`export BUMAIL_TEST_POSTGRES_URL=${urlOf(port)}`);
 	}
 }

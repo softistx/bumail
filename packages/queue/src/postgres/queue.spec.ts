@@ -61,7 +61,8 @@ describePostgres('PostgresQueueStore under createQueue', (url) => {
 			return accepted(call.options);
 		};
 		const a = instance(store, 'a', slow, { concurrency: 4 });
-		const b = instance(share(store), 'b', slow, { concurrency: 4 });
+		const shared = share(store);
+		const b = instance(shared, 'b', slow, { concurrency: 4 });
 		const recipients = Array.from(
 			{ length: ITEMS },
 			(_, i) => `r${i}@d${i % 7}.example`,
@@ -69,6 +70,9 @@ describePostgres('PostgresQueueStore under createQueue', (url) => {
 		for (const to of recipients) {
 			await a.queue.enqueue(MESSAGE, { from: 'mary@example.net', to });
 		}
+		// Both connected and migrated before the race, so b is not still
+		// opening its connection while a takes every item.
+		await Promise.all([store.count(), shared.count()]);
 		await drain(a.queue, b.queue);
 		const sent = [...a.sender.calls, ...b.sender.calls].flatMap((c) => c.to);
 		expect(sent.length).toBe(ITEMS);
