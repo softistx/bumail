@@ -126,31 +126,15 @@ describe('FailureLimiter', () => {
 		expect(limiter.blocked('192.0.2.3')).toBe(true);
 	});
 
-	test('a spray of malformed logins from many /64s neither evicts a blocked client nor fills the table', () => {
+	test('a spray of failures from many /64s never evicts a blocked client while others are below the limit', () => {
 		const { limiter } = clocked({ maxFailures: 3, maxClients: 10 });
 		for (let i = 0; i < 3; i++) limiter.fail('2001:db8:bad::1');
 		expect(limiter.blocked('2001:db8:bad::1')).toBe(true);
-		for (let i = 0; i < 5000; i++) {
-			limiter.fail(`2001:db8:${(i % 65536).toString(16)}:${i >> 16}::1`, {
-				create: false,
-			});
-		}
-		expect(limiter.size).toBe(1);
 		for (let i = 0; i < 5000; i++) {
 			limiter.fail(`2001:db9:${(i % 65536).toString(16)}::1`);
 		}
 		expect(limiter.size).toBe(10);
 		expect(limiter.blocked('2001:db8:bad::1')).toBe(true);
-	});
-
-	test('a malformed login counts against a client already known', () => {
-		const { limiter } = clocked();
-		limiter.fail('192.0.2.1', { create: false });
-		expect(limiter.size).toBe(0);
-		limiter.fail('192.0.2.1');
-		limiter.fail('192.0.2.1', { create: false });
-		limiter.fail('192.0.2.1', { create: false });
-		expect(limiter.blocked('192.0.2.1')).toBe(true);
 	});
 
 	test('caps the logins under way per client as busy, never blocked', () => {

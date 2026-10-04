@@ -194,7 +194,8 @@ what a command reports (`added the user …`, a listing).
    at once, as `blocked`, whatever it sends: nothing is verified, so
    guessing on costs the server nothing.
 2. **Bounds.** An empty password, or a login or a password over 1024
-   bytes, is `malformed`, and refused without a verify.
+   bytes, is `malformed`, and refused without a verify; the limiter
+   does not count it.
 3. **The cache.** A login verified within the last `cacheSeconds` (60)
    is answered at once, without a verify: JMAP authenticates every
    request, and a client sends many at once. It is keyed by the address
@@ -239,11 +240,11 @@ every listener:
   of them would let one guesser block everyone. The first such login
   logs a warning (`onUnlimited` replaces it); a listener behind a proxy
   must pass the client's address.
-- **What counts**: every refusal but `blocked` and `busy`. Tries while
-  blocked are not counted, so hammering never extends a block. A
-  `malformed` login, refused before any verify, counts only against a
-  client already remembered: a spray of them from new addresses
-  remembers no one.
+- **What counts**: every refusal that cost a verify: `unknown`,
+  `password` and `disabled`. Tries while blocked are not counted, so
+  hammering never extends a block; nor is a `malformed` login, refused
+  before any verify and carrying no guess, so it neither blocks a client
+  nor keeps one remembered. Every failure counted cost one verify.
 - **Logins under way**: at most `maxPending` (5) per client; a
   `maxPending` above `maxFailures` is capped at `maxFailures`. Past it,
   or past the failures a client has left, `begin(ip)` answers `busy`
@@ -258,12 +259,16 @@ every listener:
   past it, the client below `maxFailures` whose last failure is oldest
   is forgotten. A blocked client is forgotten only when every other one
   is blocked too, and then the one whose block ends soonest. Each block
-  takes `maxFailures` verifies within the window, so at most the verify
-  rate times `windowSeconds` divided by `maxFailures` clients are
-  blocked at once (at 40 verifies a second, 900 s and 10 failures:
-  3600). Keep `maxClients` above that, and no spray from many addresses
-  can make room by forgetting an attacker's block. A restart forgets
-  everything, and each server instance counts its own.
+  takes `maxFailures` counted failures within the window, each of which
+  cost a verify, so at most `maxVerifies` ÷ the verify time ×
+  `windowSeconds` ÷ `maxFailures` clients are blocked at once. One
+  verify measured about 14 ms on a recent laptop core: 4 at once make
+  about 290 a second, which with 900 s and 10 failures is about 26 000
+  clients, under the default; a slower core verifies fewer. Measure the
+  verify time on the machine and keep `maxClients` above that figure,
+  and no spray from many addresses can make room by forgetting an
+  attacker's block. A restart forgets everything, and each server
+  instance counts its own.
 
 ## Mailboxes in the store
 
@@ -285,14 +290,18 @@ mailbox a role, and a second `Junk` would be refused.
   the store, so a removal by mistake loses nothing: adding the address
   again finds the same account, with its mail. Add `--purge` to delete
   the account, its mailboxes and its mail too. It disables the user
-  first, so no new login creates the account again meanwhile (a login
-  already under way may still create an empty one, which running the
-  command again deletes), then deletes the mail, then removes the user:
-  a store that fails leaves the user in place, disabled, and the same
-  command can run again. With a SQLite store, stop the server first,
-  since `--purge` needs the store and refuses (exit 5, nothing removed)
-  while the server holds it. Purge before giving an old address to
-  someone else.
+  first, so no new login creates the account again meanwhile, then
+  deletes the mail, then removes the user: a store that fails leaves the
+  user in place, disabled, and the same command can run again. A login
+  verified just before the disable may still create an empty account
+  after the purge; and a user removed without `--purge` leaves its mail.
+  Either way, `bumail user remove <address> --purge` with the user gone
+  deletes the account left in the store (`… is not a user; deleted its
+  account and mail left in the mail store`), and says `the user … does
+  not exist` only when the store has none either. With a SQLite store,
+  stop the server first, since `--purge` needs the store and refuses
+  (exit 5, nothing removed) while the server holds it. Purge before
+  giving an old address to someone else.
 
 ## No forwarding
 

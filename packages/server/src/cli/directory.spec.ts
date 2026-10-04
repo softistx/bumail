@@ -6,6 +6,7 @@ import { ACME, tempDir } from '../config/config.fixtures';
 import { readConfig } from '../config/read';
 import { Directory } from '../directory/directory';
 import { ServerError } from '../errors';
+import { provisionAccount } from '../store/accounts';
 import { parseArgs } from './args';
 import { manage } from './manage';
 
@@ -356,6 +357,63 @@ describe('bumail user remove --purge, when the store fails', () => {
 			});
 		} finally {
 			directory.close();
+		}
+	});
+});
+
+describe('bumail user remove --purge, with the user gone', () => {
+	test('deletes an account left in the store, then says the user does not exist', async () => {
+		const it = await seeded();
+		expect(
+			(await it.bumail(['user', 'remove', 'bob@example.com', '--purge'])).code,
+		).toBe(0);
+		// A login verified before the disable re-creates an empty account.
+		const store = it.store();
+		try {
+			await provisionAccount(store, 'bob@example.com');
+		} finally {
+			store.close();
+		}
+		expect(
+			await it.bumail(['user', 'remove', 'Bob@example.com', '--purge']),
+		).toEqual({
+			code: 0,
+			out: 'bob@example.com is not a user; deleted its account and mail left in the mail store\n',
+			err: '',
+		});
+		const after = it.store();
+		try {
+			expect(await after.findAccount('bob@example.com')).toBeUndefined();
+		} finally {
+			after.close();
+		}
+		const missing = {
+			code: 4,
+			out: '',
+			err: 'bumail: the user bob@example.com does not exist\n',
+		};
+		expect(
+			await it.bumail(['user', 'remove', 'bob@example.com', '--purge']),
+		).toEqual(missing);
+		expect(await it.bumail(['user', 'remove', 'bob@example.com'])).toEqual(
+			missing,
+		);
+	});
+
+	test('deletes the mail a plain remove kept', async () => {
+		const it = await seeded();
+		expect(
+			(await it.bumail(['user', 'remove', 'alice@example.com'])).code,
+		).toBe(0);
+		expect(
+			(await it.bumail(['user', 'remove', 'alice@example.com', '--purge']))
+				.code,
+		).toBe(0);
+		const store = it.store();
+		try {
+			expect(await store.findAccount('alice@example.com')).toBeUndefined();
+		} finally {
+			store.close();
 		}
 	});
 });

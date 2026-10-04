@@ -803,7 +803,11 @@ alias's users.
 #### `the user … does not exist`
 
 **When**: `user passwd`, `disable`, `enable` or `remove` with an
-address no user has (an alias is not a user).
+address no user has (an alias is not a user). With `--purge`, only
+when the mail store has no account for it either: an account left
+there, by a plain `remove` or by a login under way during a purge, is
+deleted, and the command prints `… is not a user; deleted its account
+and mail left in the mail store`.
 
 **Fix**: check it against `bumail user list`.
 
@@ -1001,8 +1005,9 @@ then.
 
 **When**: `user remove --purge` opened the store, disabled the user so
 no new login creates its account again during the purge (one already
-under way still may), and then the store failed deleting the account. The reason is the store's. Exits 5;
-the user is still there, disabled, and its mail may be partly deleted.
+under way still may), and then the store failed deleting the account.
+The reason is the store's. Exits 5; the user is still there, disabled,
+and its mail may be partly deleted.
 
 **Fix**: fix the store, as the reason says, and run the same command
 again: it finishes the purge and removes the user. To keep the user

@@ -1,4 +1,5 @@
 import type { ServerConfig } from '../config/types';
+import { checkAddress } from '../directory/address';
 import { directoryFile } from '../directory/database';
 import { Directory } from '../directory/directory';
 import { ServerError } from '../errors';
@@ -156,10 +157,11 @@ const commands: Record<Manage['noun'], Handler> = {
 /**
  * Removes a user; with `purge`, its account and mail in the store too.
  * The user is disabled first, so no new login creates the account again
- * while it goes (a login already under way may still create an empty
- * one, which running the command again deletes); the mail next, so
- * should the store fail, the user is still there, disabled, and the
- * command can run again.
+ * while it goes; the mail next, so should the store fail, the user is
+ * still there, disabled, and the command can run again; the user last.
+ * A login verified before the disable may still create an empty account
+ * after the purge: with the user gone, `--purge` again deletes that
+ * account alone, so nothing is left behind.
  */
 async function removeUser(
 	address: string,
@@ -175,7 +177,12 @@ async function removeUser(
 		);
 		return;
 	}
-	const user = directory.users.checkRemovable(address);
+	const key = checkAddress(address).address;
+	if (directory.users.get(key) === undefined) {
+		await purgeLeftover(key, config, out);
+		return;
+	}
+	const user = directory.users.checkRemovable(key);
 	await withStore(config, async ({ store }) => {
 		directory.users.setDisabled(user.address, true);
 		try {
@@ -190,6 +197,27 @@ async function removeUser(
 		directory.users.remove(user.address);
 	});
 	out(`removed the user ${user.address} and its mail\n`);
+}
+
+/**
+ * Deletes the store account of an address that is no longer a user: one
+ * removed without `--purge`, or re-created empty by a login under way
+ * during a purge. `NOT_FOUND` when the store has none either.
+ */
+async function purgeLeftover(
+	address: string,
+	config: ServerConfig,
+	out: (text: string) => void,
+): Promise<void> {
+	const purged = await withStore(config, ({ store }) =>
+		purgeAccount(store, address),
+	);
+	if (!purged) {
+		throw new ServerError('NOT_FOUND', `the user ${address} does not exist`);
+	}
+	out(
+		`${address} is not a user; deleted its account and mail left in the mail store\n`,
+	);
 }
 
 /**

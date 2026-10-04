@@ -26,7 +26,8 @@ import type { UserEntry, UserRecord } from './records';
  *   logins under way as the limiter lets it; try again later. A
  *   listener answers it as a temporary failure.
  *
- * Every reason but `blocked` and `busy` counts as a failure of the client.
+ * Every reason but `blocked`, `malformed` and `busy` counts as a failure
+ * of the client: each of those cost a verify.
  */
 export type AuthFailure =
 	| 'blocked'
@@ -177,8 +178,9 @@ export class Authenticator {
 			byteLength(login) > MAX_PASSWORD_BYTES ||
 			byteLength(password) > MAX_PASSWORD_BYTES
 		) {
-			// Nothing verified: it counts only against a client already known.
-			limiter.fail(ip, { create: false });
+			// No verify and no guess: not counted, so every failure the
+			// limiter holds cost one verify, which bounds how many clients
+			// can be blocked at once.
 			return { ok: false, reason: 'malformed' };
 		}
 		const address = addressOf(login)?.address;

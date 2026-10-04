@@ -107,8 +107,15 @@ export type Begun = 'started' | 'blocked' | 'busy';
  *   addresses costs a bounded amount of memory. To make room, the
  *   client below the limit whose last failure is oldest is forgotten; a
  *   blocked one only when every other is blocked, the one whose block
- *   ends soonest. Keep `maxClients` above the verify rate times the
- *   window divided by `maxFailures`, and a spray never reaches a block.
+ *   ends soonest. Each failure counted costs a verify (a login refused
+ *   without one is not counted), so at most `maxVerifies` ÷ the verify
+ *   time × `windowSeconds` ÷ `maxFailures` clients are blocked at once:
+ *   one verify (argon2id, 19 MiB, two passes) measured about 14 ms on
+ *   a recent laptop core, so 4 at once make about 290 a second, and
+ *   with 900 s and 10 failures that is about 26 000, under the default
+ *   100 000; a slower core verifies fewer. Keep `maxClients` above the
+ *   figure for the verify time measured on the machine, and no spray
+ *   can make room by forgetting a block.
  * - A login whose client is not an IP address (`clientKey` answers
  *   `undefined`) is not limited at all.
  */
@@ -188,19 +195,13 @@ export class FailureLimiter {
 		if (failed) this.fail(ip);
 	}
 
-	/**
-	 * Counts a failed login from `ip`. With `create: false` — a login
-	 * refused before any verify — it counts only against a client
-	 * already remembered, so a spray of such logins from new addresses
-	 * cannot crowd anyone out.
-	 */
-	fail(ip: string, options: { readonly create?: boolean } = {}): void {
+	/** Counts a failed login from `ip`: one that cost a verify. */
+	fail(ip: string): void {
 		const key = clientKey(ip);
 		if (key === undefined) return;
 		const now = this.#now();
 		const times = this.#recent(key, now);
 		const known = this.#failures.has(key);
-		if (!known && options.create === false) return;
 		times.push(now);
 		// Only the last maxFailures matter for a block.
 		if (times.length > this.maxFailures) times.shift();

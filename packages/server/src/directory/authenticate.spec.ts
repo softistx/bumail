@@ -212,16 +212,36 @@ describe('authenticate', () => {
 		expect(told).toBe(1);
 	});
 
-	test('a malformed login creates no client, but counts against a known one', async () => {
+	test('a malformed login is never counted: it neither blocks nor keeps a client remembered', async () => {
+		let now = 1_000_000;
 		const dir = await directory({
-			limiter: new FailureLimiter({ maxFailures: 2 }),
+			limiter: new FailureLimiter({
+				maxFailures: 2,
+				windowSeconds: 60,
+				now: () => now,
+			}),
 		});
-		for (let i = 0; i < 5; i++)
-			await dir.authenticate('alice@example.com', '', IP);
+		for (let i = 0; i < 5; i++) {
+			expect(await dir.authenticate('alice@example.com', '', IP)).toEqual({
+				ok: false,
+				reason: 'malformed',
+			});
+		}
 		expect(dir.limiter.size).toBe(0);
 		await dir.authenticate('alice@example.com', 'wrong guess', IP);
+		now += 59_000;
+		for (let i = 0; i < 5; i++) {
+			await dir.authenticate('a'.repeat(1025), 'wrong guess', IP);
+			await dir.authenticate('alice@example.com', '', IP);
+		}
+		expect(dir.limiter.blocked(IP)).toBe(false);
+		expect(dir.limiter.blockedUntil(IP)).toBeUndefined();
+		expect(dir.limiter.limits(IP)).toBe(true);
+		now += 2_000;
+		// The one real failure aged out: the malformed logins kept nothing.
+		expect(dir.limiter.blocked(IP)).toBe(false);
 		await dir.authenticate('alice@example.com', '', IP);
-		expect(dir.limiter.blocked(IP)).toBe(true);
+		expect(dir.limiter.size).toBe(0);
 	});
 
 	test('takes a password typed in another Unicode form', async () => {
