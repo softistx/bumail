@@ -416,9 +416,17 @@ Every PR goes into `develop`. Before merging:
     that never sends its ClientHello reaches no `open`, so no limit counts
     it and no `socket.timeout` closes it (50 raw sockets held 12 s with a
     1 s timeout). With a handshake handler, `open` comes at the TCP
-    connection and the socket timer runs during the handshake; smtp sets
-    one, counts the socket there and bounds the handshake by
-    `handshakeTimeout`;
+    connection and the socket timer runs during the handshake. imap's
+    listener held the same way 50 raw sockets 12 s with a 1 s
+    `loginTimeout`, a TLS client greeted past a `maxConnections` of 10.
+    Each server sets one, counts the socket there, bounds the handshake by
+    `handshakeTimeout` and holds its greeting, or its refusal, until the
+    handshake completes; with it, imap's 50 were counted, then closed
+    within 4 s of a 1 s `handshakeTimeout`. Each server's `stop(true)`
+    also resets a socket still in its handshake, with no TLS to write a
+    last reply on, though Bun's own `stop(true)` already closed it
+    synchronously, before the server's loop reached it (measured in
+    smtp, three pending handshakes);
   - Bun's `listener.stop(true)` no longer closes a socket STARTTLS moved
     to TLS, so each server's `stop(true)` also closes every connection it
     holds;
@@ -459,6 +467,13 @@ Every PR goes into `develop`. Before merging:
   first reaching `authenticate`, or reading and never pausing its sending,
   freed as fast once reset at `LINGER_MAX_MS`, having read the BYE;
   `transport.spec.ts` covers a slow TLS reader of 8 MiB queued at `end()`.
+  smtp's `handshake.spec.ts` and imap's `handshake.spec.ts` cover raw
+  sockets on implicit TLS that never send a ClientHello: counted by
+  `maxConnections` (and smtp's `maxConnectionsPerClient`) and freed on
+  closing, closed at `handshakeTimeout`, a garbage handshake counted out
+  at once, and `stop(true)` with handshakes pending, which writes them
+  nothing and calls no `onError`; imap's also that `loginTimeout` counts
+  from the greeting, the ClientHello sent after a wait longer than it.
   Both `close.spec.ts` also time the server's own `close` from its
   decision: within 100 ms for a reset with replies queued (smtp), from
   a millisecond under `LINGER_QUIET_MS` (19 ms, for the timer's rounding)

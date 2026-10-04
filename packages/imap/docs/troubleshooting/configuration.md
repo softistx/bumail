@@ -53,7 +53,8 @@ client asks you to accept it.
 ## `ImapError: createImapServer(): … must be a positive integer, not …`
 
 `maxConnections`, `maxMessageSize`, `maxLiteralSize`, `timeout`,
-`loginTimeout` and `hookTimeout` are whole numbers above 0. Seconds for the
+`loginTimeout`, `handshakeTimeout` and `hookTimeout` are whole numbers
+above 0. Seconds for the
 timers, bytes for the sizes.
 
 ## `ImapError: createImapServer(): … must be at most …, not …`

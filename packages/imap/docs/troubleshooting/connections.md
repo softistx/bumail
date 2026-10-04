@@ -31,8 +31,8 @@ tries again; a wrong saved password does this at every start.
 
 ## `* BYE Too slow to log in, closing`
 
-The client did not log in within `loginTimeout` seconds (60) of
-connecting. It is a deadline, not an idle timer: bytes sent meanwhile do
+The client did not log in within `loginTimeout` seconds (60) of the
+greeting. It is a deadline, not an idle timer: bytes sent meanwhile do
 not extend it. Its place under `maxConnections` is free at once, whether
 the client reads or not. A client that paused with nothing queued for it
 still reads this BYE, then a clean end, when it reads again; one with
@@ -64,7 +64,44 @@ or a second STARTTLS.
 ## `* BYE [UNAVAILABLE] Too many connections, try later`
 
 `maxConnections` (1000) are open. Raise it, or look for a client that
-opens a connection per folder without closing them.
+opens a connection per folder without closing them. On implicit TLS,
+sockets still in their handshake count too, for `handshakeTimeout`
+seconds at most.
+
+## On implicit TLS, the connection closes before any greeting
+
+**When**: a client on an `implicitTls` port (993) gets no `* OK` greeting
+and the connection closes, with no response, about `handshakeTimeout`
+seconds (10 by default, up to 4 s later as Bun's timer ticks) after it
+connected; or at once, when what it sent is not TLS.
+
+**Why**: it did not complete its TLS handshake in time — it speaks clear
+IMAP to a TLS port, waits for a greeting before its ClientHello, or never
+sends one. A socket in its handshake holds a place under
+`maxConnections`, so the server bounds it. There is no TLS yet to write a
+`BYE` on.
+
+**Fix**, as a client: set *SSL/TLS* on 993, or *STARTTLS* on 143. As the
+operator, for clients on slow links, raise the bound:
+
+```ts
+import { createImapServer } from '@bumail/imap';
+import { MemoryMailStore } from '@bumail/store';
+
+const server = createImapServer({
+	hostname: 'imap.example.com',
+	store: new MemoryMailStore(),
+	implicitTls: true,
+	tls: {
+		key: await Bun.file('/etc/ssl/imap.example.com.key').text(),
+		cert: await Bun.file('/etc/ssl/imap.example.com.crt').text(),
+	},
+	authenticate: ({ username, password }) =>
+		username === 'alice' && password === Bun.env['ALICE_PASSWORD'] ? 'alice-account-id' : null,
+	handshakeTimeout: 30, // default 10
+});
+await server.listen({ port: 993 });
+```
 
 ## `* BYE Idle for too long, closing`
 

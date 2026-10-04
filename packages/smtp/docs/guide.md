@@ -1023,8 +1023,9 @@ TLS buffer. So a `221` behind replies that are never read holds the slot
 5 seconds, not until the `timeout`.
 
 Stop a server with `stop()`; `stop(true)` also hangs up on every client,
-those moved to TLS by STARTTLS included, as the idle timeout does.
-`connections` counts the clients currently connected:
+those moved to TLS by STARTTLS included, as the idle timeout does; a
+socket still in its implicit TLS handshake is reset, with no 421, having
+no TLS to write one on. `connections` counts the clients currently connected:
 
 ```ts
 import { createSmtpServer } from '@bumail/smtp';

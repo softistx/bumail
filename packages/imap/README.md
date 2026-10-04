@@ -82,7 +82,8 @@ authentication.
 | `maxMessageSize` | 25 MiB | the largest APPEND, announced as `APPENDLIMIT`; streamed into the store, never held |
 | `maxLiteralSize` | 64 KiB | the largest literal of any other command |
 | `timeout` | 1800 s | idle seconds before the server hangs up; at least 1800 (RFC 9051 §5.4) |
-| `loginTimeout` | 60 s | from connecting to logged in, however much the client sends |
+| `loginTimeout` | 60 s | from the greeting to logged in, however much the client sends |
+| `handshakeTimeout` | 10 s | on implicit TLS, from the TCP connection to the end of the TLS handshake; past it the socket is closed |
 | `idleInterval` | 10 s | between two looks at the store during IDLE |
 | `hookTimeout` | 60 s | for `authenticate` to settle |
 
@@ -97,6 +98,16 @@ expanded. A client that stops reading is still hung up on at
 `loginTimeout` or `timeout`, and gives back its place under
 `maxConnections` at once; with nothing queued for it, it still reads the
 `BYE`, then a clean end, whenever it reads again.
+
+On implicit TLS a socket holds its place under `maxConnections` from the
+TCP connection on, before its handshake, and is closed, without a word,
+`handshakeTimeout` seconds after connecting if it has not completed it;
+the greeting, or the `BYE` of a full server, waits for the handshake. So
+sockets that connect and never send a ClientHello cannot fill the server:
+
+```ts
+await createImapServer({ ...options, implicitTls: true, handshakeTimeout: 10 }).listen({ port: 993 });
+```
 
 ## Traps
 
