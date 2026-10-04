@@ -280,12 +280,15 @@ describe('serve: stopping', () => {
 
 	test('bumail serve stops on SIGTERM, exits 0, and logs no secret', async () => {
 		const mx = freePort();
-		const imaps = freePort();
+		// Every listener on by default gets a port of its own: a CI runner
+		// is no root, and cannot bind 465 or 587 (EACCES).
 		const { file } = await prepare(
 			[
 				'[ports]',
 				`mx = ${mx}`,
-				`imaps = ${imaps}`,
+				`submissions = ${freePort()}`,
+				`submission = ${freePort()}`,
+				`imaps = ${freePort()}`,
 				'[smarthost]',
 				'host = "smtp.example.net"',
 				'username = "relay-user"',
@@ -308,6 +311,14 @@ describe('serve: stopping', () => {
 			const { done, value } = await reader.read();
 			if (done) break;
 			out += decoder.decode(value);
+		}
+		if (!out.includes('imaps listening')) {
+			// It ended, or never got there: say why, from its standard error.
+			proc.kill('SIGKILL');
+			const err = await new Response(proc.stderr).text();
+			throw new Error(
+				`bumail serve did not start (exit ${await proc.exited}):\n${out}${err}`,
+			);
 		}
 		expect(out).toContain(`mx listening on 0.0.0.0:${mx}`);
 		const client = await LineClient.connect(mx);

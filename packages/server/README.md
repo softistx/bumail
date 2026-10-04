@@ -6,8 +6,8 @@ configured by one TOML file, run as the `bumail` command.
 **In progress, and private for now.** This package is not on npm yet: it
 is built here one step at a time, and published once it is complete. Today
 it reads and checks its configuration (`bumail check-config`), manages
-its directory of domains, users and aliases (`bumail domain`, `bumail
-user`, `bumail alias`, `bumail dkim`), **receives mail** for its users
+its directory of domains, users, aliases and DKIM keys (`bumail domain`,
+`bumail user`, `bumail alias`, `bumail dkim`), **receives mail** for its users
 on port 25, **sends mail** for them from 465 and 587, DKIM-signed,
 through its queue, and serves it over IMAP on 993, with a certificate
 from files. JMAP and ACME come next; see the

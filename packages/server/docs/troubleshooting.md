@@ -199,6 +199,7 @@ directory commands' own refusals are under
 - [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`, `submissions:`, `submission:`
 - [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `submissions:`, `submission:`, `imaps:`, `imap:`
 - [`bumail: the mail store did not close cleanly: …`](#bumail-the-mail-store-did-not-close-cleanly-), and `the queue`
+- [`bumail: the queue did not stop cleanly: …`](#bumail-the-queue-did-not-stop-cleanly-)
 - [`bumail: queue deliveries still under way are left to their leases`](#bumail-queue-deliveries-still-under-way-are-left-to-their-leases)
 - [`mx: … not spooled: …`](#mx--not-spooled-), and `submissions:`, `submission:`
 - [`mx: … abandoned before …: the session ended`](#mx--abandoned-before--the-session-ended), and `submissions:`, `submission:`
@@ -1451,6 +1452,16 @@ connection already gone, say), the reason with any password masked. The
 directory is closed anyway, and the server still exits 0. A SQLite
 store recovers its journal at the next start; nothing is lost that was
 answered `250`.
+
+### `bumail: the queue did not stop cleanly: …`
+
+In the log, during a stop: the queue's store failed (a PostgreSQL or
+Redis connection already gone, say) while the queue gave back the items
+it had claimed and not yet begun, the reason with any password masked.
+The stop goes on, and the server still exits 0. Nothing is lost: an
+item not given back keeps its lease, which lapses (10 minutes), and it
+is tried again then, by this server once restarted or by another
+sharing the queue. Check the queue's store if it shows at every stop.
 
 ### `bumail: queue deliveries still under way are left to their leases`
 
