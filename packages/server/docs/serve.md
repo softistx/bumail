@@ -106,6 +106,9 @@ bound to nothing: its listener arrives in a later release, and the log
 says so at start. Leave it as it is, or set it to 0 to silence that
 line.
 
+A renewed certificate reaches all the TLS listeners without a restart:
+see [Renewing the certificate](#renewing-the-certificate).
+
 ## Receiving mail on 25
 
 A message is taken only for an address the directory resolves:
@@ -631,7 +634,7 @@ switched go back to the old pair.
 One line says the outcome, once per change, never per look:
 
 ```text
-tls: reloaded (CN=mail.example.com, expires 2027-01-02)
+tls: reloaded (CN=mail.example.com, expires <date>)
 tls: not reloaded: tls.key is not the key of tls.cert
 ```
 
@@ -645,11 +648,9 @@ until it ends. How, per listener: `@bumail/smtp` and `@bumail/imap`
 take it with `setTls` (STARTTLS reads the pair for each upgrade, and
 implicit TLS is upgraded socket by socket). JMAP's HTTPS is a Bun
 server, which cannot swap its certificate, so a second one binds the
-same port (`reusePort`) with the new pair, the first stops accepting and
-finishes its requests. Measured on Bun 1.4.2, with new connections hammering the port through
-the swap, at most about 1 handshake in 3 000 was reset (on macOS and
-Linux alike; the connection the old server had accepted and not read when
-it stopped); a client retries it.
+same port (`reusePort`) with the new pair and the first finishes its
+requests. At most about 1 new handshake in 3 000 is reset in the swap;
+a client retries it.
 
 With `tls.mode = "acme"` (which `serve` does not take yet) the certificate
 will come from the server itself.

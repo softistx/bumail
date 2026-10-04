@@ -191,6 +191,10 @@ directory commands' own refusals are under
 
 - [`acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`](#acme-mode-arrives-in-a-later-slice-set-tlsmode--files-with-cert-and-key-for-now)
 - [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
+- [`tls: reloaded (…)`](#tls-reloaded-)
+- [`tls: unchanged (…)`](#tls-unchanged-)
+- [`tls: not reloaded: …`](#tls-not-reloaded-)
+- [A renewed certificate is not served](#a-renewed-certificate-is-not-served)
 - [`behind a proxy, a client's address is known only on a TCP socket: bind to an IP address, not a unix socket`](#behind-a-proxy-a-clients-address-is-known-only-on-a-tcp-socket-bind-to-an-ip-address-not-a-unix-socket)
 - [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
 - [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
@@ -1319,6 +1323,19 @@ key = "/etc/bumail/privkey.pem"
 ```
 
 Remove `[acme]`, which `"files"` refuses.
+
+### `tls: reloaded (…)`
+
+Not a problem: a renewed pair was found, valid, and every TLS listener
+switched to it, for new connections. In brackets, the certificate's
+subject and its expiry. One line per change.
+
+### `tls: unchanged (…)`
+
+Not a problem: a `SIGHUP` found the files as the listeners already have
+them. If you expected a renewal, the files the server reads are not the
+renewed ones: see
+[A renewed certificate is not served](#a-renewed-certificate-is-not-served).
 
 ### `tls: not reloaded: …`
 

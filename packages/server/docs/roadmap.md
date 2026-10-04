@@ -58,7 +58,7 @@ npm yet.
 In this order, each its own step:
 
 - **Certificates from ACME** (HTTP-01 on port 80, ECDSA P-256 keys),
-  through the separate `@bumail/acme` package; the reload below is
+  through the separate `@bumail/acme` package; the reload under Now is
   what applies a renewal.
 - **The DNS records a domain needs**, written by `bumail dns`: MX, SPF,
   DKIM and DMARC, as a zone file or plain records.
