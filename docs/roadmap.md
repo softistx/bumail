@@ -28,11 +28,6 @@ No dates. Each entry says what someone running or embedding the server gets.
   Shipped); MongoDB comes next, typed structurally against the
   collection a MongoDB driver hands it, so the package peers on no
   driver.
-- **`@bumail/store`, a PostgreSQL adapter** — the store contract on
-  PostgreSQL through `Bun.sql`, so it peers on no driver, as the queue's
-  does, for a server that runs as several instances, held to the
-  same contract specs as the memory and `bun:sqlite` stores, with message
-  bytes on the disk or S3. It comes before MongoDB.
 - **The server app** — the packages wired into one process: SMTP on 25
   (MX), 465 (submission over implicit TLS) and 587 (submission with
   STARTTLS), IMAP on 993, JMAP over HTTPS on 443, the queue delivering
@@ -80,7 +75,8 @@ No dates. Each entry says what someone running or embedding the server gets.
   get and delete, by account and hash. Three answers: the disk through
   `Bun.file`, S3 through `@nxgt/s3`, and GridFS through
   `@nxgt/mongo/gridfs`. Each mailbox store keeps its bytes in whichever
-  the operator picks.
+  the operator picks; the PostgreSQL store, which keeps them in the
+  database today, first.
 - **`@bumail/store-mongo`** — the store contract on MongoDB: peers on
   `@nxgt/mongo`, `mongodb` and `zod`, with message bytes on GridFS or S3,
   at the operator's choice. It needs a replica set, since UIDs and modseqs
@@ -108,6 +104,15 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ### Unreleased — merged, not yet published
 
+- **`@bumail/store`, a PostgreSQL store**, as `@bumail/store/postgres` —
+  the store contract on PostgreSQL through Bun's own `Bun.sql`, so it
+  peers on no driver, as the queue's does, for a server that runs as
+  several instances sharing its mail. Every write locks its account's
+  row first, so modseqs and UIDs are given once each and in order from
+  any instance, and a client following the changes misses none. Message
+  bytes are kept in the database for now; the blob store, below, will
+  let them live on the disk or in S3. Held to the same contract specs as
+  the memory and `bun:sqlite` stores.
 - **`@bumail/queue`, a Redis store**, as `@bumail/queue/redis` — the
   `QueueStore` contract on Redis through Bun's own `Bun.redis`, so
   several server instances, on several machines, share one queue with no

@@ -13,7 +13,7 @@ below lists only what has landed.
 | `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
 | `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
-| `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, and its `bun:sqlite` store as `@bumail/store/sqlite` | — |
+| `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, its `bun:sqlite` store as `@bumail/store/sqlite`, and its PostgreSQL store on `Bun.sql` as `@bumail/store/postgres` | — |
 | `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
 | `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite`, its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres` and its Redis store on `Bun.redis` as `@bumail/queue/redis` | `@bumail/smtp`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
@@ -72,25 +72,36 @@ none of it names a private application.
   a `describe…` function in a `<subject>.fixtures.ts` beside the stores,
   run by each store's spec; `tsconfig.build.json` keeps fixtures out of
   `dist`. A store on a server database runs them against the server an
-  environment variable names: `@bumail/queue/postgres` the PostgreSQL of
+  environment variable names: `@bumail/queue/postgres` and
+  `@bumail/store/postgres` the PostgreSQL of
   `BUMAIL_TEST_POSTGRES_URL` (`bun run postgres:test` starts one in
   Docker), `@bumail/queue/redis` the Redis of `BUMAIL_TEST_REDIS_URL`
   (`bun run redis:test`); CI's "CI" job runs both as services. They are
   skipped, saying so, without it, except where
   `BUMAIL_TEST_POSTGRES_REQUIRED` or `BUMAIL_TEST_REDIS_REQUIRED` is set,
   as in that job: there they fail. Both scripts start their container
-  through `scripts/containers.ts`. Such a store also runs the queue's
-  multi-instance specs, `src/queue/instances.fixtures.ts`: two
-  instances on two clients deliver every item exactly once. "Newest
-  peers" runs none, on purpose.
+  through `scripts/containers.ts`. Such a store also runs
+  multi-instance specs: the queue's `src/queue/instances.fixtures.ts`,
+  where two instances on two clients deliver every item exactly once,
+  and the mail store's `src/postgres/instances.spec.ts`, where two
+  instances appending, flagging and moving at once give each UID and
+  modseq once, in order, and a third following the changes misses none.
+  `@bumail/store/postgres` is also held to the memory store by
+  `src/postgres/parity.spec.ts`: random histories, every answer
+  compared. "Newest peers" runs none, on purpose.
 - **A store on a server takes the application's client, typed by its
   shape**, or a URL for which it opens one of its own: `PostgresClient`
   for a `Bun.SQL`, `RedisQueueClient` for a `Bun.RedisClient`, so the
   shipped `.d.ts` names nothing of Bun's, and an `open.spec.ts` asserts
-  Bun's client fits. It closes only a client it opened, checks every
-  option at `open` and connects to nothing until the first call, and
-  never repeats a URL in an error (`src/masked.ts` masks a password a
-  client's reason repeats). The Redis store is one Redis or a primary
+  Bun's client fits; `@bumail/store/postgres` takes the queue's
+  `PostgresClient` shape, so one client serves both. It closes only a
+  client it opened, checks every option at `open` and connects to
+  nothing until the first call, and never repeats a URL in an error
+  (`src/masked.ts`, in each package that has such a store, masks a
+  password a client's reason repeats). Text PostgreSQL cannot keep as
+  given — a NUL, a lone surrogate, which `Bun.sql` sends as U+FFFD —
+  never reaches it: an id or a key holding one names nothing, a value to
+  keep is `INVALID`. The Redis store is one Redis or a primary
   with replicas, never Cluster: its scripts reach keys they are not
   given, and its `keyPrefix` refuses `{`.
 - **The network is injected.** DNS and sockets reach a package through an
@@ -241,6 +252,19 @@ Every PR goes into `develop`. Before merging:
   links.
 
 ## Deliberate duplications
+
+- **The PostgreSQL plumbing**, in `@bumail/queue` and `@bumail/store`:
+  `src/masked.ts` (and its spec) byte for byte; `src/postgres/connect.ts`'s
+  checks of `sql` (a client by its shape, its adapter, a URL opened
+  with its password masked, the `tablePrefix` pattern), the
+  `PostgresClient` and `PostgresQueryable` shapes in `options.ts`, the
+  `migrate` of `schema.ts` (the fast path through `to_regclass` and the
+  version, then one transaction under an advisory lock) and
+  `describePostgres` in `databases.fixtures.ts`, each with its own
+  package's error class and words; and `isStorable`, the queue's in
+  `src/text.ts`, the store's in `src/postgres/storable.ts`. No package
+  peers on another for a few dozen lines, and the two stores' tables
+  differ. A fix to one is a fix to the other.
 
 - `packages/auth/src/dmarc/from-mailbox.ts` tokenizes a From value as
   `@bumail/mime`'s `headers/tokens.ts` does, but strictly: the mime

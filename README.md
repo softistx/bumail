@@ -20,7 +20,7 @@ does, and which package does it.
 | [`@bumail/mime`](./packages/mime) | read and write e-mail messages, with a streaming parser |
 | [`@bumail/queue`](./packages/queue) | the outbound queue: each recipient's state, retries with back-off, delivery status notifications, leases for several workers, a memory, a `bun:sqlite`, a PostgreSQL and a Redis store (the last merged, not yet on npm) |
 | [`@bumail/smtp`](./packages/smtp) | an SMTP server that receives mail, and never relays without AUTH; and, on `@bumail/smtp/client`, a client that sends it out to a smarthost or by MX |
-| [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store and a `bun:sqlite` store on disk |
+| [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store, a `bun:sqlite` store on disk and a PostgreSQL store for several instances (the last merged, not yet on npm) |
 
 All eight are on npm. What comes — more stores, then a server app and a
 Docker image that runs it — in what order and why, is in
@@ -37,8 +37,9 @@ bun run test
 bun run verify:artifacts # pack, install and import every package
 ```
 
-The specs of `@bumail/queue/postgres` need a PostgreSQL, and those of
-`@bumail/queue/redis` a Redis; each is skipped, saying so, without one.
+The specs of `@bumail/queue/postgres` and `@bumail/store/postgres` need
+a PostgreSQL, and those of `@bumail/queue/redis` a Redis; each is
+skipped, saying so, without one.
 `bun run postgres:test` starts `postgres:17` in Docker, `bun run
 redis:test` starts `redis:7`, and each prints the line to export:
 

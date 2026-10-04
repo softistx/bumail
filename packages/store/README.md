@@ -1,12 +1,15 @@
 # @bumail/store
 
 Where a mail server keeps its mail: accounts, mailboxes, messages, flags,
-UIDs and modseqs behind one contract, `MailStore`, with a memory store
-and a `bun:sqlite` store on disk. Every store answers the contract the same way, so the SMTP server, IMAP
-and JMAP never know which one they were given. No dependency.
+UIDs and modseqs behind one contract, `MailStore`, with a memory store,
+a `bun:sqlite` store on disk and a PostgreSQL store for several server
+instances. Every store answers the contract the same way, so the SMTP
+server, IMAP and JMAP never know which one they were given. No
+dependency.
 
-**Bun only**: it hashes content with `Bun.CryptoHasher`, and the store on
-disk uses `bun:sqlite`, so it runs on Bun 1.4.2 or later, not on Node.
+**Bun only**: it hashes content with `Bun.CryptoHasher`, the store on
+disk uses `bun:sqlite` and the PostgreSQL store `Bun.sql`, so it runs on
+Bun 1.4.2 or later, not on Node.
 
 ```sh
 bun add @bumail/store
@@ -114,6 +117,44 @@ The main entry never imports `bun:sqlite`: only `@bumail/store/sqlite`
 does. Layout, durability, backups and migrations are in the
 [guide](https://github.com/softistx/bumail/blob/develop/packages/store/docs/guide.md#the-bunsqlite-store).
 
+## Several instances: `@bumail/store/postgres`
+
+`PostgresMailStore` answers the same contract on PostgreSQL, through
+Bun's own `Bun.sql`: no driver to install. Every instance of the server
+opens a store on the same database, and they share the mail.
+
+```ts
+import { PostgresMailStore } from '@bumail/store/postgres';
+
+const sql = new Bun.SQL({ url: Bun.env['DATABASE_URL'], max: 10 });
+const store = PostgresMailStore.open({ sql }); // or { sql: 'postgres://…' }
+await store.migrate(); // makes the tables; the first call does it otherwise
+const account = await store.createAccount('mary@example.net');
+// … every MailStore method, as above
+
+await store.close(); // closes only a client it opened from a URL
+```
+
+- **Several instances**: every write locks its account's row first, so
+  the writes of an account run in turn, from any instance: modseqs and
+  UIDs are given once each, in order, and a client following the changes
+  never misses one. Different accounts write side by side.
+- **A narrower role for the servers**: once `migrate()` ran with the
+  owner's role, a role with only `SELECT`, `INSERT`, `UPDATE` and
+  `DELETE` on the tables runs the store.
+- **Content in the database**: `bytea`, once per distinct bytes in an
+  account, dropped with its last message.
+- **Pages in the database**: the changes and `listAccountMessages` send
+  only the page asked for.
+- `tablePrefix` (`bumail_store_` by default) names the tables, and
+  `maxTombstones` works as for the other stores. A login or a mailbox
+  name holding a NUL or a lone surrogate, which PostgreSQL cannot keep
+  as given, is `INVALID`.
+
+Tables, roles, migrations, durability and how the instances share the
+work are in the
+[guide](https://github.com/softistx/bumail/blob/develop/packages/store/docs/guide.md#the-postgresql-store).
+
 ## Writing a store
 
 A store implements `MailStore`, throws `StoreError` with the contract's
@@ -135,6 +176,7 @@ follows.
 | `MailStore` | the contract: accounts, mailboxes, messages, flags, changes |
 | `MemoryMailStore`, `MemoryMailStoreOptions` | the contract in memory; `maxTombstones` bounds what it remembers of removals |
 | `SqliteMailStore`, `SqliteMailStoreOptions` | from `@bumail/store/sqlite`: the contract on `bun:sqlite`, opened with `SqliteMailStore.open({ directory, maxTombstones? })` and let go of with `close()` |
+| `PostgresMailStore`, `PostgresMailStoreOptions`, `PostgresClient`, `PostgresQueryable` | from `@bumail/store/postgres`: the contract on PostgreSQL through `Bun.sql`, for several instances, opened with `PostgresMailStore.open({ sql, tablePrefix?, maxTombstones? })`, its tables made by `migrate()`, and closed with `close()`; `PostgresClient` is the shape of the client it takes, which a `Bun.SQL` fits |
 | `Account`, `Mailbox`, `MailboxRole`, `Message`, `Membership`, `MailboxEntry`, `Expunged` | what a store returns |
 | `MessagesResult`, `FlagResult`, `ExpungeResult`, `MessagePage` | what the calls on several messages return: the messages or expunges, and `notFound`; a page of `listAccountMessages` |
 | `MessageChanges`, `MailboxChanges` | what the changes return |
@@ -150,6 +192,6 @@ follows.
 These pages ship in the package, under `docs/`.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/store/docs/README.md): the pages, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/store/docs/guide.md): accounts, mailboxes and roles, messages and their mailboxes, UIDs and modseqs, flags, changes, the `bun:sqlite` store, and writing a store of your own.
-- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/store/docs/troubleshooting.md): every `StoreError`, the `bun:sqlite` store's errors, and what to do about them.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/store/docs/guide.md): accounts, mailboxes and roles, messages and their mailboxes, UIDs and modseqs, flags, changes, the `bun:sqlite` store, the PostgreSQL store, and writing a store of your own.
+- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/store/docs/troubleshooting.md): every `StoreError`, the `bun:sqlite` and PostgreSQL stores' errors, and what to do about them.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/store/docs/roadmap.md): what is coming, and what is not planned.

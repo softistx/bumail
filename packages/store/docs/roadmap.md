@@ -6,15 +6,15 @@ only number on it.
 
 ## Now
 
-Nothing in progress: the next entry is picked from Next.
+Nothing in progress: the next entry is picked from Next. The PostgreSQL
+store is merged (see Shipped).
 
 ## Next
 
-- **A PostgreSQL adapter** — the same contract on PostgreSQL through
-  `Bun.sql`, with no driver to install, for a mail
-  server that runs as several instances sharing one store, held to the
-  same contract specs as the memory and `bun:sqlite` stores, with message
-  bytes on the disk or S3. It comes before a MongoDB answer.
+- **Message bytes outside PostgreSQL** — the PostgreSQL store keeps
+  them as `bytea` in the database; once the repository's blob store
+  lands (put, get and delete by account and hash, on the disk or in
+  S3), it can keep them there instead, its rows naming them.
 - **Searching and sorting** what IMAP's `SEARCH` and JMAP's `Email/query`
   need, which `@bumail/imap` and `@bumail/jmap` do on their own today.
 - **The contract's specs, exported**, so a store written outside this
@@ -35,6 +35,21 @@ Nothing in progress: the next entry is picked from Next.
   reads them.
 
 ## Shipped
+
+### Unreleased — merged, not yet published
+
+- **A PostgreSQL store**, as `@bumail/store/postgres`, on Bun's own
+  `Bun.sql`, for a mail server that runs as several instances sharing
+  one store: `PostgresMailStore.open({ sql })` takes a `Bun.SQL` client,
+  or a `postgres://` URL, and needs no driver. Every write locks its
+  account's row first, so modseqs and UIDs are given once each, in
+  order, from any instance, and a client following the changes misses
+  none; `migrate()` makes the tables, and a role with no `CREATE` runs
+  the store once they are made. Message bytes are `bytea`, once per
+  distinct bytes in an account. The changes and the account's pages are
+  cut in the database. Held to the same contract specs as the memory and
+  `bun:sqlite` stores, to specs of two instances writing at once, and to
+  random histories compared with the memory store's answers.
 
 ### 0.3.0
 
