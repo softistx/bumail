@@ -77,7 +77,12 @@ Then:
   the message as `bytea` — are made by `migrate()` or the first call,
   once however many instances start together, under a `tablePrefix`.
   Held to the same contract specs as the other stores, and to specs of
-  two instances delivering every item exactly once.
+  two instances delivering every item exactly once. Once the tables are
+  current, a worker's role needs no `CREATE`.
+- **A reply cut at its limit never splits a character** — the text kept
+  for a recipient ends before a surrogate pair rather than inside it, and
+  every store refuses a NUL or a lone surrogate in what it keeps, so an
+  outcome is always recorded.
 
 ### 0.1.0
 

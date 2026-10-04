@@ -431,9 +431,19 @@ up: …`, and the next call tries again; tables written by a newer version
 of the package are refused.
 
 The role needs `CREATE` on the schema the first time, then only `SELECT`,
-`INSERT`, `UPDATE` and `DELETE` on the three tables: run `migrate()` once
-from a deploy step with an owner's role, and give the workers a narrower
-one.
+`INSERT`, `UPDATE` and `DELETE` on the three tables: a store whose tables
+are current only reads their version, with no lock and no DDL. So run
+`migrate()` once from a deploy step with an owner's role, and give the
+workers a narrower one:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE
+	ON bumail_queue_items, bumail_queue_messages, bumail_queue_schema
+	TO bumail_worker;
+```
+
+After an upgrade that adds a migration, run that step again before the
+workers start: theirs cannot make the change.
 
 ### Several instances and leases
 
@@ -455,7 +465,8 @@ RETURNING …
   and records the outcome only while its owner holds the lease. An
   instance that crashes loses its items when their leases expire, and
   another takes them then; one that stalled past its lease records
-  nothing (`LEASE_LOST`).
+  nothing once another instance has claimed the item (`LEASE_LOST`):
+  `complete` checks who owns the lease, not when it expires.
 - **The clocks** of the instances must agree: each gives the time of its
   own claims and leases, as the store keeps no clock. An instance whose
   clock runs ahead sees leases expire early by as much. Keep the machines
@@ -538,6 +549,10 @@ codes, and keeps its promises:
   dropped with its message.
 - Times are given by the caller; the store keeps no clock.
 - Nothing it returns is shared with what it keeps.
+- Text it keeps holds no NUL and no lone surrogate: the contract's
+  checks refuse them (`INVALID`) in what is added, claimed and recorded,
+  since PostgreSQL cannot keep them, and an id holding one is unknown.
+  The queue never gives a store such text: it cleans every reply.
 
 The contract's specs, `describeQueueStore`, which both stores here run,
 are internal for now: a store written outside this package cannot run

@@ -51,6 +51,7 @@ parts shown as … vary.
 - [`QueueError: A PostgreSQL queue store needs sql: a Bun.SQL client or a postgres:// URL`](#queueerror-a-postgresql-queue-store-needs-sql-a-bunsql-client-or-a-postgres-url)
 - [`QueueError: sql is a … client; the queue needs a PostgreSQL one`](#queueerror-sql-is-a--client-the-queue-needs-a-postgresql-one)
 - [`QueueError: tablePrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`](#queueerror-tableprefix-must-be-lowercase-letters-digits-and-underscores-starting-with-a-letter-or-an-underscore-at-most-40-characters-not-)
+- [`QueueError: The URL in sql cannot be opened: …`](#queueerror-the-url-in-sql-cannot-be-opened-)
 - [`QueueError: The PostgreSQL queue cannot be set up: …`](#queueerror-the-postgresql-queue-cannot-be-set-up-)
 - [`QueueError: The database is at schema version …, newer than this store's …`](#queueerror-the-database-is-at-schema-version--newer-than-this-stores-), and [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed), as for `bun:sqlite`
 
@@ -237,8 +238,9 @@ or `… must be a number from … to …, not …`. A number option out of its r
 
 ### `QueueError: owner must be a non-empty string`
 
-**Code:** `INVALID`. Leave `owner` out for a random one, or give each
-worker its own name.
+**Code:** `INVALID`, also as `owner holds a NUL or a lone surrogate,
+which a store cannot keep`. Leave `owner` out for a random one, or give
+each worker its own name.
 
 ## The `error` event
 
@@ -357,19 +359,33 @@ characters keep the longest name built on it within PostgreSQL's 63.
 **Fix:** `tablePrefix: 'mail_queue_'`. To put the tables in another
 schema, set the connection's `search_path` rather than a dotted prefix.
 
+### `QueueError: The URL in sql cannot be opened: …`
+
+**Code:** `INVALID`.
+**When:** `PostgresQueueStore.open` with a URL `Bun.SQL` refuses before
+connecting, such as a `sslmode` it does not know. The rest is Bun's
+reason (`The argument 'sslmode' must be one of: disable, allow, prefer,
+require, verify-ca, verify-full. Received '…'`); the URL is never
+repeated, and the password is masked should the reason name it.
+**Fix:** correct the parameter: `?sslmode=require`, or `verify-full` to
+check the server's certificate.
+
 ### `QueueError: The PostgreSQL queue cannot be set up: …`
 
 **Code:** `INVALID`.
 **When:** the first call on a store, or `migrate()`, when the tables
 cannot be made or brought up to date. The rest of the message is the
-database's: `Connection refused`, `password authentication failed for
+database's: `Failed to connect`, `password authentication failed for
 user "…"`, `permission denied for schema public`.
 **Why:** the database is out of reach, the credentials are wrong, or the
-role may not create tables.
-**Fix:** check the URL and that the server answers; give the role
-`CREATE` on the schema for the first migration, or run `migrate()` once
-with an owner's role. The next call tries again: nothing is left half
-made, since a migration is one transaction.
+tables are missing or behind and the role may not create them: a role
+without `CREATE` can use tables that are current, never make them.
+**Fix:** check the URL and that the server answers. For `permission
+denied`, run `migrate()` once with an owner's role — on a new database,
+and after an upgrade that adds a migration — and keep the workers on
+their narrower role (the guide's Migrations); or give the role `CREATE`
+on the schema. The next call tries again: nothing is left half made,
+since a migration is one transaction.
 
 ## Listing
 
@@ -409,6 +425,12 @@ never gives it. Each message names what is wrong:
 - `QueueError: delayNotified must be true or false`
 - `QueueError: recipients must be an array of { address, status:
   delivered, deferred or failed }`
+- `QueueError: A reply is an object with a text`, `reply.status must be
+  a string`, `reply.host must be a string`
+- `QueueError: … holds a NUL or a lone surrogate, which a store cannot
+  keep` (`from`, `A recipient`, `owner`, `reply.text`, `reply.status`,
+  `reply.host`): every store refuses them, since PostgreSQL cannot keep
+  them; the queue's own replies never hold one
 
 A list's `offset` and `limit` are checked as under [Listing](#listing).
 
