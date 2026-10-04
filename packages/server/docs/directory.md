@@ -152,7 +152,7 @@ change its users, remove it and add it again.
 | 0 | done |
 | 1 | the configuration is invalid ([its problems](troubleshooting.md)) |
 | 2 | bad usage: an unknown command or option, an operand missing or too many, no way to read the password |
-| 4 | the directory refused: not an address or a domain, a password too short or too long, a name already taken, not found, still in use |
+| 4 | the directory refused: not an address or a domain, a password refused (too short, too long, typed differently twice, its file unreadable), a name already taken, not found, still in use |
 | 5 | the directory or the mail store cannot be opened or used |
 
 (3 is `serve`'s, which is not implemented yet.) Errors go to standard
@@ -163,12 +163,20 @@ error as `bumail: <message>`; nothing else does.
 - **Hashing.** Argon2id through `Bun.password`, with 19 MiB of memory
   (`memoryCost` 19456), two passes and one lane: OWASP's recommended
   floor. The hash, in PHC form (`$argon2id$v=19$m=19456,t=2,p=1$…`), is
-  all the directory keeps.
-- **Length.** At least 12 characters, at most 1024 bytes of UTF-8, and
+  all the directory keeps, and nothing exported hands it out.
+- **Unicode.** A password is hashed and verified in NFC, as RFC 8265's
+  OpaqueString prepares one: `café` typed with a composed `é` or with
+  `e` and a combining accent is one password.
+- **Length.** At least 12 characters (after NFC), at most 1024 bytes of UTF-8, and
   no control character: no prompt types one, and a stray line break
   from a file would be a password nobody could type.
 - **Secrecy.** No output and no error repeats a password: not an
-  operand, not an option's value, not a file's content.
+  option's value, not a file's content, and not an operand or a
+  command word that could be one. A refused address or domain is
+  repeated only when it holds an `@` or a `.`, as a typo does
+  (`"alice@example" is not an e-mail address`); otherwise the message
+  says `the value given`. An unknown command is named only when it
+  reads like one (lowercase letters and hyphens); otherwise `…`.
 
 ## Logins
 
@@ -177,7 +185,9 @@ error as `bumail: <message>`; nothing else does.
 
 1. **The limiter.** A client that failed too often lately is refused
    at once, as `blocked`, whatever it sends: nothing is verified, so
-   guessing on costs the server nothing.
+   guessing on costs the server nothing. Its logins still under way
+   count as failures until they end, so guesses sent all at once get no
+   more verified than guesses sent in turn.
 2. **Bounds.** An empty password, or a login or a password over 1024
    bytes, is `malformed`, and refused without a verify.
 3. **The verify.** At most **4** run at once; the others wait their
@@ -187,8 +197,9 @@ error as `bumail: <message>`; nothing else does.
    and CPU the mail needs.
 4. **Unknown users cost as much as known ones.** A login that is no
    user — unknown, an alias, not an address — verifies a dummy hash
-   made with the same parameters, so the time a refusal takes does not
-   tell which addresses exist.
+   made with the same parameters when the directory opens, so the time
+   a refusal takes — the first one included — does not tell which
+   addresses exist.
 5. **The answer**: the user, or `unknown`, `password` (wrong) or
    `disabled` (right, but the user is disabled). A client is told only
    that its login failed; the reason is for the server's log.
@@ -198,11 +209,16 @@ error as `bumail: <message>`; nothing else does.
 `FailureLimiter` counts failed logins per client, in memory, shared by
 every listener:
 
-- **Who a client is**: an IPv4 address; an IPv4-mapped IPv6 address
-  (`::ffff:192.0.2.1`) as its IPv4; an IPv6 address by its **/64**,
-  which one machine usually holds whole.
+- **Who a client is**: an IPv4 address; an IPv6 address that embeds
+  one — IPv4-mapped (`::ffff:192.0.2.1`, or `::ffff:c000:201`) or
+  NAT64 (`64:ff9b::/96`) — as that IPv4 address; any other IPv6 address
+  by its **/64**, which one machine usually holds whole.
 - **What counts**: every refusal but `blocked` and `busy`. Tries while
-  blocked are not counted, so hammering never extends a block.
+  blocked are not counted, so hammering never extends a block. A login
+  under way counts as a failure until it ends (`begin(ip)`, `end(ip,
+  failed)`), so one client has at most `maxFailures` logins in flight:
+  a mail client opening several connections at once stays well under
+  10.
 - **When it blocks**: at `maxFailures` (10) failures within the last
   `windowSeconds` (900, 15 minutes). The window slides: each failure
   ageing out gives one try back, and a client whose failures are all
@@ -230,7 +246,9 @@ whose login is the user's address, with six mailboxes: `INBOX`, `Sent`,
   user can no longer log in and its mail is refused, but the account
   stays in the store, so a removal by mistake loses nothing: adding the
   address again finds the same account, with its mail. Add `--purge` to
-  delete the account, its mailboxes and its mail too; with a SQLite
+  delete the account, its mailboxes and its mail too. It deletes the
+  mail first, then removes the user, so a store that fails leaves the
+  user in place and the same command can run again. With a SQLite
   store, stop the server first, since `--purge` needs the store and
   refuses (exit 5, nothing removed) while the server holds it. Purge
   before giving an old address to someone else.
@@ -270,7 +288,7 @@ directory.resolve('nobody@example.com'); // undefined: refuse it
 await directory.authenticate('alice@example.com', 'wrong', '192.0.2.1');
 // { ok: false, reason: 'password' }
 
-const { store } = openStore(config.store);
+const { store, close } = openStore(config.store); // close() when the server stops
 const smtp = smtpAuthenticate(directory); // @bumail/smtp's authenticate
 const imap = imapAuthenticate(directory, store, {
 	onRefused: (reason, ip) => console.log(`login refused: ${reason} from ${ip}`),

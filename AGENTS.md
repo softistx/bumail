@@ -259,7 +259,9 @@ Every PR goes into `develop`. Before merging:
 ## Deliberate duplications
 
 - **The PostgreSQL plumbing**, in `@bumail/queue` and `@bumail/store`:
-  `src/masked.ts` (and its spec) byte for byte; `src/postgres/connect.ts`'s
+  `src/masked.ts` (and its spec) byte for byte — and in `@bumail/server`
+  too, which masks a store URL's password in what the `bumail` command
+  prints; `src/postgres/connect.ts`'s
   checks of `sql` (a client by its shape, its adapter, a URL opened
   with its password masked, the `tablePrefix` pattern), the
   `PostgresClient` and `PostgresQueryable` shapes in `options.ts`, the

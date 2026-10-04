@@ -149,6 +149,7 @@ directory commands' own refusals are under
 
 *The directory and the store*
 
+- [`the directory is in use by another process (…)`](#the-directory-is-in-use-by-another-process-)
 - [`the directory … cannot be opened (…)`](#the-directory--cannot-be-opened-)
 - [`the directory is at schema version …, newer than this server's …`](#the-directory-is-at-schema-version--newer-than-this-servers-)
 - [`the mail store is in use by another process, such as the running server`](#the-mail-store-is-in-use-by-another-process-such-as-the-running-server)
@@ -163,7 +164,7 @@ directory commands' own refusals are under
 - [`the directory URL must be sqlite: and a path`](#the-directory-url-must-be-sqlite-and-a-path)
 **Usage** (exit code 2)
 
-- [`bumail: … ; see bumail --help`](#usage)
+- [`bumail: …; see bumail --help`](#usage)
 
 ## The file
 
@@ -706,8 +707,10 @@ every command.
 #### `"…" is not a domain name`
 
 **When**: `domain add`, `domain remove`, or a `list` given a domain,
-with what is not a domain name of two labels or more: `localhost`, a
-name with a space or an `@`, a label over 63 characters.
+with what is not a domain name of two labels or more: a name with a
+space or an `@`, a label over 63 characters. A value with no `.` and
+no `@` — `localhost`, or a password typed in the wrong place — is not
+repeated: `the value given is not a domain name`.
 
 **Fix**: give the domain the server receives mail for, as in its MX
 records. Case, a trailing dot and a name in Unicode are fine:
@@ -722,7 +725,9 @@ bumail domain add example.com
 **When**: a `user` or `alias` command, with what is not
 `local@domain`: no `@`, an empty local part, a quoted local part
 (`"john doe"@example.com`), two dots in a row, a local part over 64
-octets, an address over 254.
+octets, an address over 254. A value with no `@` and no `.` — `alice`,
+or a password typed where the address goes — is not repeated: `the
+value given is not an e-mail address`.
 
 **Why**: the directory keeps dot-atom local parts only, so one mailbox
 has one spelling. See [addresses](directory.md#addresses-and-their-case).
@@ -749,6 +754,8 @@ not `alice`.
 **When**: `domain remove` with a domain that still has users or
 aliases: `the domain example.com still has 2 users and 1 alias; remove
 them first`.
+
+With one user or one alias left, it ends `remove it first`.
 
 **Why**: removing it would leave addresses nobody can receive mail at,
 in a domain the server no longer hosts.
@@ -917,6 +924,18 @@ runs the command.
 
 ### The directory and the store
 
+#### `the directory is in use by another process (…)`
+
+**When**: a change to the directory waited 5 seconds for another
+process's write and gave up: `the directory is in use by another
+process (SQLITE_BUSY)`. Exits 5, and nothing was changed. Its sibling
+`the directory failed (…)` names any other failure of SQLite's.
+
+**Why**: another `bumail` command, or a tool holding the file open in a
+write transaction (an `sqlite3` shell left in `BEGIN`).
+
+**Fix**: let the other finish, or close it, and run the command again.
+
 #### `the directory … cannot be opened (…)`
 
 **When**: the directory's file, `directory.url`, cannot be created or
@@ -1010,7 +1029,9 @@ The command exits 2, with `ServerError`'s code `USAGE`, for:
 
 - `bumail: no command given; see bumail --help`
 - `bumail: unknown command …; see bumail --help` — the commands are
-  `serve`, `check-config`, `domain`, `user` and `alias`.
+  `serve`, `check-config`, `domain`, `user` and `alias`. A word that is
+  not lowercase letters and hyphens is shown as `…`, in case it is a
+  password; so is an unexpected argument.
 - `bumail: unknown option …; see bumail --help` — the options are
   `--config`, `--password-stdin`, `--password-file`, `--purge`, `-h` or
   `--help`, and `-v` or `--version`. A short option is named by its

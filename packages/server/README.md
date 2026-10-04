@@ -12,7 +12,8 @@ then says it is not implemented yet. What comes
 next is in the [roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md).
 
 **Bun only**, like every `@bumail/*` package: it runs on Bun 1.4.2 or
-later.
+later. It peers on `@bumail/store`, whose `MailStore` the directory's
+store helpers and adapters take.
 
 ## The configuration
 
@@ -99,7 +100,7 @@ bumail user add carol@example.com --password-file /run/secrets/carol
 bumail alias add sales@example.com alice@example.com bob@example.com
 
 bumail domain list      # example.com  3 users, 1 alias
-bumail user list        # alice@example.com, bob@example.com, carol@example.com
+bumail user list        # one address a line; bumail user list example.com for one domain
 bumail alias list       # sales@example.com  alice@example.com, bob@example.com
 
 bumail user passwd alice@example.com
@@ -158,7 +159,7 @@ const directory = Directory.open({ file: directoryFile(config.directory.url) });
 
 directory.domains.has('example.com'); // true: the domains the MX takes mail for
 directory.resolve('Sales@example.com'); // ['alice@example.com', 'bob@example.com'], or undefined
-await directory.authenticate('alice@example.com', password, '192.0.2.1');
+await directory.authenticate('alice@example.com', 'correct horse battery staple', '192.0.2.1');
 // { ok: true, user: { address: 'alice@example.com', … } }, or { ok: false, reason: 'password' }
 
 const authenticate = smtpAuthenticate(directory); // @bumail/smtp's authenticate option
@@ -171,8 +172,8 @@ const authenticate = smtpAuthenticate(directory); // @bumail/smtp's authenticate
 | `bumail check-config` | check the configuration, print a summary; exits 0, or 1 |
 | `bumail serve` | check the configuration, then (for now) exit 3: not implemented yet |
 | `bumail domain add\|list\|remove` | the domains the server hosts |
-| `bumail user add\|list\|passwd\|disable\|enable\|remove` | the users; `--password-stdin`, `--password-file`, `remove --purge` |
-| `bumail alias add\|list\|remove` | the aliases, to local users only |
+| `bumail user add\|list\|passwd\|disable\|enable\|remove` | the users; `--password-stdin`, `--password-file`, `remove --purge`; `list [<domain>]` |
+| `bumail alias add\|list\|remove` | the aliases, to local users only; `list [<domain>]` |
 | `--config <file>`, `--config=<file>` | the file; default `$BUMAIL_CONFIG`, then `/data/bumail.toml` |
 | `-h`, `--help` | print the usage |
 | `-v`, `--version` | print the version |
@@ -190,10 +191,10 @@ mail store that cannot be opened 5.
 | `DEFAULT_CONFIG_PATH` | `/data/bumail.toml` |
 | `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`) and, for a configuration, its `problems` |
 | `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, limiter? })`: `domains`, `users`, `aliases`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |
-| `Domains`, `Users`, `Aliases` | the types of its three parts: `add`, `get`, `list`, `remove`, and `has` (domains), `setPassword`, `setDisabled`, `require`, `checkAddable`, `checkRemovable`, `record` (users), `targets` (aliases) |
+| `Domains`, `Users`, `Aliases` | the types of its three parts: `add`, `get`, `list`, `remove`, and `has` (domains), `setPassword`, `setDisabled`, `require`, `checkAddable`, `checkRemovable` (users; none hands out a hash), `targets` (aliases) |
 | `DomainEntry`, `UserEntry`, `AliasEntry` | what they answer |
 | `AuthResult`, `AuthFailure`, `AuthenticatorOptions`, `DirectoryOptions` | `authenticate`'s answer, its reasons (`blocked`, `malformed`, `unknown`, `password`, `disabled`, `busy`), and the options |
-| `FailureLimiter`, `FailureLimiterOptions`, `clientKey(ip)` | failed logins per client: `blocked(ip)`, `fail(ip)`, `blockedUntil(ip)`; `maxFailures` (10), `windowSeconds` (900), `maxClients` (100 000) |
+| `FailureLimiter`, `FailureLimiterOptions`, `clientKey(ip)` | failed logins per client: `blocked(ip)`, `begin(ip)` and `end(ip, failed)` around a login, `fail(ip)`, `blockedUntil(ip)`; `maxFailures` (10), `windowSeconds` (900), `maxClients` (100 000) |
 | `smtpAuthenticate(directory, options?)`, `imapAuthenticate(directory, store, options?)`, `jmapAuthenticate(directory, store, ipOf, options?)` | `authenticate` in the shape `@bumail/smtp`, `@bumail/imap` and `@bumail/jmap` take; `options.onRefused(reason, ip)` |
 | `Authenticates`, `LoginCredentials`, `ClientSession`, `JmapLogin`, `AdapterOptions`, `BUSY_MESSAGE` | the types around them, and what they throw on `busy` |
 | `provisionAccount(store, address)`, `purgeAccount(store, address)`, `MAILBOXES` | a user's account in the mail store, with its six mailboxes; deleting it |
