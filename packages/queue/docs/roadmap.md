@@ -6,19 +6,17 @@ only number on it.
 
 ## Now
 
-Nothing in progress: the Redis store, first under Next, is the next one
-taken. The PostgreSQL store shipped in 0.2.0 (see Shipped).
+Nothing in progress: the MongoDB store, first under Next, is the next
+one taken. The Redis store is merged (see Shipped).
 
 ## Next
 
 More answers to the `QueueStore` contract, built for several instances of
 a server sharing one queue — each claim atomic across them, each lease
 taken back from an instance that crashed — and each held to the same
-contract specs as the memory, `bun:sqlite` and PostgreSQL stores. None
-adds a dependency.
+contract specs as the memory, `bun:sqlite`, PostgreSQL and Redis
+stores. None adds a dependency.
 
-- **A Redis store**, on Bun's own `Bun.redis` — the due items in a sorted
-  set, the claim and the lease in one script.
 - **A MongoDB store** — the contract answered structurally, against a
   collection of the shape a MongoDB driver gives, so the package peers on
   no driver: the application passes in its own collection; the claim a
@@ -55,7 +53,7 @@ Then:
 
 - **A runtime dependency.** The memory store needs none, the `bun:sqlite`
   store uses Bun's own SQLite, the PostgreSQL store Bun's own `Bun.sql`,
-  the Redis store to come `Bun.redis`, and the MongoDB store will take
+  the Redis store Bun's own `Bun.redis`, and the MongoDB store will take
   the application's own collection, typed by its shape.
 - **Relaying on its own.** The queue sends what the app enqueues; who may
   send is decided before, by the SMTP server's AUTH or the app. No option
@@ -67,6 +65,18 @@ Then:
 
 ### Unreleased — merged, not yet published
 
+- **A Redis store**, `@bumail/queue/redis`, on Bun's own `Bun.redis`,
+  for instances of a server on several machines sharing one queue:
+  `RedisQueueStore.open({ client })` takes a `Bun.RedisClient`, or
+  `{ url }` a `redis://` URL, and needs no driver. Every operation that
+  writes is one Lua script, which Redis runs whole: two instances never
+  take the same item, a crashed instance's leases expire and its items
+  are claimed again, and `maxItems` holds across instances. The due
+  items are in sorted sets, each item a hash, its message written byte
+  for byte, every key under a `keyPrefix`. Held to the same contract
+  specs as the other stores, and to specs of two instances delivering
+  every item exactly once. One Redis, or a primary with replicas, not
+  Cluster; its durability is Redis's, which the guide spells out.
 - **A lease lost to an instance that finished the item is reported** —
   an instance that stalled past its lease, while another claimed the
   item, delivered it and dropped it, no longer takes the item's absence

@@ -365,10 +365,12 @@ top of it:
   store; a worker claims an item with a lease, so several workers share
   one queue, and a crashed worker's items are claimed again.
 
-A PostgreSQL store on `Bun.sql`, `@bumail/queue/postgres`, is merged and
-not yet published: several server instances, on several machines, share
-one queue through it, each claim a `SELECT … FOR UPDATE SKIP LOCKED`.
-Next, more stores for that contract: Redis on `Bun.redis`, then MongoDB,
+Several server instances, on several machines, share one queue through
+a PostgreSQL store on `Bun.sql`, `@bumail/queue/postgres` (published in
+0.2.0), each claim a `SELECT … FOR UPDATE SKIP LOCKED`; or through a
+Redis store on `Bun.redis`, `@bumail/queue/redis` (merged, not yet
+published), each claim a Lua script Redis runs whole — on one Redis or a
+primary with replicas, with Redis's weaker durability. Next, MongoDB,
 typed by shape so the queue needs no driver.
 
 DKIM signing happens before a message is enqueued, with `@bumail/auth`.

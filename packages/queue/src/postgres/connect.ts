@@ -1,4 +1,5 @@
 import { invalid } from '../errors';
+import { masked } from '../masked';
 import type { PostgresClient, PostgresQueueStoreOptions } from './options';
 
 /** The tables of one queue, each name its prefix and a fixed suffix. */
@@ -50,21 +51,6 @@ function urlOf(value: string | URL): URL {
 		throw invalid(NEEDS_SQL);
 	}
 	return url;
-}
-
-/** `text` with the password masked, as written in the URL and decoded, if it decodes. */
-function masked(text: string, raw: string): string {
-	let decoded = raw;
-	try {
-		decoded = decodeURIComponent(raw);
-	} catch {
-		// Not percent-encoding Bun reads either: the raw form is what it would repeat.
-	}
-	let out = text;
-	for (const password of [raw, decoded]) {
-		if (password !== '') out = out.replaceAll(password, '…');
-	}
-	return out;
 }
 
 /**

@@ -39,6 +39,7 @@ parts shown as … vary.
 - [`SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`](#smtperror-sendmail--invalid_option-with-recipients-deferred-as-435)
 - [`SQLiteError: database is locked`, or another store error, during a delivery](#sqliteerror-database-is-locked-or-another-store-error-during-a-delivery)
 - [`PostgresError: …`, or a connection error, during a delivery](#postgreserror--or-a-connection-error-during-a-delivery)
+- [`RedisError: …` during a delivery: `Connection closed`, `OOM command not allowed …`, `READONLY …`](#rediserror--during-a-delivery-connection-closed-oom-command-not-allowed--readonly-)
 
 **The `bun:sqlite` store** (`@bumail/queue/sqlite`)
 
@@ -55,6 +56,16 @@ parts shown as … vary.
 - [`QueueError: tablePrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`](#queueerror-tableprefix-must-be-lowercase-letters-digits-and-underscores-starting-with-a-letter-or-an-underscore-at-most-40-characters-not-)
 - [`QueueError: The URL in sql cannot be opened: …`](#queueerror-the-url-in-sql-cannot-be-opened-)
 - [`QueueError: The PostgreSQL queue cannot be set up: …`](#queueerror-the-postgresql-queue-cannot-be-set-up-)
+- [`QueueError: The database is at schema version …, newer than this store's …`](#queueerror-the-database-is-at-schema-version--newer-than-this-stores-), and [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed), as for `bun:sqlite`
+
+**The Redis store** (`@bumail/queue/redis`)
+
+- [`QueueError: A Redis queue store needs client, a Bun.RedisClient, or url, a redis:// URL`](#queueerror-a-redis-queue-store-needs-client-a-bunredisclient-or-url-a-redis-url)
+- [`QueueError: A Redis queue store takes client or url, not both`](#queueerror-a-redis-queue-store-takes-client-or-url-not-both)
+- [`QueueError: keyPrefix must be lowercase letters, digits, '_', ':', '.' and '-', starting with a letter, at most 40 characters, not …`](#queueerror-keyprefix-must-be-lowercase-letters-digits-_---and---starting-with-a-letter-at-most-40-characters-not-)
+- [`QueueError: The URL in url cannot be opened: …`](#queueerror-the-url-in-url-cannot-be-opened-)
+- [`QueueError: The Redis queue cannot be set up: …`](#queueerror-the-redis-queue-cannot-be-set-up-)
+- [`QueueError: The key …schema does not hold a layout version: is the prefix another application's?`](#queueerror-the-key-schema-does-not-hold-a-layout-version-is-the-prefix-another-applications)
 - [`QueueError: The database is at schema version …, newer than this store's …`](#queueerror-the-database-is-at-schema-version--newer-than-this-stores-), and [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed), as for `bun:sqlite`
 
 **Listing** (`list`)
@@ -351,6 +362,31 @@ its lease expires — its recipients may then get the message twice.
 too many connections, give each instance's client a smaller `max` (see
 the guide's Pool size) or raise `max_connections`.
 
+### `RedisError: …` during a delivery: `Connection closed`, `OOM command not allowed …`, `READONLY …`
+
+**When:** the `error` event, with the item's `id`, while it is delivered,
+on `@bumail/queue/redis`. A call of yours — `enqueue`, `list`, `get`,
+`retryNow`, `cancel` — rejects with the same `RedisError` for the same
+reasons: an `enqueue` refused with `OOM …` kept nothing.
+**Why:** a lease renewal failed. `Connection closed`: Redis restarted,
+or the connection dropped, while the command was on its way; a command
+sent while the client is reconnecting waits instead. `Max reconnection
+attempts reached` or `Connection has failed`: Redis is out of reach, and
+`Bun.RedisClient` gave up reconnecting (20 tries by default). `OOM
+command not allowed when used memory > 'maxmemory'`: Redis is full and
+refuses writes. `READONLY You can't write against a read only replica`:
+the client reaches a replica, or a primary that was demoted by a
+failover. As on PostgreSQL, the next renewal tries again, only a lease
+taken by another instance stops them, a claim that fails rejects
+`deliverDue()` or is told on `error` under `start()`, and an outcome
+that cannot be recorded leaves the item to be claimed again once its
+lease expires — its recipients may then get the message twice.
+**Fix:** check Redis is up and that the URL names the primary (through
+your provider's endpoint or Sentinel's, which follows a failover). For
+`OOM`, give Redis more `maxmemory`, or drain the queue; keep
+`maxmemory-policy noeviction` (the guide's [Redis](guide.md#redis)), or
+Redis drops queue items to make room instead of refusing.
+
 ## The `bun:sqlite` store
 
 ### `QueueError: A SQLite queue store needs a directory`
@@ -368,7 +404,9 @@ should read the queue.
 ### `QueueError: The database is at schema version …, newer than this store's …`
 
 **Code:** `INVALID`. A newer version of the package wrote the database
-(`queue.sqlite`, or on PostgreSQL the prefix's tables): upgrade this one.
+(`queue.sqlite`, on PostgreSQL the prefix's tables, on Redis the
+prefix's keys, whose layout version is `<prefix>schema`): upgrade this
+one.
 
 ### `QueueError: busyTimeout must be an integer of at least 0, not …`
 
@@ -377,8 +415,8 @@ should read the queue.
 ### `QueueError: The queue store is closed`
 
 **Code:** `CLOSED`. The store was used after `close()`: call
-`queue.stop()` first, then `store.close()`. The PostgreSQL store says the
-same.
+`queue.stop()` first, then `store.close()`. The PostgreSQL and Redis
+stores say the same.
 
 ## The PostgreSQL store
 
@@ -439,6 +477,75 @@ and after an upgrade that adds a migration — and keep the workers on
 their narrower role (the guide's [Migrations](guide.md#migrations)); or
 give the role `CREATE` on the schema. The next call tries again: nothing is left half made,
 since a migration is one transaction.
+
+## The Redis store
+
+### `QueueError: A Redis queue store needs client, a Bun.RedisClient, or url, a redis:// URL`
+
+**Code:** `INVALID`.
+**When:** `RedisQueueStore.open` with neither `client` nor `url`, a
+`url` that is not a URL of a scheme `Bun.RedisClient` takes (`redis://`,
+`rediss://`, `valkey://`, `valkeys://`, `redis+tls://`, `redis+unix://`,
+`redis+tls+unix://`), or a `client` without `send`, `getBuffer` and
+`close`. The message never repeats the URL, which may hold a password.
+**Fix:**
+
+```ts
+RedisQueueStore.open({ url: 'rediss://bumail:secret@cache.internal:6380/0' });
+// or a client of yours, configured as you need:
+RedisQueueStore.open({ client: new Bun.RedisClient(url, { connectionTimeout: 5000 }) });
+```
+
+### `QueueError: A Redis queue store takes client or url, not both`
+
+**Code:** `INVALID`. Give one: `client` for a client you configure and
+close, `url` for one the store opens and closes.
+
+### `QueueError: keyPrefix must be lowercase letters, digits, '_', ':', '.' and '-', starting with a letter, at most 40 characters, not …`
+
+**Code:** `INVALID`.
+**Why:** the prefix starts every key the store writes. Anything Redis or
+a `SCAN MATCH` reads specially is refused: `{` (a Cluster hash tag), `*`,
+`?`, `[` and `\` (glob characters), spaces and control characters.
+**Fix:** `keyPrefix: 'mail:queue:'`. Give each queue in one Redis
+database its own prefix.
+
+### `QueueError: The URL in url cannot be opened: …`
+
+**Code:** `INVALID`.
+**When:** `RedisQueueStore.open` with a URL `Bun.RedisClient` refuses
+before connecting, such as a database that is not a number (`Invalid
+database number in Redis URL: "…"`). The URL is never repeated, and the
+password is masked should the reason name it.
+**Fix:** correct the URL: the database is the path, `/0` to `/15` on a
+default Redis.
+
+### `QueueError: The Redis queue cannot be set up: …`
+
+**Code:** `INVALID`.
+**When:** the first call on a store, which reads the layout version of
+its keys (`<prefix>schema`), writing it on a new queue. The rest of the
+message is Redis's or Bun's: `Max reconnection attempts reached` (out of
+reach), `WRONGPASS invalid username-password pair or user is disabled.`,
+`ERR DB index is out of range`, `NOPERM …` (an ACL user without
+`EVALSHA`, `EVAL` or the keys).
+**Why:** the server is out of reach, the credentials or the database are
+wrong, or the user may not run scripts. With `Bun.RedisClient`'s
+defaults an unreachable server takes about half a minute of reconnecting
+before the call fails.
+**Fix:** check the URL and that Redis answers. An ACL user needs the
+commands the store sends and those its scripts call, on the keys under
+its prefix, and nothing else (the guide's [Redis](guide.md#redis) has
+the `ACL SETUSER` line). The next call tries again.
+
+### `QueueError: The key …schema does not hold a layout version: is the prefix another application's?`
+
+**Code:** `INVALID`.
+**When:** the first call on a store whose `<prefix>schema` key holds
+something other than a whole number of at least 1.
+**Why:** the store keeps its layout version there; anything else means
+another application, or a hand, wrote under the same prefix.
+**Fix:** give the queue a `keyPrefix` of its own. Nothing was written.
 
 ## Listing
 
@@ -531,7 +638,8 @@ directly with a text holding U+0000 or half of a surrogate pair — a string cut
 middle of an emoji, say. `createQueue` refuses such an `owner` the same
 way.
 **Why:** PostgreSQL cannot keep a NUL in text, and no UTF-8 encoding can
-carry a lone surrogate, so every store refuses them alike — whichever
+carry a lone surrogate (`Bun.RedisClient` would write one as U+FFFD
+without a word), so every store refuses them alike — whichever
 store you give it, the same text is kept or refused. The queue's own
 replies never hold one: it cuts a reply's text only between whole
 characters.

@@ -14,6 +14,7 @@ workers share it.
 - [Admin](#admin)
 - [The stores](#the-stores)
 - [PostgreSQL](#postgresql)
+- [Redis](#redis)
 - [Testing](#testing)
 - [Writing a store](#writing-a-store)
 - [Options](#options)
@@ -236,7 +237,8 @@ is written as `utf-8; j\x{F6}rg@…`, RFC 6533), and every field is folded.
 ## Several workers, leases and stopping
 
 Any number of queues may share one store, in one process or several —
-or, with [PostgreSQL](#postgresql), on several machines:
+or, with [PostgreSQL](#postgresql) or [Redis](#redis), on several
+machines:
 
 ```ts
 const store = SqliteQueueStore.open({ directory: '/var/lib/bumail/queue' });
@@ -362,7 +364,7 @@ store.close(); // closing twice is fine
   each item is claimed once; a writer waits up to `busyTimeout`
   milliseconds for another.
   Not on a network file system: SQLite's locks do not hold there. For
-  several machines, use [PostgreSQL](#postgresql).
+  several machines, use [PostgreSQL](#postgresql) or [Redis](#redis).
 - **Messages in a table of their own**, `messages`, dropped with their
   item in the same transaction. A queue holds a message for days at most
   and never shares one between items, so content addressing (as
@@ -375,6 +377,10 @@ store.close(); // closing twice is fine
 
 On PostgreSQL, for instances on several machines: see
 [PostgreSQL](#postgresql).
+
+### `RedisQueueStore`
+
+On Redis, for instances on several machines: see [Redis](#redis).
 
 ## PostgreSQL
 
@@ -493,6 +499,167 @@ Raise `max` only when a busy worker waits on the pool, and keep every
 instance's pool, and your application's, within the server's
 `max_connections` (100 by default): four instances of `max: 10` take 40.
 
+## Redis
+
+```ts
+import { createQueue } from '@bumail/queue';
+import { RedisQueueStore } from '@bumail/queue/redis';
+
+const client = new Bun.RedisClient(Bun.env['REDIS_URL']);
+const store = RedisQueueStore.open({ client, keyPrefix: 'mail:queue:' });
+const queue = createQueue({ store, hostname, resolver, owner: `${host}-${process.pid}` });
+queue.start();
+
+process.on('SIGTERM', async () => {
+	await queue.stop();
+	client.close(); // yours: the store never closes a client it was given
+});
+```
+
+`@bumail/queue/redis` runs on Bun's own `Bun.RedisClient` (`Bun.redis`
+is its default instance): there is no driver to install and no peer to
+add. Every instance of your server opens a store on the same Redis, and
+they share one queue. It is held to the same contract specs as the other
+stores, and to the same specs of two instances delivering every item
+exactly once, against `redis:7`.
+
+### The client
+
+- **`client`** is a `Bun.RedisClient` of yours — you set its options and
+  close it — or **`url`** a `redis://` (`rediss://` for TLS, or the other
+  schemes `Bun.RedisClient` takes), for which the store opens a client
+  with Bun's defaults and closes it in `close()`. One or the other, never
+  both.
+- It is typed by its shape, `RedisQueueClient` (`send`, `getBuffer` and
+  `close`), so the declarations need nothing of `@types/bun`; a
+  `Bun.RedisClient` fits it.
+- **Nothing connects at `open`**: a wrong option is refused there, and a
+  server out of reach on the first call. With Bun's defaults a client
+  reconnects on its own, up to 20 times, and holds the commands sent
+  while it is disconnected until Redis is back (a `PING` sent during a
+  5-second stop answered once Redis started again). A command already
+  sent when the connection drops, or sent before the client noticed,
+  fails instead (`Connection closed`): a renewal tries again on its own,
+  and a claim or an outcome is told on `error` (see Troubleshooting).
+- One client is one connection, pipelined: every call of one store goes
+  through it, so there is no pool to size.
+
+### The keys
+
+Every key starts with `keyPrefix` (`bumail:queue:` by default):
+
+| key | type | what it holds |
+| --- | --- | --- |
+| `<prefix>item:<id>` | hash | an item: `id`, `from`, `recipients` (JSON, each recipient's state), `size`, `created`, `next`, `attempts`, `delay`, while leased `owner` and `expires`, its `member` in the sorted sets and `rev`, how many outcomes were recorded |
+| `<prefix>message:<id>` | string | the message as enqueued, whole, byte for byte |
+| `<prefix>items` | sorted set | every item, scored by its next attempt: `list` and `count` |
+| `<prefix>ready` | sorted set | the items no lease holds, scored by their next attempt |
+| `<prefix>leases` | sorted set | the leased items, scored by when their leases expire |
+| `<prefix>seq` | string | the counter that orders items equally due |
+| `<prefix>schema` | string | the layout version |
+
+A member of the sorted sets is the item's sequence number, sixteen
+digits, then `:` and its id, so items equally due come oldest first.
+Times are kept as the strings JavaScript writes for them, and read back
+exactly. The prefix is lowercase letters, digits, `_`, `:`, `.` and
+`-`, starting with a letter, 40 characters at most: no `{`, so no
+Cluster hash tag, and no glob character, so `SCAN 0 MATCH <prefix>*`
+finds the queue's keys and nothing else. A `<prefix>schema` that holds
+anything but a layout version is refused at the first call: the prefix
+is another application's. Give each queue its own
+prefix to keep several in one Redis database. An id the store did not
+make (`crypto.randomUUID()`'s form) is one no item has: no id a caller
+gives reaches another key.
+
+### Several instances and leases
+
+Every operation that writes is one Lua script, run by `EVALSHA` (by
+`EVAL` when Redis no longer has it, after a restart, a failover or a
+`SCRIPT FLUSH`): Redis runs a script whole, with no command of another
+instance between its steps.
+
+- **A claim** takes the first item of `ready` due by `now`, and every
+  lease of `leases` expired by `now`, keeps the earliest due of them,
+  then the oldest, and moves it from `ready` to `leases` with its new
+  expiry, in one script. Two instances never take the same item. An
+  expired lease is found at once, not by a sweep; there are only as many
+  as a crashed or stalled instance left.
+- **`complete`** reads the item, applies the outcome in JavaScript, and
+  records it with a script that checks the owner still holds the lease
+  and that no other outcome was recorded since (`rev`); otherwise it
+  reads again, at most 8 times, then records nothing (`LEASE_LOST`), as
+  it does when the lease was lost.
+- **`renew`**, **`reschedule`** and **`cancel`** are a script each, and
+  an `add` with `limits.maxItems` counts and adds in one, so two
+  instances never both take the last place.
+- **The clocks** of the instances must agree, as on PostgreSQL: the store
+  keeps no clock, and Redis's is never read.
+
+### Deploying Redis
+
+- **One Redis, or a primary with replicas — not Redis Cluster.** A script
+  reaches each item's keys, which are not all named up front, so the
+  queue's keys must live on one node. Point the store at the primary: a
+  replica refuses writes (`READONLY`). After a failover, the URL must
+  reach the new primary — a provider's endpoint that follows it, say.
+- **Durability is Redis's, and weaker than PostgreSQL's.** Redis
+  acknowledges a write once it is in memory:
+  - with `appendonly yes` and `appendfsync always`, a write is on disk
+    before it is acknowledged, as on `bun:sqlite` or PostgreSQL;
+  - with `appendfsync everysec` (Redis's default once AOF is on), a
+    crash of the server loses up to about a second of acknowledged
+    writes;
+  - with snapshots only (`save`, AOF off), it loses everything since the
+    last snapshot, minutes of it;
+  - **replication is asynchronous**: a primary that fails before its
+    replica has a write loses that write when the replica is promoted,
+    whatever the fsync setting.
+
+  A lost write is an enqueued message gone (the client was told it was
+  queued), an outcome forgotten (a recipient delivered and sent the
+  message again), or a lease given twice. Use `appendfsync always`
+  where a lost message matters, and PostgreSQL where it must survive a
+  failover.
+- **`maxmemory-policy noeviction`.** Every message lives in memory, whole,
+  until its item is done. Under any other policy a full Redis evicts
+  queue keys — an item, or its message — to make room; with
+  `noeviction` it refuses the write (`OOM command not allowed`), and
+  `enqueue` rejects with that `RedisError`. An item whose hash is gone
+  all the same (evicted, or deleted by hand) is dropped by the next
+  claim that meets it, its message with it, and never leased. Bound the queue with `limits.maxItems` and
+  `limits.maxMessageSize`, and size `maxmemory` for both.
+- **An ACL user** needs the commands the store sends and the ones its
+  scripts call, on its prefix's keys (`~<keyPrefix>*`; here the
+  example's `mail:queue:`), and nothing else:
+
+  ```
+  ACL SETUSER bumail-worker on >secret resetkeys ~mail:queue:* -@all +evalsha +eval +get +set +del +incr +hgetall +hget +hset +hdel +hincrby +zadd +zrem +zrange +zrangebyscore +zcard
+  ```
+
+### What `Bun.redis` does with bytes and text
+
+Measured on Bun 1.4.2 against Redis 7:
+
+- An argument may be a `Uint8Array`: `send` writes it as it is, every
+  byte value, to `EVAL` and `EVALSHA` too. That is how a message is
+  written, through the script that adds its item.
+- A bulk string in a reply is decoded as UTF-8 into a JavaScript string,
+  so bytes that are not UTF-8 do not come back from `send`. A message is
+  read with `getBuffer`, which keeps the bytes.
+- A string argument is encoded as UTF-8, and a lone surrogate becomes
+  U+FFFD without a word: the contract's checks refuse a lone surrogate
+  (and a NUL, which Redis could keep) before anything is sent, so what is
+  read back is always what was given.
+- `HGETALL` sent directly comes back as an object; the same from a script
+  as a flat list of names and values. A script's `false` is `null`.
+- An error reply rejects with a `RedisError` whose message is Redis's
+  (`NOSCRIPT No matching script…`); none of them repeats the URL.
+- A server out of reach: with Bun's defaults a call waits for 20
+  reconnections, about half a minute, then rejects with `Max
+  reconnection attempts reached`; a URL that is not one is not refused by
+  `new Bun.RedisClient`, only by its first call, so the store checks the
+  scheme itself.
+
 ## Testing
 
 Inject the clock and the sender, and call `deliverDue()` by hand: no
@@ -557,12 +724,16 @@ codes, and keeps its promises:
   dropped with its message.
 - Times are given by the caller; the store keeps no clock.
 - Nothing it returns is shared with what it keeps.
+- `reschedule` with an owner refuses an empty owner as `INVALID`, even
+  for an id no item has. An id a store cannot keep (one holding a NUL or
+  a lone surrogate) may instead be answered `false`, unknown, before the
+  owner is checked.
 - Text it keeps holds no NUL and no lone surrogate: the contract's
   checks refuse them (`INVALID`) in what is added, claimed and recorded,
   since PostgreSQL cannot keep them, and an id holding one is unknown.
   The queue never gives a store such text: it cleans every reply.
 
-The contract's specs, `describeQueueStore`, which both stores here run,
+The contract's specs, `describeQueueStore`, which every store here runs,
 are internal for now: a store written outside this package cannot run
 them yet.
 
