@@ -20,6 +20,7 @@ import type {
 	QueueListOptions,
 } from '../contract/types';
 import { QueueError } from '../errors';
+import { masked } from '../masked';
 import { isStorable } from '../text';
 import { type Connection, connect, type Tables } from './connect';
 import type {
@@ -54,13 +55,15 @@ export class PostgresQueueStore implements QueueStore {
 	readonly #owned: boolean;
 	readonly #tables: Tables;
 	readonly #q: Statements;
+	readonly #password: string;
 	#migrated: Promise<void> | undefined;
 	#closed = false;
 
-	private constructor({ client, owned, tables }: Connection) {
+	private constructor({ client, owned, tables, password }: Connection) {
 		this.#client = client;
 		this.#owned = owned;
 		this.#tables = tables;
+		this.#password = password;
 		this.#q = statementsOf(tables);
 	}
 
@@ -81,7 +84,7 @@ export class PostgresQueueStore implements QueueStore {
 			if (error instanceof QueueError) throw error;
 			throw new QueueError(
 				'INVALID',
-				`The PostgreSQL queue cannot be set up: ${messageOf(error)}`,
+				`The PostgreSQL queue cannot be set up: ${masked(messageOf(error), this.#password)}`,
 			);
 		});
 		return this.#migrated;

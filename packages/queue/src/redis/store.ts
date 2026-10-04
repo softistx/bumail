@@ -19,6 +19,7 @@ import type {
 	QueueListOptions,
 } from '../contract/types';
 import { QueueError } from '../errors';
+import { masked } from '../masked';
 import { isStorable } from '../text';
 import { type Connection, connect, type Keys } from './connect';
 import { fieldsOf, isId, itemOf, outcomeOf, time } from './items';
@@ -47,13 +48,15 @@ export class RedisQueueStore implements QueueStore {
 	readonly #client: RedisQueueClient;
 	readonly #owned: boolean;
 	readonly #keys: Keys;
+	readonly #password: string;
 	#ready: Promise<void> | undefined;
 	#closed = false;
 
-	private constructor({ client, owned, keys }: Connection) {
+	private constructor({ client, owned, keys, password }: Connection) {
 		this.#client = client;
 		this.#owned = owned;
 		this.#keys = keys;
+		this.#password = password;
 	}
 
 	/** Checks the options; connects to nothing until the first call. What is wrong is `INVALID`. */
@@ -79,7 +82,7 @@ export class RedisQueueStore implements QueueStore {
 			const reason = error instanceof Error ? error.message : String(error);
 			throw new QueueError(
 				'INVALID',
-				`The Redis queue cannot be set up: ${reason}`,
+				`The Redis queue cannot be set up: ${masked(reason, this.#password)}`,
 			);
 		});
 		return this.#ready;

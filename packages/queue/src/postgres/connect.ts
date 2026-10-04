@@ -15,6 +15,12 @@ export interface Connection {
 	readonly client: PostgresClient;
 	readonly owned: boolean;
 	readonly tables: Tables;
+	/**
+	 * The password the client logs in with, as far as the store can know
+	 * it — its URL's, or a given `Bun.SQL`'s `options.password` — so an
+	 * error that repeats it is masked; `''` when unknown.
+	 */
+	readonly password: string;
 }
 
 const DEFAULT_PREFIX = 'bumail_queue_';
@@ -87,16 +93,34 @@ function checkAdapter(client: PostgresClient): void {
 	}
 }
 
+/** A given client's password, when it says it as text (`Bun.SQL` does). */
+function passwordOf(client: PostgresClient): string {
+	const password = (client as { options?: { password?: unknown } }).options
+		?.password;
+	return typeof password === 'string' ? password : '';
+}
+
 /** Checks the options and opens a client for a URL; connects to nothing yet. */
 export function connect(options: PostgresQueueStoreOptions): Connection {
 	const given = (options as PostgresQueueStoreOptions | undefined)?.sql;
 	const tables = tablesOf(options?.tablePrefix);
 	if (isClient(given)) {
 		checkAdapter(given);
-		return { client: given, owned: false, tables };
+		return {
+			client: given,
+			owned: false,
+			tables,
+			password: passwordOf(given),
+		};
 	}
 	if (typeof given !== 'string' && !(given instanceof URL)) {
 		throw invalid(NEEDS_SQL);
 	}
-	return { client: clientFor(urlOf(given)), owned: true, tables };
+	const url = urlOf(given);
+	return {
+		client: clientFor(url),
+		owned: true,
+		tables,
+		password: url.password,
+	};
 }
