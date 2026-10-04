@@ -3,14 +3,13 @@ import { sign } from '../jws/sign';
 import { isObject, MAX_JSON_BYTES, parseJson, readBounded } from './body';
 import { abortedError, failureOf, untilAborted } from './failure';
 import { replayNonce } from './headers';
+import { NoncePool } from './nonces';
 import { ACME_ERROR, problemError } from './problem';
 import { directoryOf } from './resources';
 import type { AcmeDirectory, AcmeFetch } from './types';
 
 /** How many times a request is signed again after a `badNonce` (RFC 8555 §6.5), each with the nonce that refusal gave. */
 export const MAX_BAD_NONCE_RETRIES = 3;
-/** The most nonces kept for later requests. */
-const MAX_NONCES = 16;
 /** RFC 8555 §6.1: a client sends a User-Agent. */
 const USER_AGENT = 'bumail-acme';
 
@@ -48,7 +47,7 @@ export interface PostOptions {
  */
 export class Transport {
 	readonly #settings: TransportSettings;
-	readonly #nonces: string[] = [];
+	readonly #nonces = new NoncePool();
 	#directory: AcmeDirectory | undefined;
 	#pending: Promise<AcmeDirectory> | undefined;
 
@@ -147,7 +146,7 @@ export class Transport {
 	): Promise<Exchange> {
 		const { kid, signal } = options;
 		for (let attempt = 0; ; attempt++) {
-			const nonce = this.#nonces.pop() ?? (await this.newNonce(where, signal));
+			const nonce = this.#nonces.take() ?? (await this.newNonce(where, signal));
 			const body = await sign(
 				{
 					keyPair: this.#settings.accountKey,
@@ -214,8 +213,7 @@ export class Transport {
 			});
 			const nonce = replayNonce(response.headers);
 			if (keep && nonce !== undefined) {
-				this.#nonces.push(nonce);
-				if (this.#nonces.length > MAX_NONCES) this.#nonces.shift();
+				this.#nonces.keep(nonce);
 			}
 			const { status, headers } = response;
 			if (status >= 300 && status < 400) {

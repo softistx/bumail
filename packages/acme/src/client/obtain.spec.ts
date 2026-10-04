@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { X509Certificate } from 'node:crypto';
 import { http01Responder } from '../challenge/responder';
 import { AcmeError } from '../errors';
 import { generateKeyPair } from '../keys/keys';
 import { AcmeClient } from './client';
-import { BASE, FAKE_CHAIN, FakeCa, PROBLEM } from './fake-ca.fixtures';
-import { type Http01Hooks, obtainCertificate } from './obtain';
+import { BASE, FakeCa, PROBLEM } from './fake-ca.fixtures';
+import { obtainCertificate } from './obtain';
+import type { Http01Hooks } from './tokens';
 
 const accountKey = await generateKeyPair();
 const certificateKey = await generateKeyPair();
@@ -68,7 +70,7 @@ describe('obtainCertificate', () => {
 				remove: (token) => responder.remove(token),
 			},
 		});
-		expect(result.certificate).toBe(FAKE_CHAIN);
+		expect(result.certificate).toBe(ca.chain ?? '');
 		expect(result.order.status).toBe('valid');
 		expect(result.csr.names).toEqual(['a.example', 'b.example']);
 		expect(served).toEqual(['token0http01', 'token1http01']);
@@ -347,33 +349,41 @@ describe('obtainCertificate', () => {
 	});
 });
 
-describe('obtainCertificate, as the review asked', () => {
-	test('a set that never settles is stopped by timeoutMs, its token removed', async () => {
+describe('obtainCertificate: hooks that hang, and answers that do not match', () => {
+	test('a set that lands after timeoutMs is still removed, once it settled', async () => {
 		const { client } = await setUp();
-		const removed: string[] = [];
+		const responder = http01Responder();
+		const calls: string[] = [];
 		const error = await rejection(
 			obtainCertificate({
 				client,
 				names: ['a.example'],
 				certificateKey,
 				http01: {
-					set: () => new Promise(() => {}),
-					remove: (token) => {
-						removed.push(token);
+					async set(token, keyAuthorization) {
+						await Bun.sleep(200);
+						calls.push(`set ${token}`);
+						responder.set(token, keyAuthorization);
+					},
+					remove(token) {
+						calls.push(`remove ${token}`);
+						responder.remove(token);
 					},
 				},
-				timeoutMs: 100,
+				timeoutMs: 50,
 			}),
 		);
 		expect(error.code).toBe('TIMEOUT');
 		expect(error.message).toBe(
-			'obtainCertificate(): no certificate within 100 ms',
+			'obtainCertificate(): no certificate within 50 ms',
 		);
-		expect(removed).toEqual(['token0http01']);
+		expect(calls).toEqual(['set token0http01', 'remove token0http01']);
+		expect(responder.size).toBe(0);
 	});
 
-	test('a set that never settles is stopped by the signal', async () => {
+	test('a set that lands after the signal aborted is still removed', async () => {
 		const { client } = await setUp();
+		const responder = http01Responder();
 		const controller = new AbortController();
 		setTimeout(() => controller.abort(), 30);
 		const error = await rejection(
@@ -381,11 +391,18 @@ describe('obtainCertificate, as the review asked', () => {
 				client,
 				names: ['a.example'],
 				certificateKey,
-				http01: { set: () => new Promise(() => {}), remove: () => {} },
+				http01: {
+					async set(token, keyAuthorization) {
+						await Bun.sleep(150);
+						responder.set(token, keyAuthorization);
+					},
+					remove: (token) => responder.remove(token),
+				},
 				signal: controller.signal,
 			}),
 		);
 		expect(error.code).toBe('ABORTED');
+		expect(responder.size).toBe(0);
 	});
 
 	test('when the flow failed and remove throws too, the flow’s error wins', async () => {
@@ -430,6 +447,155 @@ describe('obtainCertificate, as the review asked', () => {
 		expect(error.code).toBe('BAD_RESPONSE');
 		expect(error.message).toBe(
 			`obtainCertificate(): the CA's order is "valid" but has no "certificate"`,
+		);
+	});
+
+	test('an order for other names than requested is BAD_RESPONSE, nothing set', async () => {
+		const { ca, client } = await setUp();
+		ca.routes.set('POST /order', (_, fake) => {
+			fake.names = ['a.example', 'evil.example'];
+			return fake.json(fake.order(), 201, { location: `${BASE}/order/1` });
+		});
+		const { hooks, calls } = loggingHooks();
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: hooks,
+			}),
+		);
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			`obtainCertificate(): the CA's order is for "a.example, evil.example", not the names requested`,
+		);
+		expect(calls).toEqual([]);
+	});
+
+	test('the same names in another order and case are accepted', async () => {
+		const { ca, client } = await setUp();
+		ca.routes.set('POST /order', (request, fake) => {
+			const { identifiers } = request.payload as {
+				identifiers: { value: string }[];
+			};
+			fake.names = identifiers.map((i) => i.value);
+			fake.authorizations = fake.names.map(() => 'pending');
+			const order = fake.order();
+			order['identifiers'] = [...fake.names]
+				.reverse()
+				.map((value) => ({ type: 'dns', value: value.toUpperCase() }));
+			return fake.json(order, 201, { location: `${BASE}/order/1` });
+		});
+		const result = await obtainCertificate({
+			client,
+			names: ['a.example', 'b.example'],
+			certificateKey,
+			http01: loggingHooks().hooks,
+		});
+		expect(result.order.status).toBe('valid');
+	});
+
+	test('an order with more authorizations than names is BAD_RESPONSE', async () => {
+		const { ca, client } = await setUp();
+		ca.routes.set('POST /order', (_, fake) => {
+			fake.names = ['a.example'];
+			const order = fake.order();
+			order['authorizations'] = [`${BASE}/authz/0`, `${BASE}/authz/1`];
+			return fake.json(order, 201, { location: `${BASE}/order/1` });
+		});
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: loggingHooks().hooks,
+			}),
+		);
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			"obtainCertificate(): the CA's order lists 2 authorizations for 1 names",
+		);
+	});
+
+	test('an order already valid before finalize is BAD_RESPONSE', async () => {
+		const { ca, client } = await setUp();
+		ca.routes.set('POST /order/1', (_, fake) => {
+			fake.orderStatus = 'valid';
+			return fake.json(fake.order());
+		});
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: loggingHooks().hooks,
+			}),
+		);
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			`obtainCertificate(): the CA's order is "valid" before it was finalized`,
+		);
+		expect(ca.to('/finalize/1')).toEqual([]);
+	});
+
+	test('a certificate for another key is BAD_RESPONSE', async () => {
+		const { ca, client } = await setUp();
+		ca.issueSpki = new Uint8Array(
+			await crypto.subtle.exportKey(
+				'spki',
+				(await generateKeyPair()).publicKey,
+			),
+		);
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: loggingHooks().hooks,
+			}),
+		);
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			"obtainCertificate(): the CA's certificate is not for certificateKey",
+		);
+	});
+
+	test('a certificate for other names is BAD_RESPONSE', async () => {
+		const { ca, client } = await setUp();
+		ca.issueNames = ['a.example', 'evil.example'];
+		const error = await rejection(
+			obtainCertificate({
+				client,
+				names: ['a.example'],
+				certificateKey,
+				http01: loggingHooks().hooks,
+			}),
+		);
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			`obtainCertificate(): the CA's certificate names "DNS:a.example, DNS:evil.example", not the names requested`,
+		);
+	});
+
+	test('the leaf is checked against the CSR: its key and its names', async () => {
+		const { client } = await setUp();
+		const result = await obtainCertificate({
+			client,
+			names: ['b.example', 'a.example'],
+			certificateKey,
+			http01: loggingHooks().hooks,
+		});
+		const [block] = result.certificate.split(
+			/(?<=-----END CERTIFICATE-----)\n/,
+		);
+		const leaf = new X509Certificate(block ?? '');
+		expect(leaf.subjectAltName).toBe('DNS:b.example, DNS:a.example');
+		expect(
+			Buffer.from(leaf.publicKey.export({ type: 'spki', format: 'der' })),
+		).toEqual(
+			Buffer.from(
+				await crypto.subtle.exportKey('spki', certificateKey.publicKey),
+			),
 		);
 	});
 });

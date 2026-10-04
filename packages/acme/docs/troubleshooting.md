@@ -109,7 +109,14 @@ changes nothing; the others are about the CA's answer, or the way to it.
 - [`AcmeError: …: the CA answered a redirect (…), which an ACME client does not follow`](#acmeerror--the-ca-answered-a-redirect--which-an-acme-client-does-not-follow)
 - [`AcmeError: …: the CA's newNonce answer has no valid Replay-Nonce`](#acmeerror--the-cas-newnonce-answer-has-no-valid-replay-nonce)
 - [`AcmeError: certificate(): the CA's answer is not a PEM certificate chain`](#acmeerror-certificate-the-cas-answer-is-not-a-pem-certificate-chain)
+- [`AcmeError: certificate(): the CA's chain holds a block that is not an X.509 certificate`](#acmeerror-certificate-the-cas-chain-holds-a-block-that-is-not-an-x509-certificate)
+- [`AcmeError: certificate(): the CA's chain is not in order, each certificate issued by the next`](#acmeerror-certificate-the-cas-chain-is-not-in-order-each-certificate-issued-by-the-next)
 - [`AcmeError: obtainCertificate(): the CA's order is "valid" but has no "certificate"`](#acmeerror-obtaincertificate-the-cas-order-is-valid-but-has-no-certificate)
+- [`AcmeError: obtainCertificate(): the CA's order is for "…", not the names requested`](#acmeerror-obtaincertificate-the-cas-order-is-for--not-the-names-requested)
+- [`AcmeError: obtainCertificate(): the CA's order lists … authorizations for … names`](#acmeerror-obtaincertificate-the-cas-order-lists--authorizations-for--names)
+- [`AcmeError: obtainCertificate(): the CA's order is "valid" before it was finalized`](#acmeerror-obtaincertificate-the-cas-order-is-valid-before-it-was-finalized)
+- [`AcmeError: obtainCertificate(): the CA's certificate is not for certificateKey`](#acmeerror-obtaincertificate-the-cas-certificate-is-not-for-certificatekey)
+- [`AcmeError: obtainCertificate(): the CA's certificate names "…", not the names requested`](#acmeerror-obtaincertificate-the-cas-certificate-names--not-the-names-requested)
 
 **NETWORK_ERROR**
 
@@ -121,6 +128,7 @@ changes nothing; the others are about the CA's answer, or the way to it.
 - [`AcmeError: …: the signal timed out`](#acmeerror--the-signal-timed-out)
 - [`AcmeError: …: still … after … ms`](#acmeerror--still--after--ms)
 - [`AcmeError: obtainCertificate(): no certificate within … ms`](#acmeerror-obtaincertificate-no-certificate-within--ms)
+- [`AcmeError: obtainCertificate(): http01.set(…) did not settle within 10000 ms, so its token may stay served`](#acmeerror-obtaincertificate-http01set-did-not-settle-within-10000-ms-so-its-token-may-stay-served)
 - [`AcmeError: obtainCertificate(): http01.remove(…) did not settle within 10000 ms`](#acmeerror-obtaincertificate-http01remove-did-not-settle-within-10000-ms)
 
 **ABORTED**
@@ -908,6 +916,22 @@ try {
 
 **Fix**: download it again; if it persists, report it to the CA.
 
+### `AcmeError: certificate(): the CA's chain holds a block that is not an X.509 certificate`
+
+**When**: the download is PEM, but a `CERTIFICATE` block in it does not parse as an X.509 certificate. The parser's error is `error.cause`.
+
+**Why**: each certificate of the chain is read before it is handed back, so a broken one is refused here rather than by a TLS listener later.
+
+**Fix**: download it again with `client.certificate(order.certificate)`; if it persists, report it to the CA.
+
+### `AcmeError: certificate(): the CA's chain is not in order, each certificate issued by the next`
+
+**When**: a certificate of the chain was not issued, and signed, by the one after it: the blocks are out of order, or one of them belongs to another chain.
+
+**Why**: RFC 8555 §7.4.2 puts the leaf first and each issuer after the certificate it signed; a TLS listener sends the chain in that order, and clients reject one that does not link.
+
+**Fix**: report it to the CA. Reordering the blocks yourself hides a CA bug; download it again first.
+
 ### `AcmeError: obtainCertificate(): the CA's order is "valid" but has no "certificate"`
 
 **When**: the order became `valid` without a certificate URL.
@@ -915,6 +939,46 @@ try {
 **Why**: RFC 8555 §7.1.3 requires one once the order is valid.
 
 **Fix**: report it to the CA.
+
+### `AcmeError: obtainCertificate(): the CA's order is for "…", not the names requested`
+
+**When**: the order `newOrder` returned lists other DNS identifiers than `names` — one more, one fewer or a different one. Case and order do not matter. Nothing was set through the hooks.
+
+**Why**: RFC 8555 §7.4 has the CA echo the identifiers asked for; validating and finalizing an order for other names would serve tokens for names you did not ask for, or end in a certificate that does not cover yours.
+
+**Fix**: report it to the CA, with the order's URL (`error.cause` is unset; log the names you passed).
+
+### `AcmeError: obtainCertificate(): the CA's order lists … authorizations for … names`
+
+**When**: the order lists more authorization URLs than names requested.
+
+**Why**: a CA gives one authorization per identifier, at most; more would make `obtainCertificate` set tokens for names you did not ask for.
+
+**Fix**: report it to the CA.
+
+### `AcmeError: obtainCertificate(): the CA's order is "valid" before it was finalized`
+
+**When**: once its authorizations were valid, the order was already `valid`, before `obtainCertificate` sent its CSR.
+
+**Why**: an order becomes `valid` only after finalize (RFC 8555 §7.1.6); one that is valid before has a certificate issued for a key this flow never sent, so it is not used.
+
+**Fix**: report it to the CA, then call `obtainCertificate` again for a new order.
+
+### `AcmeError: obtainCertificate(): the CA's certificate is not for certificateKey`
+
+**When**: the leaf of the chain holds another public key than `certificateKey.publicKey`, the key the CSR was signed with.
+
+**Why**: a certificate for another key cannot be served with yours: the TLS handshake would fail, or worse, the CA issued someone else's certificate.
+
+**Fix**: do not install it; report it to the CA. The order is `valid`, so `result` is not returned; download it with `client.certificate()` only to send it with the report.
+
+### `AcmeError: obtainCertificate(): the CA's certificate names "…", not the names requested`
+
+**When**: the leaf's subjectAltName is not exactly the DNS names of `names`: one is missing, one is added, or an entry is not a DNS name. The message quotes the leaf's entries, as `DNS:a.example, DNS:b.example`. Case and order do not matter.
+
+**Why**: a certificate that misses a name breaks TLS for that name, and one with names you did not ask for is not the certificate you ordered.
+
+**Fix**: do not install it; report it to the CA.
 
 ## NETWORK_ERROR
 
@@ -971,11 +1035,19 @@ const client = new AcmeClient({
 
 **Fix**: read `error.cause`; check port 80 is reachable from the Internet for every name.
 
+### `AcmeError: obtainCertificate(): http01.set(…) did not settle within 10000 ms, so its token may stay served`
+
+**When**: a `set` hook was still running when the flow ended — it hung past `timeoutMs` or the signal — and did not settle within the 10 seconds the cleanup allows. Its `remove` was still called, at once, unwaited; this error is thrown when nothing else failed.
+
+**Why**: a token is removed only once its `set` settled, so that a `set` landing late cannot serve the token again after its `remove`. A `set` that never settles leaves that order unknown: the token may be served after all.
+
+**Fix**: make `set` settle, with a time limit of its own on whatever it writes to; then check the responder for the token and remove it by hand.
+
 ### `AcmeError: obtainCertificate(): http01.remove(…) did not settle within 10000 ms`
 
 **When**: a `remove` hook neither returned nor threw within 10 seconds. Every other token was still removed; this error is thrown when nothing else failed, and the order is left `ready` (its authorizations stay valid for a while, so a new attempt reuses them).
 
-**Why**: `remove` runs even after the flow's time is up or its signal fired, so each call has a bound of its own, and a hook that hangs cannot hold `obtainCertificate`.
+**Why**: `remove` runs even after the flow's time is up or its signal fired, so the cleanup has a bound of its own: every token is removed at once, each `remove` after its `set` settled, all within one 10-second grace, and a hook that hangs cannot hold `obtainCertificate`.
 
 **Fix**: make the hook settle — a file write, a store call with a time limit of its own. A token left served is harmless, but stale.
 

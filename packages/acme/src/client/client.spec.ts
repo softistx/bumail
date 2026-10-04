@@ -2,9 +2,10 @@ import { describe, expect, test } from 'bun:test';
 import { createCsr } from '../csr/csr';
 import { AcmeError } from '../errors';
 import { generateKeyPair } from '../keys/keys';
+import { issueCertificate, selfSignedCertificate } from '../keys/x509.fixtures';
 import { MAX_CERTIFICATE_BYTES, MAX_JSON_BYTES } from './body';
 import { AcmeClient } from './client';
-import { BASE, FAKE_CHAIN, FakeCa, PROBLEM } from './fake-ca.fixtures';
+import { BASE, FakeCa, PROBLEM } from './fake-ca.fixtures';
 import { MAX_RETRY_AFTER } from './headers';
 import { MAX_BAD_NONCE_RETRIES } from './transport';
 
@@ -343,7 +344,7 @@ describe('POST-as-GET (RFC 8555 §6.3)', () => {
 		const finalized = await client.finalize(order, csr);
 		expect(finalized.status).toBe('valid');
 		expect(await client.certificate(finalized.certificate ?? '')).toBe(
-			FAKE_CHAIN,
+			ca.chain ?? '',
 		);
 		expect(ca.to('/authz/0')[0]?.payload).toBe('');
 		expect(ca.to('/chall/0/http-01')[0]?.payload).toEqual({});
@@ -744,6 +745,53 @@ describe('size caps', () => {
 			"certificate(): the CA's answer is not a PEM certificate chain",
 		);
 	});
+
+	test('a PEM block that is not an X.509 certificate is BAD_RESPONSE', async () => {
+		const { ca, client } = await withAccount();
+		ca.routes.set(
+			'POST /cert/1',
+			(_, fake) =>
+				new Response(
+					`-----BEGIN CERTIFICATE-----\n${'QUJD'.repeat(16)}\n-----END CERTIFICATE-----\n`,
+					{ headers: { 'replay-nonce': fake.nonce() } },
+				),
+		);
+		const error = await rejection(client.certificate(`${BASE}/cert/1`));
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			"certificate(): the CA's chain holds a block that is not an X.509 certificate",
+		);
+	});
+
+	test('a chain not in order, each issued by the next, is BAD_RESPONSE', async () => {
+		const { ca, client } = await withAccount();
+		const rootKey = await generateKeyPair();
+		const leafKey = await generateKeyPair();
+		const root = await selfSignedCertificate(rootKey, 'Root');
+		const leaf = await issueCertificate({
+			spki: new Uint8Array(
+				await crypto.subtle.exportKey('spki', leafKey.publicKey),
+			),
+			names: ['a.example'],
+			subject: 'a.example',
+			issuer: 'Root',
+			signer: rootKey.privateKey,
+		});
+		const serve = (chain: string) =>
+			ca.routes.set(
+				'POST /cert/1',
+				(_, fake) =>
+					new Response(chain, { headers: { 'replay-nonce': fake.nonce() } }),
+			);
+		serve(`${leaf}${root}`);
+		expect(await client.certificate(`${BASE}/cert/1`)).toBe(`${leaf}${root}`);
+		serve(`${root}${leaf}`);
+		const error = await rejection(client.certificate(`${BASE}/cert/1`));
+		expect(error.code).toBe('BAD_RESPONSE');
+		expect(error.message).toBe(
+			"certificate(): the CA's chain is not in order, each certificate issued by the next",
+		);
+	});
 });
 
 describe('the account key', () => {
@@ -835,7 +883,7 @@ describe('options', () => {
 	});
 });
 
-describe('what the review asked for', () => {
+describe('AcmeClient: what the CA answers, checked and bounded', () => {
 	test('finalize answered "invalid" is ORDER_FAILED', async () => {
 		const { ca, client } = await withAccount();
 		const order = await client.newOrder({

@@ -37,29 +37,59 @@ export async function selfSignedCertificate(
 	keyPair: CryptoKeyPair,
 	name: string,
 ): Promise<string> {
-	const ec = keyPair.privateKey.algorithm.name === 'ECDSA';
+	return await issueCertificate({
+		spki: new Uint8Array(
+			await crypto.subtle.exportKey('spki', keyPair.publicKey),
+		),
+		names: [name],
+		subject: name,
+		issuer: name,
+		signer: keyPair.privateKey,
+	});
+}
+
+/** What `issueCertificate` writes. */
+export interface IssueOptions {
+	/** The subject's public key, as SubjectPublicKeyInfo DER. */
+	spki: Uint8Array;
+	/** The DNS names of its subjectAltName. */
+	names: readonly string[];
+	/** The CNs of the subject and the issuer. */
+	subject: string;
+	issuer: string;
+	/** The issuer's private key, ECDSA P-256 or RSA. */
+	signer: CryptoKey;
+}
+
+/** A certificate valid from an hour ago for a day: the subject's key and names, signed by the issuer. */
+export async function issueCertificate(options: IssueOptions): Promise<string> {
+	const { spki, names, subject, issuer, signer } = options;
+	const ec = signer.algorithm.name === 'ECDSA';
 	const algorithm = ec
 		? sequence(oid(OID.ecdsaWithSha256))
 		: sequence(oid(OID.sha256WithRsaEncryption), nullValue());
-	const dn = sequence(set(sequence(oid(OID.commonName), utf8String(name))));
+	const dn = (cn: string) =>
+		sequence(set(sequence(oid(OID.commonName), utf8String(cn))));
 	const now = Date.now();
 	const tbs = sequence(
 		explicit(0, integer(2)),
 		integer(crypto.getRandomValues(new Uint8Array(16))),
 		algorithm,
-		dn,
+		dn(issuer),
 		sequence(
 			utcTime(new Date(now - 3_600_000)),
 			utcTime(new Date(now + 86_400_000)),
 		),
-		dn,
-		new Uint8Array(await crypto.subtle.exportKey('spki', keyPair.publicKey)),
+		dn(subject),
+		spki,
 		explicit(
 			3,
 			sequence(
 				sequence(
 					oid(OID.subjectAltName),
-					octetString(sequence(implicit(2, ia5String(name)))),
+					octetString(
+						sequence(...names.map((name) => implicit(2, ia5String(name)))),
+					),
 				),
 			),
 		),
@@ -67,7 +97,7 @@ export async function selfSignedCertificate(
 	const raw = new Uint8Array(
 		await crypto.subtle.sign(
 			ec ? { name: 'ECDSA', hash: 'SHA-256' } : { name: 'RSASSA-PKCS1-v1_5' },
-			keyPair.privateKey,
+			signer,
 			tbs as BufferSource,
 		),
 	);

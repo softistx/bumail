@@ -5,7 +5,6 @@ export {
 } from './challenge/responder';
 export { AcmeClient } from './client/client';
 export {
-	type Http01Hooks,
 	type ObtainCertificateOptions,
 	type ObtainedCertificate,
 	obtainCertificate,
@@ -17,6 +16,7 @@ export type {
 	NewAccountOptions,
 	NewOrderOptions,
 } from './client/options';
+export type { Http01Hooks } from './client/tokens';
 export type {
 	AcmeAuthorization,
 	AcmeAuthorizationStatus,

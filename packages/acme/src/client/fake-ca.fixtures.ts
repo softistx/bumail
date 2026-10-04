@@ -6,6 +6,8 @@
  * payload decoded, and any route can be replaced by a handler of the
  * spec's own.
  */
+import { child, readDer } from '../der/read.fixtures';
+import { issueCertificate } from '../keys/x509.fixtures';
 import type { AcmeFetch } from './types';
 
 export const BASE = 'https://ca.test';
@@ -28,8 +30,29 @@ export type Handler = (
 	ca: FakeCa,
 ) => Response | Promise<Response>;
 
-/** A PEM certificate the fake hands out: not a real one, only its shape. */
-export const FAKE_CHAIN = `-----BEGIN CERTIFICATE-----\n${'QUJD'.repeat(16)}\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\n${'REVG'.repeat(16)}\n-----END CERTIFICATE-----\n`;
+/** The fake's root: a P-256 key and its self-signed certificate, made once. */
+const root = (async () => {
+	const keyPair = (await crypto.subtle.generateKey(
+		{ name: 'ECDSA', namedCurve: 'P-256' },
+		true,
+		['sign', 'verify'],
+	)) as CryptoKeyPair;
+	const pem = await issueCertificate({
+		spki: new Uint8Array(
+			await crypto.subtle.exportKey('spki', keyPair.publicKey),
+		),
+		names: ['ca.test'],
+		subject: 'Fake CA',
+		issuer: 'Fake CA',
+		signer: keyPair.privateKey,
+	});
+	return { keyPair, pem };
+})();
+
+/** The public key a CSR (DER) holds, as SubjectPublicKeyInfo DER. */
+export function csrSpki(der: Uint8Array): Uint8Array {
+	return child(child(readDer(der), 0), 2).raw;
+}
 
 export class FakeCa {
 	readonly requests: Recorded[] = [];
@@ -42,6 +65,12 @@ export class FakeCa {
 	orderStatus = 'pending';
 	/** What `newOrder` offers as challenges, by type. */
 	challengeTypes = ['http-01', 'dns-01'];
+	/** The chain issued at finalize: a leaf for the CSR's key, then the fake's root. */
+	chain: string | undefined;
+	/** Names the leaf holds instead of the order's, for a spec of a wrong certificate. */
+	issueNames: string[] | undefined;
+	/** A key the leaf holds instead of the CSR's, as SPKI DER, for the same. */
+	issueSpki: Uint8Array | undefined;
 	#nonce = 0;
 
 	readonly fetch: AcmeFetch = async (input, init) => {
@@ -196,17 +225,29 @@ export class FakeCa {
 			};
 		}
 		if (path === '/finalize/1') {
-			return (_, ca) => {
+			return async (_, ca) => {
 				if (ca.orderStatus !== 'ready') {
 					return ca.problem('orderNotReady', 'the order is not ready', 403);
 				}
+				const { csr } = request.payload as { csr: string };
+				const { keyPair, pem } = await root;
+				const leaf = await issueCertificate({
+					spki:
+						ca.issueSpki ??
+						csrSpki(new Uint8Array(Buffer.from(csr, 'base64url'))),
+					names: ca.issueNames ?? ca.names,
+					subject: ca.names[0] ?? 'leaf',
+					issuer: 'Fake CA',
+					signer: keyPair.privateKey,
+				});
+				ca.chain = `${leaf}${pem}`;
 				ca.orderStatus = 'valid';
 				return ca.json(ca.order());
 			};
 		}
 		if (path === '/cert/1') {
 			return (_, ca) =>
-				new Response(FAKE_CHAIN, {
+				new Response(ca.chain ?? '', {
 					headers: {
 						'content-type': 'application/pem-certificate-chain',
 						'replay-nonce': ca.nonce(),

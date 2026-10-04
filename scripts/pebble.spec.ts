@@ -44,4 +44,16 @@ describe('pebble', () => {
 			expect(fixture).toContain(`'${name}'`);
 		}
 	});
+
+	test("CI waits for Pebble's directory, under Pebble's CA, before the specs", async () => {
+		const ci = await Bun.file(
+			`${import.meta.dir}/../.github/workflows/ci.yml`,
+		).text();
+		expect(ci).toContain(
+			'curl --silent --fail --max-time 2 --cacert "$RUNNER_TEMP/pebble-ca.pem" https://localhost:14000/dir',
+		);
+		expect(ci.indexOf("name: Pebble's CA, and Pebble ready")).toBeLessThan(
+			ci.indexOf('name: Run tests'),
+		);
+	});
 });

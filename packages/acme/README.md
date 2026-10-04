@@ -52,8 +52,10 @@ await Bun.write('/data/tls/key.pem', await exportPrivateKeyPem(certificateKey.pr
 `obtainCertificate` orders the names, serves each pending authorization's
 `http-01` key authorization through `http01.set`, answers the challenge,
 waits for the authorizations, finalizes with a CSR and downloads the
-chain. It **always** calls `http01.remove` for every token it set — after
-success, a failed validation, an abort or a timeout. Hooks of your own
+chain, checking that its leaf is for `certificateKey` and the names
+asked. It **always** calls `http01.remove` for every token it set — after
+success, a failed validation, an abort or a timeout — once that token's
+`set` settled. Hooks of your own
 work as well as the responder: `{ set(token, keyAuthorization), remove(token) }`,
 each sync or async.
 

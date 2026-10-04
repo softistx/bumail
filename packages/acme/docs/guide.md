@@ -337,7 +337,7 @@ Each method is one request, or a poll of one, and takes an optional
 | `waitForAuthorization(url, { timeoutMs? })` | §7.5.1 | POST-as-GET, polled | the authorization, once `valid` |
 | `waitForOrder(order, { timeoutMs? })` | §7.4 | POST-as-GET, polled | the order, once `ready` or `valid` |
 | `finalize(order, csr)` | §7.4 | POST `{ csr }` | the order, `processing` or `valid` |
-| `certificate(url)` | §7.4.2 | POST-as-GET, `Accept: application/pem-certificate-chain` | the PEM chain, the leaf first |
+| `certificate(url)` | §7.4.2 | POST-as-GET, `Accept: application/pem-certificate-chain` | the PEM chain, the leaf first, each certificate parsed and issued by the next |
 | `keyAuthorization(token)`, `accountThumbprint()` | §8.1 | — | what an HTTP-01 responder serves, and the account key's thumbprint |
 
 A fetch is always a POST-as-GET (§6.3): a JWS with an empty payload, never
@@ -416,18 +416,25 @@ What it does, in order:
 1. checks the names and builds the CSR first, so a name no CA takes is
    refused before any request, and refuses a certificate key that is the
    account's;
-2. `newOrder` for the names;
+2. `newOrder` for the names, refusing an order for other names, or with
+   more authorizations than names, before anything is set;
 3. for each authorization: one already `valid` (the CA reuses recent
    ones) is skipped; for a `pending` one, the `http-01` challenge's key
    authorization is `set`, then the challenge is answered;
 4. waits for every authorization to be `valid`;
 5. calls `remove` for every token `set` — **always**: on success, on a
    failed validation, on a `set` that threw or hung, on an abort or a
-   timeout. A `remove` that throws does not stop the others; its error is
-   thrown only when nothing else failed;
-6. waits for the order to be `ready`, finalizes it with the CSR, waits for
-   it to be `valid`;
-7. downloads the chain.
+   timeout. Each `remove` waits for its `set` to settle first, so a `set`
+   that lands late cannot serve its token again; the removes run all at
+   once, within one 10-second grace. A `remove` that throws does not stop
+   the others; its error is thrown only when nothing else failed;
+6. waits for the order to be `ready` — one already `valid`, before any
+   CSR was sent, is refused — finalizes it with the CSR, waits for it to
+   be `valid`;
+7. downloads the chain, and checks it: each block an X.509 certificate,
+   each issued by the next, and the leaf for `certificateKey` and exactly
+   the names asked for. Anything else is `BAD_RESPONSE`, and nothing is
+   returned.
 
 It returns `{ certificate, order, csr }`. Its `timeoutMs` (5 minutes by
 default) bounds the whole flow, and its `signal` stops it.
@@ -569,9 +576,9 @@ What the CA sends is read as untrusted:
   1024 characters, one line in a message).
 - **Bounded time.** Every request has `requestTimeoutMs`, every wait and
   `obtainCertificate` a `timeoutMs`, and every call a `signal`. They
-  bound your hooks too: a `set` that never settles is left behind at the
-  time limit or the abort, and each `remove`, which runs even then, has
-  10 seconds.
+  bound your hooks too: a `set` that never settles is no longer waited
+  for at the time limit or the abort, and the cleanup, which runs even
+  then, has 10 seconds in all — each `remove` after its `set` settled.
 - **The account key stays private.** The client keeps it in a private
   field: `inspect` shows `AcmeClient {}`, `JSON.stringify` shows `{}`, and
   no message holds it. Only its public half leaves, in `newAccount`'s
@@ -599,7 +606,7 @@ document), `status` (the HTTP status) and `retryAfter` (seconds).
 | `NO_ACCOUNT` | a request that needs the account URL before `newAccount` gave one |
 | `SERVER_PROBLEM` | the CA refused: a problem document, or an error status |
 | `RATE_LIMITED` | the CA's `rateLimited`, with `retryAfter` when it said |
-| `BAD_RESPONSE` | an answer the client will not use: too large, not JSON, a member missing, a URL not `https:`, a redirect, no nonce, no PEM chain |
+| `BAD_RESPONSE` | an answer the client will not use: too large, not JSON, a member missing, a URL not `https:`, a redirect, no nonce, no PEM chain or one out of order; from `obtainCertificate`, an order or a certificate for other names, or a certificate for another key |
 | `NETWORK_ERROR` | `fetch` threw |
 | `TIMEOUT` | a request past `requestTimeoutMs`, a wait or `obtainCertificate` past `timeoutMs`, or a `signal` from `AbortSignal.timeout` |
 | `ABORTED` | the `signal` fired |
@@ -685,8 +692,11 @@ not write it:
   timeout, aborts before, during and between requests, the size caps by
   `Content-Length` and while streaming, `https:` refused elsewhere, a
   redirect refused, and the account key in no output;
-- `obtainCertificate` against the same fake: every token removed after a
-  failed validation, a `set` that threw, an abort and a timeout;
+- `obtainCertificate` against the same fake, which issues a real chain
+  for the CSR's key: every token removed after a failed validation, a
+  `set` that threw, an abort and a timeout — a `set` landing after them
+  included — and an order for other names, an order valid before
+  finalize, and a leaf for another key or other names refused;
 - the whole flow against Pebble, Let's Encrypt's test server, validating
   HTTP-01 for real, for P-256 and RSA keys: each issued chain read back
   with `node:crypto`'s `X509Certificate` — the names, the certificate's

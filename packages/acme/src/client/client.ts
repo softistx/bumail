@@ -23,13 +23,8 @@ import {
 	signalOf,
 } from './options';
 import { poll } from './poll';
-import {
-	authorizationFailed,
-	authorizationOf,
-	challengeOf,
-	orderFailed,
-	orderOf,
-} from './resources';
+import { authorizationFailed, orderFailed } from './problem';
+import { authorizationOf, challengeOf, orderOf } from './resources';
 import { jsonOf, Transport } from './transport';
 import type {
 	AcmeAuthorization,

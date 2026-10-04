@@ -3,23 +3,14 @@ import { shown } from '../encoding';
 import { AcmeError } from '../errors';
 import { jwkThumbprint } from '../jws/jwk';
 import { isOptions } from './body';
+import { checkLeaf } from './certificate';
 import { AcmeClient } from './client';
-import { abortedError, untilAborted } from './failure';
+import { abortedError } from './failure';
 import { integerOption, MAX_WAIT_MS, signalOf } from './options';
+import { type Http01Hooks, Http01Tokens } from './tokens';
 import type { AcmeOrder } from './types';
 
 const DEFAULT_TIMEOUT_MS = 300_000;
-/** How long each `remove` may take: it runs even after the flow's time is up. */
-export const REMOVE_GRACE_MS = 10_000;
-
-/** The hooks that publish an HTTP-01 answer: `http01Responder()` is one. */
-export interface Http01Hooks {
-	/** Serve `keyAuthorization` at `http://<name>/.well-known/acme-challenge/<token>`, on port 80. */
-	set(token: string, keyAuthorization: string): void | Promise<void>;
-	/** Stop serving it. Called for every token `set` was called with, whatever happened. */
-	remove(token: string): void | Promise<void>;
-}
-
 /** Options of `obtainCertificate`. */
 export interface ObtainCertificateOptions {
 	/** A client whose account exists: `newAccount` called, or the `kid` option given. */
@@ -109,7 +100,7 @@ export async function obtainCertificate(
 	const deadline = AbortSignal.timeout(timeoutMs);
 	const signal = caller ? AbortSignal.any([caller, deadline]) : deadline;
 	try {
-		return await run(client, csr, http01, signal, timeoutMs);
+		return await run(client, csr, certificateKey, http01, signal, timeoutMs);
 	} catch (error) {
 		if (caller?.aborted) throw abortedError(where, caller);
 		if (deadline.aborted) {
@@ -126,6 +117,7 @@ export async function obtainCertificate(
 async function run(
 	client: AcmeClient,
 	csr: Csr,
+	certificateKey: CryptoKeyPair,
 	http01: Http01Hooks,
 	signal: AbortSignal,
 	timeoutMs: number,
@@ -136,52 +128,26 @@ async function run(
 		identifiers: csr.names.map((value) => ({ type: 'dns', value })),
 		signal,
 	});
-	const tokens: string[] = [];
+	checkOrder(order, csr.names, where);
+	const tokens = new Http01Tokens(http01);
 	let failure: { error: unknown } | undefined;
 	try {
-		const pending: string[] = [];
-		for (const url of order.authorizations) {
-			const authorization = await client.authorization(url, { signal });
-			if (authorization.status === 'valid') continue;
-			const name = shown(authorization.identifier.value);
-			if (authorization.status !== 'pending') {
-				throw new AcmeError(
-					'AUTHORIZATION_FAILED',
-					`${where}: the authorization for ${name} is "${authorization.status}"`,
-				);
-			}
-			const challenge = authorization.challenges.find(
-				(item) => item.type === 'http-01',
-			);
-			if (challenge?.token === undefined) {
-				throw new AcmeError(
-					'AUTHORIZATION_FAILED',
-					`${where}: the authorization for ${name} offers no http-01 challenge`,
-				);
-			}
-			const answer = await client.keyAuthorization(challenge.token);
-			tokens.push(challenge.token);
-			await untilAborted(http01.set(challenge.token, answer), signal);
-			if (challenge.status === 'pending') {
-				await client.challenge(challenge.url, { signal });
-			}
-			pending.push(url);
-		}
-		for (const url of pending) {
-			await client.waitForAuthorization(url, wait);
-		}
+		await validate(client, order, tokens, signal, timeoutMs);
 	} catch (error) {
 		failure = { error };
 	}
-	const removed = await removeAll(http01, tokens);
+	const removed = await tokens.removeAll();
 	if (failure !== undefined) throw failure.error;
 	if (removed !== undefined) throw removed.error;
 	order = await client.waitForOrder(order, wait);
-	if (order.status === 'ready') {
-		order = await client.finalize(order, csr, { signal });
-		if (order.status !== 'valid')
-			order = await client.waitForOrder(order, wait);
+	if (order.status === 'valid') {
+		throw new AcmeError(
+			'BAD_RESPONSE',
+			`${where}: the CA's order is "valid" before it was finalized`,
+		);
 	}
+	order = await client.finalize(order, csr, { signal });
+	if (order.status !== 'valid') order = await client.waitForOrder(order, wait);
 	if (order.certificate === undefined) {
 		throw new AcmeError(
 			'BAD_RESPONSE',
@@ -189,34 +155,83 @@ async function run(
 		);
 	}
 	const certificate = await client.certificate(order.certificate, { signal });
+	await checkLeaf(certificate, csr.names, certificateKey.publicKey, where);
 	return { certificate, order, csr };
 }
 
 /**
- * Calls `remove` for every token, each in turn whatever the others did,
- * each given `REMOVE_GRACE_MS` to settle — the flow may be over its own
- * time already; the first failure, if any.
+ * Sets each pending authorization's `http-01` key authorization, answers
+ * its challenge, then waits for every one to be `valid`.
  */
-async function removeAll(
-	http01: Http01Hooks,
-	tokens: string[],
-): Promise<{ error: unknown } | undefined> {
-	let first: { error: unknown } | undefined;
-	for (const token of tokens) {
-		const grace = AbortSignal.timeout(REMOVE_GRACE_MS);
-		try {
-			await untilAborted(http01.remove(token), grace);
-		} catch (error) {
-			first ??= {
-				error: grace.aborted
-					? new AcmeError(
-							'TIMEOUT',
-							`obtainCertificate(): http01.remove(${shown(token)}) did not settle within ${REMOVE_GRACE_MS} ms`,
-							{ cause: error },
-						)
-					: error,
-			};
+async function validate(
+	client: AcmeClient,
+	order: AcmeOrder,
+	tokens: Http01Tokens,
+	signal: AbortSignal,
+	timeoutMs: number,
+): Promise<void> {
+	const where = 'obtainCertificate()';
+	const pending: string[] = [];
+	for (const url of order.authorizations) {
+		const authorization = await client.authorization(url, { signal });
+		if (authorization.status === 'valid') continue;
+		const name = shown(authorization.identifier.value);
+		if (authorization.status !== 'pending') {
+			throw new AcmeError(
+				'AUTHORIZATION_FAILED',
+				`${where}: the authorization for ${name} is "${authorization.status}"`,
+			);
 		}
+		const challenge = authorization.challenges.find(
+			(item) => item.type === 'http-01',
+		);
+		if (challenge?.token === undefined) {
+			throw new AcmeError(
+				'AUTHORIZATION_FAILED',
+				`${where}: the authorization for ${name} offers no http-01 challenge`,
+			);
+		}
+		const answer = await client.keyAuthorization(challenge.token);
+		await tokens.set(challenge.token, answer, signal);
+		if (challenge.status === 'pending') {
+			await client.challenge(challenge.url, { signal });
+		}
+		pending.push(url);
 	}
-	return first;
+	for (const url of pending) {
+		await client.waitForAuthorization(url, { signal, timeoutMs });
+	}
+}
+
+/**
+ * Refuses, with `BAD_RESPONSE`, an order that is not for the names
+ * requested (its identifiers, as DNS names, in any order), or that lists
+ * more authorizations than names.
+ */
+function checkOrder(
+	order: AcmeOrder,
+	names: readonly string[],
+	where: string,
+): void {
+	const got = order.identifiers
+		.map((identifier) =>
+			identifier.type === 'dns' ? identifier.value.toLowerCase() : '',
+		)
+		.sort();
+	const wanted = [...names].sort();
+	if (
+		got.length !== wanted.length ||
+		got.some((name, i) => name !== wanted[i])
+	) {
+		throw new AcmeError(
+			'BAD_RESPONSE',
+			`${where}: the CA's order is for ${shown(order.identifiers.map((identifier) => identifier.value).join(', '))}, not the names requested`,
+		);
+	}
+	if (order.authorizations.length > names.length) {
+		throw new AcmeError(
+			'BAD_RESPONSE',
+			`${where}: the CA's order lists ${order.authorizations.length} authorizations for ${names.length} names`,
+		);
+	}
 }

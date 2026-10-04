@@ -1,8 +1,13 @@
-import { isArray } from '../encoding';
+import { isArray, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import { isObject, parseJson } from './body';
 import { retryAfter } from './headers';
-import type { AcmeIdentifier, AcmeProblem } from './types';
+import type {
+	AcmeAuthorization,
+	AcmeIdentifier,
+	AcmeOrder,
+	AcmeProblem,
+} from './types';
 
 /** The prefix of every ACME problem type (RFC 8555 §6.7). */
 export const ACME_ERROR = 'urn:ietf:params:acme:error:';
@@ -116,5 +121,29 @@ export function problemError(
 		'SERVER_PROBLEM',
 		`${where}: the CA answered ${status}: ${describeProblem(problem)}`,
 		options,
+	);
+}
+
+/** `AUTHORIZATION_FAILED` for an authorization that ended other than `valid`, with its failed challenge's problem. */
+export function authorizationFailed(
+	where: string,
+	authorization: AcmeAuthorization,
+): AcmeError {
+	const problem = authorization.challenges.find(
+		(challenge) => challenge.error !== undefined,
+	)?.error;
+	return new AcmeError(
+		'AUTHORIZATION_FAILED',
+		`${where}: the authorization for ${shown(authorization.identifier.value)} is "${authorization.status}"${problem ? `: ${describeProblem(problem)}` : ''}`,
+		problem === undefined ? {} : { problem },
+	);
+}
+
+/** `ORDER_FAILED` for an `invalid` order, with its problem. */
+export function orderFailed(where: string, order: AcmeOrder): AcmeError {
+	return new AcmeError(
+		'ORDER_FAILED',
+		`${where}: the order is "invalid"${order.error ? `: ${describeProblem(order.error)}` : ''}`,
+		order.error === undefined ? {} : { problem: order.error },
 	);
 }
