@@ -21,6 +21,22 @@ describe('RFC 3464 §2 and RFC 6522 §3: a multipart/report of three parts', () 
 		);
 	});
 
+	test('with no original (the store lost it), two parts: the third is optional', () => {
+		const { original: _, ...lost } = input();
+		const dsn = buildDsn(lost);
+		const root = parse(dsn);
+		expect(root.contentType.mediaType).toBe('multipart/report');
+		expect(root.children.map((p) => p.contentType.mediaType)).toEqual([
+			'text/plain',
+			'message/delivery-status',
+		]);
+		expect(root.children[0]?.text).toContain(
+			'Your message could not be read from the queue, so it is not returned.',
+		);
+		const boundary = root.contentType.parameters['boundary'];
+		expect(decoder.decode(dsn)).toEndWith(`\r\n--${boundary}--\r\n`);
+	});
+
 	test('the header fields: to the sender, from the postmaster, auto-replied (RFC 3834 §5)', () => {
 		const { headers } = parse(buildDsn(input()));
 		expect(headers.get('to')).toBe('<mary@example.net>');

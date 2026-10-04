@@ -1,9 +1,17 @@
 import { describeInstances } from '../queue/instances.fixtures';
+import { describeUnreadableMessage } from '../queue/unreadable.fixtures';
 import { describePostgres, temporaryStores } from './databases.fixtures';
 
 describePostgres('PostgresQueueStore', (url) => {
-	const { create, share } = temporaryStores(url);
+	const { admin, create, share, tablesOf } = temporaryStores(url);
 	describeInstances('PostgresQueueStore', create, share);
+	// The row deleted by hand.
+	describeUnreadableMessage('PostgresQueueStore', create, async (store, id) => {
+		await admin.unsafe(
+			`DELETE FROM ${tablesOf(store)}messages WHERE item_id = $1`,
+			[id],
+		);
+	});
 });
 
 // An application's client whose sessions default to a stricter level: the

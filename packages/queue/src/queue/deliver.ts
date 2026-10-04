@@ -82,6 +82,28 @@ const badSender = (address: string): RecipientUpdate => ({
 	},
 });
 
+/**
+ * A pending recipient of an item whose message the store no longer gives
+ * — a Redis key evicted or deleted, a row removed by hand — fails at once,
+ * as X.3.0 (mail system status): no session can send what cannot be read,
+ * and an attempt left without an outcome would be claimed again at every
+ * lease, forever, keeping its `maxItems` place.
+ */
+const unreadable = (address: string): RecipientUpdate => ({
+	address,
+	status: 'failed',
+	reply: {
+		status: '5.3.0',
+		text: 'Message unreadable: the queue store holds the item but not its message',
+	},
+});
+
+const unreadableError = (id: string): QueueError =>
+	new QueueError(
+		'MESSAGE_UNREADABLE',
+		`The message of ${id} is unreadable: the store holds the item but not its message, so every pending recipient failed`,
+	);
+
 /** One session for one domain's recipients: each one's outcome, whatever happened. */
 async function attemptGroup(
 	ctx: DeliveryContext,
@@ -131,15 +153,24 @@ function emitOutcomes(events: Events, item: QueueItem, settled: Settled): void {
  * Delivers a claimed item: one session per recipient domain, at most
  * `perDomain` at once to each — none, and no slot taken, when its sender
  * is one `sendMail` would refuse — then the outcome recorded — which lets go
- * of the lease — then the events and the DSNs.
+ * of the lease — then the events and the DSNs. An item whose message the
+ * store no longer gives fails every pending recipient, said on the `error`
+ * event, its DSN without the original.
  */
 export async function deliverItem(
 	ctx: DeliveryContext,
 	item: QueueItem,
 ): Promise<void> {
-	const { settings, store, events } = ctx;
+	const { store, events } = ctx;
 	const message = await store.readMessage(item.id);
-	if (!message) return;
+	if (!message) {
+		// Gone with its message: cancelled, or finished by another worker.
+		if ((await store.get(item.id)) === undefined) return;
+		events.emit('error', { error: unreadableError(item.id), id: item.id });
+		const failed = [...groupsOf(item).values()].flat().map(unreadable);
+		await record(ctx, item, failed, false, undefined);
+		return;
+	}
 	const groups = groupsOf(item);
 	let skipped = false;
 	// A sender sendMail would refuse: no session, no slot, every recipient at once.
@@ -160,8 +191,23 @@ export async function deliverItem(
 						}
 					}),
 				);
+	await record(ctx, item, outcomes.flat(), skipped, message);
+}
+
+/**
+ * Records an attempt's outcomes — which lets go of the lease — then tells
+ * the events and sends the DSNs, the original returned when there is one.
+ */
+async function record(
+	ctx: DeliveryContext,
+	item: QueueItem,
+	updates: readonly RecipientUpdate[],
+	skipped: boolean,
+	message: Uint8Array | undefined,
+): Promise<void> {
+	const { settings, store, events } = ctx;
 	const now = settings.now();
-	const settled = settle(item, outcomes.flat(), skipped, now, settings);
+	const settled = settle(item, updates, skipped, now, settings);
 	const after = await store.complete(item.id, settings.owner, settled.result);
 	ctx.recorded();
 	if (!after && (await store.get(item.id)) === undefined) {
