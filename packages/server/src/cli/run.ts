@@ -1,7 +1,9 @@
 import { readConfig } from '../config/read';
-import { ServerError } from '../errors';
+import { ServerError, type ServerErrorCode } from '../errors';
 import { parseArgs } from './args';
 import { HELP } from './help';
+import { manage } from './manage';
+import type { Terminal } from './secret';
 import { summary } from './summary';
 
 /** Where the command writes, and what it reads. */
@@ -10,6 +12,8 @@ export interface Io {
 	readonly err: (text: string) => void;
 	readonly env: Readonly<Record<string, string | undefined>>;
 	readonly version: string;
+	/** Where a new password is read from. */
+	readonly terminal: Terminal;
 }
 
 /** The exit codes `--help` lists. */
@@ -18,7 +22,19 @@ export const EXIT = {
 	invalidConfig: 1,
 	usage: 2,
 	notImplemented: 3,
+	refused: 4,
+	unavailable: 5,
 } as const;
+
+const EXIT_OF: Record<ServerErrorCode, number> = {
+	INVALID_CONFIG: EXIT.invalidConfig,
+	USAGE: EXIT.usage,
+	INVALID: EXIT.refused,
+	NOT_FOUND: EXIT.refused,
+	ALREADY_EXISTS: EXIT.refused,
+	IN_USE: EXIT.refused,
+	UNAVAILABLE: EXIT.unavailable,
+};
 
 /** Runs `bumail` with `argv` (without the executable), answering its exit code. */
 export async function run(argv: readonly string[], io: Io): Promise<number> {
@@ -36,6 +52,10 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 			...(args.config === undefined ? {} : { path: args.config }),
 			env: io.env,
 		});
+		if (args.kind === 'manage') {
+			await manage(args, config, io);
+			return EXIT.ok;
+		}
 		if (args.command === 'check-config') {
 			io.out(`${summary(config)}\n`);
 			return EXIT.ok;
@@ -47,6 +67,6 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 	} catch (error) {
 		if (!(error instanceof ServerError)) throw error;
 		io.err(`bumail: ${error.message}\n`);
-		return error.code === 'USAGE' ? EXIT.usage : EXIT.invalidConfig;
+		return EXIT_OF[error.code];
 	}
 }

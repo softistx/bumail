@@ -5,8 +5,25 @@
  *   breaks a rule. The message names the file, then one `path: problem`
  *   line per problem, each also in `problems`.
  * - `USAGE`: the `bumail` command was given an argument it does not take.
+ * - `INVALID`: the directory refuses a value: not a domain name, not an
+ *   address, a password too short or too long, an alias target that is
+ *   not a local user.
+ * - `NOT_FOUND`: no such domain, user or alias.
+ * - `ALREADY_EXISTS`: the domain, user or alias is already there, or the
+ *   address is taken by a user (for an alias) or an alias (for a user).
+ * - `IN_USE`: what would be removed is still used: a domain with users
+ *   or aliases, a user an alias points to.
+ * - `UNAVAILABLE`: the directory or the mail store cannot be opened or
+ *   read, or is held by another process.
  */
-export type ServerErrorCode = 'INVALID_CONFIG' | 'USAGE';
+export type ServerErrorCode =
+	| 'INVALID_CONFIG'
+	| 'USAGE'
+	| 'INVALID'
+	| 'NOT_FOUND'
+	| 'ALREADY_EXISTS'
+	| 'IN_USE'
+	| 'UNAVAILABLE';
 
 /** One thing wrong with a configuration: where, and what. */
 export interface ConfigProblem {
@@ -16,7 +33,7 @@ export interface ConfigProblem {
 	readonly problem: string;
 }
 
-/** Thrown by `readConfig` and the `bumail` command. */
+/** Thrown by `readConfig`, the directory and the `bumail` command. */
 export class ServerError extends Error {
 	override readonly name = 'ServerError';
 	readonly code: ServerErrorCode;
