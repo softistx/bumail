@@ -149,6 +149,10 @@ describe('signJws (RFC 7515 flattened, RFC 8555 §6.2)', () => {
 			'signJws(): payload must be an object or left out for POST-as-GET, not string',
 		],
 		[
+			{ payload: [] },
+			'signJws(): payload must be an object or left out for POST-as-GET, not an array',
+		],
+		[
 			{ payload: null },
 			'signJws(): payload must be an object or left out for POST-as-GET, not null',
 		],
@@ -161,6 +165,24 @@ describe('signJws (RFC 7515 flattened, RFC 8555 §6.2)', () => {
 				...change,
 			} as never),
 		).rejects.toThrow(new AcmeError('INVALID_OPTION', message));
+	});
+
+	test('a payload JSON cannot write is INVALID_OPTION', async () => {
+		const looped: Record<string, unknown> = {};
+		looped['self'] = looped;
+		for (const payload of [{ n: 1n }, looped]) {
+			const error = await signJws({
+				keyPair: p256,
+				nonce: NONCE,
+				url: NEW_ACCOUNT,
+				payload,
+			}).catch((caught: unknown) => caught);
+			expect(error).toBeInstanceOf(AcmeError);
+			expect((error as AcmeError).code).toBe('INVALID_OPTION');
+			expect((error as AcmeError).message).toStartWith(
+				'signJws(): payload cannot be written as JSON: ',
+			);
+		}
 	});
 
 	test('options that are not an object, a key that is not a pair', async () => {

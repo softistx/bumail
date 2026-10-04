@@ -32,6 +32,7 @@ at its start names the function and the argument, as
 - [`AcmeError: signJws(): nonce must be the server's Replay-Nonce, a non-empty base64url string, not …`](#acmeerror-signjws-nonce-must-be-the-servers-replay-nonce-a-non-empty-base64url-string-not-)
 - [`AcmeError: signJws(): … must be an https: URL, not …`](#acmeerror-signjws--must-be-an-https-url-not-)
 - [`AcmeError: signJws(): payload must be an object or left out for POST-as-GET, not …`](#acmeerror-signjws-payload-must-be-an-object-or-left-out-for-post-as-get-not-)
+- [`AcmeError: signJws(): payload cannot be written as JSON: …`](#acmeerror-signjws-payload-cannot-be-written-as-json-)
 - [`AcmeError: generateKeyPair(): the type is 'P-256' or 'RSA-2048', not …`](#acmeerror-generatekeypair-the-type-is-p-256-or-rsa-2048-not-)
 - [`AcmeError: importKeyPairPem(): extractable must be a boolean`](#acmeerror-importkeypairpem-extractable-must-be-a-boolean)
 
@@ -289,11 +290,22 @@ const nonce = response.headers.get('replay-nonce') ?? '';
 
 ### `AcmeError: signJws(): payload must be an object or left out for POST-as-GET, not …`
 
-**When**: `payload` is a string, a number or `null`.
+**When**: `payload` is a string, a number, an array or `null`.
 
 **Why**: the payloads of ACME are JSON objects; a POST-as-GET has none.
 
 **Fix**: leave `payload` out to fetch a resource, pass `{}` to answer a challenge.
+
+### `AcmeError: signJws(): payload cannot be written as JSON: …`
+
+**When**: the payload is an object `JSON.stringify` refuses: one holding a
+`BigInt`, or one that refers to itself. The `…` is the reason it gave,
+and `cause` is its error.
+
+**Why**: the payload is sent as JSON.
+
+**Fix**: give numbers as numbers or strings, and build the payload from
+plain data.
 
 ### `AcmeError: generateKeyPair(): the type is 'P-256' or 'RSA-2048', not …`
 
@@ -345,7 +357,7 @@ const keyPair = await importKeyPairPem(await Bun.file('key.pem').text());
 
 ### `AcmeError: … is an RSA key of … bits; at least 2048 are needed`
 
-**When**: an RSA key is shorter than 2048 bits.
+**When**: an RSA key is shorter than 2048 bits, as a `CryptoKey`, a PKCS #8 PEM, or a JWK given to `jwkThumbprint` or `keyAuthorization`.
 
 **Why**: CAs refuse a smaller key.
 

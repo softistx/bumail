@@ -5,7 +5,8 @@ and other CAs issue certificates through: a certificate signing request
 for DNS names, the signed JWS every ACME request is, the JWK thumbprint,
 key authorizations and the HTTP-01 path, and the keys themselves, written
 as PKCS #8 PEM that Bun's TLS takes. All on Web Crypto, with its own small
-DER writer. No dependency, and no peer.
+DER writer. No dependency; `typescript` is an optional peer, for the
+types.
 
 The client that talks to a CA — directory, nonces, account, order,
 challenges, finalize — comes next, on top of these; see the
@@ -55,6 +56,13 @@ const csr = await createCsr({
 csr.der; // Uint8Array: what ACME's finalize sends, base64url, as `csr`
 csr.pem; // '-----BEGIN CERTIFICATE REQUEST-----\n…', for `openssl req -text`
 csr.names; // ['example.com', 'www.example.com', 'mail.example.com']
+```
+
+```ts
+import { MAX_NAMES } from '@bumail/acme';
+
+const names: string[] = [/* the names you serve */];
+names.length <= MAX_NAMES; // 100: more names than that take several certificates
 ```
 
 A PKCS #10 request (RFC 2986): the subject `CN=<first name>`, the public
@@ -151,8 +159,8 @@ try {
 }
 ```
 
-Every function checks what it is given and throws an `AcmeError` before
-doing anything; none is worth retrying as is.
+Every function checks what it is given and throws an `AcmeError` for
+anything it cannot take; none is worth retrying as is.
 
 ## Traps
 

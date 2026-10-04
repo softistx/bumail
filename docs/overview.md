@@ -56,7 +56,7 @@ them one by one.
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite) |
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | published |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap) and [`@bumail/jmap`](../packages/jmap) | published |
-| [TLS certificates](#the-server-app) | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives merged; the client next |
+| TLS certificates | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives merged; the client next |
 | [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | an app on alxia | next |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.

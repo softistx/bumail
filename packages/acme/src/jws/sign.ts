@@ -67,12 +67,30 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 	if (kid !== undefined) checkUrl(kid, 'kid');
 	if (
 		payload !== undefined &&
-		(typeof payload !== 'object' || payload === null)
+		(typeof payload !== 'object' || payload === null || Array.isArray(payload))
 	) {
+		const kind =
+			payload === null
+				? 'null'
+				: Array.isArray(payload)
+					? 'an array'
+					: typeof payload;
 		throw new AcmeError(
 			'INVALID_OPTION',
-			`${where}: payload must be an object or left out for POST-as-GET, not ${payload === null ? 'null' : typeof payload}`,
+			`${where}: payload must be an object or left out for POST-as-GET, not ${kind}`,
 		);
+	}
+	let json = '';
+	if (payload !== undefined) {
+		try {
+			json = JSON.stringify(payload);
+		} catch (error) {
+			throw new AcmeError(
+				'INVALID_OPTION',
+				`${where}: payload cannot be written as JSON: ${(error as Error).message}`,
+				{ cause: error },
+			);
+		}
 	}
 	const header: ProtectedHeader =
 		kid === undefined
@@ -84,8 +102,7 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 				}
 			: { alg, nonce, url, kid };
 	const encodedHeader = base64url(JSON.stringify(header));
-	const encodedPayload =
-		payload === undefined ? '' : base64url(JSON.stringify(payload));
+	const encodedPayload = payload === undefined ? '' : base64url(json);
 	const signature = await crypto.subtle.sign(
 		SIGN_PARAMS[alg],
 		keyPair.privateKey,

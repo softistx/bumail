@@ -88,6 +88,24 @@ describe('jwkThumbprint (RFC 7638)', () => {
 		);
 	});
 
+	test('an RSA key under 2048 bits is refused as a JWK as it is as a CryptoKey', async () => {
+		const small = await crypto.subtle.generateKey(
+			{
+				name: 'RSASSA-PKCS1-v1_5',
+				hash: 'SHA-256',
+				modulusLength: 1024,
+				publicExponent: Uint8Array.of(1, 0, 1),
+			},
+			true,
+			['sign', 'verify'],
+		);
+		const message =
+			'jwkThumbprint(): the key is an RSA key of 1024 bits; at least 2048 are needed';
+		await expect(jwkThumbprint(small.publicKey)).rejects.toThrow(message);
+		const jwk = await crypto.subtle.exportKey('jwk', small.publicKey);
+		await expect(jwkThumbprint(jwk)).rejects.toThrow(message);
+	});
+
 	test('a private CryptoKey is refused: the thumbprint is of the public key', async () => {
 		const { privateKey } = await generateKeyPair('P-256');
 		await expect(jwkThumbprint(privateKey)).rejects.toThrow(

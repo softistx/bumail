@@ -172,7 +172,7 @@ unless it is a DNS host name a public CA issues for:
   different identifier (RFC 8738).
 - **No wildcard.** `*.example.com` needs DNS-01, which comes later; HTTP-01
   can only prove a name it can fetch from.
-- **No trailing dot**, and no name twice (after lowercasing), which is
+- **No trailing dot.** A name given twice (after lowercasing) is
   `INVALID_OPTION`.
 - **At most 100 names** (`MAX_NAMES`), Let's Encrypt's limit for one
   certificate.

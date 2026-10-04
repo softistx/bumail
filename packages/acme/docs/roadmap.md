@@ -38,7 +38,7 @@ Nothing in progress.
 - **Converting internationalized names.** `createCsr` takes A-labels and
   refuses anything else, rather than choose an IDNA mapping for you; the
   platform's `new URL(…).hostname` converts one.
-- **A runtime dependency, or a peer.** Web Crypto signs; the DER this
+- **A runtime dependency, or a required peer.** Web Crypto signs; the DER this
   needs is a small writer of its own.
 
 ## Shipped

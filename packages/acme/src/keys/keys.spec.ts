@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { connect } from 'node:tls';
+import { pem } from '../encoding';
 import { AcmeError } from '../errors';
 import { OPENSSL, openssl } from '../openssl.fixtures';
 import { exportPrivateKeyPem, generateKeyPair, importKeyPairPem } from './keys';
@@ -185,6 +186,15 @@ describe('exportPrivateKeyPem and importKeyPairPem refuse', () => {
 		);
 		await expect(exportPrivateKeyPem(small.privateKey)).rejects.toThrow(
 			'exportPrivateKeyPem(): the key is an RSA key of 1024 bits; at least 2048 are needed',
+		);
+		const der = new Uint8Array(
+			await crypto.subtle.exportKey('pkcs8', small.privateKey),
+		);
+		await expect(importKeyPairPem(pem('PRIVATE KEY', der))).rejects.toThrow(
+			new AcmeError(
+				'INVALID_KEY',
+				'importKeyPairPem(): the key is an RSA key of 1024 bits; at least 2048 are needed',
+			),
 		);
 	});
 });

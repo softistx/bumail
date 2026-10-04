@@ -106,7 +106,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   RSA through Web Crypto on a DER writer of its own; the flattened JWS
   every ACME request is (ES256, RS256); the JWK thumbprint, key
   authorizations and the HTTP-01 path; keys written as PKCS #8 PEM that
-  Bun's TLS takes. Its own package, with no peer, so a server can obtain
+  Bun's TLS takes. Its own package, with no required peer, so a server can obtain
   certificates with nothing else of bumail.
 - **`@bumail/store`, a PostgreSQL store**, as `@bumail/store/postgres` —
   the store contract on PostgreSQL through Bun's own `Bun.sql`, so it

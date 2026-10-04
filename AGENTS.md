@@ -65,6 +65,9 @@ none of it names a private application.
 - **The RFC is the spec.** Every protocol package ships specs built on the
   RFC's own examples — the message, the header, the session transcript as
   printed in the RFC — and names the section each one comes from.
+  `@bumail/acme`'s specs also have `openssl` read what it writes; they
+  skip, saying so, without it on the PATH, except where
+  `BUMAIL_TEST_OPENSSL_REQUIRED` is set, as in CI's "CI" job.
 - **A store is a contract, with several answers.** What keeps state — the
   mailbox store, the outbound queue — defines its interface and ships a
   memory answer; `bun:sqlite` answers the same interface on disk. Whoever
@@ -280,6 +283,11 @@ Every PR goes into `develop`. Before merging:
   peers on another for a few dozen lines, and the two stores' tables
   differ. A fix to one is a fix to the other.
 
+- **A little DER and PEM**, in `@bumail/acme` (`src/der/write.ts`,
+  `pemBytes` in `src/encoding.ts`) and `@bumail/auth`
+  (`src/dkim/der.ts`, `pemBody` in `src/dkim/private-key.ts`): a length,
+  an element, a PEM body. Neither package peers on the other for a few
+  lines; a fix to one is checked against the other.
 - `packages/auth/src/dmarc/from-mailbox.ts` tokenizes a From value as
   `@bumail/mime`'s `headers/tokens.ts` does, but strictly: the mime
   parser is lenient by design (it leaves out what it cannot read), and
