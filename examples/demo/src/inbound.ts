@@ -14,7 +14,7 @@ import {
 import type { Resolver } from '@bumail/dns';
 import { createSmtpServer, reply, type SmtpServer } from '@bumail/smtp';
 import { concat } from './bytes';
-import { DOMAIN, HOSTNAME } from './config';
+import { DOMAIN, HOSTNAME, routed } from './config';
 import type { Mailboxes } from './mailboxes';
 import type { Tls } from './tls';
 
@@ -40,7 +40,7 @@ export function createMx(
 			);
 		},
 		async onRcptTo(path) {
-			if ((await mailboxes.accountOf(path.address)) === undefined) {
+			if ((await mailboxes.accountOf(routed(path.address))) === undefined) {
 				return reply(550, '5.1.1', 'No such user here');
 			}
 			return undefined;
@@ -56,7 +56,7 @@ export function createMx(
 			const content = concat(results, bytes);
 			if (message.signal.aborted) return;
 			for (const recipient of message.envelope.to) {
-				const accountId = await mailboxes.accountOf(recipient);
+				const accountId = await mailboxes.accountOf(routed(recipient));
 				if (accountId !== undefined)
 					await mailboxes.deliver(accountId, content);
 			}

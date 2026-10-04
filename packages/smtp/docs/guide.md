@@ -69,6 +69,7 @@ export interface SmtpServer {
 | `maxRecipients` | `number` | `100` | recipients per message |
 | `maxConnections` | `number` | `1000` | open connections at once |
 | `maxConnectionsPerClient` | `number` | `10` | open connections at once from one client: an IPv4 address, or an IPv6 /64; see [Limits](#limits) |
+| `handshakeTimeout` | `number` | `10` | seconds a client on implicit TLS has to complete its handshake, from the TCP connection on; past it, the socket is closed. See [TLS](#tls) |
 | `maxErrors` | `number` | `10` | failed commands before the server hangs up |
 | `timeout` | `number` | `300` | seconds since the client's last byte, or since the 220, before the server hangs up |
 | `hookTimeout` | `number` | `60` | seconds a hook, `authenticate` or `localDomains` has to settle, and `onData` to read on; past it, `451 4.3.0`. At most 2 147 483, what a timer can wait |
@@ -817,6 +818,22 @@ STARTTLS, in clear, are dropped and never answered. The STARTTLS replies:
 with `tls`, usually on 465. STARTTLS is not offered there — the connection
 is already secure — and AUTH is offered at once.
 
+On implicit TLS the server counts a socket from the TCP connection on, not
+from the end of its handshake: a socket that has not finished its handshake
+holds a slot of `maxConnections` and of `maxConnectionsPerClient`, and is
+closed, without a reply, `handshakeTimeout` seconds (default 10) after it
+connected, so clients that open TCP connections and never send a
+ClientHello cannot fill the server. A refusal by a limit, `onConnect`, the
+greeting and `greetingDelay` all wait for the handshake, so the client
+reads them over TLS and `session.secure` is already `true`. A handshake
+that fails is closed by Bun at once and counted out. A STARTTLS handshake
+is bounded by the idle `timeout`, the connection already counted.
+
+Bun 1.4.2 calls a TLS listener's `open` only once the handshake completed
+unless the listener has a `handshake` handler; with one, `open` comes at
+the TCP connection and the socket's timer runs during the handshake. The
+server sets one for that reason.
+
 An MX takes mail in clear as well as encrypted: senders on the Internet that
 cannot do TLS still deliver. Whether to refuse them is policy — check
 `session.secure` in a hook:
@@ -888,6 +905,7 @@ await createSmtpServer({ ...submission, implicitTls: true }).listen({ port: 465 
 | `maxRecipients` | 100, the least RFC 5321 §4.5.3.1.8 asks a server to take | `452 4.5.3` for each extra recipient (RFC 5321 §4.5.3.1.10); the client sends the rest in another transaction |
 | `maxConnections` | 1000 | `421 4.3.2` and the server hangs up, before the greeting and before `onConnect` |
 | `maxConnectionsPerClient` | 10 | `421 4.7.0 <hostname> Too many connections from your address, try later` and the server hangs up, before the greeting and before `onConnect` |
+| `handshakeTimeout` | 10 seconds, on implicit TLS; ticks of about 4 s, as `timeout` | the socket is closed without a reply: there is no TLS to write one on |
 | `maxErrors` | 10 | `421 4.7.0` and the server hangs up |
 | `timeout` | 300 seconds, RFC 5321 §4.5.3.2.7's, counted from the client's last byte, or from the 220; Bun's socket timer ticks in steps of about 4 s, so the hang-up comes up to that much later | `421 4.4.2` and the server hangs up |
 | `hookTimeout` | 60 seconds | `451 4.3.0` for that command; `onError` gets an `SmtpError` `HOOK_TIMEOUT` |
@@ -929,7 +947,13 @@ await server.listen({ port: 25 });
 | `::ffff:192.0.2.1`, `::ffff:c000:201` (IPv4-mapped, as a listener on `::` sees an IPv4 client) | `192.0.2.1` |
 | `64:ff9b::c000:201` (NAT64) | `192.0.2.1` |
 | `2001:db8:1:2::9`, `2001:db8:1:2:ffff::1` | `2001:db8:1:2::/64` |
+| `2001:db8::1`, `2001:0db8:0000::ffff` | `2001:db8:0:0::/64` |
 | anything else (a Unix socket) | not limited |
+
+An IPv6 key is always the first four groups in lower-case hex, without
+leading zeros, every group written out — zeros too — then `::/64`:
+`2001:db8::1` is `2001:db8:0:0::/64`, never `2001:db8::/64`. Write the
+keys you compare with it that way.
 
 An IPv6 host usually holds a whole /64, so counting each address apart
 would let it open as many connections as it likes. Every close frees the
@@ -942,7 +966,8 @@ server. For a policy of your own — a list, a per-network budget — use
 ```ts
 import { clientKey, createSmtpServer, reply } from '@bumail/smtp';
 
-const blocked = new Set(['203.0.113.7', '2001:db8:dead:beef::/64']);
+// As clientKey writes them: '2001:db8:0:0::/64', not '2001:db8::/64'.
+const blocked = new Set(['203.0.113.7', '2001:db8:0:0::/64', '2001:db8:dead:beef::/64']);
 
 const server = createSmtpServer({
 	hostname: 'mx.example.com',

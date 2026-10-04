@@ -158,6 +158,15 @@ export interface SmtpServerOptions extends SmtpHooks {
 	/** Idle time before the server hangs up, in seconds; any byte from the client starts it again. Default 300, RFC 5321 §4.5.3.2.7's. */
 	readonly timeout?: number;
 	/**
+	 * Seconds a client on implicit TLS has to complete its handshake, from
+	 * the TCP connection on; past it, the socket is closed without a word.
+	 * The socket holds its slot of `maxConnections` and
+	 * `maxConnectionsPerClient` meanwhile. Bun's socket timer ticks in steps
+	 * of about 4 s, so the close comes up to that much later. A STARTTLS
+	 * handshake is bounded by `timeout`. Default 10.
+	 */
+	readonly handshakeTimeout?: number;
+	/**
 	 * Seconds the server waits, once `onConnect` accepted, before its 220
 	 * greeting. A client that talks in that time is refused with `554`
 	 * (RFC 5321 §4.3.1): a legitimate client waits for the greeting, many

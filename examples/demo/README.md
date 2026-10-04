@@ -96,6 +96,9 @@ Then:
 
 - send to `alice@example.test` from the client: it is delivered straight
   to her INBOX, DKIM-signed;
+- `RCPT TO:<postmaster>`, with no domain (RFC 5321 §4.5.1), on either
+  port, goes to alice, the demo's postmaster (`POSTMASTER` in
+  `src/config.ts`);
 - send to anyone else: it goes to Mailpit, signed — open
   <http://localhost:8025> and look at its headers;
 - send to `alice@example.test` from outside, as another server would, on

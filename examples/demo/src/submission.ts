@@ -9,7 +9,7 @@ import { signDkim } from '@bumail/auth';
 import { createSmtpServer, reply, type SmtpServer } from '@bumail/smtp';
 import { SmtpError, sendMail } from '@bumail/smtp/client';
 import { concat } from './bytes';
-import { ADDRESS, DKIM_SELECTOR, DOMAIN, HOSTNAME } from './config';
+import { ADDRESS, DKIM_SELECTOR, DOMAIN, HOSTNAME, routed } from './config';
 import type { Mailboxes } from './mailboxes';
 import type { Tls } from './tls';
 
@@ -44,6 +44,8 @@ export function createSubmission({
 			return undefined;
 		},
 		async onRcptTo(path) {
+			// `<postmaster>`, with no domain: this server's, routed in onData.
+			if (path.postmaster) return undefined;
 			if (
 				path.domain === DOMAIN &&
 				(await mailboxes.accountOf(path.address)) === undefined
@@ -62,7 +64,8 @@ export function createSubmission({
 			const signed = concat(signature, bytes);
 			if (message.signal.aborted) return undefined;
 
-			const { from, to } = message.envelope;
+			const { from } = message.envelope;
+			const to = message.envelope.to.map(routed);
 			const local = to.filter((address) =>
 				address.toLowerCase().endsWith(`@${DOMAIN}`),
 			);

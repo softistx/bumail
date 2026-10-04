@@ -11,6 +11,17 @@ export const DOMAIN = 'example.test';
 export const HOSTNAME = 'localhost';
 export const USER = 'alice';
 export const ADDRESS = `${USER}@${DOMAIN}`;
+/**
+ * Where `RCPT TO:<postmaster>` goes (RFC 5321 §4.5.1): `@bumail/smtp`
+ * hands it over as the recipient `'postmaster'`, with no domain, and the
+ * demo's one user reads it.
+ */
+export const POSTMASTER = ADDRESS;
+
+/** A recipient as delivered: the bare `postmaster` to its mailbox, the rest as given. */
+export function routed(recipient: string): string {
+	return recipient === 'postmaster' ? POSTMASTER : recipient;
+}
 export const DKIM_SELECTOR = 'demo';
 
 export interface DemoConfig {

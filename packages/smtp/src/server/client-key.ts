@@ -35,7 +35,9 @@ function ipv4Of(g: readonly number[]): string {
  * (`::ffff:192.0.2.1`, in dotted or hex form, as a dual-stack listener
  * sees an IPv4 client) or NAT64 (`64:ff9b::/96`) — as that IPv4 address;
  * any other IPv6 address by its /64, which one machine usually holds
- * whole. Anything else — an empty string, a Unix socket — is `undefined`:
+ * whole, written as its first four groups in lower-case hex without
+ * leading zeros, every group written out, zeros included, then `::/64`:
+ * `2001:db8::1` is `2001:db8:0:0::/64`, never `2001:db8::/64`. Anything else — an empty string, a Unix socket — is `undefined`:
  * no client that can be told apart, so not limited, rather than putting
  * every such client in one bucket that one of them could fill for all.
  */

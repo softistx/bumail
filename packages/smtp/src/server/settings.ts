@@ -12,6 +12,7 @@ export interface Settings {
 	readonly maxErrors: number;
 	readonly timeout: number;
 	readonly hookTimeout: number;
+	readonly handshakeTimeout: number;
 	readonly greetingDelay: number;
 	isLocal(domain: string): boolean | Promise<boolean>;
 }
@@ -129,6 +130,11 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 		maxErrors: positive('maxErrors', options.maxErrors, 10),
 		timeout,
 		hookTimeout: timer('hookTimeout', options.hookTimeout, 60),
+		handshakeTimeout: positive(
+			'handshakeTimeout',
+			options.handshakeTimeout,
+			10,
+		),
 		greetingDelay,
 		isLocal: (domain) => isLocal(domain.toLowerCase()),
 	};

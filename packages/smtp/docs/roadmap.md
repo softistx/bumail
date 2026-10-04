@@ -41,6 +41,12 @@ Nothing in progress.
   answered `421 4.7.0` and closed, and every close frees its slot.
   `clientKey(address)` is exported, to group clients the same way in
   `onConnect`.
+- **The implicit TLS handshake is bounded.** A socket on an
+  `implicitTls` port is counted by `maxConnections` and
+  `maxConnectionsPerClient` from the TCP connection on, and closed past
+  `handshakeTimeout` (default 10 seconds) if its handshake has not
+  completed. Before, a socket that never sent its ClientHello was counted
+  by no limit and closed by no timer.
 - **`RCPT TO:<postmaster>` with no domain** (RFC 5321 §4.5.1) is taken
   as this server's postmaster, without AUTH: `onRcptTo` gets a `Path`
   with `postmaster: true`, and the envelope lists it as `'postmaster'`.

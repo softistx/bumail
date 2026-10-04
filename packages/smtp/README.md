@@ -105,6 +105,11 @@ const server = createSmtpServer({
 await server.listen({ port: 465 });
 ```
 
+A client has `handshakeTimeout` seconds (default 10) to complete its TLS
+handshake, and holds a slot of `maxConnections` and
+`maxConnectionsPerClient` meanwhile: a socket that never sends its
+ClientHello is closed, without a word.
+
 ## Hooks for policy
 
 A hook returns nothing to accept, or a `reply(code, status, text)` with a
@@ -149,13 +154,24 @@ no AUTH, and `localDomains` is not asked. `onRcptTo` gets a `Path` whose
 Route it to a mailbox of your own:
 
 ```ts
-const postmasterOf = 'postmaster@example.com';
+import { createSmtpServer } from '@bumail/smtp';
 
-// in onData
-const recipients = message.envelope.to.map((to) => (to === 'postmaster' ? postmasterOf : to));
+const postmaster = 'postmaster@example.com';
+
+const server = createSmtpServer({
+	hostname: 'mx.example.com',
+	localDomains: ['example.com'],
+	async onData(message) {
+		const recipients = message.envelope.to.map((to) => (to === 'postmaster' ? postmaster : to));
+		const bytes = await new Response(message.content).bytes();
+		for (const to of recipients) await Bun.write(`spool/${to}/${message.id}.eml`, bytes);
+	},
+});
 ```
 
-`<postmaster@domain>` is an ordinary path, checked as any other.
+`<postmaster@domain>` is an ordinary path, checked as any other. The
+[guide](https://github.com/softistx/bumail/blob/develop/packages/smtp/docs/guide.md#rcpt-topostmaster)
+has the details.
 
 ## Limits
 
@@ -173,6 +189,7 @@ const server = createSmtpServer({
 	maxRecipients: 50, // per message; default 100 → 452 4.5.3
 	maxConnections: 200, // at once; default 1000 → 421 4.3.2
 	maxConnectionsPerClient: 5, // at once from one IPv4 address or IPv6 /64; default 10 → 421 4.7.0
+	handshakeTimeout: 10, // seconds to complete an implicit TLS handshake; default 10 → closed
 	maxErrors: 5, // failed commands before hanging up; default 10 → 421 4.7.0
 	timeout: 120, // idle seconds, from the client's last byte or the 220; default 300 → 421 4.4.2
 	hookTimeout: 20, // seconds a hook has to settle; default 60 → 451 4.3.0
@@ -313,7 +330,20 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
   client once. One more gets `421 4.7.0 <hostname> Too many connections
   from your address, try later` and is closed, before `onConnect`. Every
   close frees the slot: QUIT, a hang-up, an error, the idle time,
-  `stop(true)`.
+  `stop(true)`. Group addresses the same way in your own policy with
+  `clientKey`:
+
+  ```ts
+  import { clientKey } from '@bumail/smtp';
+
+  clientKey('::ffff:192.0.2.1'); // '192.0.2.1'
+  clientKey('2001:db8::1'); // '2001:db8:0:0::/64': four groups, zeros written out
+  ```
+- **A TLS handshake is bounded.** On implicit TLS a socket is counted from
+  the TCP connection on, before its handshake, and closed past
+  `handshakeTimeout` (default 10 seconds) if the handshake has not
+  completed; `onConnect` and the greeting come once it has. A STARTTLS
+  handshake is bounded by `timeout`.
 - **Bounded memory.** The server holds 64 KiB of a client's input and of a
   message at most, and stops reading the client past that; replies to a
   client that reads slowly wait in the server, and none is lost while the
@@ -391,7 +421,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | --- | --- |
 | `createSmtpServer(options)` | the server; throws an `SmtpError` (`INVALID_OPTION`) on a bad option |
 | `SmtpServer` | `listen({ port, hostname? })` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `connections` |
-| `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits (`maxConnectionsPerClient` among them), `hookTimeout`, `greetingDelay`, `onError`, and the hooks |
+| `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits (`maxConnectionsPerClient` among them), `hookTimeout`, `handshakeTimeout`, `greetingDelay`, `onError`, and the hooks |
 | `SmtpError`, `SmtpErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and what a content stream or `onError` can get: `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `CONNECTION_LOST`, `HOOK_TIMEOUT`, `INVALID_HOOK_REPLY`, `MESSAGE_NOT_READ`; `sendMail`'s are listed below. `temporary`, `reply` and `rejected` are set for `sendMail`'s errors |
 | `SmtpHooks` | `onConnect`, `onMailFrom`, `onRcptTo`, `onData` |
 | `HookResult` | what a hook returns: `undefined` to accept, a `Reply` to refuse |
@@ -404,7 +434,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | `parsePath(text, allowNull, sourceRoute?)`, `Path`, `SourceRoute` | `<local@domain>` (RFC 5321 §4.1.2) to `{ address, local, domain }` (and `postmaster: true` for `RCPT TO:<postmaster>`, which `parsePathCommand` gives); a source route `@a,@b:` is dropped (`'discard'`, the default) or refused (`'refuse'`); a control character (C0, DEL or C1), `>`, U+2028 or U+2029, Unicode format character (`\p{Cf}`) or lone surrogate anywhere, or an IPv4 literal octet above 255, refuses the path |
 | `parseCommand(line)`, `Command` | a command line to `{ verb, argument }` |
 | `parsePathCommand(argument, 'FROM' \| 'TO')`, `PathCommand` | the argument of MAIL or RCPT to `{ path, parameters }`; `TO:` also takes `<postmaster>` with no domain, in any case (RFC 5321 §4.1.1.3) |
-| `clientKey(address)` | which client a remote address counts as, for a limit per client: an IPv4 address as it is, an IPv4-mapped or NAT64 address as its IPv4 address, any other IPv6 address as its /64 (`'2001:db8:1:2::/64'`); `undefined` for what is not an IP address |
+| `clientKey(address)` | which client a remote address counts as, for a limit per client: an IPv4 address as it is, an IPv4-mapped or NAT64 address as its IPv4 address, any other IPv6 address as its /64, its first four groups written out, zeros included (`'2001:db8:1:2::/64'`, `'2001:db8:0:0::/64'` for `2001:db8::1`); `undefined` for what is not an IP address |
 | `DataReader`, `DataChunk` | reads DATA: dot-unstuffing, the terminator, bare CR and LF counted |
 | `decodePlain(response)`, `decodeLoginStep(response)` | SASL PLAIN (RFC 4616) and LOGIN responses to `Credentials` or text |
 

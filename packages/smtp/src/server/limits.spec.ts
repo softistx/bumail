@@ -101,6 +101,10 @@ describe('options', () => {
 			'createSmtpServer(): maxRecipients must be a positive integer, not 0',
 		],
 		[
+			{ handshakeTimeout: 0 },
+			'createSmtpServer(): handshakeTimeout must be a positive integer, not 0',
+		],
+		[
 			{ maxConnectionsPerClient: 0 },
 			'createSmtpServer(): maxConnectionsPerClient must be a positive integer, not 0',
 		],
