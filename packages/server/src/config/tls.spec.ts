@@ -1,0 +1,89 @@
+import { describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
+import { selfSigned } from './certificates.fixtures';
+import { problemsOf, writeConfig } from './config.fixtures';
+import { readConfig } from './read';
+
+const FILES =
+	'hostname = "mail.example.com"\n[tls]\nmode = "files"\ncert = "cert.pem"\nkey = "key.pem"\n';
+
+describe('tls.mode = "files"', () => {
+	test('takes a certificate for the hostname, with its key, relative to the file', async () => {
+		const { cert, key } = await selfSigned(['mail.example.com']);
+		const path = writeConfig(FILES, { 'cert.pem': cert, 'key.pem': key });
+		const config = await readConfig({ path, env: {} });
+		const dir = path.replace(/\/bumail\.toml$/, '');
+		expect(config.tls).toEqual({
+			mode: 'files',
+			cert: join(dir, 'cert.pem'),
+			key: join(dir, 'key.pem'),
+		});
+		expect(config.acme).toBeUndefined();
+	});
+
+	test('takes a wildcard that covers the hostname', async () => {
+		const { cert, key } = await selfSigned(['*.example.com']);
+		const path = writeConfig(FILES, { 'cert.pem': cert, 'key.pem': key });
+		expect((await readConfig({ path, env: {} })).tls.mode).toBe('files');
+	});
+
+	test('refuses files that are not there', async () => {
+		expect(await problemsOf(FILES)).toEqual([
+			'tls.cert: cannot be read (ENOENT)',
+			'tls.key: cannot be read (ENOENT)',
+		]);
+	});
+
+	test('refuses files that are not PEM', async () => {
+		const { cert, key } = await selfSigned(['mail.example.com']);
+		expect(
+			await problemsOf(FILES, { files: { 'cert.pem': key, 'key.pem': cert } }),
+		).toEqual([
+			'tls.cert: is not a PEM certificate',
+			'tls.key: is not an unencrypted PEM private key',
+		]);
+		expect(
+			await problemsOf(FILES, {
+				files: {
+					'cert.pem':
+						'-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n',
+					'key.pem':
+						'-----BEGIN ENCRYPTED PRIVATE KEY-----\nAAAA\n-----END ENCRYPTED PRIVATE KEY-----\n',
+				},
+			}),
+		).toEqual([
+			'tls.cert: is not a PEM certificate',
+			'tls.key: is not an unencrypted PEM private key',
+		]);
+	});
+
+	test('refuses a certificate for another name', async () => {
+		const { cert, key } = await selfSigned(['mx.example.org', 'example.org']);
+		expect(
+			await problemsOf(FILES, { files: { 'cert.pem': cert, 'key.pem': key } }),
+		).toEqual([
+			'tls.cert: does not name mail.example.com (it names mx.example.org, example.org)',
+		]);
+	});
+
+	test('refuses an expired certificate', async () => {
+		const { cert, key } = await selfSigned(['mail.example.com'], {
+			notBefore: new Date('2020-01-01T00:00:00Z'),
+			notAfter: new Date('2021-01-01T00:00:00Z'),
+		});
+		expect(
+			await problemsOf(FILES, { files: { 'cert.pem': cert, 'key.pem': key } }),
+		).toEqual(['tls.cert: expired on 2021-01-01']);
+	});
+
+	test('refuses a key that is not the certificate’s, and never repeats it', async () => {
+		const { cert } = await selfSigned(['mail.example.com']);
+		const { key } = await selfSigned(['mail.example.com']);
+		const problems = await problemsOf(FILES, {
+			files: { 'cert.pem': cert, 'key.pem': key },
+		});
+		expect(problems).toEqual(['tls.key: is not the key of tls.cert']);
+		const body = key.split('\n')[1] ?? '';
+		expect(problems.join('\n')).not.toContain(body.slice(0, 20));
+	});
+});

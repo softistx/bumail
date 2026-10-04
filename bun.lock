@@ -124,6 +124,22 @@
         "typescript",
       ],
     },
+    "packages/server": {
+      "name": "@bumail/server",
+      "version": "0.0.0",
+      "bin": {
+        "bumail": "./dist/main.js",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.4.2",
+      },
+      "peerDependencies": {
+        "typescript": "^6.0.3 || ^7.0.0",
+      },
+      "optionalPeers": [
+        "typescript",
+      ],
+    },
     "packages/smtp": {
       "name": "@bumail/smtp",
       "version": "0.3.0",
@@ -191,6 +207,8 @@
     "@bumail/mime": ["@bumail/mime@workspace:packages/mime"],
 
     "@bumail/queue": ["@bumail/queue@workspace:packages/queue"],
+
+    "@bumail/server": ["@bumail/server@workspace:packages/server"],
 
     "@bumail/smtp": ["@bumail/smtp@workspace:packages/smtp"],
 
