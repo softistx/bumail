@@ -132,6 +132,67 @@ describe('mx: delivery', () => {
 	});
 });
 
+describe('mx: <postmaster>', () => {
+	/** A session to `RCPT TO:<postmaster>`: its RCPT reply and its last. */
+	async function toPostmaster(port: number) {
+		return sendMail(
+			port,
+			{ from: 'joe@pass.example', to: ['postmaster'] },
+			message('joe@pass.example', 'to the postmaster'),
+		);
+	}
+
+	test('takes the bare <postmaster> for postmaster@ the first hosted domain', async () => {
+		const f = await start();
+		const directory = Directory.open({ file: join(f.dir, 'directory.sqlite') });
+		directory.aliases.add('postmaster@example.com', ['bob@example.com']);
+		directory.close();
+		const { replies, last } = await toPostmaster(f.port('mx'));
+		expect(replies[3]).toStartWith('250');
+		expect(last).toStartWith('250 ');
+		const dir = await stopped(f);
+		expect(await mailOf(dir, 'bob@example.com', 'inbox')).toHaveLength(1);
+		expect(await mailOf(dir, 'alice@example.com', 'inbox')).toEqual([]);
+	});
+
+	test('takes it for the configured postmaster address, in any case', async () => {
+		const f = await start('postmaster = "Alice@Example.com"');
+		const client = await LineClient.connect(f.port('mx'));
+		await client.reply();
+		await client.smtp('EHLO client.example');
+		await client.smtp('MAIL FROM:<joe@pass.example>');
+		expect(await client.smtp('RCPT TO:<PostMaster>')).toStartWith('250');
+		await client.smtp('DATA');
+		expect(
+			await client.smtp(`${message('joe@pass.example', 'pm')}\r\n.`),
+		).toStartWith('250 ');
+		await client.smtp('QUIT');
+		client.end();
+		expect(
+			await mailOf(await stopped(f), 'alice@example.com', 'inbox'),
+		).toHaveLength(1);
+	});
+
+	test('refuses it with 550 when no postmaster address resolves', async () => {
+		const f = await start();
+		const { replies } = await toPostmaster(f.port('mx'));
+		expect(replies.at(-1)).toStartWith(
+			'550 5.1.1 No postmaster mailbox is configured here',
+		);
+	});
+});
+
+describe('mx: per client', () => {
+	test('takes no more than inbound.maxConnectionsPerClient from one address', async () => {
+		const f = await start('[inbound]\nmaxConnectionsPerClient = 1');
+		const first = await LineClient.connect(f.port('mx'));
+		expect(await first.reply()).toStartWith('220 ');
+		const second = await LineClient.connect(f.port('mx'));
+		expect(await second.reply()).toStartWith('421 4.7.0');
+		first.end();
+	});
+});
+
 describe('mx: never an open relay', () => {
 	test('offers no AUTH, before or after STARTTLS, and refuses the command', async () => {
 		const f = await start();

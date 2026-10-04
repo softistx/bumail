@@ -2,8 +2,9 @@ import type { SpfResult } from '@bumail/auth';
 import type { ReceivedMessage, Reply, Session } from '@bumail/smtp';
 import { joinHeader, returnPath, stripForged } from '../header';
 import { judge, type Verdict } from '../inbound';
+import { usersOf } from '../recipients';
 import type { Spooled } from '../spool';
-import { deliver, usersOf } from './deliver';
+import { deliver } from './deliver';
 import type { MxContext } from './index';
 import {
 	DMARC_DEFERRED,
@@ -71,7 +72,7 @@ async function check(
 		log(`mx: ${from} refused: its header is over 256 KiB`);
 		return HEADER_TOO_LARGE;
 	}
-	const users = usersOf(ctx.directory, envelope.to);
+	const users = usersOf(ctx.directory, envelope.to, ctx.postmaster);
 	if (users.length === 0) {
 		log(`mx: ${from} refused: no recipient is here any longer`);
 		return NO_RECIPIENT;

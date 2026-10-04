@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { addressOf } from '../directory/address';
 import { invalidConfig } from '../errors';
 import { checkCertificates } from './certificates';
 import type { Checker, Table } from './checker';
@@ -13,6 +14,7 @@ import { type CheckedStoreUrl, checkStoreUrl } from './urls';
 
 const SECTIONS = [
 	'hostname',
+	'postmaster',
 	'data',
 	'bind',
 	'ports',
@@ -54,6 +56,7 @@ export function checkConfig(
 	const { overrides } = context;
 
 	const hostname = checkHostname(checker, root, overrides);
+	const postmaster = checkPostmaster(checker, root);
 	const data = checkData(checker, root);
 	const bindValue = checker.string(root, 'bind', '');
 	if (bindValue !== undefined && isIP(bindValue) === 0) {
@@ -109,6 +112,7 @@ export function checkConfig(
 	return {
 		file: context.file,
 		hostname: hostname ?? '',
+		postmaster,
 		data,
 		bind: bindValue ?? '0.0.0.0',
 		ports,
@@ -150,6 +154,21 @@ function checkHostname(
 		return undefined;
 	}
 	return name;
+}
+
+/** `postmaster`, an address as the directory keeps it; whether it resolves is the server's question, at each message. */
+function checkPostmaster(checker: Checker, root: Table): string | undefined {
+	const value = checker.string(root, 'postmaster', '');
+	if (value === undefined) return undefined;
+	const parsed = addressOf(value);
+	if (parsed === undefined) {
+		checker.add(
+			'postmaster',
+			'must be an e-mail address, such as postmaster@example.com',
+		);
+		return undefined;
+	}
+	return parsed.address;
 }
 
 /** `data`, absolute, without a trailing slash. Default `/data`. */

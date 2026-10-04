@@ -84,6 +84,7 @@ export function createListener(
 		store,
 		resolver: resources.resolver,
 		inbound: config.inbound,
+		postmaster: config.postmaster,
 		tls,
 		spool: resources.spool,
 		log,

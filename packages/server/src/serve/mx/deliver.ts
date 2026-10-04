@@ -1,20 +1,17 @@
-import type { Directory } from '../../directory/directory';
+import type { MailStore } from '@bumail/store';
 import { provisionAccount } from '../../store/accounts';
 import { type Spooled, spooledStream } from '../spool';
-import type { MxContext } from './index';
 
-/** The users a message for `to` goes to, each once: aliases expanded. */
-export function usersOf(directory: Directory, to: readonly string[]): string[] {
-	const users = new Set<string>();
-	for (const address of to) {
-		for (const user of directory.resolve(address) ?? []) users.add(user);
-	}
-	return [...users];
+/** Where a delivery goes, and who is told of it. */
+export interface DeliveryContext {
+	readonly store: MailStore;
+	/** Told of each account a message was added to: IMAP's IDLE looks at once. */
+	onDelivered(accountId: string): void;
 }
 
 /** Adds the message to `user`'s INBOX, or Junk, its account and mailboxes created if need be. */
 export async function deliver(
-	ctx: MxContext,
+	ctx: DeliveryContext,
 	user: string,
 	junk: boolean,
 	prefix: Uint8Array,
