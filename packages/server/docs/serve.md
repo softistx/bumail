@@ -28,9 +28,11 @@ and stops at the first thing it cannot do:
    but `serve` exits 3 with it until ACME arrives in a later release: a
    minimal configuration needs `tls.mode = "files"`, with `cert` and
    `key`, for now;
-2. creates `<data>/spool/<pid>`, where messages wait while they are
-   checked, readable by the server alone, and removes what a server no
-   longer running left under `<data>/spool`;
+2. creates its spool folder, `<data>/spool/<pid>-<random>`, where
+   messages wait while they are checked, readable by the server alone,
+   with an `owner` file naming its process and machine; and removes what
+   a server no longer running on this machine left under `<data>/spool`
+   (a folder with no owner file, or one whose process is gone);
 3. opens the directory and the mail store;
 4. binds each listener whose port is not 0.
 
@@ -51,6 +53,12 @@ mx = 25        # 0 turns it off
 imaps = 993
 imap = 0       # 143, with STARTTLS; off by default
 ```
+
+**One server per data volume.** That is the layout supported: the
+directory and a SQLite store are one process's at a time anyway. Two
+servers sharing `data` (one with `mx = 0`, say) keep their spools apart,
+each in its own folder, and neither sweeps the other's while it runs;
+a folder another machine owns is never swept.
 
 The certificate is read once, at start: after renewing it, restart the
 server. Reloading it while running comes in a later release.
@@ -114,9 +122,20 @@ Junk away from its role gets quarantined mail in INBOX.
 enforced as the message comes (`552 5.3.4`); `inbound.maxConnections`
 (1000) are served at once, and one more is answered `421` and closed. A
 header over 256 KiB is refused with `552 5.3.4 Message header too large`.
-A message waits on disk, in `<data>/spool/<pid>`, while it is checked,
-and is removed once delivered or refused; memory holds 64 KiB of it at a
+A message waits on disk, in the spool folder, while it is checked, and
+is removed once delivered or refused; memory holds 64 KiB of it at a
 time, and its header.
+
+**The spool's budget.** The spool holds 20 times
+`inbound.maxMessageSize` at most (500 MiB by default), every message
+waiting counted as it is written. While a message as large as allowed
+would not fit, MAIL FROM is answered `452 4.3.1 Insufficient system
+storage, try again later`; a message that runs past the budget as it
+comes is read to its end, dropped, and answered the same. The sending
+server tries again later. There is no cap per client yet: one client
+can hold up to `inbound.maxConnections` sessions, since `@bumail/smtp`
+has no per-client limit nor a hook at connection for one; that comes
+in a later release.
 
 **No bounce is ever sent** for mail received on 25. Every refusal is a
 reply during the session, so the sending server, which knows the real
@@ -129,8 +148,10 @@ again later: the users it reached before the failure get it twice.
 
 Each message is checked with `@bumail/auth`:
 
-- **SPF** for the MAIL FROM domain (for a bounce, the HELO name), from
-  the client's IP, begun at MAIL FROM;
+- **SPF** for the MAIL FROM domain, from the client's IP, begun at MAIL
+  FROM. For a bounce (`MAIL FROM:<>`), SPF checks the HELO name, and
+  `Authentication-Results` says `smtp.helo=` rather than
+  `smtp.mailfrom=`; DMARC still aligns it, as RFC 7489 §3.1.2 allows;
 - **DKIM**, every signature, over the message as received;
 - **DMARC** for the From domain, aligning both.
 
@@ -143,15 +164,21 @@ Each message is checked with `@bumail/auth`:
 | fails, `p=reject` | `550 5.7.1 Rejected by the DMARC policy of …` | INBOX |
 | a From it cannot evaluate (none, two, a group) | `550 5.7.1 The From field cannot be evaluated for DMARC: …` | INBOX |
 | `temperror`: the policy could not be looked up | `451 4.7.0 DMARC check failed, try again later` | INBOX |
+| fails, but DKIM did not finish within 10 s | `451 4.7.0 DMARC check failed, try again later` | INBOX |
 
 Either way, the result is written into `Authentication-Results`. SPF on
 its own never refuses a message: forwarding breaks it, and DMARC needs
 only one of SPF and DKIM.
 
 The DNS is the system's resolver, through a cache. Each query has 5
-seconds per try and 2 tries; SPF and DMARC each give up after 10 seconds
-(`temperror`), and the whole check is bounded by the 60 seconds the SMTP
-server gives its hooks.
+seconds per try and 2 tries, so 10 seconds at worst. DKIM, SPF and
+DMARC are each cut off after 10 seconds, as `temperror`. SPF runs from
+MAIL FROM, while the message comes, so after the end of DATA the checks
+take 20 seconds at worst (DKIM, then DMARC), within the 60 seconds the
+SMTP server gives its hook. A DKIM cut off cannot pass, so under
+`enforce` a message DMARC would refuse or quarantine is deferred
+instead, as a signature that would have passed may be among those not
+checked.
 
 ## Reading mail over IMAP
 
@@ -174,12 +201,21 @@ password never crosses the network in clear.
 cleanly:
 
 1. no listener accepts a new connection;
-2. IMAP sessions are closed at once (clients reconnect);
+2. IMAP sessions are closed at once (clients reconnect); a command
+   under way is cut off with its session, but the store call it is in
+   finishes;
 3. SMTP sessions get 10 seconds to finish what they are sending; a
    message under way when the signal came is still taken and answered;
 4. sessions still open after that are hung up on, and the server waits
-   up to 5 more seconds for deliveries already writing to the store;
-5. the store and the directory are closed.
+   up to 5 more seconds for deliveries and every store call under way,
+   IMAP's included;
+5. the store, the directory and the spool folder are closed.
+
+Each store call is atomic: the SQLite store writes each change in one
+transaction, synchronously, so a close cannot fall in the middle of it,
+and the PostgreSQL store's transactions roll back whole if the
+connection goes. A store call still running after the 5 seconds (or a
+second signal) fails, and its client is told so.
 
 It then exits 0. A second signal skips the waits. A message cut off
 by the stop was never answered `250`, so its sender tries again; if it
@@ -213,7 +249,8 @@ bumail: stopped
 | `bumail: <name> (port <n>) arrives in a later slice; not listening` | at start, for each later port not 0 |
 | `mx: <id> from <ip> <sender> delivered to <users> (…)` | a message taken; `(Junk)` when quarantined |
 | `mx: <id> … refused by DMARC (…)` | `550 5.7.1`, with `inbound.dmarc = "enforce"` |
-| `mx: <id> … deferred: DMARC temperror (…)` | `451 4.7.0` |
+| `mx: <id> … deferred: DMARC or DKIM did not finish (…)` | `451 4.7.0` |
+| `mx: MAIL FROM from <ip> deferred: the spool is full`, `mx: <id> from <ip> deferred: the spool is full` | `452 4.3.1`: the spool's budget is spent |
 | `mx: <id> … refused: its header is over 256 KiB` | `552 5.3.4` |
 | `mx: <id> … refused: no recipient is here any longer` | every recipient was removed between RCPT and the end of DATA |
 | `mx: <id> from <ip> not spooled: …` | the spool could not take the message (a full disk, say): the client got `451` |
@@ -238,6 +275,7 @@ const server = await serve(config, {
 	log: (line) => console.log(line),
 	port: (listener, configured) => configured, // 0 binds a free port, for a test
 	drainSeconds: 10,
+	spoolBytes: 20 * config.inbound.maxMessageSize, // the default
 });
 server.listening; // [{ name: 'mx', hostname: '0.0.0.0', port: 25 }, { name: 'imaps', … }]
 

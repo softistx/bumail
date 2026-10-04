@@ -176,6 +176,7 @@ directory commands' own refusals are under
 - [`550 5.7.1 Rejected by the DMARC policy of …`](#550-571-rejected-by-the-dmarc-policy-of-)
 - [`451 4.7.0 DMARC check failed, try again later`](#451-470-dmarc-check-failed-try-again-later)
 - [`550 5.7.1 The From field cannot be evaluated for DMARC: none, several, or not one mailbox`](#550-571-the-from-field-cannot-be-evaluated-for-dmarc-none-several-or-not-one-mailbox)
+- [`452 4.3.1 Insufficient system storage, try again later`](#452-431-insufficient-system-storage-try-again-later)
 - [`552 5.3.4 Message header too large`](#552-534-message-header-too-large)
 - [`550 5.1.1 No recipient of this message is here any longer`](#550-511-no-recipient-of-this-message-is-here-any-longer)
 - [`451 4.3.0 Message not taken, try again later`](#451-430-message-not-taken-try-again-later)
@@ -1141,9 +1142,12 @@ The message never repeats the key.
 
 ### `the spool directory … cannot be used (…)`
 
-`<data>/spool`, where a message waits while it is checked (under a
-folder named after the process), could not be created or cleared: `data` is read-only, full, or owned by another user.
-Exit code 5. Give the server's user a writable `data`.
+`<data>/spool`, where a message waits while it is checked, could not be
+created, cleared of what a stopped server left, or given this server's
+folder (`<pid>-<random>`, with its `owner` file): `data` is read-only,
+full, or owned by another user. Exit code 5. Give the server's user a
+writable `data`. A folder whose `owner` names another machine is never
+removed; delete it by hand once that server is gone for good.
 
 ### `550 5.1.1 User unknown`
 
@@ -1175,8 +1179,11 @@ SPF record: the fix is on their side. To take such mail meanwhile,
 ### `451 4.7.0 DMARC check failed, try again later`
 
 The From domain's DMARC record, or an aligned check, could not be had:
-its DNS did not answer within the bound. The sending server tries
-again. Only with `inbound.dmarc = "enforce"`; with `"mark"` the message
+its DNS did not answer within the bound. Or DKIM did not finish within
+10 seconds while DMARC would otherwise refuse or quarantine the message:
+a signature that would have passed may be among those not checked. The
+log says `deferred: DMARC or DKIM did not finish`. The sending server
+tries again. Only with `inbound.dmarc = "enforce"`; with `"mark"` the message
 is delivered. Repeated for every domain: check this host's resolver.
 
 ### `550 5.7.1 The From field cannot be evaluated for DMARC: none, several, or not one mailbox`
@@ -1186,6 +1193,18 @@ mailbox (a group, an empty value). A second From is the classic way
 around `p=reject`, since a reader may be shown either, so DMARC refuses
 what it cannot read (RFC 7489 §6.6.1). Only with `inbound.dmarc =
 "enforce"`; the sender has to fix the message.
+
+### `452 4.3.1 Insufficient system storage, try again later`
+
+What a sending server is told when the spool's budget is spent: at MAIL
+FROM, while a message as large as `inbound.maxMessageSize` would not
+fit besides those waiting, or at the end of DATA, when the message ran
+past it as it came. The budget is 20 times `inbound.maxMessageSize`. It
+is a burst of large messages at once, or many sessions held open
+mid-DATA; the sending server tries again. The log says `deferred: the
+spool is full`. There is no limit per client yet, so one client can
+fill it with `inbound.maxConnections` sessions; lower
+`inbound.maxConnections` if that is a risk.
 
 ### `552 5.3.4 Message header too large`
 

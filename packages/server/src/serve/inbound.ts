@@ -10,7 +10,7 @@ import {
 import type { Resolver } from '@bumail/dns';
 import type { InboundConfig } from '../config/types';
 
-/** Milliseconds SPF and DMARC each have for their DNS lookups, at most. */
+/** Milliseconds DKIM, SPF and DMARC each have, at most. */
 export const CHECK_TIMEOUT_MS = 10_000;
 
 /** What the sender's checks say, and what the server does with the message. */
@@ -49,10 +49,46 @@ export function startSpf(
 	);
 }
 
+/** What DKIM answers when it did not finish within its deadline. */
+export const DKIM_TIMED_OUT: DkimResult = {
+	result: 'temperror',
+	reason: 'DKIM verification did not finish in time',
+	testing: false,
+};
+
+/** DKIM over `message`, given up after `ms` as one `temperror`. */
+async function dkimWithin(
+	message: ReadableStream<Uint8Array>,
+	resolver: Resolver,
+	ms: number,
+): Promise<{ dkim: readonly DkimResult[]; timedOut: boolean }> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<'late'>((resolve) => {
+		timer = setTimeout(() => resolve('late'), ms);
+	});
+	try {
+		const verified = verifyDkim(message, { resolver });
+		const first = await Promise.race([verified, late]);
+		if (first !== 'late') return { dkim: first, timedOut: false };
+		// What it still reads and looks up ends on its own, bounded by the DNS.
+		void verified.catch(() => {});
+		await message.cancel().catch(() => {});
+		return { dkim: [DKIM_TIMED_OUT], timedOut: true };
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 /**
  * DKIM over the whole message, then DMARC over its header, with the SPF
  * result; and what `inbound.dmarc` makes of them. `enforce` refuses
  * `p=reject` and sends `p=quarantine` to Junk; `mark` only records.
+ * DKIM, SPF and DMARC each have `timeoutMs` (default 10 s); a DKIM that
+ * ran out defers, under `enforce`, what DMARC would otherwise refuse or
+ * quarantine, since a signature that would have passed may be among the
+ * ones not checked. `spfIdentity` is `helo` for a bounce, whose SPF was
+ * checked for the HELO name: `Authentication-Results` says
+ * `smtp.helo=`, while DMARC is given it as RFC 7489 §3.1.2 counts it.
  */
 export async function judge(
 	message: {
@@ -64,14 +100,26 @@ export async function judge(
 		readonly hostname: string;
 		readonly resolver: Resolver;
 		readonly mode: InboundConfig['dmarc'];
+		readonly spfIdentity?: 'mailfrom' | 'helo';
+		readonly timeoutMs?: number;
 	},
 ): Promise<Verdict> {
 	const { resolver } = options;
-	const dkim = await verifyDkim(message.whole(), { resolver });
-	const spfCheck =
+	const timeout = options.timeoutMs ?? CHECK_TIMEOUT_MS;
+	const { dkim, timedOut } = await dkimWithin(
+		message.whole(),
+		resolver,
+		timeout,
+	);
+	// checkSpf checks a bounce's HELO name as its MAIL FROM, which DMARC aligns.
+	const forDmarc =
 		spf === undefined
 			? undefined
 			: { result: spf, identity: 'mailfrom' as const };
+	const forField =
+		spf === undefined
+			? undefined
+			: { result: spf, identity: options.spfIdentity ?? ('mailfrom' as const) };
 	// The fields, then the blank line that ends them: DMARC reads From alone.
 	const header = new Uint8Array(message.header.length + 2);
 	header.set(message.header);
@@ -80,24 +128,27 @@ export async function judge(
 		{
 			message: header,
 			dkim,
-			...(spfCheck === undefined ? {} : { spf: spfCheck }),
+			...(forDmarc === undefined ? {} : { spf: forDmarc }),
 		},
-		{ resolver, timeout: CHECK_TIMEOUT_MS },
+		{ resolver, timeout },
 	);
 	const field = formatAuthenticationResults(options.hostname, {
 		dkim,
-		...(spfCheck === undefined ? {} : { spf: spfCheck }),
+		...(forField === undefined ? {} : { spf: forField }),
 		dmarc,
 	});
-	return { dkim, spf, dmarc, field, action: actionOf(dmarc, options.mode) };
+	const action = actionOf(dmarc, options.mode, timedOut);
+	return { dkim, spf, dmarc, field, action };
 }
 
 function actionOf(
 	dmarc: DmarcResult,
 	mode: InboundConfig['dmarc'],
+	dkimTimedOut: boolean,
 ): Verdict['action'] {
 	if (mode === 'mark') return 'deliver';
 	if (dmarc.result === 'temperror') return 'defer';
+	if (dkimTimedOut && dmarc.disposition !== 'none') return 'defer';
 	if (dmarc.disposition === 'reject') return 'reject';
 	if (dmarc.disposition === 'quarantine') return 'junk';
 	return 'deliver';

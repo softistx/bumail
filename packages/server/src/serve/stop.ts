@@ -3,6 +3,7 @@ import type { Directory } from '../directory/directory';
 import type { OpenedStore } from '../store/open';
 import type { Listener } from './listeners';
 import type { Log } from './log';
+import type { Spool } from './spool';
 
 /** Milliseconds a stop waits, after the drain, for deliveries already writing to the store. */
 export const SETTLE_MS = 5000;
@@ -11,8 +12,11 @@ export const SETTLE_MS = 5000;
 export interface Running {
 	readonly listeners: readonly Listener[];
 	readonly inflight: ReadonlySet<Promise<unknown>>;
+	/** Store calls under way, IMAP's included. */
+	readonly storeCalls: ReadonlySet<Promise<unknown>>;
 	readonly opened: OpenedStore;
 	readonly directory: Directory;
+	readonly spool: Spool;
 	readonly log: Log;
 	describe(error: unknown): string;
 	/** Milliseconds SMTP sessions are given to end. */
@@ -37,8 +41,8 @@ export async function closeResources(
 
 /**
  * The stop of a running server: listeners stopped, IMAP sessions closed,
- * SMTP sessions drained for `drainMs` then closed, deliveries given
- * `SETTLE_MS`, the store and the directory closed. Called again, it
+ * SMTP sessions drained for `drainMs` then closed, deliveries and store
+ * calls under way given `SETTLE_MS`, the store and the directory closed. Called again, it
  * answers the same promise; `force` skips the waits, even one under way.
  */
 export function stopper(
@@ -65,13 +69,19 @@ export function stopper(
 				running.drainMs,
 			);
 			for (const server of smtps) server.stop(true);
-			await waitUntil(() => running.inflight.size === 0, SETTLE_MS);
+			// Deliveries, and IMAP commands cut off with their sessions, finish
+			// the store calls they are in before the store closes.
+			await waitUntil(
+				() => running.inflight.size === 0 && running.storeCalls.size === 0,
+				SETTLE_MS,
+			);
 			await closeResources(
 				running.opened,
 				running.directory,
 				running.log,
 				(error) => running.describe(error),
 			);
+			running.spool.close();
 			running.log('bumail: stopped');
 		})();
 		return stopping;

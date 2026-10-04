@@ -85,6 +85,10 @@ describe('mx: delivery', () => {
 		).toStartWith('250 ');
 		const [mail] = await mailOf(await stopped(f), 'bob@example.com', 'inbox');
 		expect(mail).toStartWith('Return-Path: <>\r\n');
+		// SPF was checked for the HELO name, and says so.
+		expect(mail).toContain('smtp.helo=pass.example');
+		expect(mail).not.toContain('smtp.mailfrom=');
+		expect(mail).toContain('dmarc=pass');
 	});
 
 	test('takes STARTTLS, and delivers over it', async () => {
@@ -244,6 +248,9 @@ describe('mx: Authentication-Results', () => {
 			'Authentication-Results: mail.example.com; dmarc=pass header.from=bank.example',
 			'Authentication-Results: (a comment)\r\n MAIL.EXAMPLE.COM.; spf=pass',
 			'Authentication-Results: "mail.example.com"; dkim=pass',
+			'Authentication-Results: mail.example.com\u200b; dmarc=pass',
+			'Authentication-Results: mail.example.com/x; dmarc=pass',
+			'Authentication-Results: mail.example.com\u00ad; dmarc=pass',
 			'Authentication-Results: relay.other.example; spf=pass smtp.mailfrom=x.example',
 			'Return-Path: <forged@bank.example>',
 			'',

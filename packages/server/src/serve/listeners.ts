@@ -7,6 +7,7 @@ import type { Directory } from '../directory/directory';
 import { createImap } from './imap';
 import type { Log } from './log';
 import { createMx } from './mx';
+import type { Spool } from './spool';
 import type { TlsFiles } from './tls';
 
 /** The listeners `serve` starts, in the order it starts them. */
@@ -50,7 +51,7 @@ export interface Resources {
 	readonly store: MailStore;
 	readonly resolver: Resolver;
 	readonly tls: TlsFiles;
-	readonly spoolDir: string;
+	readonly spool: Spool;
 	readonly log: Log;
 	/** A failure's text, any secret in it masked. */
 	describe(error: unknown): string;
@@ -84,7 +85,7 @@ export function createListener(
 		resolver: resources.resolver,
 		inbound: config.inbound,
 		tls,
-		spoolDir: resources.spoolDir,
+		spool: resources.spool,
 		log,
 		describe,
 		onDelivered: (accountId) => {

@@ -15,13 +15,20 @@ import {
 	type Resources,
 } from './listeners';
 import type { Log } from './log';
-import { openSpool } from './spool';
+import { SPOOL_BUDGET_MESSAGES, Spool } from './spool';
 import { closeResources, stopper } from './stop';
 import { readTls } from './tls';
+import { trackedStore } from './tracked';
 
 export { LATER, type ListenerName } from './listeners';
 
-/** Milliseconds one DNS try has, and tries per query, for the inbound checks. */
+/**
+ * Milliseconds one DNS try has, and tries per query, for the inbound
+ * checks: one query takes 10 s at worst. DKIM, SPF and DMARC are each
+ * cut off at 10 s on top of that (`CHECK_TIMEOUT_MS`); SPF runs from
+ * MAIL FROM, so a message's checks take 20 s at worst after DATA (DKIM,
+ * then DMARC), well within the 60 s the SMTP server gives `onData`.
+ */
 export const DNS_TIMEOUT_MS = 5000;
 export const DNS_TRIES = 2;
 
@@ -41,6 +48,12 @@ export interface ServeOptions {
 	port?(listener: ListenerName, configured: number): number;
 	/** Seconds `stop` waits for SMTP sessions to end before hanging up on them. Default 10. */
 	readonly drainSeconds?: number;
+	/**
+	 * Bytes the spool holds at most, every message waiting counted; past
+	 * it, MAIL FROM and DATA answer `452 4.3.1`. Default 20 times
+	 * `inbound.maxMessageSize`.
+	 */
+	readonly spoolBytes?: number;
 }
 
 /** A listener bound. */
@@ -92,45 +105,12 @@ function openResources(config: ServerConfig): {
 	}
 }
 
-/**
- * Runs the server for `config`: reads the certificate (`tls.mode =
- * "files"`; `"acme"` is `NOT_IMPLEMENTED`), opens the directory and the
- * mail store, and starts each listener of this slice whose port is not 0
- * — `mx`, `imaps`, `imap` — logging one line each. The other ports are
- * logged as arriving later, and bound to nothing. What cannot be opened
- * or bound is `ServerError('UNAVAILABLE')`, with whatever was started
- * stopped again.
- */
-export async function serve(
-	config: ServerConfig,
-	options: ServeOptions = {},
-): Promise<RunningServer> {
-	const log = options.log ?? defaultLog;
-	const tls = readTls(config.tls);
-	const spoolDir = openSpool(config.data);
-	const { directory, opened } = openResources(config);
-	const describe = (error: unknown) =>
-		maskedFor(
-			error instanceof Error ? error.message : String(error),
-			config.store.url,
-		);
-	const resources: Resources = {
-		config,
-		directory,
-		store: opened.store,
-		resolver:
-			options.resolver ??
-			cachedResolver(
-				nodeResolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES }),
-			),
-		tls,
-		spoolDir,
-		log,
-		describe,
-		inflight: new Set(),
-		imaps: [] as ImapServer[],
-	};
-
+/** Binds each listener of `resources` whose port is not 0; on a failure, stops those bound and throws `UNAVAILABLE`. */
+async function bindListeners(
+	resources: Resources,
+	options: ServeOptions,
+): Promise<{ started: Listener[]; listening: Listening[] }> {
+	const { config } = resources;
 	const started: Listener[] = [];
 	const listening: Listening[] = [];
 	for (const name of LISTENERS) {
@@ -146,7 +126,6 @@ export async function serve(
 			listening.push({ name, ...bound });
 		} catch (error) {
 			for (const { server } of started) server.stop(true);
-			await closeResources(opened, directory, log, describe);
 			throw new ServerError(
 				'UNAVAILABLE',
 				`${name} cannot listen on ${config.bind}:${port} (${bindReason(error)})`,
@@ -155,7 +134,15 @@ export async function serve(
 		started.push(listener);
 		if (listener.kind === 'imap') resources.imaps.push(listener.server);
 	}
+	return { started, listening };
+}
 
+/** The start's log: the server's name, one line per listener, one per port arriving later. */
+function logStart(
+	config: ServerConfig,
+	listening: readonly Listening[],
+	log: Log,
+): void {
 	log(`bumail: serving ${config.hostname}`);
 	for (const { name, hostname, port } of listening) {
 		log(
@@ -170,14 +157,77 @@ export async function serve(
 			);
 		}
 	}
+}
+
+/**
+ * Runs the server for `config`: reads the certificate (`tls.mode =
+ * "files"`; `"acme"` is `NOT_IMPLEMENTED`), opens the spool, the
+ * directory and the mail store, and starts each listener whose port is
+ * not 0 — `mx`, `imaps`, `imap` — logging one line each. The other ports
+ * are logged as arriving later, and bound to nothing. What cannot be
+ * opened or bound is `ServerError('UNAVAILABLE')`, with whatever was
+ * started stopped again.
+ */
+export async function serve(
+	config: ServerConfig,
+	options: ServeOptions = {},
+): Promise<RunningServer> {
+	const log = options.log ?? defaultLog;
+	const tls = readTls(config.tls);
+	const spool = Spool.open(
+		config.data,
+		options.spoolBytes ?? SPOOL_BUDGET_MESSAGES * config.inbound.maxMessageSize,
+	);
+	let directory: Directory;
+	let opened: OpenedStore;
+	try {
+		({ directory, opened } = openResources(config));
+	} catch (error) {
+		spool.close();
+		throw error;
+	}
+	const describe = (error: unknown) =>
+		maskedFor(
+			error instanceof Error ? error.message : String(error),
+			config.store.url,
+		);
+	const storeCalls = new Set<Promise<unknown>>();
+	const resources: Resources = {
+		config,
+		directory,
+		store: trackedStore(opened.store, storeCalls),
+		resolver:
+			options.resolver ??
+			cachedResolver(
+				nodeResolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES }),
+			),
+		tls,
+		spool,
+		log,
+		describe,
+		inflight: new Set(),
+		imaps: [] as ImapServer[],
+	};
+
+	let bound: Awaited<ReturnType<typeof bindListeners>>;
+	try {
+		bound = await bindListeners(resources, options);
+	} catch (error) {
+		await closeResources(opened, directory, log, describe);
+		spool.close();
+		throw error;
+	}
+	logStart(config, bound.listening, log);
 
 	return {
-		listening,
+		listening: bound.listening,
 		stop: stopper({
-			listeners: started,
+			listeners: bound.started,
 			inflight: resources.inflight,
+			storeCalls,
 			opened,
 			directory,
+			spool,
 			log,
 			describe,
 			drainMs: (options.drainSeconds ?? DEFAULT_DRAIN_SECONDS) * 1000,

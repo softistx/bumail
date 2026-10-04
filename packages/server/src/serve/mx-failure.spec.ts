@@ -10,7 +10,7 @@ import { seededDirectory } from '../directory/directory.fixtures';
 import { maskedFor } from '../store/open';
 import { createMx } from './mx';
 import { message, RECORDS, sendMail } from './serve.fixtures';
-import { openSpool } from './spool';
+import { Spool } from './spool';
 
 const URL_WITH_SECRET = 'postgres://bumail:store-secret-pw@db.internal/mail';
 
@@ -32,7 +32,7 @@ test('a store that fails answers 451, and its log line masks the store password'
 			new Error(`connection to ${URL_WITH_SECRET} refused (store-secret-pw)`),
 		);
 	const lines: string[] = [];
-	const spoolDir = openSpool(tempDir());
+	const spool = Spool.open(tempDir(), 1 << 24);
 	server = createMx({
 		hostname: 'mail.example.com',
 		directory,
@@ -40,7 +40,7 @@ test('a store that fails answers 451, and its log line masks the store password'
 		resolver: fixtureResolver(RECORDS),
 		inbound: { dmarc: 'enforce', maxMessageSize: 1 << 20, maxConnections: 10 },
 		tls: await selfSigned(['localhost']),
-		spoolDir,
+		spool,
 		log: (line) => lines.push(line),
 		describe: (error) =>
 			maskedFor(
@@ -61,5 +61,6 @@ test('a store that fails answers 451, and its log line masks the store password'
 	expect(error).toContain('connection to postgres://bumail:…@db.internal/mail');
 	expect(lines.join('\n')).not.toContain('store-secret-pw');
 	// Nothing is left in the spool, delivered or not.
-	expect(readdirSync(spoolDir)).toEqual([]);
+	expect(readdirSync(spool.dir)).toEqual(['owner']);
+	expect(spool.used).toBe(0);
 });

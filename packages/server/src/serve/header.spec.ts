@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
 	authservId,
+	claimsHost,
 	HeaderEndScanner,
 	headerEnd,
 	returnPath,
@@ -58,16 +59,55 @@ describe('stripForged', () => {
 				'Authentication-Results: mail.example.com; dmarc=pass',
 				'authentication-results: MAIL.example.com.; spf=pass',
 				'Authentication-Results: mail.example.com.evil.example; spf=pass',
+				'Authentication-Results: mail.example.community; spf=pass',
 				'Return-Path: <x@y>',
 				'From: <a@b>',
 				'',
 			].join('\r\n'),
 		);
 		const { kept, removed } = stripForged(header, 'mail.example.com');
-		expect(removed).toBe(3);
+		// mail.example.com.evil.example goes too: erring towards removal costs nothing.
+		expect(removed).toBe(4);
 		expect(text(kept)).toBe(
-			'Received: from a by b; now\r\nAuthentication-Results: mail.example.com.evil.example; spf=pass\r\nFrom: <a@b>\r\n',
+			'Received: from a by b; now\r\nAuthentication-Results: mail.example.community; spf=pass\r\nFrom: <a@b>\r\n',
 		);
+	});
+});
+
+describe('claimsHost: an id a reader may take for the server', () => {
+	const host = 'mail.example.com';
+	test.each([
+		['NUL', 'mail.example.com\u0000'],
+		['\\x01', 'mail.example.com\u0001'],
+		['DEL', 'mail.example.com\u007f'],
+		['a slash', 'mail.example.com/x'],
+		['a comma', 'mail.example.com,x'],
+		['an equals sign', 'mail.example.com=x'],
+		['a zero-width space after', 'mail.example.com\u200b'],
+		['a zero-width space inside', 'mail.exa\u200bmple.com'],
+		['a soft hyphen after', 'mail.example.com\u00ad'],
+		['a soft hyphen inside', 'mail.exam\u00adple.com'],
+		['a control character anywhere', 'other\u0001.example'],
+		['a trailing dot', 'mail.example.com.'],
+		['the hostname itself', 'mail.example.com'],
+	])('%s is a claim', (_, id) => {
+		expect(claimsHost(id, host)).toBe(true);
+	});
+
+	test.each([
+		'mail.example.community',
+		'mail.example.co',
+		'relay.other.example',
+		'xmail.example.com',
+	])('%s is not', (id) => {
+		expect(claimsHost(id, host)).toBe(false);
+	});
+
+	test('a field whose id hides a control character is stripped', () => {
+		for (const id of ['mail.example.com\u0000', 'mail.example.com\u007f']) {
+			const header = bytes(`Authentication-Results: ${id}; dmarc=pass\r\n`);
+			expect(stripForged(header, host).removed).toBe(1);
+		}
 	});
 });
 

@@ -4,7 +4,7 @@ The bumail mail server: the `@bumail/*` packages wired into one process,
 configured by one TOML file, run as the `bumail` command.
 
 **In progress, and private for now.** This package is not on npm yet: it
-is built here slice by slice, and published once it is complete. Today
+is built here one step at a time, and published once it is complete. Today
 it reads and checks its configuration (`bumail check-config`), manages
 its directory of domains, users and aliases (`bumail domain`, `bumail
 user`, `bumail alias`), and **receives mail**: `bumail serve` takes
@@ -42,7 +42,8 @@ url = "sqlite:/data/mail"  # or postgres://…?sslmode=require
 url = "sqlite:/data/queue" # or postgres://…, or rediss://…
 
 [tls]
-mode = "acme"              # or "files", with cert and key
+mode = "acme"              # the default, which check-config takes; serve exits 3 with it
+                           # for now: use "files", with cert and key (see Serving)
 
 [acme]
 email = "postmaster@example.com"
@@ -239,7 +240,7 @@ mail store, a port or a certificate that cannot be used 5.
 | `configPath(options?)` | the file `readConfig` reads: `path`, else `BUMAIL_CONFIG`, else `DEFAULT_CONFIG_PATH` |
 | `DEFAULT_CONFIG_PATH` | `/data/bumail.toml` |
 | `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`, `NOT_IMPLEMENTED`) and, for a configuration, its `problems` |
-| `serve(config, options?)` | runs the server: `mx`, `imaps` and `imap` for the ports not 0; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds` |
+| `serve(config, options?)` | runs the server: `mx`, `imaps` and `imap` for the ports not 0; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds`, `spoolBytes` (20 × `inbound.maxMessageSize`) |
 | `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`; the types around them |
 | `DEFAULT_DRAIN_SECONDS`, `ACME_LATER` | 10, the seconds a stop waits for SMTP sessions; what `serve` says of `tls.mode = "acme"` |
 | `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, cacheSeconds?, onUnlimited?, limiter? })`: `domains`, `users`, `aliases`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |

@@ -174,9 +174,45 @@ describe('serve: stopping', () => {
 			{ from: 'joe@reject.example', to: ['alice@example.com'] },
 			message('joe@reject.example', 'refused'),
 		);
-		const spool = join(f.dir, 'spool', String(process.pid));
+		const [name] = readdirSync(join(f.dir, 'spool'));
+		expect(name).toMatch(new RegExp(`^${process.pid}-[0-9a-f]{8}$`));
+		const spool = join(f.dir, 'spool', name ?? '');
 		expect(statSync(spool).mode & 0o777).toBe(0o700);
-		expect(readdirSync(spool)).toEqual([]);
+		expect(readdirSync(spool)).toEqual(['owner']);
+		await f.stop();
+		// The stop removes the folder.
+		expect(readdirSync(join(f.dir, 'spool'))).toEqual([]);
+	});
+
+	test('answers 452 4.3.1 to MAIL FROM while the spool is full, and takes mail again after', async () => {
+		const f = await startServer('[inbound]\nmaxMessageSize = 4000', {
+			spoolBytes: 6000,
+		});
+		const held = await LineClient.connect(f.port('mx'));
+		await held.reply();
+		await held.smtp('EHLO client.example');
+		await held.smtp('MAIL FROM:<joe@pass.example>');
+		await held.smtp('RCPT TO:<alice@example.com>');
+		await held.smtp('DATA');
+		held.write(`X-Filler: ${'a'.repeat(2500)}\r\n`);
+		await Bun.sleep(200);
+		const { replies } = await sendMail(
+			f.port('mx'),
+			{ from: 'joe@pass.example', to: ['alice@example.com'] },
+			message('joe@pass.example', 'no room'),
+		);
+		// The greeting, EHLO, then MAIL FROM.
+		expect(replies[2]).toStartWith('452 4.3.1 Insufficient system storage');
+		held.write(`${message('joe@pass.example', 'held')}\r\n.\r\n`);
+		expect(await held.reply()).toStartWith('250 ');
+		await held.smtp('QUIT');
+		held.end();
+		const { last } = await sendMail(
+			f.port('mx'),
+			{ from: 'joe@pass.example', to: ['alice@example.com'] },
+			message('joe@pass.example', 'room again'),
+		);
+		expect(last).toStartWith('250 ');
 		await f.stop();
 	});
 

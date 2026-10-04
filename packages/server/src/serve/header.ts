@@ -118,7 +118,9 @@ function skipCfws(text: string, at: number): number {
 
 /**
  * The authserv-id an `Authentication-Results` field claims (RFC 8601
- * §2.2), lower case, a quoted-string unquoted; `''` when it has none.
+ * §2.2), as written, lower case: a quoted-string unquoted, else all up
+ * to white space, `;`, a comment or a quote — control characters and
+ * any other byte kept, for `claimsHost` to judge; `''` when it has none.
  */
 export function authservId(field: Uint8Array): string {
 	const text = decoder.decode(field);
@@ -137,15 +139,63 @@ export function authservId(field: Uint8Array): string {
 	return (match?.[0] ?? '').toLowerCase();
 }
 
-/** Whether `id` names `hostname`, a trailing dot aside. */
-function sameHost(id: string, hostname: string): boolean {
-	return id.replace(/\.$/, '') === hostname.toLowerCase().replace(/\.$/, '');
+/** An RFC 2045 token: no space, no control character, none of `()<>@,;:\"/[]?=`. */
+const TOKEN = /^[!#$%&'*+\-.0-9A-Z^_`a-z{|}~]*/;
+/** Whether a reader shows the character as nothing: a soft hyphen, a zero-width one, a BOM. */
+function invisible(code: number): boolean {
+	return (
+		code === 0xad ||
+		code === 0x34f ||
+		code === 0x180e ||
+		(code >= 0x200b && code <= 0x200f) ||
+		(code >= 0x2060 && code <= 0x2064) ||
+		code === 0xfeff
+	);
+}
+
+/** Whether the text holds a C0 or C1 control character, or DEL. */
+function hasControl(text: string): boolean {
+	for (let i = 0; i < text.length; i++) {
+		const code = text.charCodeAt(i);
+		if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
+	}
+	return false;
+}
+
+/** The text without the characters a reader shows as nothing. */
+function visible(text: string): string {
+	let out = '';
+	for (const char of text) {
+		if (!invisible(char.codePointAt(0) ?? 0)) out += char;
+	}
+	return out;
+}
+
+/**
+ * Whether an authserv-id, as `authservId` read it, may be taken by a
+ * reader for `hostname` — erring towards yes, since removing another
+ * server's field costs nothing: any control character; the id cut at
+ * its first character that is no token character, or with invisible
+ * characters left out, being `hostname` (a trailing dot aside); or
+ * `hostname` followed by anything but a letter, a digit or a hyphen.
+ */
+export function claimsHost(id: string, hostname: string): boolean {
+	const host = hostname.toLowerCase().replace(/\.$/, '');
+	if (hasControl(id)) return true;
+	for (const form of [id, visible(id)]) {
+		const token = (TOKEN.exec(form)?.[0] ?? '').replace(/\.$/, '');
+		if (token === host) return true;
+		if (form.startsWith(host) && !/^[a-z0-9-]/.test(form.slice(host.length))) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /**
  * The header's fields less those a sender could forge to fool a reader
- * here: every `Authentication-Results` claiming `hostname` as its
- * authserv-id (RFC 8601 §5), and every `Return-Path`, which only the
+ * here: every `Authentication-Results` whose authserv-id may be read as
+ * `hostname` (RFC 8601 §5; `claimsHost`), and every `Return-Path`, which only the
  * delivering server writes (RFC 5321 §4.4). Answers what is kept, in
  * order, and how many fields were taken out.
  */
@@ -160,7 +210,7 @@ export function stripForged(
 		const forged =
 			name === 'return-path' ||
 			(name === 'authentication-results' &&
-				sameHost(authservId(field), hostname));
+				claimsHost(authservId(field), hostname));
 		if (forged) removed++;
 		else kept.push(field);
 	}

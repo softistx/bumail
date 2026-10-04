@@ -16,7 +16,7 @@ import { provisionAccount } from '../store/accounts';
 import { joinHeader, returnPath, stripForged } from './header';
 import { judge, startSpf, type Verdict } from './inbound';
 import type { Log } from './log';
-import { type Spooled, spool, spooledStream } from './spool';
+import { type Spool, type Spooled, spooledStream } from './spool';
 
 /** What the MX listener needs from the server. */
 export interface MxContext {
@@ -26,8 +26,8 @@ export interface MxContext {
 	readonly resolver: Resolver;
 	readonly inbound: InboundConfig;
 	readonly tls: TlsOptions;
-	/** Where messages wait while they are checked. */
-	readonly spoolDir: string;
+	/** Where messages wait while they are checked, within its byte budget. */
+	readonly spool: Spool;
 	readonly log: Log;
 	/** Told of each account a message was added to: IMAP's IDLE looks at once. */
 	onDelivered(accountId: string): void;
@@ -53,6 +53,11 @@ export const DMARC_DEFERRED = reply(
 	'DMARC check failed, try again later',
 );
 const NOT_TAKEN = reply(451, '4.3.0', 'Message not taken, try again later');
+export const SPOOL_FULL = reply(
+	452,
+	'4.3.1',
+	'Insufficient system storage, try again later',
+);
 
 export const FROM_UNREADABLE = reply(
 	550,
@@ -102,6 +107,13 @@ export function createMx(ctx: MxContext): SmtpServer {
 		maxMessageSize: ctx.inbound.maxMessageSize,
 		maxConnections: ctx.inbound.maxConnections,
 		onMailFrom(path, session) {
+			// A message as large as allowed must fit, besides those waiting.
+			if (!ctx.spool.hasRoom(ctx.inbound.maxMessageSize)) {
+				log(
+					`mx: MAIL FROM from ${session.remoteAddress} deferred: the spool is full`,
+				);
+				return SPOOL_FULL;
+			}
 			session.data[SPF] = startSpf(
 				{
 					ip: session.remoteAddress,
@@ -110,6 +122,7 @@ export function createMx(ctx: MxContext): SmtpServer {
 				},
 				ctx.resolver,
 			);
+			return undefined;
 		},
 		onRcptTo(path) {
 			return directory.resolve(path.address) === undefined
@@ -134,7 +147,14 @@ async function receive(
 ): Promise<Reply | undefined> {
 	let spooled: Spooled;
 	try {
-		spooled = await spool(ctx.spoolDir, message.id, message.content);
+		const written = await ctx.spool.write(message.id, message.content);
+		if (written === 'full') {
+			ctx.log(
+				`mx: ${message.id} from ${session.remoteAddress} deferred: the spool is full`,
+			);
+			return SPOOL_FULL;
+		}
+		spooled = written;
 	} catch (error) {
 		// The stream's own refusal (too big, a bare line break, a lost
 		// connection) replaces this reply, and says why; anything else is
@@ -176,7 +196,13 @@ async function check(
 	const verdict = await judge(
 		{ header, whole: () => Bun.file(spooled.file).stream() },
 		spf,
-		{ hostname: ctx.hostname, resolver: ctx.resolver, mode: ctx.inbound.dmarc },
+		{
+			hostname: ctx.hostname,
+			resolver: ctx.resolver,
+			mode: ctx.inbound.dmarc,
+			// A bounce's SPF is its HELO name's.
+			spfIdentity: envelope.from === '' ? 'helo' : 'mailfrom',
+		},
 	);
 	if (verdict.action === 'reject') {
 		log(`mx: ${from} refused by DMARC (${summary(verdict)})`);
@@ -185,7 +211,9 @@ async function check(
 			: dmarcRejected(verdict.dmarc.domain);
 	}
 	if (verdict.action === 'defer') {
-		log(`mx: ${from} deferred: DMARC temperror (${summary(verdict)})`);
+		log(
+			`mx: ${from} deferred: DMARC or DKIM did not finish (${summary(verdict)})`,
+		);
 		return DMARC_DEFERRED;
 	}
 	const { kept } = stripForged(header, ctx.hostname);
