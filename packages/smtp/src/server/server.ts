@@ -73,6 +73,76 @@ export function handlers(settings: Settings): SocketHandler<SocketState> {
 	};
 }
 
+/**
+ * The listener's own handlers: `open` counts a socket and greets it or turns
+ * it away, `handshake` lets implicit TLS start once encrypted, `close`
+ * frees the slot.
+ */
+function listenerHandlers(
+	settings: Settings,
+	slots: Slots<Connection>,
+	secure: boolean,
+): Pick<SocketHandler<SocketState>, 'open' | 'handshake' | 'close'> {
+	return {
+		// With a `handshake` handler, Bun calls `open` on implicit TLS
+		// as soon as TCP connects; without one, only once the
+		// handshake completed, so a client that never sends its
+		// ClientHello would be counted by no limit and bounded by no
+		// timer.
+		open(socket) {
+			socket.data = { upgraded: false, handshaking: secure };
+			socket.timeout(secure ? settings.handshakeTimeout : settings.timeout);
+			const begin = (start: () => void) => {
+				if (secure) socket.data.start = start;
+				else start();
+			};
+			if (slots.size >= settings.maxConnections) {
+				return begin(() =>
+					turnAway(
+						socket,
+						secure,
+						`421 4.3.2 ${settings.options.hostname} Too many connections, try later\r\n`,
+					),
+				);
+			}
+			const key = clientKey(socket.remoteAddress);
+			if (slots.of(key) >= settings.maxConnectionsPerClient) {
+				return begin(() =>
+					turnAway(
+						socket,
+						secure,
+						`421 4.7.0 ${settings.options.hostname} Too many connections from your address, try later\r\n`,
+					),
+				);
+			}
+			const connection = new Connection(
+				settings,
+				transportOf(socket, settings, secure, slots),
+			);
+			slots.take(connection, key);
+			socket.data.connection = connection;
+			begin(() => void connection.open());
+		},
+		handshake(socket, success) {
+			const state = socket.data;
+			if (!state?.handshaking) return;
+			// A failed handshake: Bun closes the socket, and `close` counts it out.
+			if (!success) return;
+			state.handshaking = false;
+			socket.timeout(settings.timeout);
+			const start = state.start;
+			delete state.start;
+			start?.();
+		},
+		close(socket) {
+			const connection = socket.data?.connection;
+			if (connection) slots.release(connection);
+			socket.data?.transport?.closed();
+			connection?.close();
+		},
+	};
+}
+
 /** Writes one reply and hangs up, through a transport so the hang-up is bounded as every other is. */
 function turnAway(
 	socket: Socket<SocketState>,
@@ -163,64 +233,7 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 					: {}),
 				socket: {
 					...handlers(settings),
-					// With a `handshake` handler, Bun calls `open` on implicit TLS
-					// as soon as TCP connects; without one, only once the
-					// handshake completed, so a client that never sends its
-					// ClientHello would be counted by no limit and bounded by no
-					// timer.
-					open(socket) {
-						socket.data = { upgraded: false, handshaking: secure };
-						socket.timeout(
-							secure ? settings.handshakeTimeout : settings.timeout,
-						);
-						const begin = (start: () => void) => {
-							if (secure) socket.data.start = start;
-							else start();
-						};
-						if (slots.size >= settings.maxConnections) {
-							return begin(() =>
-								turnAway(
-									socket,
-									secure,
-									`421 4.3.2 ${options.hostname} Too many connections, try later\r\n`,
-								),
-							);
-						}
-						const key = clientKey(socket.remoteAddress);
-						if (slots.of(key) >= settings.maxConnectionsPerClient) {
-							return begin(() =>
-								turnAway(
-									socket,
-									secure,
-									`421 4.7.0 ${options.hostname} Too many connections from your address, try later\r\n`,
-								),
-							);
-						}
-						const connection = new Connection(
-							settings,
-							transportOf(socket, settings, secure, slots),
-						);
-						slots.take(connection, key);
-						socket.data.connection = connection;
-						begin(() => void connection.open());
-					},
-					handshake(socket, success) {
-						const state = socket.data;
-						if (!state?.handshaking) return;
-						// A failed handshake: Bun closes the socket, and `close` counts it out.
-						if (!success) return;
-						state.handshaking = false;
-						socket.timeout(settings.timeout);
-						const start = state.start;
-						delete state.start;
-						start?.();
-					},
-					close(socket) {
-						const connection = socket.data?.connection;
-						if (connection) slots.release(connection);
-						socket.data?.transport?.closed();
-						connection?.close();
-					},
+					...listenerHandlers(settings, slots, secure),
 				},
 			});
 			return { port: listener.port, hostname: listener.hostname };
