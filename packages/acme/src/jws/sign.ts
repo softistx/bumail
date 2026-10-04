@@ -48,6 +48,18 @@ export type ProtectedHeader = {
  * without padding.
  */
 export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
+	return await sign(options, false);
+}
+
+/**
+ * `signJws`, taking `http:` URLs too when `allowHttp` is set: what
+ * `AcmeClient`'s `allowInsecure` signs with, for a test CA served over
+ * plain HTTP. Not exported from the package.
+ */
+export async function sign(
+	options: JwsOptions,
+	allowHttp: boolean,
+): Promise<FlattenedJws> {
 	const where = 'signJws()';
 	if (typeof options !== 'object' || options === null) {
 		throw new AcmeError(
@@ -63,8 +75,8 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 			`${where}: nonce must be the server's Replay-Nonce, a non-empty base64url string, not ${shown(nonce)}`,
 		);
 	}
-	checkUrl(url, 'url');
-	if (kid !== undefined) checkUrl(kid, 'kid');
+	checkUrl(url, 'url', allowHttp);
+	if (kid !== undefined) checkUrl(kid, 'kid', allowHttp);
 	if (
 		payload !== undefined &&
 		(typeof payload !== 'object' || payload === null || isArray(payload))
@@ -115,7 +127,7 @@ export async function signJws(options: JwsOptions): Promise<FlattenedJws> {
 	};
 }
 
-function checkUrl(value: unknown, name: string): void {
+function checkUrl(value: unknown, name: string, allowHttp: boolean): void {
 	let parsed: URL | undefined;
 	try {
 		parsed =
@@ -125,8 +137,10 @@ function checkUrl(value: unknown, name: string): void {
 	} catch {
 		parsed = undefined;
 	}
+	const scheme = parsed?.protocol;
 	if (
-		parsed?.protocol !== 'https:' ||
+		parsed === undefined ||
+		(scheme !== 'https:' && !(allowHttp && scheme === 'http:')) ||
 		parsed.username !== '' ||
 		parsed.password !== '' ||
 		(value as string).includes('#')
