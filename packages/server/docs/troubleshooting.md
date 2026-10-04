@@ -195,6 +195,7 @@ directory commands' own refusals are under
 - [`421 4.3.2 … Too many connections, try later`](#421-432--too-many-connections-try-later)
 - [`421 4.7.0 … Too many connections from your address, try later`](#421-470--too-many-connections-from-your-address-try-later)
 - [`550 5.1.1 No postmaster mailbox is configured here`](#550-511-no-postmaster-mailbox-is-configured-here)
+- [`bumail: postmaster … is in …, a domain not hosted here; mail for <postmaster> is refused until it is`](#bumail-postmaster--is-in--a-domain-not-hosted-here-mail-for-postmaster-is-refused-until-it-is)
 - [`imaps: login refused from …: …`](#imaps-login-refused-from--), and `imap:`, `submissions:`, `submission:`
 - [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `submissions:`, `submission:`, `imaps:`, `imap:`
 - [`bumail: the mail store did not close cleanly: …`](#bumail-the-mail-store-did-not-close-cleanly-), and `the queue`
@@ -209,11 +210,14 @@ directory commands' own refusals are under
 - [`553 5.7.1 Not authorized to send as <…>`](#553-571-not-authorized-to-send-as-)
 - [`550 5.7.1 The From field names an address that is not yours`](#550-571-the-from-field-names-an-address-that-is-not-yours)
 - [`550 5.6.0 The message needs exactly one From field`](#550-560-the-message-needs-exactly-one-from-field)
+- [`550 5.6.0 The From field must name your address`](#550-560-the-from-field-must-name-your-address)
 - [`553 5.1.3 The address is not one this server can send to`](#553-513-the-address-is-not-one-this-server-can-send-to)
 - [`452 4.3.1 The queue is full, try again later`](#452-431-the-queue-is-full-try-again-later), `552 5.3.4 Message too big for the queue`, `452 4.5.3 Too many recipients`
 - [`submissions: … not queued: …`](#submissions--not-queued-), and `submission:`
 - [`submissions: … refused as sender <…>`](#submissions--refused-as-sender-), and `submission:`
 - [`submissions: … (unsigned)`](#submissions--unsigned), and `submission:`
+- [`submissions: … taken for nobody here any longer`](#submissions--taken-for-nobody-here-any-longer), and `submission:`
+- [`submissions: … queued as …, not cancelled: …; the retry may send it twice`](#submissions--queued-as--not-cancelled--the-retry-may-send-it-twice), and `submission:`
 - [`outbound: … deferred until …: …`](#outbound--deferred-until--)
 - [`outbound: … failed: …`](#outbound--failed-), and `outbound: …: a failed DSN to <…> queued as …`
 - [`outbound: error …: …`](#outbound-error--)
@@ -1348,7 +1352,8 @@ signed, and gets the same reply.
 ### `552 5.3.4 Message header too large`
 
 The message's header is over 256 KiB. No real mail has such a header;
-it is refused.
+it is refused, on 25 as on 465 and 587 (the log says `refused: its
+header is over 256 KiB`, after `mx:`, `submissions:` or `submission:`).
 
 ### `550 5.1.1 No recipient of this message is here any longer`
 
@@ -1403,6 +1408,18 @@ bumail alias add postmaster@example.com alice@example.com
 ```
 
 or set `postmaster = "alice@example.com"` at the top of the file.
+
+### `bumail: postmaster … is in …, a domain not hosted here; mail for <postmaster> is refused until it is`
+
+At start: `postmaster` names an address in a domain this server does
+not host, so the bare `<postmaster>` resolves to nobody and is refused
+with [`550 5.1.1 No postmaster mailbox is configured here`](#550-511-no-postmaster-mailbox-is-configured-here).
+Set `postmaster` to a user or an alias of a hosted domain, or host the
+domain:
+
+```sh
+bumail domain add example.com
+```
 
 ### `imaps: login refused from …: …`
 
@@ -1486,19 +1503,34 @@ itself: point the client's identity at the address it logs in with, or
 `bumail alias add` the address to that user. The log says
 `submissions: … refused as sender <…>`.
 
+A session that logged in and then gets this for its own address: the
+user was removed, disabled or given a new password since the login,
+and the session sends nothing more. The client logs in again (with the
+new password); a disabled user cannot.
+
 ### `550 5.7.1 The From field names an address that is not yours`
 
 The message's From names an address the user may not send as — the
 same rule as MAIL FROM — or one this server cannot read plainly: a
 quoted local part, an address in a display name or a comment that is
 not the user's, an `@` that belongs to no plain address. A reader must
-never be shown an author that was not checked. Write From as
+never be shown an author that was not checked. Encoded-words are read
+decoded: `=?UTF-8?Q?ceo=40bank.example?= <you@example.com>` holds
+`ceo@bank.example` as a reader sees it, and is refused. Write From as
 `Name <you@example.com>`.
 
 ### `550 5.6.0 The message needs exactly one From field`
 
 The message has no From, or two (RFC 5322 §3.6). Every mail client
 writes one; a script writing its own message must too.
+
+### `550 5.6.0 The From field must name your address`
+
+The From field names no address at all: a group with no member, such as
+`undisclosed:;`, or a bare name. A message sent here must say who wrote
+it, as an address the user may send as. Write From as
+`Name <you@example.com>`; to hide the recipients, put them in Bcc, not
+in From.
 
 ### `553 5.1.3 The address is not one this server can send to`
 
@@ -1537,6 +1569,24 @@ bumail dkim generate example.com
 ```
 
 then publish the TXT record it prints.
+
+### `submissions: … taken for nobody here any longer`
+
+In the log (`submission:` on 587): a message was taken, but every local
+recipient it had at RCPT was removed from the directory before its end,
+and it had none in another domain, so it went nowhere. Nothing to do,
+unless the removal was a mistake.
+
+### `submissions: … queued as …, not cancelled: …; the retry may send it twice`
+
+In the log (`submission:` on 587): a local delivery failed, or the
+session ended, after the queue took the message for the other domains'
+recipients. The client was told to send it again, so the queued copy is
+cancelled first (`… queued as …, cancelled: it is not taken`); here the
+queue failed too, with its reason, and the other domains may get the
+message twice. It is the store and the queue failing together: see
+[`mx: error in a session from …`](#mx-error-in-a-session-from--) and
+[`outbound: error …`](#outbound-error--).
 
 ### `outbound: … deferred until …: …`
 

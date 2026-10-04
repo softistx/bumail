@@ -26,9 +26,11 @@ does, and which package does it.
 All nine are on npm. The server app that wires them together,
 [`@bumail/server`](./packages/server), is private until it is complete:
 so far it reads and checks its configuration (`bumail check-config`),
-manages its domains, users and aliases (`bumail domain`, `user` and
-`alias`), and, with `bumail serve`, receives mail on port 25 and serves
-it over IMAP on 993. What comes — the rest of the server app, a blob
+manages its domains, users, aliases and DKIM keys (`bumail domain`,
+`user`, `alias` and `dkim`), and, with `bumail serve`, receives mail on
+port 25, sends its users' mail from 465 and 587 (AUTH only after TLS,
+DKIM-signed) through its queue, by MX or a smarthost, and serves the
+mailboxes over IMAP on 993. What comes — the rest of the server app, a blob
 store and a Docker image that runs it — in what order and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
 

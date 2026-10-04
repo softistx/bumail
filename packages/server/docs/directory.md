@@ -36,6 +36,15 @@ The file carries its schema version in a `schema` table. A server
 upgrades an older file when it opens it, in one transaction, and
 refuses one written by a newer server.
 
+**Before a rollback.** An upgrade is one way. The server that brought
+DKIM signing upgrades the file to schema 3, adding the DKIM keys' table,
+the first time it or its `bumail` command opens it; a server from before
+then refuses that file, and exits 5. To go back, copy the directory
+file aside before the upgrade (with the server stopped, or with
+`sqlite3 directory.sqlite ".backup …"` while it runs), and restore that
+copy with the older server: what changed since, users and keys
+included, is lost.
+
 ## Addresses, and their case
 
 The directory keeps every name in lower case, and compares names

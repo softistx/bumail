@@ -251,13 +251,21 @@ users), compared as the directory compares addresses, without case:
 | --- | --- |
 | MAIL FROM is the user's address or one of its aliases; never `<>` | `553 5.7.1 Not authorized to send as <…>` |
 | the message has one From field | `550 5.6.0 The message needs exactly one From field` |
+| From names an address (not `undisclosed:;`) | `550 5.6.0 The From field must name your address` |
 | every address in From is the user's or one of its aliases, written plainly | `550 5.7.1 The From field names an address that is not yours` |
 
 From is read strictly: every `@` in it must belong to a plain address,
 so a quoted local part (`<"bob"@example.com>`), or another address in
 a display name or a comment (`"bob@example.com" <alice@example.com>`),
 is refused, since a reader could be shown an author this check did not
-see.
+see. Encoded-words (RFC 2047) are read decoded, as a reader sees them:
+`=?UTF-8?Q?ceo=40bank.example?= <alice@example.com>` is refused like
+`"ceo@bank.example" <alice@example.com>`.
+
+A session that logged in keeps its rights only while the user is
+unchanged: once it is removed, disabled (`bumail user disable`) or given
+a new password, its next MAIL FROM is refused with `553 5.7.1`, and the
+client must log in again.
 
 **Where it goes.** Each recipient in a hosted domain is delivered
 straight to the store, as the MX would: its INBOX, aliases expanded, a
@@ -267,7 +275,10 @@ postmaster address. Every other recipient goes into the
 [queue](#the-queue), once per message. Any `Authentication-Results`
 claiming the server's name or a hosted domain is removed first, as on
 port 25. The client is answered `250` only once the message is in the
-queue and in each local mailbox.
+queue and in each local mailbox. Should a local delivery fail after the
+queue took the other recipients, the client is answered `451`, so it
+sends the message again, and the queued copy is cancelled first, so the
+other domains do not get it twice.
 
 **Limits.** `[submission]`: `maxMessageSize` (25 MiB) announced with
 SIZE, `maxRecipients` (100) per message, `maxConnections` (1000) at once,
@@ -301,6 +312,11 @@ you say so — and survives a restart.
   own mailbox, never sent out**, and nothing is ever sent about a DSN.
   Mail the queue holds for a hosted domain is delivered to the store the
   same way, whatever the route.
+- **A warning DSN.** A message still deferred for a recipient 4 hours
+  after it was queued gets its sender one `delayed` DSN (`Action:
+  delayed`), once per message, while the queue keeps trying: the sender
+  knows it is late, not lost. It comes to the sender's mailbox like any
+  DSN; the failure DSN follows only if the recipient is given up on.
 
 Each outcome is a line of the log: `outbound: … delivered to … by …`,
 `… deferred until …`, `… failed: …`.
@@ -420,7 +436,7 @@ bumail: imaps listening on 0.0.0.0:993: IMAP over TLS from the first byte
 bumail: https (port 443) arrives in a later slice; not listening
 mx: 1kq2f… from 192.0.2.10 <joe@example.org> delivered to alice@example.com (spf=pass dkim=pass dmarc=pass)
 mx: 1kq2g… from 203.0.113.5 <ceo@example.net> refused by DMARC (spf=fail dkim=none dmarc=fail)
-submissions: 7cd1a… from alice@example.com <alice@example.com> queued as 0f3e… for joe@example.org; delivered to bob@example.com
+submissions: 7cd1a… from alice@example.com <alice@example.com> delivered to bob@example.com; queued as 0f3e… for joe@example.org
 outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example.org
 imaps: login refused from 203.0.113.9: password
 bumail: SIGTERM, stopping
@@ -437,24 +453,30 @@ bumail: stopped
 | `mx: <id> … refused by DMARC (…)` | `550 5.7.1`, with `inbound.dmarc = "enforce"` |
 | `mx: <id> … deferred: DMARC or DKIM did not finish (…)` | `451 4.7.0` |
 | `mx: MAIL FROM from <ip> deferred: the spool is full`, `mx: <id> from <ip> deferred: the spool is full` (`submissions:`, `submission:` too) | `452 4.3.1`: the spool's budget is spent |
-| `mx: <id> … refused: its header is over 256 KiB` | `552 5.3.4` |
+| `mx: <id> … refused: its header is over 256 KiB` (`submissions:`, `submission:` too) | `552 5.3.4` |
 | `mx: <id> … refused: no recipient is here any longer` | every recipient was removed between RCPT and the end of DATA |
 | `mx: <id> from <ip> not spooled: …` (`submissions:`, `submission:` too) | the spool could not take the message (a full disk, say): the client got `451` |
 | `mx: <id> … abandoned before <user>: the session ended` (`submissions:`, `submission:` too) | the session ended while the message was being written: the users before `<user>` have it |
 | `mx: error in a session from <ip>: …` (`submissions:`, `submission:` too) | the store or the directory failed, or a message's checks ran past the 60 s hook timeout: the client got `451` |
 | `imaps: login refused from <ip>: <reason>` (`imap:` on 143, `submissions:` on 465, `submission:` on 587) | `password`, `unknown`, `disabled`, `blocked`, `malformed` or `busy` |
-| `submissions: <id> from <user> <sender> queued as <item> for <recipients>; delivered to <users>` (`submission:` on 587) | a message sent: each part only when it has recipients, `(unsigned)` at the end when its From domain has no DKIM key |
+| `submissions: <id> from <user> <sender> delivered to <users>; queued as <item> for <recipients>` (`submission:` on 587) | a message sent: each part only when it has recipients, `(unsigned)` at the end when its From domain has no DKIM key |
+| `submissions: <id> from <user> <sender> taken for nobody here any longer` | a message taken whose every local recipient was removed between RCPT and the end of DATA, with none for another domain: nothing was delivered or queued |
 | `submissions: <user> from <ip> refused as sender <address>` | `553 5.7.1`: MAIL FROM another address |
-| `submissions: <id> … refused: it has no From field, or several`, `… refused: its From field names another address` | `550 5.6.0`, `550 5.7.1` |
+| `submissions: <id> … refused: it has no From field, or several`, `… refused: its From field names no address`, `… refused: its From field names another address` | `550 5.6.0`, `550 5.6.0`, `550 5.7.1`; a display name or a comment holding an address, encoded-words decoded, counts as another address |
+| `submissions: <user> from <ip> refused as sender <address>`, after a login that went through | the user was removed, disabled or given a new password since the session logged in: it logs in again |
 | `submissions: <id> … not queued: …` | the queue refused the message: the client got `452`, `552` or `451` |
+| `submissions: <id> … queued as <item>, cancelled: it is not taken` | the store failed, or the session ended, after the queue took the other domains' recipients: the queued copy is taken back, since the client sends the message again |
+| `submissions: <id> … queued as <item>, not cancelled: …; the retry may send it twice` | the same, with the queue failing too: the other domains may get the message twice |
 | `outbound: <item> <sender> delivered to <recipient> by <host>` | a recipient's server, or the smarthost, took it; `by` the server's own name for a hosted domain, a DSN included |
 | `outbound: <item> to <recipient> deferred until <time>: …` | a `4xx` or a failure to reach it: tried again then |
 | `outbound: <item> to <recipient> failed: …` | a `5xx`, or given up on after 5 days |
 | `outbound: <item>: a failed DSN to <sender> queued as <item>` | the DSN of that failure, for the sender's own mailbox (`delayed` for a warning) |
 | `outbound: error[ on <item>]: …` | the queue's store failed, a lease was lost, or a route cannot be used |
 | `imaps: error in a session from <ip>: …` (`imap:` on 143) | the store failed: the client got `NO [UNAVAILABLE]` |
+| `bumail: postmaster <address> is in <domain>, a domain not hosted here; mail for <postmaster> is refused until it is` | at start: `postmaster` names a domain the directory does not host (`bumail domain add`) |
 | `bumail: SIGTERM, stopping`, `bumail: stopped` | the stop |
 | `bumail: the mail store did not close cleanly: …`, `bumail: the queue did not close cleanly: …` | during the stop: a store's close failed; the directory is closed anyway, and it exits 0 |
+| `bumail: the queue did not stop cleanly: …` | during the stop: the queue's store failed as the queue gave back its claims; they lapse with their leases |
 | `bumail: queue deliveries still under way are left to their leases` | during the stop: a delivery to another server outlasted the wait, and is tried again once its lease lapses |
 | `bumail: <signal> again, stopping now` | a second signal during the stop: the waits are skipped |
 

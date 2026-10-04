@@ -827,7 +827,10 @@ ClientHello cannot fill the server. A refusal by a limit, `onConnect`, the
 greeting and `greetingDelay` all wait for the handshake, so the client
 reads them over TLS and `session.secure` is already `true`. A handshake
 that fails is closed by Bun at once and counted out. A STARTTLS handshake
-is bounded by the idle `timeout`, the connection already counted.
+that stalls is bounded by the idle `timeout` plus the 5-second close
+grace, the connection already counted: at `timeout` the server hangs up,
+and a hang-up the client never completes is reset when the grace is
+over.
 
 Bun 1.4.2 calls a TLS listener's `open` only once the handshake completed
 unless the listener has a `handshake` handler; with one, `open` comes at
