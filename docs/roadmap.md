@@ -45,7 +45,7 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **`@bumail/acme`, the client** — on the primitives published below: the
   directory, nonces, the account, an order, HTTP-01 challenges answered
   on port 80, finalize and the certificate chain, tested against Pebble,
-  Let's Encrypt's test CA. The server app obtains and renews its
+  Let's Encrypt's test CA. The server app will obtain and renew its
   certificates through it. DNS-01, and with it wildcard names, later.
 - **A Docker image, all in one** — the server app in one container: ports
   25, 465, 587, 993, 443 and 80, and one volume for the mail, the queue and

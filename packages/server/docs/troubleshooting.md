@@ -1195,14 +1195,20 @@ server sharing `data` swept it, judging it left behind. That happens
 when this server's heartbeat stopped for more than 5 minutes — the
 process was paused or suspended (a stopped container, a laptop asleep,
 a debugger) — or when the machines' clocks, or the file server's,
-disagree by more than that. The server makes the folder again, with
-its `owner` file, at its next heartbeat or its next message, whichever
-comes first, and goes on taking mail; it logs this once each time.
+disagree by more than that. The server makes the folder again, with its
+`owner` file, at its next heartbeat or its next message, whichever comes
+first, and goes on taking mail; it logs this once each time.
 
-A message that was being checked when the folder went can fail with a
-temporary error, which its sending server retries. **Fix**: if it recurs, keep the clocks within a minute of each
-other with NTP, and do not pause a server for minutes while others
-share its `data`.
+No message is lost to it. A message already spooled is read back
+through the file the server holds open, so its checks and its delivery
+go on as if the folder were there. A message not yet written finds the
+folder missing, and its write makes the folder again and is tried once
+more.
+
+**Fix**:
+
+If it recurs, keep the clocks within a minute of each other with NTP,
+and do not pause a server for minutes while others share its `data`.
 
 ### `550 5.1.1 User unknown`
 
