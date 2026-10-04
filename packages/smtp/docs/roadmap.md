@@ -32,7 +32,7 @@ Nothing in progress.
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.4.0
 
 - **A connection limit per client**, `maxConnectionsPerClient` (default
   10): one host can no longer take every slot of `maxConnections` on an

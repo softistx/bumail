@@ -184,7 +184,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   not exactly one mailbox) gets `permerror` with disposition `reject`.
   `formatAuthenticationResults` (RFC 8601) writes the three results as one
   field.
-- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.1.2 now) —
+- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.2.0 now) —
   IMAP4rev2 (RFC 9051) on `Bun.listen`, serving any `@bumail/store`:
   STARTTLS and implicit TLS, login only once encrypted, LIST with
   special-use (RFC 6154), SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE,
@@ -221,7 +221,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   charset `TextDecoder` knows, and a streaming parser that walks a large
   message without holding it in memory. Its specs are the RFCs' own
   examples.
-- **`@bumail/smtp`, the server**, in smtp 0.1.0 (0.3.0 now) — RFC 5321 on
+- **`@bumail/smtp`, the server**, in smtp 0.1.0 (0.4.0 now) — RFC 5321 on
   `Bun.listen`: EHLO with PIPELINING, SIZE, 8BITMIME, SMTPUTF8 and
   ENHANCEDSTATUSCODES; STARTTLS and implicit TLS; AUTH PLAIN and LOGIN,
   offered only once encrypted; hooks for connect, MAIL FROM, RCPT TO and
