@@ -8,6 +8,7 @@
 - [Mailbox names and modified UTF-7](#mailbox-names-and-modified-utf-7)
 - [New mail: IDLE and notify](#new-mail-idle-and-notify)
 - [Limits and slow clients](#limits-and-slow-clients)
+- [Running behind a TCP proxy](#running-behind-a-tcp-proxy)
 - [Errors and onError](#errors-and-onerror)
 - [Standards](#standards)
 
@@ -115,7 +116,7 @@ as an `ImapSession`:
 | field | |
 | --- | --- |
 | `id` | a random id of 16 hex characters, drawn for each connection: tie your logs to it |
-| `remoteAddress` | the client's IP address |
+| `remoteAddress` | the client's IP address; behind a trusted proxy, the one its PROXY header names (see [Running behind a TCP proxy](#running-behind-a-tcp-proxy)) |
 | `secure` | `true` once TLS is on: from the first byte with `implicitTls`, or after STARTTLS |
 | `user` | the username the client logged in with; absent before the login |
 | `accountId` | the account `authenticate` answered; absent before the login |
@@ -266,7 +267,7 @@ server.notify(accountId);
 | `maxLiteralSize` | 64 KiB | any other literal |
 | `timeout` | 1800 s | idle time before a hang-up; at least 1800 (§5.4) |
 | `loginTimeout` | 60 s | a deadline from the greeting to logged in |
-| `handshakeTimeout` | 10 s | on implicit TLS, a deadline from the TCP connection to the end of the TLS handshake; past it the socket is closed without a reply. See [Running the server](#running-the-server) |
+| `handshakeTimeout` | 10 s | on implicit TLS, a deadline from the TCP connection to the end of the TLS handshake; past it the socket is closed without a reply. See [Running the server](#running-the-server). With `proxyProtocol`, also a deadline from the TCP connection to the end of a trusted proxy's header, exact to the millisecond; on implicit TLS the handshake behind the header has as long again. See [Running behind a TCP proxy](#running-behind-a-tcp-proxy) |
 | `idleInterval` | 10 s | seconds between two looks at the store during IDLE; a fraction such as `0.5` is allowed, 0 is not |
 | `hookTimeout` | 60 s | seconds `authenticate` has to settle; past it the login answers `NO [UNAVAILABLE] Temporary authentication failure` and `onError` gets an `ImapError` with code `HOOK_TIMEOUT` |
 
@@ -339,7 +340,233 @@ not; its place under `maxConnections` is free again.
 
 `server.stop(true)` hangs up on every open connection, those moved to TLS
 by STARTTLS included, as a timeout does; a socket still in its implicit
-TLS handshake is reset, having no TLS to say `BYE` on.
+TLS handshake is reset, having no TLS to say `BYE` on. So is a socket
+still awaiting a trusted proxy's header: nothing is written to it and
+`onError` is not called.
+
+## Running behind a TCP proxy
+
+`proxyProtocol` lets the server sit behind a TCP proxy and still see each
+client's address, read from the PROXY protocol header the proxy sends
+first.
+
+```ts
+import { createImapServer } from '@bumail/imap';
+
+const proxyProtocol = { trusted: ['10.0.0.5'] }; // the proxy's own address
+
+await createImapServer({ ...options, proxyProtocol }).listen({ port: 143 });
+await createImapServer({ ...options, implicitTls: true, proxyProtocol }).listen({ port: 993 });
+```
+
+A TCP proxy opens its own connection to the server, so without this
+option `session.remoteAddress` is the proxy's address for every client.
+The PROXY protocol (HAProxy's `proxy-protocol.txt`) has the proxy write
+the client's address in a header before the client's first byte; the
+server reads version 1, a text line, and version 2, binary.
+
+```ts
+interface ProxyProtocolOptions {
+	/** The proxies' addresses or CIDRs, IPv4 or IPv6: ['10.0.0.5', '172.16.0.0/12']. */
+	readonly trusted: readonly string[];
+}
+
+interface ImapServerOptions {
+	// …
+	readonly handshakeTimeout?: number;
+	readonly proxyProtocol?: ProxyProtocolOptions;
+}
+```
+
+| Option | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `proxyProtocol` | `ProxyProtocolOptions` | absent: off | read a PROXY header from the peers in `trusted`; every other peer is served as without it |
+| `proxyProtocol.trusted` | `readonly string[]` | required, at least one | IPv4 and IPv6 addresses (`10.0.0.5`, `2001:db8::5`) and CIDRs (`10.0.0.0/24`, `2001:db8::/64`) of the proxies |
+| `handshakeTimeout` | `number` | 10 | seconds a trusted proxy has, from the TCP connection, to send its whole header; on implicit TLS, as long again for the TLS handshake behind it |
+
+**List only the proxies' own addresses.** A peer in `trusted` can claim
+any client address, and that address is what `authenticate` and `onError`
+see, and what a limiter of failed logins per address counts. Never list a
+range clients connect from, nor `0.0.0.0/0` on a public port. A CIDR is
+for a pool of proxies, and only when nothing else connects from it.
+
+### A trusted proxy
+
+A peer is trusted when its TCP address is in `trusted`. An IPv4-mapped
+peer, such as `::ffff:10.0.0.5` on a dual-stack listener, matches as its
+IPv4 address, `10.0.0.5`; an address with a zone (`%eth0`), and a prefix of 0 (`0.0.0.0/0`, `::/0`),
+which trusts every peer, are refused. An entry
+may be IPv4-mapped too: `::ffff:10.0.0.0/104` is `10.0.0.0/8`.
+
+From a trusted peer the header is required, first, and in time:
+
+- It must be complete within `handshakeTimeout` seconds of the TCP
+  connection. The deadline is a timer of its own, exact, not Bun's socket
+  timer, and a header that trickles in a byte at a time does not extend
+  it.
+- A version 1 line is at most 107 bytes, CRLF included, as the
+  specification says. Version 2 TLVs are at most 2048 bytes; a header
+  whose length field announces more is refused from its first 16 bytes,
+  before the rest arrives. A malformed TLV is refused; the others are
+  skipped, never read.
+- A header missing, malformed, too long or too late resets the socket:
+  no `BYE`, nothing passed to `onError`, and the proxy's address is never
+  used as a client's.
+
+What the header says decides the address:
+
+| header | `session.remoteAddress` |
+| --- | --- |
+| v1 `TCP4` or `TCP6` | the source address |
+| v2 `PROXY` over `STREAM`, `AF_INET` or `AF_INET6` | the source address |
+| v2 `LOCAL`: the proxy's own connection, a health check | the proxy's |
+| v2 `UNSPEC`, `AF_UNIX`, or over `DGRAM`; v1 `UNKNOWN` | the proxy's |
+
+An IPv6 source is written as RFC 5952 has it (`2001:db8::7`), and an
+IPv4-mapped source as plain IPv4.
+
+Once the header is read, the connection goes on as a direct one:
+
+- A socket awaiting its header holds no place under `maxConnections`. It
+  is counted once the header is read, as the client the header names; a
+  full server then answers it `* BYE [UNAVAILABLE] Too many connections,
+  try later`.
+- Commands the client sent behind the header, in the same segment, are
+  answered after the greeting, as on a direct connection.
+- `loginTimeout` starts at the greeting, not at the TCP connection.
+- On 143, the header comes before the greeting; STARTTLS then upgrades
+  the connection as usual, and the address carries over.
+
+### A peer not trusted
+
+A peer whose address is not in `trusted` is served exactly as without
+`proxyProtocol`. A PROXY header it sends never sets its address. On 143
+it is bad input: a version 1 line is answered as an unknown command,
+`PROXY BAD Unknown command TCP4`, and a version 2 header with lines such
+as `* BAD Missing or invalid tag`. On 993 it is not a ClientHello: the TLS
+handshake fails and the socket closes.
+
+### Implicit TLS behind the proxy
+
+On 993 the proxy passes TLS through, untouched: the header comes first,
+then the client's ClientHello, and the server holds the certificate.
+`Bun.listen({ tls })` would take the header for a broken ClientHello, and
+`socket.upgradeTLS` reads only what arrives after it is called, while a
+proxy often sends the ClientHello in the same TCP segment as the header
+(on Bun 1.4.2 the handshake then never completes). So with
+`proxyProtocol` on an `implicitTls` server, the port listens in clear,
+and every connection's TLS runs through `node:tls` over the raw socket:
+after the header from a trusted proxy, from the first byte from anyone
+else.
+
+- `tls.key` and `tls.cert` may still be strings, bytes or a `BunFile`;
+  they are read when `listen()` is called.
+- The TLS handshake behind the header has a `handshakeTimeout` of its
+  own, on Bun's socket timer, so a stuck one is closed up to about 4
+  seconds after it.
+- A client that reads a large FETCH slowly holds the server back, as on
+  a direct connection; its output is not buffered without end.
+
+### With Traefik
+
+A Traefik v3 TCP router in front of the server, its service sending
+PROXY protocol version 2 through a `serversTransport`. In the static configuration, two entry points:
+
+```yaml
+entryPoints:
+  imap:
+    address: ':143'
+  imaps:
+    address: ':993'
+```
+
+In the dynamic configuration, a router and a service for each port.
+``HostSNI(`*`)`` with no `tls` section on the router: Traefik neither
+terminates nor reads the TLS of 993, it passes the bytes through.
+
+```yaml
+tcp:
+  routers:
+    imap:
+      entryPoints: [imap]
+      rule: 'HostSNI(`*`)'
+      service: imap
+    imaps:
+      entryPoints: [imaps]
+      rule: 'HostSNI(`*`)'
+      service: imaps
+  serversTransports:
+    proxy-v2:
+      proxyProtocol:
+        version: 2
+  services:
+    imap:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers:
+          - address: '10.0.0.20:143'
+    imaps:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers:
+          - address: '10.0.0.20:993'
+```
+
+This was run against Traefik v3.7 in Docker, a client reaching it with
+`openssl s_client` on 993 and with `-starttls imap` on 143: `authenticate`
+saw the client's address, not Traefik's. Older v3 releases take the
+version on the service instead — `loadBalancer.proxyProtocol: { version:
+2 }` beside `servers` — which v3.7 still honours, with a warning that it
+is deprecated in favour of the `serversTransport` above; the header sent
+is the same.
+
+The server, at `10.0.0.20`, trusts Traefik's address as it sees it,
+`10.0.0.5` here, and nothing else:
+
+```ts
+import { createImapServer } from '@bumail/imap';
+import type { ImapServerOptions } from '@bumail/imap';
+
+const behindTraefik: ImapServerOptions = {
+	...options,
+	proxyProtocol: { trusted: ['10.0.0.5'] },
+};
+
+await createImapServer(behindTraefik).listen({ port: 143, hostname: '10.0.0.20' });
+await createImapServer({ ...behindTraefik, implicitTls: true }).listen({ port: 993, hostname: '10.0.0.20' });
+```
+
+Clients connect to Traefik on 143 with STARTTLS and on 993 with SSL/TLS,
+as they would to the server itself.
+
+### Counting failed logins per client
+
+Behind a trusted proxy, `session.remoteAddress` is the client's, so a
+limiter keyed on it counts each client, not the proxy:
+
+```ts
+import { createImapServer } from '@bumail/imap';
+
+const failures = new Map<string, number>();
+
+const server = createImapServer({
+	...options,
+	proxyProtocol: { trusted: ['10.0.0.5'] },
+	async authenticate({ username, password }, session) {
+		const address = session.remoteAddress; // the client, not 10.0.0.5
+		if ((failures.get(address) ?? 0) >= 10) return null;
+		const accountId = await check(username, password);
+		if (!accountId) failures.set(address, (failures.get(address) ?? 0) + 1);
+		return accountId;
+	},
+});
+```
+
+A header the proxy gets wrong, a server that does not trust the proxy, or
+an address that stays the proxy's: see [Troubleshooting: logging in,
+connections and IDLE](troubleshooting/connections.md). An entry of
+`trusted` that is refused: see [Troubleshooting: configuration and
+onError](troubleshooting/configuration.md).
 
 ## Errors and onError
 

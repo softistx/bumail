@@ -1,5 +1,6 @@
 import { SmtpError } from '../errors';
 import type { SmtpServerOptions } from './options';
+import { trustedPeers } from './proxy/trusted';
 
 /** The options with their defaults, checked once. */
 export interface Settings {
@@ -14,6 +15,8 @@ export interface Settings {
 	readonly hookTimeout: number;
 	readonly handshakeTimeout: number;
 	readonly greetingDelay: number;
+	/** With `proxyProtocol`: whether a peer is a proxy trusted to send a PROXY header. */
+	readonly trusts?: (peer: string) => boolean;
 	isLocal(domain: string): boolean | Promise<boolean>;
 }
 
@@ -136,6 +139,9 @@ export function settingsOf(options: SmtpServerOptions): Settings {
 			10,
 		),
 		greetingDelay,
+		...(options.proxyProtocol === undefined
+			? {}
+			: { trusts: trustedPeers(options.proxyProtocol?.trusted, invalid) }),
 		isLocal: (domain) => isLocal(domain.toLowerCase()),
 	};
 }

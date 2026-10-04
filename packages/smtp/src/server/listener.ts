@@ -1,15 +1,17 @@
 import type { Socket, SocketHandler } from 'bun';
 import { reply } from '../protocol/reply';
-import { clientKey } from './client-key';
-import { Connection } from './connection';
+import type { Connection } from './connection';
+import type { HeaderReader } from './proxy/reader';
+import type { ProxiedTls } from './proxy/tls';
+import type { RawSocket } from './raw-socket';
 import type { Settings } from './settings';
 import type { Slots } from './slots';
 import { SocketTransport } from './transport';
 
 /**
  * What a socket of the SMTP server does: the handlers the clear socket and
- * the TLS one share, the STARTTLS upgrade, and the listener's own `open`,
- * `handshake` and `close`, which count a socket from its TCP connection.
+ * the TLS one share, and the STARTTLS upgrade. The listener's own `open`,
+ * `handshake` and `close` are in `admission.ts`.
  */
 
 export interface SocketState {
@@ -24,6 +26,23 @@ export interface SocketState {
 	handshaking?: boolean;
 	/** What the server does once the handshake completes: greet, or turn away. */
 	start?: () => void;
+	/** A trusted proxy's PROXY header, still coming: nothing else is read meanwhile. */
+	header?: HeaderReader;
+	/** Implicit TLS behind a PROXY header, over this raw socket. */
+	tls?: ProxiedTls;
+}
+
+/** Bytes from the client, in clear or decrypted: they start the idle time again. */
+export function received(
+	socket: Socket<SocketState>,
+	settings: Settings,
+	chunk: Uint8Array,
+): void {
+	// A hang-up that lingers waits for the client to stop sending.
+	socket.data.transport?.received();
+	// Any byte from the client starts the idle time again.
+	socket.timeout(settings.timeout);
+	socket.data.connection?.receive(chunk);
 }
 
 /**
@@ -39,15 +58,19 @@ export function handlers(settings: Settings): SocketHandler<SocketState> {
 	);
 	return {
 		data(socket, chunk) {
-			if (!socket.data || socket.data.upgraded) return;
-			// A hang-up that lingers waits for the client to stop sending.
-			socket.data.transport?.received();
-			// Any byte from the client starts the idle time again.
-			socket.timeout(settings.timeout);
-			socket.data.connection?.receive(chunk);
+			const state = socket.data;
+			if (!state || state.upgraded) return;
+			if (state.header) return state.header.receive(chunk);
+			if (!state.tls) return received(socket, settings, chunk);
+			// TLS records: decrypted, they come back through `received`.
+			state.transport?.received();
+			state.tls.receive(chunk);
 		},
 		drain(socket) {
-			if (socket.data && !socket.data.upgraded) socket.data.transport?.drain();
+			const state = socket.data;
+			if (!state || state.upgraded) return;
+			if (state.tls) state.tls.rawDrain();
+			else state.transport?.drain();
 		},
 		error(socket) {
 			socket.data?.connection?.close();
@@ -66,30 +89,32 @@ export function handlers(settings: Settings): SocketHandler<SocketState> {
 }
 
 /** Writes one reply and hangs up, through a transport so the hang-up is bounded as every other is. */
-function turnAway(
+export function turnAway(
 	socket: Socket<SocketState>,
+	raw: RawSocket,
 	secure: boolean,
 	line: string,
 ): void {
-	const refused = new SocketTransport(
-		socket as Socket<unknown>,
-		secure,
-		() => {},
-	);
+	const refused = new SocketTransport(raw, secure, () => {});
 	socket.data.transport = refused;
 	refused.write(line);
 	refused.end();
 }
 
-/** Wraps a socket; STARTTLS swaps it for the encrypted one. */
-function transportOf(
+/**
+ * Wraps a socket — Bun's, or `ProxiedTls` over it — for the client at
+ * `address`; STARTTLS swaps it for the encrypted one.
+ */
+export function transportOf(
 	socket: Socket<SocketState>,
+	raw: RawSocket,
+	address: string,
 	settings: Settings,
 	secure: boolean,
 	slots: Slots<Connection>,
 ): SocketTransport {
 	const transport = new SocketTransport(
-		socket as Socket<unknown>,
+		raw,
 		secure,
 		() => {
 			const tls = settings.options.tls;
@@ -113,87 +138,13 @@ function transportOf(
 				encrypted as Socket<unknown>,
 				true,
 				() => {},
-				socket.remoteAddress,
+				address,
 			);
 			encrypted.data.transport = next;
 			connection.useTransport(next);
 		},
+		address,
 	);
 	socket.data.transport = transport;
 	return transport;
-}
-
-/**
- * The listener's own handlers: `open` counts a socket and greets it or turns
- * it away, `handshake` lets implicit TLS start once encrypted, `close`
- * frees the slot. `handshaking` holds the sockets still in their
- * handshake, for `stop(true)`.
- */
-export function listenerHandlers(
-	settings: Settings,
-	slots: Slots<Connection>,
-	handshaking: Set<Socket<SocketState>>,
-	secure: boolean,
-): Pick<SocketHandler<SocketState>, 'open' | 'handshake' | 'close'> {
-	return {
-		// With a `handshake` handler, Bun calls `open` on implicit TLS
-		// as soon as TCP connects; without one, only once the
-		// handshake completed, so a client that never sends its
-		// ClientHello would be counted by no limit and bounded by no
-		// timer.
-		open(socket) {
-			socket.data = { upgraded: false, handshaking: secure };
-			socket.timeout(secure ? settings.handshakeTimeout : settings.timeout);
-			const begin = (start: () => void) => {
-				if (!secure) return start();
-				handshaking.add(socket);
-				socket.data.start = start;
-			};
-			if (slots.size >= settings.maxConnections) {
-				return begin(() =>
-					turnAway(
-						socket,
-						secure,
-						`421 4.3.2 ${settings.options.hostname} Too many connections, try later\r\n`,
-					),
-				);
-			}
-			const key = clientKey(socket.remoteAddress);
-			if (slots.of(key) >= settings.maxConnectionsPerClient) {
-				return begin(() =>
-					turnAway(
-						socket,
-						secure,
-						`421 4.7.0 ${settings.options.hostname} Too many connections from your address, try later\r\n`,
-					),
-				);
-			}
-			const connection = new Connection(
-				settings,
-				transportOf(socket, settings, secure, slots),
-			);
-			slots.take(connection, key);
-			socket.data.connection = connection;
-			begin(() => void connection.open());
-		},
-		handshake(socket, success) {
-			const state = socket.data;
-			if (!state?.handshaking) return;
-			handshaking.delete(socket);
-			// A failed handshake: Bun closes the socket, and `close` counts it out.
-			if (!success) return;
-			state.handshaking = false;
-			socket.timeout(settings.timeout);
-			const start = state.start;
-			delete state.start;
-			start?.();
-		},
-		close(socket) {
-			handshaking.delete(socket);
-			const connection = socket.data?.connection;
-			if (connection) slots.release(connection);
-			socket.data?.transport?.closed();
-			connection?.close();
-		},
-	};
 }

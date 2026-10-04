@@ -12,9 +12,9 @@ below lists only what has landed.
 | --- | --- | --- |
 | `@bumail/mime` | reading and writing messages: headers, addresses, dates, encoded-words, RFC 2231 parameters, multipart, transfer encodings, charsets, a streaming parser | — |
 | `@bumail/dns` | the `Resolver` interface for MX, TXT, A, AAAA and PTR: on `node:dns`, a fixture for specs, a TTL cache | — |
-| `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
+| `@bumail/smtp` | an SMTP server on `Bun.listen`: STARTTLS, AUTH after TLS, policy hooks, never an open relay, the PROXY protocol from trusted proxies; and, as `@bumail/smtp/client`, a client that delivers to a host or by MX | — (MX delivery takes a resolver of `@bumail/dns`'s shape, typed structurally) |
 | `@bumail/store` | the `MailStore` contract — accounts, mailboxes, messages, flags, UIDs, modseqs, changes — its memory store, its `bun:sqlite` store as `@bumail/store/sqlite`, and its PostgreSQL store on `Bun.sql` as `@bumail/store/postgres` | — |
-| `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE | `@bumail/store`, `@bumail/mime` |
+| `@bumail/imap` | an IMAP4rev2 server (RFC 9051) on `Bun.listen` serving any `MailStore`: STARTTLS, LOGIN only after TLS, IDLE, MOVE, SPECIAL-USE, the PROXY protocol from trusted proxies | `@bumail/store`, `@bumail/mime` |
 | `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite`, its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres` and its Redis store on `Bun.redis` as `@bumail/queue/redis` | `@bumail/smtp`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS; an OpenAPI 3.1 document of its routes, shipped as `@bumail/jmap/openapi.json` and kept in step with them by a spec | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
@@ -161,7 +161,7 @@ npm range, as a peer and a devDependency: `verify:artifacts` checks it is
 on the registry and installs it from there beside the tarballs, and the
 "Newest peers" job leaves a range with one alternative as it is.
 
-Two pieces are copied rather than shared, on purpose:
+Three pieces are copied rather than shared, on purpose:
 
 - **SASL PLAIN decoding** (RFC 4616), in `smtp/src/protocol/sasl.ts` and
   `imap/src/protocol/sasl.ts`: about forty lines, the same `Credentials`
@@ -170,6 +170,9 @@ Two pieces are copied rather than shared, on purpose:
 - **The socket transport**, in `smtp/src/server/transport.ts` and
   `imap/src/server/transport.ts`: its rule is under Deliberate
   duplications.
+- **The PROXY protocol**, in `smtp/src/server/proxy/` and
+  `imap/src/server/proxy/`, with each server's `src/server/admission.ts`:
+  also under Deliberate duplications.
 
 ## The build
 
@@ -490,6 +493,77 @@ Every PR goes into `develop`. Before merging:
   even when no timer can fire between its chunks, the grace and the
   `#closed` guard. A fix to one copy is a fix
   to the other.
+
+- **The PROXY protocol** (HAProxy's proxy-protocol.txt, versions 1 and
+  2) — `src/server/proxy/` in `@bumail/smtp` and `@bumail/imap`, byte for
+  byte: `address.ts` (addresses as bytes, RFC 5952's text, IPv4-mapped as
+  IPv4), `header.ts` (the parser: a v1 line of 107 bytes at most, v2 TLVs
+  of `MAX_TLV_BYTES`, 2048, at most, skipped and never read), `reader.ts`
+  (the header from a trusted peer within `handshakeTimeout`, a timer from
+  the TCP connection that input does not extend), `trusted.ts` (the
+  `trusted` list), `tls.ts` (`ProxiedTls`), their specs and
+  `headers.fixtures.ts`; `src/server/tls-context.ts`, which reads and
+  checks `tls` at `listen()` on implicit TLS, with a proxy or without, so
+  a key it cannot use fails alike (each server's `listen.spec.ts`, with
+  two `listen()` at once); and `src/server/front.fixtures.ts`, a proxy for
+  specs. `src/server/admission.ts` (the listener's `open`, `handshake`
+  and `close`) and `src/server/raw-socket.ts` are adapted to each
+  server: smtp counts each client by `clientKey` and turns one away with
+  a reply, imap with a BYE. Should a third server need it, it becomes a
+  package. The rules both keep:
+  - **off by default, and only from `trusted`**: a peer not listed is
+    served as without the option, and a header it sends is bad input
+    that never sets an address;
+  - **a trusted peer sends a valid header first**, or it is reset —
+    nothing written, nothing reported, no limit counting the proxy's own
+    address. It holds no slot until the header named its client; then
+    it is counted, by that address, as any client is;
+  - **v2 `PROXY` over TCP on IPv4 or IPv6 names the client**; `LOCAL`,
+    `UNSPEC`, UNIX, datagrams and v1 `UNKNOWN` keep the peer;
+  - **implicit TLS behind the header runs on `node:tls`**: with
+    `proxyProtocol`, an `implicitTls` server listens in clear, and every
+    socket's TLS — after the header from a trusted peer, from the first
+    byte from any other — is `ProxiedTls`, a `node:tls` server socket over
+    a `Duplex` it feeds from the raw socket. It has the shape of the Bun
+    socket a `SocketTransport` drives (`RawSocket`), so the transport's
+    rules above hold over it unchanged: `write` takes nothing while TLS
+    holds past its high-water mark, and the `Duplex` waits for the raw
+    socket's `drain`;
+  - **`ProxiedTls` ends its `Duplex` on the TLS socket's `finish`**:
+    `tls.end()` sends the close_notify and fires `finish`, but `node:tls`
+    never ends the stream under it before the client answers, so without
+    that a client that stopped reading held its slot of `maxConnections`
+    for good (measured: a paused client after QUIT, and one paused at the
+    idle timeout, both still counted after 2 s and 7 s);
+  - **`trusted` refuses what would trust the wrong peer**: an address
+    with a zone (`fe80::1%eth0`, which names an interface of this host)
+    and a prefix of 0 (`0.0.0.0/0`, `::/0`, `::ffff:0.0.0.0/96`), which
+    would trust every peer.
+
+  Measured on Bun 1.4.2: `socket.upgradeTLS` on a clear socket reads
+  only what arrives after it is called, and Bun gives a socket's bytes
+  to `data` with no way to put any back. A proxy that sends the header
+  and the client's ClientHello in one segment, as one that waits for the
+  client's first bytes does, leaves the ClientHello in the chunk the
+  header came in, and the handshake never completes; sent apart, it
+  completes. A `node:tls` `TLSSocket` with `isServer` over a `Duplex`
+  completes it either way. STARTTLS keeps `upgradeTLS`: its client waits
+  for the reply before its ClientHello. Each server's `proxy.spec.ts`
+  covers the clear and STARTTLS ports — v1 and v2, `LOCAL`, `UNSPEC`,
+  garbage, a long v1 line, oversized TLVs, a truncated header and a
+  slowloris closed at `handshakeTimeout`, `stop(true)` with headers
+  pending, the limits keyed on the client — `proxy-tls.spec.ts` implicit
+  TLS behind the header, the ClientHello in the header's segment and
+  apart, through `front.fixtures.ts` (smtp: 1 MiB of DATA then QUIT;
+  imap: a slow reader of a 4 MiB FETCH), and a peer not trusted — and
+  `proxy-quiet.spec.ts` the clients that stop reading through
+  `ProxiedTls`, as smtp's `quiet.spec.ts` does (smtp: at the idle
+  timeout, and after QUIT; imap: at `loginTimeout`, and after LOGOUT):
+  freed within the bound, then reading the last reply and a clean end.
+  Each server's `listen.spec.ts` covers two `listen()` at once, a `stop()`
+  before `listen()` resolved (clear and implicit TLS, with a proxy or
+  without), and a key or certificate that cannot be used. A fix to one
+  copy is a fix to the other.
 
 ## Prior work
 

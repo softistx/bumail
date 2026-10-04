@@ -24,6 +24,12 @@ export interface TlsOptions {
 /** What `authenticate` answers: the account to serve, or `null` (or `undefined`) to refuse. */
 export type AuthResult = string | null | undefined;
 
+/** Where the PROXY protocol is read from: see `proxyProtocol`. */
+export interface ProxyProtocolOptions {
+	/** The proxies' addresses or CIDRs, IPv4 or IPv6: `['10.0.0.5', '172.16.0.0/12']`. */
+	readonly trusted: readonly string[];
+}
+
 export interface ImapServerOptions {
 	/** The server's own name, in its greeting. */
 	readonly hostname: string;
@@ -71,9 +77,23 @@ export interface ImapServerOptions {
 	 * The socket holds its slot of `maxConnections` meanwhile. Bun's socket
 	 * timer ticks in steps of about 4 s, so the close comes up to that much
 	 * later. A STARTTLS handshake that stalls is bounded by `loginTimeout`
-	 * plus the 5-second close grace. Default 10.
+	 * plus the 5-second close grace. With `proxyProtocol`, it also bounds a
+	 * trusted proxy's PROXY header, from the TCP connection on, to the
+	 * millisecond; behind the header, implicit TLS has as long again.
+	 * Default 10.
 	 */
 	readonly handshakeTimeout?: number;
+	/**
+	 * Reads the PROXY protocol (versions 1 and 2) from the proxies listed in
+	 * `trusted` — IPv4 and IPv6 addresses and CIDRs — so the server sees
+	 * the client's address, not the proxy's: in `session.remoteAddress`,
+	 * for `authenticate` and `onError`. A trusted peer must send its header
+	 * first, within `handshakeTimeout`, or it is closed without a word; any
+	 * other peer is served as without this option, and a header it sends is
+	 * just bad input. List only the proxies' own addresses: any peer listed
+	 * can claim any address. Off by default.
+	 */
+	readonly proxyProtocol?: ProxyProtocolOptions;
 	/** Seconds between two looks at the store during IDLE. Default 10; more than 0. */
 	readonly idleInterval?: number;
 	/** Seconds `authenticate` has to settle before the login fails with `NO [UNAVAILABLE]`. Default 60. */

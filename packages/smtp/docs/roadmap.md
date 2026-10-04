@@ -32,6 +32,19 @@ Nothing in progress.
 
 ## Shipped
 
+### Unreleased — merged, not yet published
+
+- **Behind a TCP proxy, the client's own address**, with `proxyProtocol:
+  { trusted: [...] }`: the server reads the PROXY protocol, versions 1 and
+  2, from the proxies listed — a Traefik TCP router, HAProxy — so
+  `session.remoteAddress`, every hook, the Received field and
+  `maxConnectionsPerClient` see the client, not the proxy. It works on 25
+  and 587 with STARTTLS and on 465 with implicit TLS. A listed peer that
+  sends no valid header within `handshakeTimeout` is reset without a word
+  and holds no slot while it waits; a peer not listed is served as before,
+  and a header it sends never sets an address. `ProxyProtocolOptions` is
+  exported.
+
 ### 0.4.0
 
 - **A connection limit per client**, `maxConnectionsPerClient` (default

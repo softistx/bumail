@@ -78,9 +78,11 @@ export class Client {
 		});
 	}
 
-	/** Sends text whole, however slowly the server reads it. */
-	write(text: string): void {
-		this.#outgoing.push(new TextEncoder().encode(text));
+	/** Sends text (or bytes) whole, however slowly the server reads it. */
+	write(text: string | Uint8Array): void {
+		this.#outgoing.push(
+			typeof text === 'string' ? new TextEncoder().encode(text) : text,
+		);
 		this.#flush();
 	}
 

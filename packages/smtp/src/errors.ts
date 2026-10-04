@@ -4,6 +4,7 @@ import type { Reply } from './protocol/reply';
 export type SmtpErrorCode =
 	| 'INVALID_OPTION'
 	| 'ALREADY_LISTENING'
+	| 'STOPPED'
 	| 'MESSAGE_TOO_BIG'
 	| 'BARE_LINE_BREAK'
 	| 'CONNECTION_LOST'
@@ -36,6 +37,8 @@ export interface SmtpErrorDetails {
 	readonly reply?: Reply;
 	/** With `RECIPIENTS_REFUSED`: each recipient, and why it was refused. */
 	readonly rejected?: readonly RecipientReply[];
+	/** The error behind this one, as `Error`'s `cause`. */
+	readonly cause?: unknown;
 }
 
 /** The codes that are temporary unless a reply or `details` says otherwise. */
@@ -71,7 +74,10 @@ export class SmtpError extends Error {
 		message: string,
 		details: SmtpErrorDetails = {},
 	) {
-		super(message);
+		super(
+			message,
+			details.cause === undefined ? undefined : { cause: details.cause },
+		);
 		this.code = code;
 		this.temporary =
 			details.temporary ??

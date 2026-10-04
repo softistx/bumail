@@ -1,7 +1,7 @@
 # Troubleshooting: logging in, connections and IDLE
 
 The responses to LOGIN, AUTHENTICATE and STARTTLS, the `BYE`s that end a
-connection, and the end of IDLE. The [index](../troubleshooting.md) lists
+connection, a TCP proxy's PROXY header, and the end of IDLE. The [index](../troubleshooting.md) lists
 every entry of every page. A tagged response starts with the client's tag
 (`a1 NO …`); it is left out here.
 
@@ -67,6 +67,8 @@ or a second STARTTLS.
 opens a connection per folder without closing them. On implicit TLS,
 sockets still in their handshake count too, for `handshakeTimeout`
 seconds at most.
+Behind a trusted proxy, a socket awaiting its PROXY header does not
+count; it is counted once the header is read.
 
 ## On implicit TLS, the connection closes before any greeting
 
@@ -102,6 +104,102 @@ const server = createImapServer({
 });
 await server.listen({ port: 993 });
 ```
+
+## Connections through the proxy close at once, with no greeting
+
+**When**: `proxyProtocol` is set, and a client that goes through the
+proxy gets no `* OK` greeting: the connection closes, with no response,
+at once or `handshakeTimeout` seconds (10 by default) after it connected.
+Nothing reaches `onError`.
+
+**Why**: the proxy is in `trusted`, so the server waits for its PROXY
+header first, and did not get a valid one in time. The proxy sends none
+(its PROXY protocol is off), sends something else first (a ClientHello
+on 993 with no header before it), or sends one that is malformed or too
+long: a version 1 line over 107 bytes, version 2 TLVs over 2048 bytes. A
+trusted peer's socket is reset rather than served, so the proxy's own
+address is never taken for a client's.
+
+**Fix**: turn the PROXY protocol on in the proxy, for every port the
+server listens on with `proxyProtocol`. With Traefik, a TCP
+`serversTransport` the service names:
+
+```yaml
+tcp:
+  serversTransports:
+    proxy-v2:
+      proxyProtocol:
+        version: 2
+  services:
+    imap:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers:
+          - address: '10.0.0.20:143'
+```
+
+A peer that must reach the server directly, with no header, is not
+listed in `trusted`.
+
+## A `PROXY BAD` answer, or a failed handshake on 993
+
+**When**: through the proxy, a client on 143 gets
+`PROXY BAD Unknown command TCP4` (or `TCP6`, `UNKNOWN`) after the
+greeting, or lines such as `* BAD Missing or invalid tag` for a
+version 2 header; on 993 the TLS handshake fails and the connection closes. Every
+client shows the proxy's address.
+
+**Why**: the proxy sends a PROXY header, but the server does not trust
+it: `proxyProtocol` is not set, or the proxy's address is not in
+`trusted`. A peer not trusted is served as a direct client, so its
+header is bad input on 143, and no ClientHello on 993. It never sets the
+address.
+
+**Fix**: list the proxy's own address, the one the server sees it
+connect from:
+
+```ts
+createImapServer({ ...options, proxyProtocol: { trusted: ['10.0.0.5'] } });
+```
+
+Behind a dual-stack listener, the proxy may connect as
+`::ffff:10.0.0.5`; it matches `10.0.0.5`.
+
+## Every client shows the proxy's address
+
+**When**: `session.remoteAddress`, in `authenticate` and `onError`, is
+the proxy's for every client, and a limiter of failed logins per address
+locks everyone out at once.
+
+**Why**: the server reads no PROXY header from the proxy:
+`proxyProtocol` is not set, or the proxy's address is not in `trusted`.
+A header the proxy sends is then answered as in the entry above; with
+no header, every client looks like the proxy.
+
+**Fix**: both at once — the proxy sends the header, and the server
+trusts the proxy. Trusting a proxy that sends no header closes every
+connection instead, as in the first of these entries.
+
+```ts
+createImapServer({ ...options, proxyProtocol: { trusted: ['10.0.0.5'] } });
+```
+
+List only the proxies' own addresses: a peer in `trusted` can claim any
+client address. Never a range clients connect from, nor `0.0.0.0/0` on a
+public port.
+
+## Health checks from the proxy show its own address
+
+**When**: a few sessions, opened by the proxy itself, show the proxy's
+address in `session.remoteAddress`, while clients show their own.
+
+**Why**: by design. A proxy checking the server's health sends a
+version 2 `LOCAL` header: the connection is its own, with no client
+behind it, so the server keeps the peer's address. A version 2 `UNSPEC`,
+a UNIX or datagram source, and a version 1 `UNKNOWN` do the same.
+
+**Fix**: none needed. To leave them out of logs or a limiter, compare
+`session.remoteAddress` with the proxy's address.
 
 ## `* BYE Idle for too long, closing`
 

@@ -44,6 +44,18 @@ The second slice:
 
 ## Shipped
 
+### Unreleased — merged, not yet published
+
+- **Behind a TCP proxy, the client's address.** With `proxyProtocol: {
+  trusted: [...] }`, the server reads the PROXY protocol header, version
+  1 or 2, that a proxy such as a Traefik TCP router or HAProxy sends
+  first, on 143 and on 993 with TLS passed through. `session.remoteAddress`,
+  for `authenticate` and `onError`, is then the client's, so a limiter of
+  failed logins per address counts each client. Only the listed proxies
+  are read; a trusted proxy that sends no valid header within
+  `handshakeTimeout` is reset, and any other peer is served as before.
+  `ProxyProtocolOptions` is exported.
+
 ### 0.2.0
 
 - **The implicit TLS handshake is bounded.** A socket on an

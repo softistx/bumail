@@ -1,5 +1,5 @@
-import type { Socket } from 'bun';
 import { Outgoing } from '../io/outgoing';
+import type { RawSocket } from './raw-socket';
 
 /** What a connection needs from its socket: Bun's, or a fake one in specs. */
 export interface Transport {
@@ -58,7 +58,7 @@ export const LINGER_MAX_MS = 500;
  * how they hang up. A fix to one is a fix to the other.
  */
 export class SocketTransport implements Transport {
-	readonly #socket: Socket<unknown>;
+	readonly #socket: RawSocket;
 	readonly remoteAddress: string;
 	readonly secure: boolean;
 	readonly #startTls: () => void;
@@ -79,7 +79,7 @@ export class SocketTransport implements Transport {
 		| undefined;
 
 	constructor(
-		socket: Socket<unknown>,
+		socket: RawSocket,
 		secure: boolean,
 		startTls: () => void,
 		remoteAddress = socket.remoteAddress,

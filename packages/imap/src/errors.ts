@@ -2,6 +2,7 @@
 export type ImapErrorCode =
 	| 'INVALID_OPTION'
 	| 'ALREADY_LISTENING'
+	| 'STOPPED'
 	| 'HOOK_TIMEOUT';
 
 /**
@@ -12,8 +13,12 @@ export class ImapError extends Error {
 	override readonly name = 'ImapError';
 	readonly code: ImapErrorCode;
 
-	constructor(code: ImapErrorCode, message: string) {
-		super(message);
+	constructor(
+		code: ImapErrorCode,
+		message: string,
+		options?: { readonly cause?: unknown },
+	) {
+		super(message, options);
 		this.code = code;
 	}
 }
