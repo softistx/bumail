@@ -406,7 +406,8 @@ past the end, ends before it starts, or is `bytes=-0` is a 416 with
 `Content-Range: bytes */size`, `Cache-Control: no-store`, no body, and
 none of the blob's headers. Several ranges, or a header that is not one,
 are ignored and the blob served whole as a 200; so is a suffix range of
-an empty blob, such as `bytes=-5` (satisfiable by RFC 9110 §14.1.1, so not a 416, and ignored as §14.2 allows). An `accountId` other than the
+an empty blob, such as `bytes=-5` (satisfiable by RFC 9110 §14.1.1, so
+not a 416, and ignored as §14.2 allows). An `accountId` other than the
 authenticated one, or a blob the account does not have, is a 404.
 
 ## States and changes

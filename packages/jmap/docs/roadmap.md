@@ -85,7 +85,7 @@ Merged, not yet published.
   SetError.
 - **A download's 416 is never cached** — `Cache-Control: no-store`, no
   body, and none of the blob's own headers; and a suffix range of an
-  empty blob serves it whole, as RFC 9110 asks.
+  empty blob serves it whole, as RFC 9110 §14.2 allows.
 
 ### 0.2.0
 
