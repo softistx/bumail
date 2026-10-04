@@ -50,6 +50,7 @@
 		"@bumail/dns": "workspace:^",
 		"@bumail/imap": "workspace:^",
 		"@bumail/jmap": "workspace:^",
+		"@bumail/queue": "workspace:^",
 		"@bumail/smtp": "workspace:^",
 		"@bumail/store": "workspace:^",
 		"@types/bun": "^1.4.2"
@@ -58,6 +59,7 @@
 		"@bumail/auth": "workspace:^",
 		"@bumail/dns": "workspace:^",
 		"@bumail/imap": "workspace:^",
+		"@bumail/queue": "workspace:^",
 		"@bumail/smtp": "workspace:^",
 		"@bumail/store": "workspace:^",
 		"typescript": "^6.0.3 || ^7.0.0"

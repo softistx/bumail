@@ -8,6 +8,12 @@ export interface ServerConfig {
 	readonly file: string;
 	/** The server's own name: its MX host, its HELO, the name on its certificate. */
 	readonly hostname: string;
+	/**
+	 * Where mail for the bare `<postmaster>` (RFC 5321 §4.5.1) goes: an
+	 * address the directory resolves. `undefined`: `postmaster@` the first
+	 * hosted domain, by name, when the directory resolves it.
+	 */
+	readonly postmaster: string | undefined;
 	/** The directory everything is kept in: the mail, the queue, the directory, the certificates. Default `/data`. */
 	readonly data: string;
 	/** The address every public listener binds to. Default `0.0.0.0`. */
@@ -127,6 +133,8 @@ export interface InboundConfig {
 	readonly maxMessageSize: number;
 	/** Default 1000. */
 	readonly maxConnections: number;
+	/** At once from one client: an IPv4 address, or an IPv6 /64. Default 10. */
+	readonly maxConnectionsPerClient: number;
 	/**
 	 * Bytes the messages waiting to be checked may hold on disk at once;
 	 * past it, MAIL FROM and DATA answer `452 4.3.1`. At least
@@ -143,6 +151,10 @@ export interface SubmissionConfig {
 	readonly maxRecipients: number;
 	/** Default 1000. */
 	readonly maxConnections: number;
+	/** At once from one client: an IPv4 address, or an IPv6 /64. Default 10. */
+	readonly maxConnectionsPerClient: number;
+	/** Seconds a client on `ports.submissions` has to complete its TLS handshake. Default 10. */
+	readonly handshakeTimeout: number;
 }
 
 /** JMAP, on `ports.https`. */

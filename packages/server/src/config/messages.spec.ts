@@ -36,6 +36,21 @@ describe('the problems of a configuration', () => {
 			],
 		],
 		[
+			'a postmaster that is no address',
+			'postmaster = "postmaster"',
+			['postmaster: must be an e-mail address, such as postmaster@example.com'],
+		],
+		[
+			'a per-client cap of 0',
+			'[inbound]\nmaxConnectionsPerClient = 0',
+			['inbound.maxConnectionsPerClient: must be an integer from 1 to 100000'],
+		],
+		[
+			'a handshake timeout out of range',
+			'[submission]\nhandshakeTimeout = 0',
+			['submission.handshakeTimeout: must be an integer from 1 to 300'],
+		],
+		[
 			'a section that is not a table',
 			'ports = 25',
 			['ports: must be a table, not an integer'],

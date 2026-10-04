@@ -16,6 +16,7 @@ describe('readConfig', () => {
 		const config = await readConfig({ path: writeConfig(BASE), env: {} });
 		expect(config).toMatchObject({
 			hostname: 'mail.example.com',
+			postmaster: undefined,
 			data: '/data',
 			bind: '0.0.0.0',
 			ports: {
@@ -43,12 +44,15 @@ describe('readConfig', () => {
 				dmarc: 'enforce',
 				maxMessageSize: 25 * 1024 * 1024,
 				maxConnections: 1000,
+				maxConnectionsPerClient: 10,
 				spoolBytes: 20 * 25 * 1024 * 1024,
 			},
 			submission: {
 				maxMessageSize: 25 * 1024 * 1024,
 				maxRecipients: 100,
 				maxConnections: 1000,
+				maxConnectionsPerClient: 10,
+				handshakeTimeout: 10,
 			},
 			jmap: { origin: 'https://mail.example.com' },
 		});
@@ -61,6 +65,7 @@ describe('readConfig', () => {
 				`hostname = "Mail.Example.com."
 data = "/srv/bumail/"
 bind = "::"
+postmaster = "Abuse@Example.COM"
 [ports]
 https = 8443
 imap = 143
@@ -79,6 +84,10 @@ passwordFile = "${join(dir, 'smarthost.pw')}"
 "example.com" = "smarthost"
 [inbound]
 dmarc = "mark"
+maxConnectionsPerClient = 3
+[submission]
+maxConnectionsPerClient = 4
+handshakeTimeout = 5
 ${ACME}`,
 			),
 			env: {},
@@ -107,6 +116,12 @@ ${ACME}`,
 			'example.com': 'smarthost',
 		});
 		expect(config.inbound.dmarc).toBe('mark');
+		expect(config.postmaster).toBe('abuse@example.com');
+		expect(config.inbound.maxConnectionsPerClient).toBe(3);
+		expect(config.submission).toMatchObject({
+			maxConnectionsPerClient: 4,
+			handshakeTimeout: 5,
+		});
 		expect(config.jmap.origin).toBe('https://mail.example.com:8443');
 	});
 

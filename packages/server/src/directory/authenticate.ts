@@ -39,7 +39,16 @@ export type AuthFailure =
 
 /** What `authenticate` answers. */
 export type AuthResult =
-	| { readonly ok: true; readonly user: UserEntry }
+	| {
+			readonly ok: true;
+			readonly user: UserEntry;
+			/**
+			 * The user's version the login was checked against, which a new
+			 * password, a disable and an enable bump: a session keeps it, to
+			 * see later whether the user it logged in as still holds.
+			 */
+			readonly version: number;
+	  }
 	| { readonly ok: false; readonly reason: AuthFailure };
 
 export interface AuthenticatorOptions {
@@ -128,15 +137,15 @@ export class Authenticator {
 		return `${address}\0${hmac}`;
 	}
 
-	/** The user a remembered login answers, if it still holds. */
-	#hit(key: string, address: string): UserEntry | undefined {
+	/** The remembered login, if it still holds. */
+	#hit(key: string, address: string): Cached | undefined {
 		const cached = this.#cache.get(key);
 		if (cached === undefined) return undefined;
 		if (
 			cached.expires > Date.now() &&
 			this.#users.version(address) === cached.version
 		) {
-			return cached.user;
+			return cached;
 		}
 		this.#cache.delete(key);
 		return undefined;
@@ -190,7 +199,9 @@ export class Authenticator {
 			key === undefined || address === undefined
 				? undefined
 				: this.#hit(key, address);
-		if (hit !== undefined) return { ok: true, user: hit };
+		if (hit !== undefined) {
+			return { ok: true, user: hit.user, version: hit.version };
+		}
 		const begun = limiter.begin(ip);
 		if (begun !== 'started') return { ok: false, reason: begun };
 		// Counted only once the verify answered: a throw (the directory
@@ -221,6 +232,6 @@ export class Authenticator {
 		if (user.disabled) return { ok: false, reason: 'disabled' };
 		const { hash: _, version, ...entry } = user;
 		if (key !== undefined) this.#remember(key, entry, version);
-		return { ok: true, user: entry };
+		return { ok: true, user: entry, version };
 	}
 }

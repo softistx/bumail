@@ -83,10 +83,12 @@ test('a message already spooled is checked and delivered, once to each user, aft
 			...RECORDS,
 			'sel._domainkey.reject.example': { txt: [record] },
 		}),
+		postmaster: undefined,
 		inbound: {
 			dmarc: 'enforce',
 			maxMessageSize: 1 << 20,
 			maxConnections: 10,
+			maxConnectionsPerClient: 10,
 			spoolBytes: 1 << 24,
 		},
 		tls: await selfSigned(['localhost']),

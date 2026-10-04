@@ -1,4 +1,4 @@
-import type { Checker } from './checker';
+import type { Checker, Table } from './checker';
 import type {
 	InboundConfig,
 	JmapConfig,
@@ -27,6 +27,7 @@ export function checkInbound(checker: Checker, raw: unknown): InboundConfig {
 		'dmarc',
 		'maxMessageSize',
 		'maxConnections',
+		'maxConnectionsPerClient',
 		'spoolBytes',
 	]);
 	const maxMessageSize =
@@ -54,6 +55,7 @@ export function checkInbound(checker: Checker, raw: unknown): InboundConfig {
 		maxConnections:
 			checker.integer(table, 'maxConnections', 'inbound', 1, MAX_CONNECTIONS) ??
 			1000,
+		maxConnectionsPerClient: perClient(checker, table, 'inbound'),
 		spoolBytes: spoolBytes ?? SPOOL_BUDGET_MESSAGES * maxMessageSize,
 	};
 }
@@ -67,6 +69,8 @@ export function checkSubmission(
 		'maxMessageSize',
 		'maxRecipients',
 		'maxConnections',
+		'maxConnectionsPerClient',
+		'handshakeTimeout',
 	]);
 	return {
 		maxMessageSize:
@@ -87,7 +91,27 @@ export function checkSubmission(
 				1,
 				MAX_CONNECTIONS,
 			) ?? 1000,
+		maxConnectionsPerClient: perClient(checker, table, 'submission'),
+		handshakeTimeout:
+			checker.integer(table, 'handshakeTimeout', 'submission', 1, 300) ?? 10,
 	};
+}
+
+/** `maxConnectionsPerClient`: from 1 to `MAX_CONNECTIONS`, default 10. */
+function perClient(
+	checker: Checker,
+	table: Table | undefined,
+	section: string,
+): number {
+	return (
+		checker.integer(
+			table,
+			'maxConnectionsPerClient',
+			section,
+			1,
+			MAX_CONNECTIONS,
+		) ?? 10
+	);
 }
 
 /**

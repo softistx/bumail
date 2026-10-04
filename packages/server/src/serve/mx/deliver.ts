@@ -1,24 +1,20 @@
-import type { Directory } from '../../directory/directory';
+import type { Content, MailStore } from '@bumail/store';
 import { provisionAccount } from '../../store/accounts';
 import { type Spooled, spooledStream } from '../spool';
-import type { MxContext } from './index';
 
-/** The users a message for `to` goes to, each once: aliases expanded. */
-export function usersOf(directory: Directory, to: readonly string[]): string[] {
-	const users = new Set<string>();
-	for (const address of to) {
-		for (const user of directory.resolve(address) ?? []) users.add(user);
-	}
-	return [...users];
+/** Where a delivery goes, and who is told of it. */
+export interface DeliveryContext {
+	readonly store: MailStore;
+	/** Told of each account a message was added to: IMAP's IDLE looks at once. */
+	onDelivered(accountId: string): void;
 }
 
-/** Adds the message to `user`'s INBOX, or Junk, its account and mailboxes created if need be. */
-export async function deliver(
-	ctx: MxContext,
+/** Adds `content` to `user`'s INBOX, or Junk, its account and mailboxes created if need be. */
+export async function deliverContent(
+	ctx: DeliveryContext,
 	user: string,
 	junk: boolean,
-	prefix: Uint8Array,
-	spooled: Spooled,
+	content: Content,
 ): Promise<void> {
 	const { store } = ctx;
 	const account = await provisionAccount(store, user);
@@ -28,8 +24,22 @@ export async function deliver(
 	if (mailbox === undefined) {
 		throw new Error(`the account of ${user} has no INBOX`);
 	}
-	await store.addMessage(account.id, mailbox.id, {
-		content: spooledStream(prefix, spooled.stream(spooled.bodyStart)),
-	});
+	await store.addMessage(account.id, mailbox.id, { content });
 	ctx.onDelivered(account.id);
+}
+
+/** Adds the spooled message, `prefix` (the header as delivered) then its body, to `user`'s INBOX, or Junk. */
+export function deliver(
+	ctx: DeliveryContext,
+	user: string,
+	junk: boolean,
+	prefix: Uint8Array,
+	spooled: Spooled,
+): Promise<void> {
+	return deliverContent(
+		ctx,
+		user,
+		junk,
+		spooledStream(prefix, spooled.stream(spooled.bodyStart)),
+	);
 }

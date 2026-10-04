@@ -9,9 +9,10 @@ import type { InboundConfig } from '../../config/types';
 import type { Directory } from '../../directory/directory';
 import { startSpf } from '../inbound';
 import type { Log } from '../log';
+import { usersFor } from '../recipients';
 import type { Spool } from '../spool';
 import { receive, SPF } from './receive';
-import { SPOOL_FULL, USER_UNKNOWN } from './replies';
+import { POSTMASTER_UNKNOWN, SPOOL_FULL, USER_UNKNOWN } from './replies';
 
 export * from './replies';
 
@@ -22,6 +23,8 @@ export interface MxContext {
 	readonly store: MailStore;
 	readonly resolver: Resolver;
 	readonly inbound: InboundConfig;
+	/** `postmaster` from the configuration. */
+	readonly postmaster: string | undefined;
 	readonly tls: TlsOptions;
 	/** Where messages wait while they are checked, within its byte budget. */
 	readonly spool: Spool;
@@ -40,8 +43,11 @@ export interface MxContext {
  * given, so AUTH is never offered and every session is unauthenticated:
  * `@bumail/smtp` refuses a recipient in a domain not hosted with
  * `554 5.7.1 Relay access denied`, and `onRcptTo` refuses an address the
- * directory does not resolve with `550 5.1.1`. STARTTLS is offered, not
- * required.
+ * directory does not resolve with `550 5.1.1`. The bare `<postmaster>`
+ * goes to `postmaster`, else `postmaster@` the first hosted domain, and
+ * is refused with `550 5.1.1` when that does not resolve. STARTTLS is
+ * offered, not required; one client holds `maxConnectionsPerClient`
+ * sessions at most.
  */
 export function createMx(ctx: MxContext): SmtpServer {
 	const { directory, log } = ctx;
@@ -52,6 +58,7 @@ export function createMx(ctx: MxContext): SmtpServer {
 		tls: ctx.tls,
 		maxMessageSize: ctx.inbound.maxMessageSize,
 		maxConnections: ctx.inbound.maxConnections,
+		maxConnectionsPerClient: ctx.inbound.maxConnectionsPerClient,
 		onMailFrom(path, session) {
 			// A message as large as allowed must fit, besides those waiting.
 			if (!ctx.spool.hasRoom(ctx.inbound.maxMessageSize)) {
@@ -71,6 +78,11 @@ export function createMx(ctx: MxContext): SmtpServer {
 			return undefined;
 		},
 		onRcptTo(path) {
+			if (path.postmaster) {
+				return usersFor(directory, path.address, ctx.postmaster) === undefined
+					? POSTMASTER_UNKNOWN
+					: undefined;
+			}
 			return directory.resolve(path.address) === undefined
 				? USER_UNKNOWN
 				: undefined;

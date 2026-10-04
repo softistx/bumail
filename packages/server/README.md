@@ -6,15 +6,17 @@ configured by one TOML file, run as the `bumail` command.
 **In progress, and private for now.** This package is not on npm yet: it
 is built here one step at a time, and published once it is complete. Today
 it reads and checks its configuration (`bumail check-config`), manages
-its directory of domains, users and aliases (`bumail domain`, `bumail
-user`, `bumail alias`), and **receives mail**: `bumail serve` takes
-mail for its users on port 25 and serves it over IMAP on 993, with a
-certificate from files. Sending mail, JMAP and ACME come next; see the
+its directory of domains, users, aliases and DKIM keys (`bumail domain`,
+`bumail user`, `bumail alias`, `bumail dkim`), **receives mail** for its users
+on port 25, **sends mail** for them from 465 and 587, DKIM-signed,
+through its queue, and serves it over IMAP on 993, with a certificate
+from files. JMAP and ACME come next; see the
 [roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md).
 
 **Bun only**, like every `@bumail/*` package: it runs on Bun 1.4.2 or
 later. It peers on the packages it wires: `@bumail/store`,
-`@bumail/smtp`, `@bumail/imap`, `@bumail/auth` and `@bumail/dns`.
+`@bumail/smtp`, `@bumail/imap`, `@bumail/queue`, `@bumail/auth` and
+`@bumail/dns`.
 
 ## The configuration
 
@@ -24,6 +26,7 @@ names another. Only `hostname` is required; with the default
 
 ```toml
 hostname = "mail.example.com"
+postmaster = "alice@example.com"  # where RCPT TO:<postmaster> goes
 data = "/data"             # the mail, the queue, the directory, the certificates
 
 [ports]                    # 0 turns a listener off
@@ -55,6 +58,9 @@ port = 465                 # with username, and passwordFile or BUMAIL_SMARTHOST
 
 [inbound]
 dmarc = "enforce"          # p=reject refused, p=quarantine to Junk; or "mark"
+
+[submission]
+maxConnectionsPerClient = 10
 ```
 
 The environment overrides URLs and secrets only, each over the file and
@@ -98,15 +104,22 @@ bumail serve --config /data/bumail.toml
 ```text
 bumail: serving mail.example.com
 bumail: mx listening on 0.0.0.0:25: SMTP from other servers: STARTTLS offered, no AUTH, mail for hosted addresses only
+bumail: submissions listening on 0.0.0.0:465: submission over TLS from the first byte: AUTH required, then mail to anywhere
+bumail: submission listening on 0.0.0.0:587: submission with STARTTLS: AUTH only after TLS, then mail to anywhere
 bumail: imaps listening on 0.0.0.0:993: IMAP over TLS from the first byte
 mx: 1kq2f… from 192.0.2.10 <joe@example.org> delivered to alice@example.com (spf=pass dkim=pass dmarc=pass)
+submissions: 7cd1a… from alice@example.com <alice@example.com> queued as 0f3e… for joe@example.org
+outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example.org
 ```
 
 - **Port 25 takes mail for the directory's addresses only**: a user, or
   an alias, delivered to each of its users. An unknown address in a
   hosted domain gets `550 5.1.1 User unknown`, any other domain
   `554 5.7.1 Relay access denied`. AUTH is never offered there, so no
-  session can relay. STARTTLS is offered, not required.
+  session can relay. STARTTLS is offered, not required. The bare
+  `RCPT TO:<postmaster>` goes to `postmaster`, else `postmaster@` the
+  first hosted domain. One client holds 10 sessions at most
+  (`inbound.maxConnectionsPerClient`).
 - **SPF, DKIM and DMARC** are checked on each message. With
   `inbound.dmarc = "enforce"` (the default), `p=reject` is refused with
   `550` during the session and `p=quarantine` goes to Junk; `"mark"`
@@ -114,6 +127,18 @@ mx: 1kq2f… from 192.0.2.10 <joe@example.org> delivered to alice@example.com (s
   and any field already there claiming the server's name is removed.
 - **No bounce is ever sent** for inbound mail: a refusal is a reply in
   the session.
+- **Submission on 465 and 587** takes mail from the directory's users,
+  logged in over TLS only (AUTH is offered on 587 after STARTTLS, never
+  in clear), counted per client by the same failure limiter. A user
+  sends as itself or an alias it belongs to, in MAIL FROM (`553 5.7.1`
+  otherwise) and in From (`550 5.7.1`). Mail for a hosted domain goes
+  straight to its mailbox; any other into the queue.
+- **The queue** (`queue.url`) delivers by MX, or through `[smarthost]`,
+  retrying for 5 days. A failure comes back to the sender as a DSN in
+  its own INBOX, never sent out.
+- **DKIM**: `bumail dkim generate example.com` makes an RSA-2048 key,
+  kept in the directory, and prints the TXT record to publish; mail
+  From the domain is signed with it from then on.
 - **IMAP on 993** logs users in through the directory, its failure
   limiter counting each client's IP. Port 143 (`ports.imap`) is off; on,
   it refuses logins until STARTTLS.
@@ -121,9 +146,11 @@ mx: 1kq2f… from 192.0.2.10 <joe@example.org> delivered to alice@example.com (s
   a minimal configuration makes `serve` exit 3 until ACME arrives: set
   `tls.mode = "files"`, with `cert` and `key`.
 - **SIGTERM or SIGINT** stops it cleanly: no new connection, SMTP
-  sessions given 10 seconds to finish, then the store closed. It exits 0.
+  sessions given 10 seconds to finish, the queue's deliveries under way
+  5 more, what it claimed and did not begin given back, then the queue
+  and the store closed. It exits 0.
 
-The other ports (465, 587, 443, 80, 8080) are logged as arriving later
+The other ports (443, 80, 8080) are logged as arriving later
 and bound to nothing. [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md)
 has every listener, the log and the stop in detail.
 
@@ -173,6 +200,28 @@ unknown user so the time taken does not reveal who exists, and are
 counted per client: 10 failures within 15 minutes block a client (an
 IPv6 /64 counting as one) until they age out.
 
+## DKIM
+
+```sh
+bumail dkim generate example.com                 # selector bumail
+bumail dkim generate example.com --selector s2 --replace
+bumail dkim show example.com                     # the record again
+bumail dkim list
+bumail dkim remove example.com                   # its mail goes unsigned
+```
+
+```text
+generated an RSA-2048 DKIM key for example.com, selector bumail; mail from example.com is signed with it from now on
+publish this TXT record:
+  name   bumail._domainkey.example.com
+  value  v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA…
+as a zone file line:
+  bumail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0B…" "…"
+```
+
+The private key is kept in the directory's file (0600) and never
+printed; removing a domain removes its key.
+
 ## From code
 
 ```ts
@@ -195,7 +244,7 @@ The server, with a log of your own:
 import { readConfig, serve } from '@bumail/server';
 
 const server = await serve(await readConfig(), { log: (line) => console.log(line) });
-server.listening; // [{ name: 'mx', hostname: '0.0.0.0', port: 25 }, { name: 'imaps', … }]
+server.listening; // [{ name: 'mx', hostname: '0.0.0.0', port: 25 }, { name: 'submissions', … }, …]
 process.on('SIGTERM', () => void server.stop());
 ```
 
@@ -209,6 +258,7 @@ const directory = Directory.open({ file: directoryFile(config.directory.url) });
 
 directory.domains.has('example.com'); // true: the domains the MX takes mail for
 directory.resolve('Sales@example.com'); // ['alice@example.com', 'bob@example.com'], or undefined
+await directory.dkim.generate('example.com'); // { name: 'bumail._domainkey.example.com', record: 'v=DKIM1; k=rsa; p=…', … }
 await directory.authenticate('alice@example.com', 'correct horse battery staple', '192.0.2.1');
 // { ok: true, user: { address: 'alice@example.com', … } }, or { ok: false, reason: 'password' }
 
@@ -224,13 +274,15 @@ const authenticate = smtpAuthenticate(directory); // @bumail/smtp's authenticate
 | `bumail domain add\|list\|remove` | the domains the server hosts |
 | `bumail user add\|list\|passwd\|disable\|enable\|remove` | the users; `--password-stdin`, `--password-file`, `remove --purge`; `list [<domain>]` |
 | `bumail alias add\|list\|remove` | the aliases, to local users only; `list [<domain>]` |
+| `bumail dkim generate\|show\|list\|remove` | the DKIM keys, one per domain; `generate --selector <name>`, `--replace` |
 | `--config <file>`, `--config=<file>` | the file; default `$BUMAIL_CONFIG`, then `/data/bumail.toml` |
 | `-h`, `--help` | print the usage |
 | `-v`, `--version` | print the version |
 
 Bad usage exits 2, a refusal of the directory 4 (an address, a
-password, a name taken, not found, still in use), and a directory, a
-mail store, a port or a certificate that cannot be used 5.
+password, a name taken, not found, still in use, a selector), and a
+directory, a mail store, a queue, a port or a certificate that cannot
+be used 5.
 
 ## API
 
@@ -240,14 +292,15 @@ mail store, a port or a certificate that cannot be used 5.
 | `configPath(options?)` | the file `readConfig` reads: `path`, else `BUMAIL_CONFIG`, else `DEFAULT_CONFIG_PATH` |
 | `DEFAULT_CONFIG_PATH` | `/data/bumail.toml` |
 | `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`, `NOT_IMPLEMENTED`) and, for a configuration, its `problems` |
-| `serve(config, options?)` | runs the server: `mx`, `imaps` and `imap` for the ports not 0; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds` |
-| `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`; the types around them |
+| `serve(config, options?)` | runs the server: `mx`, `submissions`, `submission`, `imaps` and `imap` for the ports not 0, and the queue; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds`, `outbound` |
+| `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `OutboundOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`; the types around them; `OutboundOptions` is `mxPort`, `ca`, `pollInterval`, `send`, for a test |
 | `DEFAULT_DRAIN_SECONDS`, `ACME_LATER` | 10, the seconds a stop waits for SMTP sessions; what `serve` says of `tls.mode = "acme"` |
-| `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, cacheSeconds?, onUnlimited?, limiter? })`: `domains`, `users`, `aliases`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |
+| `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, cacheSeconds?, onUnlimited?, limiter? })`: `domains`, `users`, `aliases`, `dkim`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |
+| `DkimKeys`, `DkimKeyEntry`, `DkimSigningKey`, `DEFAULT_SELECTOR`, `DKIM_KEY_BITS`, `zoneLine(key)` | the directory's DKIM keys: `generate(domain, { selector?, replace? })`, `get`, `list`, `remove`, `signingKey` (for the server); what they answer (`domain`, `selector`, `name`, `record`, `created`); `'bumail'`, 2048; the record as a zone file line |
 | `Domains`, `Users`, `Aliases` | the types of its three parts: `add`, `get`, `list`, `remove`, and `has` (domains), `setPassword`, `setDisabled`, `require`, `checkAddable`, `checkRemovable` (users; none hands out a hash), `targets` (aliases) |
 | `DomainEntry`, `UserEntry`, `AliasEntry` | what they answer |
 | `AuthResult`, `AuthFailure`, `AuthenticatorOptions`, `DirectoryOptions` | `authenticate`'s answer, its reasons (`blocked`, `malformed`, `unknown`, `password`, `disabled`, `busy`), and the options |
-| `FailureLimiter`, `FailureLimiterOptions`, `Begun`, `clientKey(ip)` | failed logins per client: `blocked(ip)`; `begin(ip)`, answering a `Begun` (`'started' \| 'blocked' \| 'busy'`), and `end(ip, failed)` around a login; `fail(ip)`, for a login that cost a verify; `limits(ip)`; `blockedUntil(ip)`; `maxFailures` (10), `windowSeconds` (900), `maxClients` (100 000), `maxPending` (5, capped at `maxFailures`). `clientKey(ip)` is the key a client is counted under, or `undefined` for anything that is no IP address, which is not limited |
+| `FailureLimiter`, `FailureLimiterOptions`, `Begun`, `clientKey(ip)` | failed logins per client: `blocked(ip)`; `begin(ip)`, answering a `Begun` (`'started' \| 'blocked' \| 'busy'`), and `end(ip, failed)` around a login; `fail(ip)`, for a login that cost a verify; `limits(ip)`; `blockedUntil(ip)`; `maxFailures` (10), `windowSeconds` (900), `maxClients` (100 000), `maxPending` (5, capped at `maxFailures`). `clientKey(ip)` is the key a client is counted under — `@bumail/smtp`'s, as the SMTP listeners count connections — or `undefined` for anything that is no IP address, which is not limited |
 | `smtpAuthenticate(directory, options?)`, `imapAuthenticate(directory, store, options?)`, `jmapAuthenticate(directory, store, ipOf, options?)` | `authenticate` in the shape `@bumail/smtp`, `@bumail/imap` and `@bumail/jmap` take; `options.onRefused(reason, ip)` |
 | `Authenticates`, `LoginCredentials`, `ClientSession`, `JmapLogin`, `AdapterOptions`, `BUSY_MESSAGE` | the types around them, and what they throw on `busy` |
 | `provisionAccount(store, address)`, `purgeAccount(store, address)`, `MAILBOXES` | a user's account in the mail store, with its six mailboxes; deleting it |
@@ -262,7 +315,7 @@ mail store, a port or a certificate that cannot be used 5.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/server/docs/README.md): the pages below, and when to read each.
 - [Guide](https://github.com/softistx/bumail/blob/develop/packages/server/docs/guide.md): every key of the configuration, its default, and what the environment overrides.
-- [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md): `bumail serve`, each listener, what port 25 takes and refuses, SPF, DKIM and DMARC, IMAP logins, the log and the stop.
+- [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md): `bumail serve`, each listener, what port 25 takes and refuses, SPF, DKIM and DMARC, sending mail on 465 and 587, the queue, DKIM signing and `bumail dkim`, IMAP logins, the log and the stop.
 - [The directory](https://github.com/softistx/bumail/blob/develop/packages/server/docs/directory.md): domains, users and aliases, every command with an example, passwords, logins and the failure limiter.
-- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/server/docs/troubleshooting.md): every problem `check-config` reports, every refusal of the directory commands, every reason `serve` stops or refuses a message, and what to do about it.
+- [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/server/docs/troubleshooting.md): every problem `check-config` reports, every refusal of the directory commands, every reason `serve` stops or refuses a message, every reply a mail client gets when sending, every line of the queue's log, and what to do about it.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md): what is coming, and what is not planned.

@@ -44,7 +44,7 @@ The second slice:
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.2.0
 
 - **The implicit TLS handshake is bounded.** A socket on an
   `implicitTls` port is counted by `maxConnections` from the TCP

@@ -6,8 +6,10 @@ The bumail mail server.
 
 Commands:
   serve          check the configuration, then run the server: SMTP from
-                 other servers (ports.mx, 25) and IMAP over TLS
-                 (ports.imaps, 993), until SIGTERM or SIGINT
+                 other servers (ports.mx, 25), submission from users
+                 (ports.submissions, 465, and ports.submission, 587), the
+                 outbound queue, and IMAP over TLS (ports.imaps, 993),
+                 until SIGTERM or SIGINT
   check-config   check the configuration, print a summary, and exit
 
   domain add <domain>         host a domain
@@ -25,6 +27,13 @@ Commands:
   alias add <address> <user>...  deliver an address to local users
   alias list [<domain>]          list the aliases and their users
   alias remove <address>         remove an alias
+
+  dkim generate <domain>      make an RSA-2048 DKIM key for a domain, and
+       [--selector <name>]    print its DNS record; selector default bumail
+       [--replace]            ... replacing the key it has
+  dkim show <domain>          print a domain's DKIM record again
+  dkim list                   list the domains with a key, and its selector
+  dkim remove <domain>        remove a domain's key: its mail goes unsigned
 
 Options:
   --config <file>        the TOML configuration; default $BUMAIL_CONFIG,
@@ -45,6 +54,6 @@ The environment overrides URLs and secrets only, each also as *_FILE:
 Exit codes: 0 done (serve: stopped cleanly), 1 invalid configuration,
 2 bad usage, 3 not available yet (serve with tls.mode "acme"), 4 refused
 by the directory (an address, a password, a name taken, not found,
-still in use), 5 the directory, the mail store, a port or the
-certificate unavailable.
+still in use, a selector), 5 the directory, the mail store, the queue,
+a port or the certificate unavailable.
 `;

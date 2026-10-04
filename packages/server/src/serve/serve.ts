@@ -1,10 +1,9 @@
-import { cachedResolver, nodeResolver, type Resolver } from '@bumail/dns';
-import type { ImapServer } from '@bumail/imap';
+import type { Resolver } from '@bumail/dns';
 import type { ServerConfig } from '../config/types';
 import { directoryFile } from '../directory/database';
 import { Directory } from '../directory/directory';
 import { ServerError } from '../errors';
-import { maskedFor, type OpenedStore, openStore } from '../store/open';
+import { type OpenedStore, openStore } from '../store/open';
 import {
 	createListener,
 	DESCRIPTION,
@@ -15,22 +14,18 @@ import {
 	type Resources,
 } from './listeners';
 import type { Log } from './log';
+import {
+	type OpenedQueueStore,
+	type OutboundOptions,
+	openQueueStore,
+} from './outbound';
+import { envelopeDomain } from './recipients';
+import { assemble } from './resources';
 import { Spool } from './spool';
 import { closeResources, stopper } from './stop';
 import { readTls } from './tls';
-import { trackedStore } from './tracked';
 
 export { LATER, type ListenerName } from './listeners';
-
-/**
- * Milliseconds one DNS try has, and tries per query, for the inbound
- * checks: one query takes 10 s at worst. DKIM, SPF and DMARC are each
- * cut off at 10 s on top of that (`CHECK_TIMEOUT_MS`); SPF runs from
- * MAIL FROM, so a message's checks take 20 s at worst after DATA (DKIM,
- * then DMARC), well within the 60 s the SMTP server gives `onData`.
- */
-export const DNS_TIMEOUT_MS = 5000;
-export const DNS_TRIES = 2;
 
 /** Seconds a stop waits for SMTP sessions to end, by default. */
 export const DEFAULT_DRAIN_SECONDS = 10;
@@ -48,6 +43,8 @@ export interface ServeOptions {
 	port?(listener: ListenerName, configured: number): number;
 	/** Seconds `stop` waits for SMTP sessions to end before hanging up on them. Default 10. */
 	readonly drainSeconds?: number;
+	/** The queue's network, for specs: the port of MX hosts, a CA to trust, how often it looks. */
+	readonly outbound?: OutboundOptions;
 }
 
 /** A listener bound. */
@@ -83,17 +80,21 @@ function bindReason(error: unknown): string {
 		: message;
 }
 
-/** The directory and the store, opened; the directory closed again when the store fails. */
-function openResources(config: ServerConfig): {
+/** The directory, the store and the queue's, opened; those opened closed again when one fails. */
+async function openResources(config: ServerConfig): Promise<{
 	directory: Directory;
 	opened: OpenedStore;
-} {
+	queueStore: OpenedQueueStore;
+}> {
 	const directory = Directory.open({
 		file: directoryFile(config.directory.url),
 	});
+	let opened: OpenedStore | undefined;
 	try {
-		return { directory, opened: openStore(config.store) };
+		opened = openStore(config.store);
+		return { directory, opened, queueStore: openQueueStore(config.queue) };
 	} catch (error) {
+		await opened?.close().catch(() => {});
 		directory.close();
 		throw error;
 	}
@@ -154,10 +155,29 @@ function logStart(
 }
 
 /**
+ * Warns when `postmaster` is in a domain the server does not host: the
+ * bare `<postmaster>` goes nowhere, and is refused, until it is.
+ */
+function warnPostmaster(
+	config: ServerConfig,
+	directory: Directory,
+	log: Log,
+): void {
+	const { postmaster } = config;
+	if (postmaster === undefined) return;
+	const domain = envelopeDomain(postmaster);
+	if (directory.domains.has(domain)) return;
+	log(
+		`bumail: postmaster ${postmaster} is in ${domain}, a domain not hosted here; mail for <postmaster> is refused until it is`,
+	);
+}
+
+/**
  * Runs the server for `config`: reads the certificate (`tls.mode =
  * "files"`; `"acme"` is `NOT_IMPLEMENTED`), opens the spool, the
- * directory and the mail store, and starts each listener whose port is
- * not 0 — `mx`, `imaps`, `imap` — logging one line each. The other ports
+ * directory, the mail store and the queue, starts each listener whose
+ * port is not 0 — `mx`, `submissions`, `submission`, `imaps`, `imap` —
+ * logging one line each, then the queue's worker. The other ports
  * are logged as arriving later, and bound to nothing. What cannot be
  * opened or bound is `ServerError('UNAVAILABLE')`, with whatever was
  * started stopped again.
@@ -171,47 +191,33 @@ export async function serve(
 	const spool = Spool.open(config.data, config.inbound.spoolBytes, { log });
 	let directory: Directory;
 	let opened: OpenedStore;
+	let queueStore: OpenedQueueStore;
 	try {
-		({ directory, opened } = openResources(config));
+		({ directory, opened, queueStore } = await openResources(config));
 	} catch (error) {
 		spool.close();
 		throw error;
 	}
-	const describe = (error: unknown) =>
-		maskedFor(
-			error instanceof Error ? error.message : String(error),
-			config.store.url,
-		);
-	const storeCalls = new Set<Promise<unknown>>();
-	const resources: Resources = {
-		config,
-		directory,
-		store: trackedStore(opened.store, storeCalls),
-		resolver:
-			options.resolver ??
-			cachedResolver(
-				nodeResolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES }),
-			),
-		tls,
-		spool,
-		log,
-		describe,
-		inflight: new Set(),
-		imaps: [] as ImapServer[],
-	};
+	const { resources, storeCalls } = assemble(
+		{ config, directory, opened, queueStore, tls, spool, log },
+		options,
+	);
+	const { queue, describe } = resources;
 
 	let bound: Awaited<ReturnType<typeof bindListeners>>;
 	try {
 		bound = await bindListeners(resources, options);
 	} catch (error) {
-		await closeResources(opened, directory, log, describe);
+		await closeResources({ opened, directory, queueStore }, log, describe);
 		spool.close();
 		throw error;
 	}
+	queue.start();
 	logStart(config, bound.listening, log);
 	for (const { path, reason } of spool.kept) {
 		log(`bumail: the spool folder ${path} is kept: ${reason}`);
 	}
+	warnPostmaster(config, directory, log);
 
 	return {
 		listening: bound.listening,
@@ -221,6 +227,8 @@ export async function serve(
 			storeCalls,
 			opened,
 			directory,
+			queue,
+			queueStore,
 			spool,
 			log,
 			describe,

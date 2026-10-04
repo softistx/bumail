@@ -46,6 +46,14 @@ export type {
 } from './directory/authenticate';
 export { directoryFile } from './directory/database';
 export { Directory, type DirectoryOptions } from './directory/directory';
+export {
+	DEFAULT_SELECTOR,
+	DKIM_KEY_BITS,
+	type DkimKeyEntry,
+	type DkimKeys,
+	type DkimSigningKey,
+	zoneLine,
+} from './directory/dkim';
 export type { DomainEntry, Domains } from './directory/domains';
 export {
 	DEFAULT_MAX_QUEUED_VERIFIES,
@@ -69,6 +77,7 @@ export {
 	type ServerErrorCode,
 } from './errors';
 export type { Log } from './serve/log';
+export type { OutboundOptions } from './serve/outbound';
 export {
 	DEFAULT_DRAIN_SECONDS,
 	type ListenerName,

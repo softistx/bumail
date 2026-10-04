@@ -10,6 +10,7 @@ import {
 	randomVersion,
 	type UserEntry,
 	type UserRow,
+	userVersion,
 } from './records';
 
 export type { UserEntry } from './records';
@@ -54,6 +55,18 @@ export class Users {
 		const parsed = addressOf(address);
 		const row = parsed === undefined ? undefined : this.#row(parsed.address);
 		return row === undefined ? undefined : entry(row);
+	}
+
+	/**
+	 * The version of the user at any spelling of `address`, which a new
+	 * password, a disable and an enable bump; `undefined` when there is
+	 * none. What a session that logged in checks it still holds.
+	 */
+	version(address: string): number | undefined {
+		const parsed = addressOf(address);
+		return parsed === undefined
+			? undefined
+			: userVersion(this.#db, parsed.address);
 	}
 
 	/** The user, or `INVALID` for what is not an address, `NOT_FOUND`. */

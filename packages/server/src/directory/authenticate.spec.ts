@@ -36,6 +36,24 @@ describe('authenticate', () => {
 		expect(JSON.stringify(found)).not.toContain('argon2');
 	});
 
+	test('answers the version the password was checked against', async () => {
+		const d = await directory();
+		const before = d.users.version('alice@example.com');
+		const found = await d.authenticate('alice@example.com', PASSWORD, IP);
+		expect(found.ok && found.version).toBe(before as number);
+		await d.users.setPassword('alice@example.com', 'a brand new passphrase');
+		expect(d.users.version('alice@example.com')).not.toBe(before);
+		// A cached login answers the version it was cached with.
+		const again = await d.authenticate(
+			'alice@example.com',
+			'a brand new passphrase',
+			IP,
+		);
+		expect(again.ok && again.version).toBe(
+			d.users.version('alice@example.com') as number,
+		);
+	});
+
 	test.each<[string, string, string, string]>([
 		['a wrong password', 'alice@example.com', 'not the password', 'password'],
 		['an unknown user', 'nobody@example.com', PASSWORD, 'unknown'],

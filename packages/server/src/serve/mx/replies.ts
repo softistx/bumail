@@ -2,6 +2,11 @@ import { type Reply, reply } from '@bumail/smtp';
 
 /** The replies the MX sends of its own, besides those of `@bumail/smtp`. */
 export const USER_UNKNOWN = reply(550, '5.1.1', 'User unknown');
+export const POSTMASTER_UNKNOWN = reply(
+	550,
+	'5.1.1',
+	'No postmaster mailbox is configured here',
+);
 export const HEADER_TOO_LARGE = reply(552, '5.3.4', 'Message header too large');
 export const NO_RECIPIENT = reply(
 	550,

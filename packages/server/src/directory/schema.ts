@@ -42,6 +42,17 @@ export const MIGRATIONS: readonly string[] = [
 	`
 	ALTER TABLE users ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
 	`,
+	// 3: a DKIM key per domain, which outgoing mail From it is signed with;
+	// removing the domain removes its key.
+	`
+	CREATE TABLE dkim_keys (
+		domain TEXT PRIMARY KEY REFERENCES domains (name) ON DELETE CASCADE,
+		selector TEXT NOT NULL,
+		private_key TEXT NOT NULL,
+		public_key TEXT NOT NULL,
+		created INTEGER NOT NULL
+	) STRICT;
+	`,
 ];
 
 /**

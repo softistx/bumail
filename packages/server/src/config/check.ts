@@ -1,18 +1,19 @@
 import { isIP } from 'node:net';
+import { addressOf } from '../directory/address';
 import { invalidConfig } from '../errors';
 import { checkCertificates } from './certificates';
 import type { Checker, Table } from './checker';
-import { refuseInsecure } from './credentials';
 import { checkRoutes, checkSmarthost } from './delivery';
 import type { Env, Overrides } from './env';
 import { checkInbound, checkJmap, checkSubmission } from './limits';
 import { isDomainName } from './names';
 import { checkPorts } from './ports';
+import { checkStorage } from './storage';
 import type { ServerConfig } from './types';
-import { type CheckedStoreUrl, checkStoreUrl } from './urls';
 
 const SECTIONS = [
 	'hostname',
+	'postmaster',
 	'data',
 	'bind',
 	'ports',
@@ -54,6 +55,7 @@ export function checkConfig(
 	const { overrides } = context;
 
 	const hostname = checkHostname(checker, root, overrides);
+	const postmaster = checkPostmaster(checker, root);
 	const data = checkData(checker, root);
 	const bindValue = checker.string(root, 'bind', '');
 	if (bindValue !== undefined && isIP(bindValue) === 0) {
@@ -61,30 +63,7 @@ export function checkConfig(
 	}
 	const ports = checkPorts(checker, root['ports']);
 
-	const store = checkUrlSection(
-		checker,
-		root,
-		context.env,
-		'store',
-		overrides.storeUrl,
-		['sqlite', 'postgres', 'postgresql'],
-	);
-	const queue = checkUrlSection(
-		checker,
-		root,
-		context.env,
-		'queue',
-		overrides.queueUrl,
-		['sqlite', 'postgres', 'postgresql', 'redis', 'rediss'],
-	);
-	const directory = checkUrlSection(
-		checker,
-		root,
-		context.env,
-		'directory',
-		undefined,
-		['sqlite'],
-	);
+	const { store, queue, directory } = checkStorage(checker, root, context);
 
 	const { tls, acme } = checkCertificates(checker, root['tls'], root['acme'], {
 		dir: context.dir,
@@ -109,6 +88,7 @@ export function checkConfig(
 	return {
 		file: context.file,
 		hostname: hostname ?? '',
+		postmaster,
 		data,
 		bind: bindValue ?? '0.0.0.0',
 		ports,
@@ -152,6 +132,21 @@ function checkHostname(
 	return name;
 }
 
+/** `postmaster`, an address as the directory keeps it; whether it resolves is the server's question, at each message. */
+function checkPostmaster(checker: Checker, root: Table): string | undefined {
+	const value = checker.string(root, 'postmaster', '');
+	if (value === undefined) return undefined;
+	const parsed = addressOf(value);
+	if (parsed === undefined) {
+		checker.add(
+			'postmaster',
+			'must be an e-mail address, such as postmaster@example.com',
+		);
+		return undefined;
+	}
+	return parsed.address;
+}
+
 /** `data`, absolute, without a trailing slash. Default `/data`. */
 function checkData(checker: Checker, root: Table): string {
 	const value = checker.string(root, 'data', '');
@@ -161,45 +156,4 @@ function checkData(checker: Checker, root: Table): string {
 		return '/data';
 	}
 	return value.length > 1 ? value.replace(/\/+$/, '') : value;
-}
-
-/**
- * `[store]`, `[queue]` or `[directory]`: a `url`, the environment's
- * winning, and for the first two `insecure`, which lets a `redis:` URL
- * send its credentials in clear.
- */
-function checkUrlSection(
-	checker: Checker,
-	root: Table,
-	env: Env,
-	section: string,
-	override: Overrides['storeUrl'],
-	schemes: readonly string[],
-): CheckedStoreUrl | undefined {
-	const keys = section === 'directory' ? ['url'] : ['url', 'insecure'];
-	const table = checker.table(root[section], section, keys);
-	const fromFile = checker.string(table, 'url', section);
-	const context = {
-		insecure:
-			section === 'directory'
-				? undefined
-				: checker.boolean(table, 'insecure', section),
-		insecurePath: `${section}.insecure`,
-		env,
-	};
-	if (override !== undefined) {
-		return checkStoreUrl(
-			checker,
-			override.value,
-			`${section}.url (${override.from})`,
-			schemes,
-			context,
-		);
-	}
-	if (fromFile === undefined) {
-		// The default is SQLite, where `insecure` means nothing.
-		refuseInsecure(checker, context);
-		return undefined;
-	}
-	return checkStoreUrl(checker, fromFile, `${section}.url`, schemes, context);
 }

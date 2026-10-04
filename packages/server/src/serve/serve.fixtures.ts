@@ -6,7 +6,12 @@ import { tempDir } from '../config/config.fixtures';
 import { readConfig } from '../config/read';
 import { Directory } from '../directory/directory';
 import { PASSWORD } from '../directory/directory.fixtures';
-import { type RunningServer, type ServeOptions, serve } from './serve';
+import {
+	type ListenerName,
+	type RunningServer,
+	type ServeOptions,
+	serve,
+} from './serve';
 
 export { LineClient, sendMail } from './line-client.fixtures';
 export { PASSWORD };
@@ -28,14 +33,22 @@ export interface Fixture {
 	readonly dir: string;
 	readonly lines: string[];
 	/** The port a listener is bound to. */
-	port(name: 'mx' | 'imaps' | 'imap'): number;
+	port(name: ListenerName): number;
 	stop(): Promise<void>;
 }
 
-/** The TOML of a server in `dir`: certificate files, a SQLite store and directory, `extra` after. */
+/**
+ * The TOML of a server in `dir`: certificate files, a SQLite store and
+ * directory, `extra` after — its top-level keys, before its first
+ * section, put on top.
+ */
 export function configToml(dir: string, extra = ''): string {
+	const section = extra.search(/^\[/m);
+	const top = section === -1 ? extra : extra.slice(0, section);
+	const rest = section === -1 ? '' : extra.slice(section);
 	return [
 		'hostname = "mail.example.com"',
+		top,
 		`data = "${dir}"`,
 		'[store]',
 		`url = "sqlite:${dir}/mail"`,
@@ -45,7 +58,7 @@ export function configToml(dir: string, extra = ''): string {
 		'mode = "files"',
 		'cert = "cert.pem"',
 		'key = "key.pem"',
-		extra,
+		rest,
 	].join('\n');
 }
 

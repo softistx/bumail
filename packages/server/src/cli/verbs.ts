@@ -1,7 +1,7 @@
 import { ServerError } from '../errors';
 
 /** What manages the directory: `bumail <noun> <verb> …`. */
-export type Noun = 'domain' | 'user' | 'alias';
+export type Noun = 'domain' | 'user' | 'alias' | 'dkim';
 
 /** Where a new password comes from: never the command line. */
 export type PasswordSource =
@@ -19,6 +19,8 @@ interface VerbSpec {
 	readonly password?: boolean;
 	/** Takes `--purge`. */
 	readonly purge?: boolean;
+	/** Takes `--selector` and `--replace`. */
+	readonly key?: boolean;
 }
 
 /** Each noun's verbs. */
@@ -46,6 +48,12 @@ export const VERBS: Readonly<Record<Noun, Readonly<Record<string, VerbSpec>>>> =
 			list: { min: 0, max: 1, operands: 'a domain at most' },
 			remove: { min: 1, max: 1, operands: 'one address' },
 		},
+		dkim: {
+			generate: { min: 1, max: 1, operands: 'one domain', key: true },
+			show: { min: 1, max: 1, operands: 'one domain' },
+			list: { min: 0, max: 0, operands: 'nothing' },
+			remove: { min: 1, max: 1, operands: 'one domain' },
+		},
 	};
 
 /** A directory command: `bumail <noun> <verb> <operands>`. */
@@ -59,6 +67,10 @@ export type ManageArgs = {
 	readonly password: PasswordSource | undefined;
 	/** `user remove --purge`. */
 	readonly purge: boolean;
+	/** `dkim generate --selector`. */
+	readonly selector: string | undefined;
+	/** `dkim generate --replace`. */
+	readonly replace: boolean;
 };
 
 export function usage(message: string): ServerError {
@@ -78,6 +90,8 @@ export interface Options {
 	passwordStdin: boolean;
 	passwordFile: string | undefined;
 	purge: boolean;
+	selector: string | undefined;
+	replace: boolean;
 }
 
 /**
@@ -133,6 +147,8 @@ export function resolveManage(
 		config: options.config,
 		password: spec.password !== true ? undefined : passwordSource(options),
 		purge: options.purge,
+		selector: options.selector,
+		replace: options.replace,
 	};
 }
 
@@ -158,5 +174,11 @@ export function refuseOptions(
 	}
 	if (options.purge && spec.purge !== true) {
 		throw usage(`${name} takes no --purge`);
+	}
+	if (spec.key !== true) {
+		if (options.selector !== undefined) {
+			throw usage(`${name} takes no --selector`);
+		}
+		if (options.replace) throw usage(`${name} takes no --replace`);
 	}
 }

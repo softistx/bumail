@@ -50,10 +50,14 @@ describe('serve: starting', () => {
 		expect(f.lines[1]).toMatch(
 			/^bumail: mx listening on 0\.0\.0\.0:\d+: SMTP from other servers/,
 		);
-		expect(f.lines[2]).toMatch(/^bumail: imaps listening on 0\.0\.0\.0:\d+: /);
-		expect(f.lines.slice(3, 8)).toEqual([
-			'bumail: submissions (port 465) arrives in a later slice; not listening',
-			'bumail: submission (port 587) arrives in a later slice; not listening',
+		expect(f.lines[2]).toMatch(
+			/^bumail: submissions listening on 0\.0\.0\.0:\d+: submission over TLS from the first byte/,
+		);
+		expect(f.lines[3]).toMatch(
+			/^bumail: submission listening on 0\.0\.0\.0:\d+: submission with STARTTLS/,
+		);
+		expect(f.lines[4]).toMatch(/^bumail: imaps listening on 0\.0\.0\.0:\d+: /);
+		expect(f.lines.slice(5, 8)).toEqual([
 			'bumail: https (port 443) arrives in a later slice; not listening',
 			'bumail: http (port 80) arrives in a later slice; not listening',
 			'bumail: health (port 8080) arrives in a later slice; not listening',
@@ -113,7 +117,7 @@ describe('serve: starting', () => {
 			const config = await readConfig({ path: file, env: {} });
 			const error = await serve(config, {
 				log: () => {},
-				port: (name) => (name === 'mx' ? 0 : busy.port),
+				port: (name) => (name === 'imaps' ? busy.port : 0),
 			}).catch((e: unknown) => e);
 			expect(error).toBeInstanceOf(ServerError);
 			expect((error as ServerError).code).toBe('UNAVAILABLE');
@@ -276,12 +280,15 @@ describe('serve: stopping', () => {
 
 	test('bumail serve stops on SIGTERM, exits 0, and logs no secret', async () => {
 		const mx = freePort();
-		const imaps = freePort();
+		// Every listener on by default gets a port of its own: a CI runner
+		// is no root, and cannot bind 465 or 587 (EACCES).
 		const { file } = await prepare(
 			[
 				'[ports]',
 				`mx = ${mx}`,
-				`imaps = ${imaps}`,
+				`submissions = ${freePort()}`,
+				`submission = ${freePort()}`,
+				`imaps = ${freePort()}`,
 				'[smarthost]',
 				'host = "smtp.example.net"',
 				'username = "relay-user"',
@@ -304,6 +311,14 @@ describe('serve: stopping', () => {
 			const { done, value } = await reader.read();
 			if (done) break;
 			out += decoder.decode(value);
+		}
+		if (!out.includes('imaps listening')) {
+			// It ended, or never got there: say why, from its standard error.
+			proc.kill('SIGKILL');
+			const err = await new Response(proc.stderr).text();
+			throw new Error(
+				`bumail serve did not start (exit ${await proc.exited}):\n${out}${err}`,
+			);
 		}
 		expect(out).toContain(`mx listening on 0.0.0.0:${mx}`);
 		const client = await LineClient.connect(mx);

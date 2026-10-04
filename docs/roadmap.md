@@ -37,8 +37,13 @@ No dates. Each entry says what someone running or embedding the server gets.
   `bumail serve` takes mail on 25 for the directory's addresses only
   (no AUTH there, so never a relay), checks SPF, DKIM and DMARC
   (enforced by default), delivers into the store, and serves it over
-  IMAP on 993, with a certificate from files. The steps that follow are
-  in [its roadmap](../packages/server/docs/roadmap.md).
+  IMAP on 993, with a certificate from files. **And it sends mail**:
+  submission on 465 and 587, logged in over TLS only, a user sending as
+  itself or its aliases; mail for a hosted domain straight to its
+  mailbox, the rest through `@bumail/queue` by MX or a smarthost, a
+  failure back to the sender as a DSN in its own mailbox; DKIM-signed
+  with a key per domain made by `bumail dkim`. The steps that follow
+  are in [its roadmap](../packages/server/docs/roadmap.md).
 
 ## Next
 
@@ -179,7 +184,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   not exactly one mailbox) gets `permerror` with disposition `reject`.
   `formatAuthenticationResults` (RFC 8601) writes the three results as one
   field.
-- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.1.2 now) —
+- **`@bumail/imap`, the first slice**, in imap 0.1.0 (0.2.0 now) —
   IMAP4rev2 (RFC 9051) on `Bun.listen`, serving any `@bumail/store`:
   STARTTLS and implicit TLS, login only once encrypted, LIST with
   special-use (RFC 6154), SELECT, FETCH, STORE, COPY, MOVE, EXPUNGE,
@@ -189,7 +194,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   mechanism, `redirect=`, `exp=`, the macros, the lookup limits and a
   timeout, never a throw for a record.
 - **`@bumail/smtp`, the client**, as `@bumail/smtp/client`, in smtp 0.2.0
-  (0.3.0 now) — `sendMail` delivers one message to a smarthost, a submission
+  (0.4.0 now) — `sendMail` delivers one message to a smarthost, a submission
   server or a domain's MX hosts (looked up through `@bumail/dns` or any
   resolver of that shape, with the null MX honoured), and `resolveMx` gives
   those hosts in order: STARTTLS, opportunistic or required, implicit TLS,
@@ -216,7 +221,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   charset `TextDecoder` knows, and a streaming parser that walks a large
   message without holding it in memory. Its specs are the RFCs' own
   examples.
-- **`@bumail/smtp`, the server**, in smtp 0.1.0 (0.3.0 now) — RFC 5321 on
+- **`@bumail/smtp`, the server**, in smtp 0.1.0 (0.4.0 now) — RFC 5321 on
   `Bun.listen`: EHLO with PIPELINING, SIZE, 8BITMIME, SMTPUTF8 and
   ENHANCEDSTATUSCODES; STARTTLS and implicit TLS; AUTH PLAIN and LOGIN,
   offered only once encrypted; hooks for connect, MAIL FROM, RCPT TO and

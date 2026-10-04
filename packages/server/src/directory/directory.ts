@@ -7,6 +7,7 @@ import {
 	type AuthResult,
 } from './authenticate';
 import { openDatabase } from './database';
+import { DkimKeys } from './dkim';
 import { Domains } from './domains';
 import type { FailureLimiter } from './limiter';
 import { findRecord, userVersion } from './records';
@@ -29,6 +30,7 @@ export class Directory {
 	readonly domains: Domains;
 	readonly users: Users;
 	readonly aliases: Aliases;
+	readonly dkim: DkimKeys;
 	readonly #db: Database;
 	readonly #auth: Authenticator;
 
@@ -37,6 +39,7 @@ export class Directory {
 		this.domains = new Domains(db);
 		this.users = new Users(db);
 		this.aliases = new Aliases(db);
+		this.dkim = new DkimKeys(db);
 		this.#auth = new Authenticator(
 			{
 				find: (login) => findRecord(db, login),

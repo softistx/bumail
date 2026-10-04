@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { clientKey as smtpClientKey } from '@bumail/smtp';
 import { ServerError } from '../errors';
 import { clientKey, FailureLimiter } from './limiter';
 
@@ -41,6 +42,10 @@ describe('clientKey', () => {
 		['not an address', undefined],
 	])('%p counts as %p', (ip, key) => {
 		expect(clientKey(ip)).toBe(key);
+	});
+
+	test("is @bumail/smtp's, as the SMTP listeners count connections", () => {
+		expect(clientKey).toBe(smtpClientKey);
 	});
 
 	test('is undefined for no string at all', () => {

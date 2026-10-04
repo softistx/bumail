@@ -113,10 +113,12 @@ test('a delivery over 64 KiB stores exactly the bytes sent', async () => {
 		directory,
 		store,
 		resolver: fixtureResolver(RECORDS),
+		postmaster: undefined,
 		inbound: {
 			dmarc: 'enforce',
 			maxMessageSize: 1 << 20,
 			maxConnections: 10,
+			maxConnectionsPerClient: 10,
 			spoolBytes: 1 << 24,
 		},
 		tls: await selfSigned(['localhost']),
