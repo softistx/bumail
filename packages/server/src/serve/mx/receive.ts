@@ -100,7 +100,9 @@ async function check(
 		);
 		return DMARC_DEFERRED;
 	}
-	const { kept } = stripForged(header, ctx.hostname);
+	const { kept } = stripForged(header, ctx.hostname, (id) =>
+		ctx.directory.domains.has(id),
+	);
 	const prefix = joinHeader([returnPath(envelope.from), verdict.field], kept);
 	const junk = verdict.action === 'junk';
 	for (const user of users) {

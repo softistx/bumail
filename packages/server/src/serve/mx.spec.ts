@@ -254,6 +254,8 @@ describe('mx: Authentication-Results', () => {
 			'Authentication-Results: \u00a0mail.example.com; dmarc=pass',
 			'Authentication-Results: mail\uff0eexample.com; dmarc=pass',
 			'Authentication-Results: mx.google.com; dkim=pass',
+			'Authentication-Results: Example.COM; dmarc=pass',
+			'ARC-Authentication-Results: i=1; mx.google.com; dmarc=pass',
 			'Authentication-Results: relay.other.example; spf=pass smtp.mailfrom=x.example',
 			'Return-Path: <forged@bank.example>',
 			'',
@@ -274,6 +276,10 @@ describe('mx: Authentication-Results', () => {
 		expect(fields).toContain(
 			'Authentication-Results: mx.google.com; dkim=pass\r\n',
 		);
+		expect(fields).toContain(
+			'ARC-Authentication-Results: i=1; mx.google.com; dmarc=pass\r\n',
+		);
+		expect(fields).not.toContain('Example.COM');
 		expect(fields).toContain(
 			'Authentication-Results: relay.other.example; spf=pass smtp.mailfrom=x.example',
 		);

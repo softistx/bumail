@@ -30,14 +30,18 @@ and stops at the first thing it cannot do:
    `key`, for now;
 2. creates its spool folder, `<data>/spool/<pid>-<random>`, where
    messages wait while they are checked, readable by the server alone,
-   with an `owner` file naming its process and machine, written before
-   the folder takes its name; and removes what a server no longer
-   running on this machine left under `<data>/spool`: a folder whose
-   process is gone, or is this very process (a restart under the same
-   pid, as in a container), and a folder with no owner file older than a
-   minute. A folder another machine owns is kept, and logged:
-   `bumail: the spool folder … was left by host …; remove it if that
-   server is gone`;
+   with an `owner` file written before the folder takes its name. The
+   server touches that file every 30 seconds while it runs. Before
+   making its own, it removes every folder under `<data>/spool` whose
+   owner file (or, without one, the folder itself) was last touched
+   more than 5 minutes ago — whatever process or machine it names, since
+   pids and hostnames repeat across containers and a heartbeat does
+   not. The owner file's `<pid> <hostname>` is there for you to read;
+   nothing judges by it. Ages are read against this machine's clock: if
+   several servers share `data` over a network filesystem, keep their
+   clocks (and the file server's) within a minute of each other, with
+   NTP. An entry whose age cannot be read, or that cannot be removed, is
+   kept and logged: `bumail: the spool folder … is kept: …`;
 3. opens the directory and the mail store;
 4. binds each listener whose port is not 0.
 
@@ -62,8 +66,9 @@ imap = 0       # 143, with STARTTLS; off by default
 **One server per data volume.** That is the layout supported: the
 directory and a SQLite store are one process's at a time anyway. Two
 servers sharing `data` (one with `mx = 0`, say) keep their spools apart,
-each in its own folder, and neither sweeps the other's while it runs;
-a folder another machine owns is never swept.
+each in its own folder, and neither sweeps the other's while its
+heartbeat goes on — even two containers that both run as pid 1 under
+one hostname.
 
 The certificate is read once, at start: after renewing it, restart the
 server. Reloading it while running comes in a later release.
@@ -115,8 +120,13 @@ already had is removed, and so is every `Authentication-Results` but
 those plainly from another server (RFC 8601 §5): one is kept only when
 its authserv-id, after comments and folding and unquoted, is an ASCII
 host name (letters, digits, hyphens and dots), followed by nothing but
-a version number and `;`, and is not `hostname` (compared in any case,
-without a trailing dot, as its A-label). Anything else — a control or
+a version number and `;`, and is neither `hostname` nor a domain the
+directory hosts — an administrative domain often signs its results with
+its domain — compared in any case, without a trailing dot, as A-labels.
+A field with no authserv-id at all, as some large providers write
+them, is removed too: that is intended, as nothing in it says whose it
+is. `ARC-Authentication-Results` is another field, sealed by ARC
+(RFC 8617) and checked against that seal, so it is kept as is. Anything else — a control or
 invisible character, a byte outside ASCII, a fullwidth or look-alike
 letter or dot, an empty id, a field that does not parse — is removed,
 since a reader might take it for your server's and a sender could
@@ -258,7 +268,7 @@ bumail: stopped
 | --- | --- |
 | `bumail: <listener> listening on <address>:<port>: …` | at start, one per listener |
 | `bumail: <name> (port <n>) arrives in a later slice; not listening` | at start, for each later port not 0 |
-| `bumail: the spool folder <path> was left by host <host>; remove it if that server is gone` | at start, for a folder under `<data>/spool` another machine owns |
+| `bumail: the spool folder <path> is kept: <reason>` | at start, for an entry under `<data>/spool` whose age cannot be read, or that cannot be removed |
 | `mx: <id> from <ip> <sender> delivered to <users> (…)` | a message taken; `(Junk)` when quarantined |
 | `mx: <id> … refused by DMARC (…)` | `550 5.7.1`, with `inbound.dmarc = "enforce"` |
 | `mx: <id> … deferred: DMARC or DKIM did not finish (…)` | `451 4.7.0` |

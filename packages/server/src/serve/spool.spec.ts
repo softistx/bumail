@@ -1,9 +1,16 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	utimesSync,
+	writeFileSync,
+} from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { tempDir } from '../config/config.fixtures';
-import { OWNER_FILE, Spool } from './spool';
+import { OWNER_FILE, Spool, STALE_MS } from './spool';
 
 const stream = (...chunks: string[]) =>
 	new ReadableStream<Uint8Array>({
@@ -15,69 +22,98 @@ const stream = (...chunks: string[]) =>
 		},
 	});
 
-/** A spool folder under `data`, owned by `owner` (no owner file when undefined). */
-function folder(data: string, name: string, owner?: string): void {
+/** A spool folder under `data`, owned by `owner` (no owner file when undefined), last touched `age` ms ago. */
+function folder(data: string, name: string, owner?: string, age = 0): string {
 	const path = join(data, 'spool', name);
 	mkdirSync(path, { recursive: true });
-	if (owner !== undefined) writeFileSync(join(path, OWNER_FILE), owner);
 	writeFileSync(join(path, 'x.eml'), 'left over');
+	const then = new Date(Date.now() - age);
+	if (owner !== undefined) {
+		writeFileSync(join(path, OWNER_FILE), owner);
+		utimesSync(join(path, OWNER_FILE), then, then);
+	}
+	utimesSync(path, then, then);
+	return path;
 }
 
+const entries = (data: string) => readdirSync(join(data, 'spool')).sort();
+const nameOf = (spool: Spool) => spool.dir.split('/').at(-1) ?? '';
+const STALE = STALE_MS + 1000;
+
 describe('Spool.open', () => {
-	test("sweeps what a server no longer running left, never a live one's or another machine's", () => {
+	test('sweeps a folder whose owner stopped beating, whatever its pid or host', () => {
 		const data = tempDir();
-		const gone = 2 ** 22 + 12345; // past any pid this machine hands out
-		folder(data, `${gone}-dead`, `${gone} ${hostname()}\n`);
-		folder(data, 'no-owner');
-		folder(data, 'half-made.tmp', `${process.ppid} ${hostname()}\n`);
-		folder(data, `${process.ppid}-live`, `${process.ppid} ${hostname()}\n`);
-		folder(data, '17-elsewhere', '17 another-machine\n');
-		// A minute on: the folders with no owner are no longer being made.
-		const spool = Spool.open(data, 1000, { now: Date.now() + 61_000 });
-		expect(readdirSync(join(data, 'spool')).sort()).toEqual(
-			[
-				`${process.ppid}-live`,
-				'17-elsewhere',
-				spool.dir.split('/').at(-1) ?? '',
-			].sort(),
+		folder(
+			data,
+			`${process.ppid}-stale`,
+			`${process.ppid} ${hostname()}\n`,
+			STALE,
 		);
-		expect(spool.foreign).toEqual([
-			{ path: join(data, 'spool', '17-elsewhere'), host: 'another-machine' },
-		]);
+		folder(data, '1-elsewhere', '1 another-machine\n', STALE);
+		folder(data, 'no-owner', undefined, STALE);
+		folder(data, 'half-made.tmp', undefined, STALE);
+		const spool = Spool.open(data, 1000);
+		expect(entries(data)).toEqual([nameOf(spool)]);
+		expect(spool.kept).toEqual([]);
 		spool.close();
 	});
 
-	test('keeps a folder with no owner for a minute: another server may be making it', () => {
+	test('keeps a fresh folder, from another host or with no owner file yet', () => {
 		const data = tempDir();
-		folder(data, 'no-owner');
+		folder(data, '1-elsewhere', '1 another-machine\n', 60_000);
 		folder(data, 'making.tmp');
 		const spool = Spool.open(data, 1000);
-		expect(readdirSync(join(data, 'spool'))).toContain('no-owner');
-		expect(readdirSync(join(data, 'spool'))).toContain('making.tmp');
-		spool.close();
-	});
-
-	test('sweeps a folder its own pid owns: a restart as the same pid, in a container', () => {
-		const data = tempDir();
-		folder(data, '1-before', `1 ${hostname()}\n`);
-		const spool = Spool.open(data, 1000, { pid: 1 });
-		expect(readdirSync(join(data, 'spool'))).toEqual([
-			spool.dir.split('/').at(-1) ?? '',
-		]);
-		expect(spool.dir.split('/').at(-1)).toStartWith('1-');
-		spool.close();
-	});
-
-	test('writes the owner file before the folder takes its name', () => {
-		const data = tempDir();
-		const spool = Spool.open(data, 1000);
-		expect(readdirSync(join(data, 'spool'))).toEqual([
-			spool.dir.split('/').at(-1) ?? '',
-		]);
-		expect(readFileSync(join(spool.dir, OWNER_FILE), 'utf8')).toBe(
-			`${process.pid} ${hostname()}\n`,
+		expect(entries(data)).toEqual(
+			['1-elsewhere', 'making.tmp', nameOf(spool)].sort(),
 		);
 		spool.close();
+	});
+
+	test('two servers as pid 1 on one data, as two containers would be, both live', () => {
+		const data = tempDir();
+		const first = Spool.open(data, 1000, { pid: 1 });
+		const second = Spool.open(data, 1000, { pid: 1 });
+		expect(entries(data)).toEqual([nameOf(first), nameOf(second)].sort());
+		first.close();
+		second.close();
+	});
+
+	test('judges by the owner file, not by the folder', () => {
+		const data = tempDir();
+		const path = folder(data, '7-beating', `7 ${hostname()}\n`, STALE);
+		// The folder untouched for long, its owner touched just now.
+		const now = new Date();
+		utimesSync(join(path, OWNER_FILE), now, now);
+		const spool = Spool.open(data, 1000);
+		expect(entries(data)).toContain('7-beating');
+		spool.close();
+	});
+
+	test('keeps, and tells of, an entry whose age cannot be read', () => {
+		const data = tempDir();
+		mkdirSync(join(data, 'spool'), { recursive: true });
+		// A stray file: its "owner file" is ENOTDIR, not ENOENT.
+		writeFileSync(join(data, 'spool', 'stray'), 'x');
+		const spool = Spool.open(data, 1000, { now: Date.now() + STALE });
+		expect(entries(data)).toContain('stray');
+		expect(spool.kept).toHaveLength(1);
+		expect(spool.kept[0]?.path).toBe(join(data, 'spool', 'stray'));
+		expect(spool.kept[0]?.reason).toStartWith('its age cannot be read (');
+		spool.close();
+	});
+
+	test('writes the owner file before the folder takes its name, and touches it while open', async () => {
+		const data = tempDir();
+		const spool = Spool.open(data, 1000, { heartbeatMs: 20 });
+		const owner = join(spool.dir, OWNER_FILE);
+		expect(entries(data)).toEqual([nameOf(spool)]);
+		expect(readFileSync(owner, 'utf8')).toBe(`${process.pid} ${hostname()}\n`);
+		const old = new Date(Date.now() - STALE);
+		utimesSync(owner, old, old);
+		await Bun.sleep(100);
+		expect(Date.now() - statSync(owner).mtimeMs).toBeLessThan(STALE_MS);
+		spool.close();
+		expect(entries(data)).toEqual([]);
 	});
 });
 

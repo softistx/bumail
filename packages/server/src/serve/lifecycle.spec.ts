@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import { readdirSync, statSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fixtureResolver } from '@bumail/dns';
 import { run } from '../cli/run';
 import { BASE, writeConfig } from '../config/config.fixtures';
 import { readConfig } from '../config/read';
@@ -11,6 +12,7 @@ import {
 	mailOf,
 	message,
 	prepare,
+	RECORDS,
 	sendMail,
 	startServer,
 } from './serve.fixtures';
@@ -57,6 +59,25 @@ describe('serve: starting', () => {
 			'bumail: health (port 8080) arrives in a later slice; not listening',
 		]);
 		expect(f.lines.at(-1)).toBe('bumail: stopped');
+	});
+
+	test('logs a spool folder it had to keep, once, and starts anyway', async () => {
+		const { dir, file } = await prepare();
+		mkdirSync(join(dir, 'spool'), { recursive: true });
+		writeFileSync(join(dir, 'spool', 'stray'), 'x');
+		const config = await readConfig({ path: file, env: {} });
+		const lines: string[] = [];
+		const server = await serve(config, {
+			log: (line) => lines.push(line),
+			resolver: fixtureResolver(RECORDS),
+			port: () => 0,
+		});
+		await server.stop();
+		const kept = lines.filter((line) => line.includes('spool folder'));
+		expect(kept).toHaveLength(1);
+		expect(kept[0]).toStartWith(
+			`bumail: the spool folder ${join(dir, 'spool', 'stray')} is kept: its age cannot be read (`,
+		);
 	});
 
 	test('tls.mode "acme" fails clearly, and check-config still takes it', async () => {

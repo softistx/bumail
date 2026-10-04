@@ -172,7 +172,7 @@ directory commands' own refusals are under
 - [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
 - [`tls.cert … cannot be read (…)`](#tlscert--cannot-be-read-), and the same for `tls.key`
 - [`the spool directory … cannot be used (…)`](#the-spool-directory--cannot-be-used-)
-- [`bumail: the spool folder … was left by host …; remove it if that server is gone`](#bumail-the-spool-folder--was-left-by-host--remove-it-if-that-server-is-gone)
+- [`bumail: the spool folder … is kept: …`](#bumail-the-spool-folder--is-kept-)
 - [`550 5.1.1 User unknown`](#550-511-user-unknown)
 - [`554 5.7.1 Relay access denied`](#554-571-relay-access-denied)
 - [`550 5.7.1 Rejected by the DMARC policy of …`](#550-571-rejected-by-the-dmarc-policy-of-)
@@ -1164,21 +1164,25 @@ The message never repeats the key.
 created, cleared of what a stopped server left, or given this server's
 folder (`<pid>-<random>`, with its `owner` file): `data` is read-only,
 full, or owned by another user. Exit code 5. Give the server's user a
-writable `data`. A folder whose `owner` names another machine is never
-removed; delete it by hand once that server is gone for good.
+writable `data`. A folder is removed only once its `owner` file has
+gone 5 minutes untouched, whichever machine wrote it.
 
-### `bumail: the spool folder … was left by host …; remove it if that server is gone`
+### `bumail: the spool folder … is kept: …`
 
-Logged at start, once per folder, when `<data>/spool` holds a folder
-whose `owner` file names another machine: `data` is shared, or was
-copied from another server. That folder is never removed, since this
-server cannot tell whether the other one still runs. The server starts
-anyway.
+Logged at start, once per entry, when the sweep of `<data>/spool` met
+something it could not judge or remove, and left it there. The server
+starts anyway.
 
-**Fix**: if the server on that host is gone for good, stop this one and
-delete the folder; what it held was never acknowledged to a sending
-server, which sends it again. If both servers run, give each its own
-`data`.
+- `its age cannot be read (…)`: the entry's `owner` file, or the entry
+  itself, could not be read for a reason other than its absence — a
+  stray file rather than a folder (`ENOTDIR`), or a folder the server's
+  user may not read (`EACCES`).
+- `it cannot be removed (…)`: it is older than 5 minutes, but removing
+  it failed, often for its permissions.
+
+**Fix**: remove the entry by hand, or give it to the server's user.
+Nothing in it was acknowledged to a sending server, which sends it
+again.
 
 ### `550 5.1.1 User unknown`
 

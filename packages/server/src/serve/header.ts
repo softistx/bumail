@@ -184,15 +184,21 @@ export function authservIdOf(hostname: string): string {
 /**
  * The header's fields less those a sender could forge to fool a reader
  * here, by an allow-list: an `Authentication-Results` is kept only when
- * its authserv-id is a plain ASCII host name other than the server's
- * own (`foreignAuthservId`, RFC 8601 §5) — anything else, in any form a
- * reader might take for the server, is removed; and every `Return-Path`,
- * which only the delivering server writes (RFC 5321 §4.4). Answers what
+ * its authserv-id is a plain ASCII host name (`foreignAuthservId`) that
+ * is neither the server's own name nor a domain it hosts — the ADMD
+ * often signs its results with its domain (RFC 8601 §5); one with no
+ * authserv-id at all goes too. `ARC-Authentication-Results` is another
+ * field, sealed by ARC, and is kept as is. Every `Return-Path` goes, as
+ * only the delivering server writes one (RFC 5321 §4.4). Answers what
  * is kept, in order, and how many fields were taken out.
+ *
+ * `isLocalDomain` is asked about an id already lower case, ASCII, and
+ * without a trailing dot.
  */
 export function stripForged(
 	header: Uint8Array,
 	hostname: string,
+	isLocalDomain: (id: string) => boolean = () => false,
 ): { kept: Uint8Array[]; removed: number } {
 	const own = authservIdOf(hostname);
 	const kept: Uint8Array[] = [];
@@ -202,7 +208,7 @@ export function stripForged(
 		let forged = name === 'return-path';
 		if (name === 'authentication-results') {
 			const id = foreignAuthservId(field);
-			forged = id === undefined || id === own;
+			forged = id === undefined || id === own || isLocalDomain(id);
 		}
 		if (forged) removed++;
 		else kept.push(field);

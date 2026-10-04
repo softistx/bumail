@@ -209,10 +209,8 @@ export async function serve(
 		throw error;
 	}
 	logStart(config, bound.listening, log);
-	for (const { path, host } of spool.foreign) {
-		log(
-			`bumail: the spool folder ${path} was left by host ${host}; remove it if that server is gone`,
-		);
+	for (const { path, reason } of spool.kept) {
+		log(`bumail: the spool folder ${path} is kept: ${reason}`);
 	}
 
 	return {

@@ -123,6 +123,27 @@ describe('stripForged: anything a reader may take for the server goes', () => {
 		expect(stripForged(ascii, 'mail.bücher.example').removed).toBe(1);
 	});
 
+	test('a field in the name of a domain the server hosts, in any case or with a dot', () => {
+		const hosted = (id: string) => id === 'example.com';
+		for (const id of ['example.com', 'Example.COM', 'example.com.']) {
+			expect(stripForged(claim(id), host, hosted).removed).toBe(1);
+		}
+		expect(stripForged(claim('other.example'), host, hosted).removed).toBe(0);
+	});
+
+	test('a field with no authserv-id at all goes; ARC-Authentication-Results stays', () => {
+		const none = bytes(
+			'Authentication-Results: spf=pass smtp.mailfrom=x.example\r\n',
+		);
+		expect(stripForged(none, host).removed).toBe(1);
+		const arc = bytes(
+			'ARC-Authentication-Results: i=1; mail.example.com; dmarc=pass\r\n',
+		);
+		const { kept, removed } = stripForged(arc, host);
+		expect(removed).toBe(0);
+		expect(kept).toEqual([arc]);
+	});
+
 	test("a foreign server's field is kept byte for byte", () => {
 		const field = bytes('Authentication-Results: mx.google.com; dkim=pass\r\n');
 		const { kept, removed } = stripForged(field, host);
