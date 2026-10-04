@@ -16,8 +16,7 @@ export type MethodErrorType =
 	| 'anchorNotFound'
 	| 'unsupportedSort'
 	| 'unsupportedFilter'
-	| 'tooManyChanges'
-	| 'tooLarge';
+	| 'tooManyChanges';
 
 /** Thrown inside a method: answered as an `error` response for its call. */
 export class MethodError extends Error {

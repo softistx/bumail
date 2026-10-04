@@ -2,7 +2,8 @@
 
 The long version of the [README](../README.md): how `@bumail/jmap` is
 mounted, how it authenticates, what the session says, what each method
-does with the store, how blobs travel, the limits, and the RFCs it follows.
+does with the store, how blobs travel, the limits, its OpenAPI document,
+and the RFCs it follows.
 
 - [Mounting the server](#mounting-the-server)
 - [Authenticating](#authenticating)
@@ -15,6 +16,7 @@ does with the store, how blobs travel, the limits, and the RFCs it follows.
 - [States and changes](#states-and-changes)
 - [Limits](#limits)
 - [onError](#onerror)
+- [The OpenAPI document](#the-openapi-document)
 - [RFCs followed, and what is not](#rfcs-followed-and-what-is-not)
 
 ## Mounting the server
@@ -79,7 +81,7 @@ request, for its name, which the session calls `username`.
 | no `Authorization`, another scheme, a header past 8 KiB, Basic that is not base64 of UTF-8 `user:password` | 401 `Authentication required` |
 | `authenticate` answers `null` | 401 `Authentication failed` |
 | Basic on a clear request | 403 `Basic authentication is refused on a clear connection: use HTTPS`, `authenticate` not called |
-| `authenticate` throws, does not settle within `hookTimeout`, or names an account the store does not have | 503 `Temporary authentication failure`, with `Retry-After: 5`; `onError` is told |
+| `authenticate` throws, does not settle within `hookTimeout`, answers something other than an account id or `null`, or names an account the store does not have; or the store's `getAccount` throws | 503 `Temporary authentication failure`, with `Retry-After: 5`; `onError` is told |
 
 Every 401 carries both challenges, `Basic realm="JMAP", charset="UTF-8"`
 and `Bearer realm="JMAP"`. Every refusal is an RFC 7807 problem
@@ -328,7 +330,7 @@ The store has no index, so the query runs here: it reads the candidates —
 the mailbox's messages when the filter names `inMailbox` at its top or
 under an `AND`, else the account's — at most `maxQueryScan` of them, and
 reads an email's header or text only when a condition or a sort needs it.
-Past `maxQueryScan` it is `tooLarge`. `limit` is capped at
+Past `maxQueryScan` it is `requestTooLarge`. `limit` is capped at
 `maxObjectsInGet`, and the answer says `limit` when it was.
 `canCalculateChanges` is false: there is no `Email/queryChanges` yet.
 
@@ -397,8 +399,15 @@ server's origin.
 
 A `multipart/*` part with no `boundary` parameter cannot be split (RFC
 2046 §5.1.1 requires it): it is one opaque part, with a `partId` and a
-`blobId`, listed in `attachments`, and its body is its content. One `Range: bytes=` range is
-served as a 206, one past the end as a 416. An `accountId` other than the
+`blobId`, listed in `attachments`, and its body is its content.
+
+One `Range: bytes=` range is served as a 206. A range that starts at or
+past the end, ends before it starts, or is `bytes=-0` is a 416 with
+`Content-Range: bytes */size`, `Cache-Control: no-store`, no body, and
+none of the blob's headers. Several ranges, or a header that is not one,
+are ignored and the blob served whole as a 200; so is a suffix range of
+an empty blob, such as `bytes=-5` (satisfiable by RFC 9110 §14.1.1, so
+not a 416, and ignored as §14.2 allows). An `accountId` other than the
 authenticated one, or a blob the account does not have, is a 404.
 
 ## States and changes
@@ -429,7 +438,7 @@ writer between that check and the call's own changes is not caught.
 | `maxReferenceItems` | 5000 | values of one back-reference | `invalidResultReference` |
 | `maxReferenceBytes` | 4 MiB | bytes of JSON all the back-references of a request resolve to | `invalidResultReference` |
 | `maxSizeResponse` | 64 MiB | bytes of JSON of one API response | 400 problem `limit` |
-| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` count reads | `tooLarge`; the store's counts |
+| `maxQueryScan` | 10 000 | emails a query, a thread lookup, a search or a `Mailbox/get` count reads | `requestTooLarge`; the store's counts |
 | `maxBodyValueBytes` | 1 MiB | one body value | cut, `isTruncated` |
 | `maxBodyValuesTotal` | 16 MiB | body values of one request | cut, `isTruncated` |
 | `maxSizeUpload` | 25 MiB | one upload | 413 problem `limit` |
@@ -468,6 +477,60 @@ wrong outside the client's control:
 A client that hangs up while sending an API or upload body is not an
 error: `onError` is not told, alxia logs nothing, and the host app's
 `onResponse` sees a 499 with no body.
+
+## The OpenAPI document
+
+`openapi/jmap.json`, exported as `@bumail/jmap/openapi.json`, is an
+OpenAPI 3.1 document of the four routes `jmap()` adds. It is written by
+hand, as documentation and a contract: the server never reads it, and
+validates nothing against it. Its `info.version` is the version of the document, not
+of the package.
+
+```ts
+import document from '@bumail/jmap/openapi.json' with { type: 'json' };
+
+// Serve it beside the server, for a viewer or a client generator:
+app.get('/openapi.json', ({ reply }) => reply(200, document));
+```
+
+| operation | path | what it describes |
+| --- | --- | --- |
+| `getSession` | `GET /.well-known/jmap` | the Session object: the core capability with its limits, the account and its mail capability, the URLs |
+| `api` | `POST /api` | the Request and Response envelopes; the 400 problems `notJSON`, `notRequest`, `unknownCapability` and `limit`; the 413 and 429 `limit` problems |
+| `download` | `GET /download/{accountId}/{blobId}/{name}` | `accept`, `Range`, the 200 and 206 with their headers, the 404 and the 416 |
+| `upload` | `POST /upload/{accountId}` | the 201 `{ accountId, blobId, type, size }`, the 404, the 413 `maxSizeUpload` and `uploadQuota` problems, the 429 |
+
+Every operation also answers the 401, 403 and 503 of
+[Authenticating](#authenticating), under the `basic` and `bearer`
+security schemes; `basic` says that a clear request is refused.
+
+**`basePath`.** The session is at the root of the document's server,
+`{origin}`. The other three paths have their own server,
+`{origin}{basePath}`, whose `basePath` variable defaults to `/jmap`: a
+server mounted with `basePath: '/mail/v1'` is described by the same
+document with that variable set. The limits it states are the defaults;
+the session announces the ones in effect.
+
+**Why the method calls are generic.** An Invocation is a `prefixItems`
+tuple, `[name, arguments, callId]`, and the arguments are an object whose
+`#`-prefixed keys are ResultReferences. A per-method schema would be
+wrong twice: an argument may be a back-reference, so it is only known once
+the calls before it ran (RFC 8620 §3.7), and a method that fails answers
+`["error", { type }, callId]` inside the 200 (RFC 8620 §3.6.2), which the
+document describes as `ErrorResponse`, with every `type` the server sends.
+RFC 8620 and RFC 8621 define each method's arguments.
+
+**Kept in step.** `src/server/openapi.spec.ts` turns the document into the
+operations `@alxia/openapi-routes` reads — method, full path, and
+`schema.detail.operationId` — and runs its `matchesSpec` against a real
+`jmap()` mounted in a host app, with the default `basePath` and another:
+a route added without a document entry fails it, and so does an entry
+with no route. It also checks that the document is OpenAPI 3.1 and that
+every `$ref` resolves, that its schemas use only the keywords the spec's
+checker reads, and that a real session, an API response with an `error`,
+an upload, four problems and a download's 200, 206 and 416 fit the
+document: each header it declares for that status is sent, with its
+value where the document fixes one, and each JSON body fits its schema.
 
 ## RFCs followed, and what is not
 

@@ -35,7 +35,7 @@ export async function threadGet(args: Args, ctx: CallContext): Promise<Args> {
 	const page = await ctx.store.listAccountMessages(accountId, { limit: max });
 	if (page.total > max) {
 		throw new MethodError(
-			'tooLarge',
+			'requestTooLarge',
 			`The account has more than ${max} emails: the store has no thread index yet`,
 		);
 	}

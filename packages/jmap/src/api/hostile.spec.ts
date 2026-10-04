@@ -157,14 +157,22 @@ describe('hostile method calls', () => {
 		expect(auth.status).toBe(401);
 	});
 
-	test('maxQueryScan bounds a query and a thread lookup', async () => {
+	test('maxQueryScan bounds a query, a search and a thread lookup: requestTooLarge, as RFC 8620 §3.6.2 has no tooLarge method error', async () => {
 		h = await harness('memory', { limits: { maxQueryScan: 1 } });
 		const one = await h.add(SIMPLE);
+		const search = await h.call('Email/query', {
+			filter: { inMailbox: h.inbox.id, text: 'zzz' },
+			sort: [{ property: 'from' }],
+		});
+		expect(search.args).toEqual({
+			type: 'requestTooLarge',
+			description: 'The query reads more than 1 emails',
+		});
 		await h.add(SIMPLE);
-		expect((await h.call('Email/query', {})).args.type).toBe('tooLarge');
+		expect((await h.call('Email/query', {})).args.type).toBe('requestTooLarge');
 		expect(
 			(await h.call('Thread/get', { ids: [one.threadId] })).args.type,
-		).toBe('tooLarge');
+		).toBe('requestTooLarge');
 	});
 
 	test('maxBodyValuesTotal bounds the body values of one request', async () => {

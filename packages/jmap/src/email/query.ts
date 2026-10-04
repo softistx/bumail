@@ -37,7 +37,7 @@ async function candidatesOf(
 	const max = ctx.settings.limits.maxQueryScan;
 	const tooLarge = () =>
 		new MethodError(
-			'tooLarge',
+			'requestTooLarge',
 			`The query would read more than ${max} emails: the store has no index yet`,
 		);
 	const mailboxId = mailboxOf(filter);
