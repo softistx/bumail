@@ -105,17 +105,17 @@ No dates. Each entry says what someone running or embedding the server gets.
   bytes are kept in the database for now; the blob store, below, will
   let them live on the disk or in S3. Held to the same contract specs as
   the memory and `bun:sqlite` stores.
-- **`@bumail/queue`, a Redis store**, as `@bumail/queue/redis` — the
-  `QueueStore` contract on Redis through Bun's own `Bun.redis`, so
-  several server instances, on several machines, share one queue with no
-  driver to install. Every operation that writes is one Lua script,
+
+### Published
+
+- **`@bumail/queue`, a Redis store**, in queue 0.3.0, as
+  `@bumail/queue/redis` — the `QueueStore` contract on Redis through
+  Bun's own `Bun.redis`, so several server instances, on several
+  machines, share one queue with no driver to install. Every operation that writes is one Lua script,
   which Redis runs whole, so two instances never take the same item, and
   a crashed instance's items are claimed again once their leases expire.
   One Redis, or a primary with replicas, not Cluster; its durability is
   Redis's, as the queue's guide spells out.
-
-### Published
-
 - **`@bumail/queue`, a PostgreSQL store**, in queue 0.2.0, as
   `@bumail/queue/postgres` — the `QueueStore` contract on PostgreSQL
   through Bun's own `Bun.sql`, so several server instances, on several

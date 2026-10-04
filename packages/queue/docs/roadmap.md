@@ -51,7 +51,7 @@ Nothing in progress. The Redis store shipped in 0.3.0 (see Shipped).
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.4.0
 
 - **The PostgreSQL store's writes run at `READ COMMITTED`** — whatever
   the client's sessions default to, so a client shared with code that
