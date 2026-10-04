@@ -399,8 +399,14 @@ server's origin.
 
 A `multipart/*` part with no `boundary` parameter cannot be split (RFC
 2046 §5.1.1 requires it): it is one opaque part, with a `partId` and a
-`blobId`, listed in `attachments`, and its body is its content. One `Range: bytes=` range is
-served as a 206, one past the end as a 416. An `accountId` other than the
+`blobId`, listed in `attachments`, and its body is its content.
+
+One `Range: bytes=` range is served as a 206. A range that starts at or
+past the end, ends before it starts, or is `bytes=-0` is a 416 with
+`Content-Range: bytes */size`, `Cache-Control: no-store`, no body, and
+none of the blob's headers. Several ranges, or a header that is not one,
+are ignored and the blob served whole as a 200; so is a suffix range of
+an empty blob, such as `bytes=-5` (RFC 9110 §14.1.1). An `accountId` other than the
 authenticated one, or a blob the account does not have, is a 404.
 
 ## States and changes

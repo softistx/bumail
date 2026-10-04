@@ -350,7 +350,7 @@
 						"name": "Range",
 						"in": "header",
 						"required": false,
-						"description": "One byte range, `bytes=start-end`, `bytes=start-` or `bytes=-suffix`. Several ranges, or a header that is not one of these, is ignored and the whole blob served.",
+						"description": "One byte range, `bytes=start-end`, `bytes=start-` or `bytes=-suffix`. Several ranges, or a header that is not one of these, is ignored and the whole blob served; so is a suffix range of an empty blob (RFC 9110 §14.1.1).",
 						"schema": {
 							"type": "string",
 							"example": "bytes=0-1023"
@@ -445,7 +445,7 @@
 						}
 					},
 					"416": {
-						"description": "The range starts at or past the end of the blob, ends before it starts, or is an empty suffix (`bytes=-0`). The body is empty, and carries none of the blob's headers.",
+						"description": "The range starts at or past the end of the blob, ends before it starts, or is an empty suffix (`bytes=-0`). It has no body and no `Content-Type`, and carries none of the blob's headers.",
 						"headers": {
 							"Content-Range": {
 								"description": "`bytes */size`.",

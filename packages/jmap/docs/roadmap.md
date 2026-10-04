@@ -83,8 +83,9 @@ Merged, not yet published.
   a `Thread/get` that would read too much answers `requestTooLarge`, a
   method error RFC 8620 defines, instead of `tooLarge`, which is only a
   SetError.
-- **A download's 416 is never cached** — `Cache-Control: no-store`, and
-  none of the blob's own headers.
+- **A download's 416 is never cached** — `Cache-Control: no-store`, no
+  body, and none of the blob's own headers; and a suffix range of an
+  empty blob serves it whole, as RFC 9110 asks.
 
 ### 0.2.0
 

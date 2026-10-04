@@ -74,10 +74,16 @@ export async function handleDownload(
 		'accept-ranges': 'bytes',
 	});
 	const range = request.headers.get('range');
-	const parsed = range === null ? undefined : parseRange(range, blob.size);
+	const asked = range === null ? undefined : parseRange(range, blob.size);
+	// A suffix range of an empty blob has no bytes to send: RFC 9110 §14.1.1
+	// ignores it, and the empty blob is served whole. alxia's parseRange
+	// answers it as `bytes 0--1/0` until its next patch.
+	const parsed =
+		blob.size === 0 && typeof asked === 'object' ? undefined : asked;
 	if (parsed === 'unsatisfiable') {
-		// An error, not the blob: never cached, and none of the blob's headers.
-		return reply(416, '', {
+		// An error, not the blob: never cached, with none of the blob's
+		// headers, and no body, so no Content-Type.
+		return reply(416, undefined, {
 			headers: {
 				'content-range': `bytes */${blob.size}`,
 				'accept-ranges': 'bytes',
