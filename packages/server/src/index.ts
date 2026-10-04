@@ -8,9 +8,11 @@ export {
 export type {
 	AcmeConfig,
 	DirectoryConfig,
+	HealthConfig,
 	InboundConfig,
 	JmapConfig,
 	PortsConfig,
+	ProxyProtocolConfig,
 	QueueConfig,
 	RouteConfig,
 	ServerConfig,

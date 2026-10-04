@@ -37,7 +37,10 @@ No dates. Each entry says what someone running or embedding the server gets.
   `bumail serve` takes mail on 25 for the directory's addresses only
   (no AUTH there, so never a relay), checks SPF, DKIM and DMARC
   (enforced by default), delivers into the store, and serves it over
-  IMAP on 993, with a certificate from files. **And it sends mail**:
+  IMAP on 993 and JMAP on 443 (HTTPS, or plain HTTP behind a reverse
+  proxy that ends TLS, such as Traefik), with a certificate from files, a
+  health check on loopback (`GET /healthz`) and the PROXY protocol on the
+  mail ports from proxies it is told to trust. **And it sends mail**:
   submission on 465 and 587, logged in over TLS only, a user sending as
   itself or its aliases; mail for a hosted domain straight to its
   mailbox, the rest through `@bumail/queue` by MX or a smarthost, a

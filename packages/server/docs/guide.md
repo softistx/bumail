@@ -18,6 +18,8 @@ problem.
 - [`[inbound]`](#inbound)
 - [`[submission]`](#submission)
 - [`[jmap]`](#jmap)
+- [`[health]`](#health)
+- [`[proxyProtocol]`](#proxyprotocol)
 - [What is never an option](#what-is-never-an-option)
 - [From code](#from-code)
 
@@ -82,7 +84,9 @@ bumail check-config --config ./bumail.toml
   jmap          https://mail.example.com
 ```
 
-A store is shown by its scheme only. With problems, every one is listed
+A store is shown by its scheme only. Behind a proxy the `jmap` row says
+so (`https://mail.example.com (behind 1 trusted proxy, plain HTTP on
+0.0.0.0:8081)`), and `[proxyProtocol]` adds a `mail proxies` row. With problems, every one is listed
 (`bumail: <file>:` then one `  path: problem` line each) and the command
 exits 1. No problem repeats a URL or a secret.
 
@@ -114,9 +118,9 @@ bind = "0.0.0.0"
 
 Each listener's port, a whole number from 0 to 65535 (`25.5` is refused;
 TOML's `25.0` reads as 25); `0` turns it off. Two listeners never share
-a port. `bumail serve` runs `mx`, `submissions`, `submission`, `imaps`
-and `imap` today, and logs the others as arriving later; [running the server](serve.md#the-listeners)
-says what each does.
+a port. `bumail serve` runs `mx`, `submissions`, `submission`, `imaps`,
+`imap`, `https` and `health` today, and logs `http` as arriving later;
+[running the server](serve.md#the-listeners) says what each does.
 
 | key | default | listener |
 | --- | --- | --- |
@@ -125,9 +129,9 @@ says what each does.
 | `submission` | 587 | submission with STARTTLS |
 | `imaps` | 993 | IMAP over implicit TLS |
 | `imap` | 0 | IMAP with STARTTLS; off unless you turn it on |
-| `https` | 443 | JMAP |
+| `https` | 443 | JMAP: HTTPS from the certificate files, or, with `jmap.mode = "proxy"`, plain HTTP for a proxy that ends TLS, on the port you set |
 | `http` | 80 | ACME's HTTP-01 challenges; needed with `tls.mode = "acme"` |
-| `health` | 8080 | the health check, on loopback only |
+| `health` | 8080 | the health check, on loopback unless `[health]` says otherwise |
 
 ## `[store]`, `[queue]`, `[directory]`
 
@@ -322,9 +326,109 @@ maxConnectionsPerClient = 20   # users behind one NAT
 
 ## `[jmap]`
 
+JMAP (RFC 8620, RFC 8621) for the users of the directory, on
+`ports.https`, served from the same store as IMAP. Clients log in with
+**HTTP Basic**: the user's address and password, checked by the
+directory through the same failure limiter as IMAP and submission.
+There are no Bearer tokens. Basic is taken only over TLS: from the
+server's own HTTPS, or, behind a proxy, when the proxy says it ended
+TLS. [Running the server](serve.md#jmap-over-https) has the details.
+
+```toml
+# Direct HTTPS, the default: TLS from [tls], on 443
+[jmap]
+origin = "https://mail.example.com"   # the default
+```
+
+```toml
+# Behind Traefik, or any HTTP reverse proxy that ends TLS
+[ports]
+https = 8081                          # plain HTTP, where the proxy connects
+
+[jmap]
+mode = "proxy"
+origin = "https://mail.example.com"
+trusted = ["172.18.0.0/16"]           # the proxy's addresses
+bind = "0.0.0.0"
+```
+
 | key | default | |
 | --- | --- | --- |
-| `origin` | `https://<hostname>`, with `:<ports.https>` when it is neither 443 nor 0 | where clients reach JMAP: an `https:` origin, no path. Set it when a proxy in front serves another name or port |
+| `mode` | `"https"` | `"https"`: TLS from `tls.cert` and `tls.key`, on `ports.https`. `"proxy"`: plain HTTP on `ports.https`, accepted for the `trusted` proxies' forwarded client and scheme |
+| `origin` | `https://<hostname>`, with `:<ports.https>` when it is neither 443 nor 0. **Required** with `"proxy"` | the public URL clients reach JMAP at: an `https:` origin, no path. The session's `apiUrl`, `downloadUrl` and `uploadUrl` start with it. It is configuration, never taken from the request's `Host` or `X-Forwarded-Host` |
+| `trusted` | required with `"proxy"`; refused with `"https"` | the proxies: IPv4 and IPv6 addresses and CIDRs, at least one (`["10.0.0.5", "172.18.0.0/16", "fd00::/8"]`). The rules are `@bumail/smtp`'s: a `0` prefix, a host name, a zone or an IPv4-mapped prefix below 96 is refused, an IPv4-mapped entry is its IPv4 address, and a network of one family never matches the other |
+| `bind` | `bind` | the address JMAP binds to: an IPv4 or IPv6 address. Behind a proxy, never a unix socket |
+
+`ports.https` must be set explicitly with `"proxy"`: its default, 443,
+is the public HTTPS port, not where a proxy connects. `0` turns JMAP
+off.
+
+**Which client is it.** The login limiter counts failures per client
+address, so it needs the client's, not the proxy's. With `"https"` it
+is the TCP peer. With `"proxy"`:
+
+- a request from a **trusted** peer: the client is the right-most
+  `X-Forwarded-For` entry that is not itself a trusted proxy, and the
+  request counts as TLS when the right-most `X-Forwarded-Proto` is
+  `https`. What a client wrote to the left of the chain is never read
+  past that entry, so a spoofed `X-Forwarded-For` does not choose the
+  bucket. With no usable entry (none, only proxies, or one that is no IP
+  address) the client is the peer;
+- a request from a peer that is **not** trusted is answered **403**
+  before anything else is read: no header, no login, no route. Only the
+  proxies are served, so `X-Forwarded-For` and `X-Forwarded-Proto` from
+  anyone else count for nothing;
+- an address is counted as one text, whichever listener it came to:
+  RFC 5952's form, an IPv4-mapped address as its IPv4 address. So one
+  client is one entry of the failure limiter across JMAP, IMAP and
+  submission;
+- a listener with no client address to count (a unix socket) is not
+  started: `serve` exits 5. `check-config` takes only IP addresses for
+  `jmap.bind`, so this can only come from code that builds the
+  configuration itself.
+
+The environment sets none of these keys. Behind Traefik: [running the
+server](serve.md#behind-traefik).
+
+## `[health]`
+
+The health check, `GET /healthz`, on `ports.health`.
+
+| key | default | |
+| --- | --- | --- |
+| `bind` | `127.0.0.1` | the address it binds to: an IPv4 or IPv6 address. Loopback by default, since a Docker health check runs inside the container. The body holds no secret, but nothing else needs to reach it |
+
+```toml
+[ports]
+health = 8080     # 0 turns it off
+
+[health]
+bind = "127.0.0.1"
+```
+
+What it answers is in [running the server](serve.md#the-health-check).
+
+## `[proxyProtocol]`
+
+Off by default: the mail ports are published directly, and the client
+is the TCP peer. Where a TCP proxy sits in front of them (a Traefik TCP
+router, HAProxy), list it here, and the SMTP listeners (25, 465, 587)
+and the IMAP listeners (993, and 143 when on) read the PROXY protocol
+(version 1 or 2) **from those peers**, so every limit and log line
+names the client, not the proxy.
+
+```toml
+[proxyProtocol]
+trusted = ["172.18.0.0/16"]
+```
+
+| key | default | |
+| --- | --- | --- |
+| `trusted` | required with the table | the proxies: IPv4 and IPv6 addresses and CIDRs, at least one, as `jmap.trusted`. A trusted peer must send a header first, or it is reset; a peer not listed is served directly, with no header read. There is one list for every mail listener |
+
+Leave the table out to turn it off. Take the list from the proxy, never
+from the Internet: a trusted peer names any client it likes. [Running the
+server](serve.md#behind-a-tcp-proxy-the-proxy-protocol) has Traefik's side.
 
 ## What is never an option
 

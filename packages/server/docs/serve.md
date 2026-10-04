@@ -3,8 +3,9 @@
 `bumail serve` runs the server: it receives mail from other servers on
 port 25, takes mail from its own users on 465 and 587 and sends it on,
 DKIM-signed, through its queue, and serves mail to clients over IMAP on
-port 993. JMAP over HTTPS and the health check come in later releases;
-see the [roadmap](roadmap.md).
+port 993 and over JMAP on 443, and answers a health check on loopback. It
+runs directly on the Internet, or behind Traefik. Certificates from ACME
+come in a later release; see the [roadmap](roadmap.md).
 
 - [Starting](#starting)
 - [The listeners](#the-listeners)
@@ -14,6 +15,10 @@ see the [roadmap](roadmap.md).
 - [The queue](#the-queue)
 - [DKIM signing](#dkim-signing)
 - [Reading mail over IMAP](#reading-mail-over-imap)
+- [JMAP over HTTPS](#jmap-over-https)
+- [Behind Traefik](#behind-traefik)
+- [The health check](#the-health-check)
+- [Behind a TCP proxy: the PROXY protocol](#behind-a-tcp-proxy-the-proxy-protocol)
 - [Stopping](#stopping)
 - [The log](#the-log)
 - [From code](#from-code)
@@ -47,10 +52,10 @@ and stops at the first thing it cannot do:
    NTP. An entry whose age cannot be read, or that cannot be removed, is
    kept and logged: `bumail: the spool folder … is kept: …`;
 3. opens the directory, the mail store and the queue (`queue.url`);
-4. binds each listener whose port is not 0, then starts the queue's
-   worker.
+4. binds each listener whose port is not 0, the health check last,
+   then starts the queue's worker.
 
-A port it cannot bind (another process holds it, or port 25 or 993 needs
+A port it cannot bind (another process holds it, or port 25, 443 or 993 needs
 privileges the process lacks) exits 5, with what was opened closed again.
 Every problem has an entry in [troubleshooting](troubleshooting.md#serving).
 
@@ -68,6 +73,8 @@ submissions = 465
 submission = 587
 imaps = 993
 imap = 0          # 143, with STARTTLS; off by default
+https = 443       # JMAP
+health = 8080     # on loopback
 ```
 
 **One server per data volume.** That is the layout supported: the
@@ -89,11 +96,15 @@ server. Reloading it while running comes in a later release.
 | 587 | `ports.submission` | submission with STARTTLS: AUTH only once TLS is on, then the same |
 | 993 | `ports.imaps` | IMAP over TLS from the first byte, for the users of the directory |
 | 143 | `ports.imap` | IMAP with STARTTLS; LOGIN and AUTHENTICATE are refused until TLS is on. Off unless you set it |
+| 443 | `ports.https` | JMAP over HTTPS, Basic auth for the directory's users; or, with `jmap.mode = "proxy"`, plain HTTP for a proxy that ends TLS, on the port you set |
+| 8080 | `ports.health` | `GET /healthz`, on loopback by default |
 
-Every listener binds to `bind` (default `0.0.0.0`). The other ports of
-`[ports]` — `https`, `http`, `health` — are bound to nothing: their listeners arrive in later releases, and the
-log says so at start, one line each. Leave them as they are, or set
-them to 0 to silence those lines.
+Every mail listener binds to `bind` (default `0.0.0.0`); JMAP to
+`jmap.bind` (default `bind`); the health check to `health.bind`
+(default `127.0.0.1`). `ports.http`, for ACME's HTTP-01 challenges, is
+bound to nothing: its listener arrives in a later release, and the log
+says so at start. Leave it as it is, or set it to 0 to silence that
+line.
 
 ## Receiving mail on 25
 
@@ -407,6 +418,190 @@ With `ports.imap` set (143, say), the plain port says `LOGINDISABLED`
 and refuses LOGIN and AUTHENTICATE until the client runs STARTTLS. A
 password never crosses the network in clear.
 
+## JMAP over HTTPS
+
+`@bumail/jmap` serves the same mailboxes as IMAP, from the store the
+server opened: the session at `/.well-known/jmap`, the API at
+`/jmap/api`, blob download and upload under `/jmap`. Every route
+authenticates first, with **HTTP Basic**: the user's address and
+password, checked by the directory through the failure limiter IMAP and
+submission share, so ten failures from one client within 15 minutes
+block it, its right password included. A Bearer token is refused with a
+401: there are none. Basic is taken only over TLS; on a clear request it
+is refused with a 403 before the password is read.
+
+By default (`jmap.mode = "https"`) it is HTTPS on `ports.https`, 443,
+with the certificate of `[tls]`, read once at start like the mail
+listeners'. The client the limiter counts is the TCP peer.
+
+```sh
+curl -u alice@example.com https://mail.example.com/.well-known/jmap
+```
+
+The session's `apiUrl`, `downloadUrl` and `uploadUrl` begin with
+`jmap.origin`, the public URL (default `https://<hostname>`), whatever
+`Host` the request carried. At a stop, JMAP stops
+accepting and its requests under way get the drain time (10 seconds)
+to finish, as SMTP sessions do; then their connections are closed.
+
+A login refused is logged, as IMAP's is, never with the password:
+`https: login refused from <ip>: <reason>`, the reason one of
+`password`, `unknown`, `disabled`, `blocked`, `malformed` or `busy`.
+Each log line of JMAP starts `https:`.
+
+## Behind Traefik
+
+Where Traefik (or another HTTP reverse proxy) owns port 443 and ends
+TLS, run JMAP as plain HTTP for it:
+
+```toml
+[ports]
+https = 8081
+
+[jmap]
+mode = "proxy"
+origin = "https://mail.example.com"
+trusted = ["172.18.0.0/16"]   # the Docker network Traefik reaches bumail on
+```
+
+`trusted` is required: the proxies' addresses or CIDRs. `origin` is
+required: the public URL, which Traefik serves. `ports.https` must be
+set, to the port Traefik connects to; keep it unpublished, on the
+network the proxy shares with the server alone. A request from
+any peer not in `trusted` is answered **403** at once, before any
+header, login or route is looked at: only the proxies are served.
+`check-config` refuses a file that leaves out any of the three.
+
+The server then reads, from a trusted proxy only, the client in
+`X-Forwarded-For` (the right-most entry that is not a trusted proxy)
+and TLS in `X-Forwarded-Proto` (the right-most is `https`); see
+[`[jmap]`](guide.md#jmap). So logins behind Traefik are counted per
+client, not all in the proxy's one bucket. Traefik sets both headers
+itself, and by default replaces any a client sent; leave
+`entryPoints.<name>.forwardedHeaders.trustedIPs` unset unless another
+proxy sits in front of Traefik.
+
+Labels of the `bumail` container for an HTTP router, on an entry point
+`websecure` and a certificate resolver `letsencrypt` of Traefik's own:
+
+```yaml
+services:
+  bumail:
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.jmap.rule=Host(`mail.example.com`)
+      - traefik.http.routers.jmap.entrypoints=websecure
+      - traefik.http.routers.jmap.tls=true
+      - traefik.http.routers.jmap.tls.certresolver=letsencrypt
+      - traefik.http.services.jmap.loadbalancer.server.port=8081
+    networks: [proxy]
+```
+
+The port is `ports.https`; the network is the one Traefik is on, and
+the one `trusted` covers. This is the JMAP part only: the mail ports are
+published by the container directly, or reached through Traefik's TCP
+routers with [the PROXY protocol](#behind-a-tcp-proxy-the-proxy-protocol).
+A mail client's JMAP discovery needs `https://mail.example.com/.well-known/jmap`
+on the public name, which the router above serves.
+
+## The health check
+
+`GET /healthz` on `ports.health` (8080), bound to `health.bind`
+(default `127.0.0.1`, loopback: a Docker health check runs inside the
+container). It answers **200** when
+
+- every listener configured is up (bound, and not stopping),
+- the directory answers a lookup, and
+- the mail store answers one, within 3 seconds,
+
+and **503** otherwise. The JSON body names each part, and nothing
+else: no address, no error, no secret.
+
+```json
+{"status":"ok","listeners":{"mx":"up","submissions":"up","submission":"up","imaps":"up","https":"up"},"directory":"ok","store":"ok"}
+```
+
+With the store down it is a 503, `"status":"unavailable"` and
+`"store":"failed"`. A listener turned off (port 0) is not listed. Any
+other path is a 404, any method but GET and HEAD a 405. During a stop it
+answers 503 until the health check itself is closed.
+
+```yaml
+healthcheck:
+  test: ['CMD', 'bun', '-e', "fetch('http://127.0.0.1:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+  interval: 30s
+```
+
+Looks that come together share one check, reused for about a
+second, so a flood of them costs the store one call. The log says when it turns unhealthy, and when it is well again, not at
+each look: `health: unhealthy: store`, then `health: healthy again`.
+The queue is not part of it: a delivery failing shows in `outbound:`
+lines.
+
+## Behind a TCP proxy: the PROXY protocol
+
+By default the mail ports are published directly, and the client is the
+TCP peer. Behind a TCP proxy (a Traefik TCP router, HAProxy), the peer
+is the proxy, and every limit, SPF check and log line would name it.
+List the proxies, and the SMTP and IMAP listeners read the PROXY
+protocol (HAProxy's, version 1 or 2) from them:
+
+```toml
+[proxyProtocol]
+trusted = ["172.18.0.0/16"]
+```
+
+One list serves 25, 465, 587, 993 and 143. A peer in it must open with
+a header, or it is reset; any other peer is served directly, with no
+header read, so Internet clients can still reach a port the proxy does
+not front. What a header makes of the connection, and what is refused,
+is in the guides of [`@bumail/smtp`](../../smtp/docs/guide.md#running-behind-a-tcp-proxy)
+and [`@bumail/imap`](../../imap/docs/guide.md#running-behind-a-tcp-proxy).
+Traefik's side is a TCP router per port, with ``HostSNI(`*`)`` and no
+`tls` section so STARTTLS and implicit TLS pass through to the server,
+and a `serversTransport` with `proxyProtocol.version: 2`, in the
+dynamic configuration, one entry point per port in the static one:
+
+```yaml
+tcp:
+  routers:
+    smtp:
+      entryPoints: [smtp]          # ':25' in the static configuration
+      rule: 'HostSNI(`*`)'
+      service: smtp
+    submissions:
+      entryPoints: [submissions]   # ':465'
+      rule: 'HostSNI(`*`)'
+      service: submissions
+    imaps:
+      entryPoints: [imaps]         # ':993'
+      rule: 'HostSNI(`*`)'
+      service: imaps
+  serversTransports:
+    proxy-v2:
+      proxyProtocol:
+        version: 2
+  services:
+    smtp:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers: [{ address: 'bumail:25' }]
+    submissions:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers: [{ address: 'bumail:465' }]
+    imaps:
+      loadBalancer:
+        serversTransport: proxy-v2
+        servers: [{ address: 'bumail:993' }]
+```
+
+`[proxyProtocol] trusted` holds Traefik's address on the network it
+reaches `bumail` on. Port 587 is the same, with an entry point of its own.
+
+Whatever the proxy, the certificate is the server's, from `[tls]`.
+
 ## Stopping
 
 `SIGTERM` (as `docker stop` sends) or `SIGINT` (Ctrl-C) stops the server
@@ -417,11 +612,12 @@ cleanly:
 2. IMAP sessions are closed at once (clients reconnect); a command
    under way is cut off with its session, but the store call it is in
    finishes;
-3. SMTP sessions, on 25, 465 and 587, get 10 seconds to finish what
-   they are sending; a message under way when the signal came is still
+3. SMTP sessions, on 25, 465 and 587, and the requests under way on
+   JMAP and the health check, get 10 seconds to finish what they are
+   doing; a message under way when the signal came is still
    taken and answered, and one for another domain is kept in the queue
    for the next start;
-4. sessions still open after that are hung up on, and the server waits
+4. sessions and connections still open after that are hung up on, and the server waits
    up to 5 more seconds for deliveries, every store call under way,
    IMAP's included, and the queue's deliveries under way; the queue
    gives back what it claimed and did not begin, due at once for the
@@ -460,12 +656,17 @@ bumail: mx listening on 0.0.0.0:25: SMTP from other servers: STARTTLS offered, n
 bumail: submissions listening on 0.0.0.0:465: submission over TLS from the first byte: AUTH required, then mail to anywhere
 bumail: submission listening on 0.0.0.0:587: submission with STARTTLS: AUTH only after TLS, then mail to anywhere
 bumail: imaps listening on 0.0.0.0:993: IMAP over TLS from the first byte
-bumail: https (port 443) arrives in a later slice; not listening
+bumail: https listening on 0.0.0.0:443: JMAP over HTTPS: Basic auth for the users of the directory
+bumail: health listening on 127.0.0.1:8080: health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503
+bumail: http (port 80) arrives in a later slice; not listening
 mx: 1kq2f… from 192.0.2.10 <joe@example.org> delivered to alice@example.com (spf=pass dkim=pass dmarc=pass)
 mx: 1kq2g… from 203.0.113.5 <ceo@example.net> refused by DMARC (spf=fail dkim=none dmarc=fail)
 submissions: 7cd1a… from alice@example.com <alice@example.com> delivered to bob@example.com; queued as 0f3e… for joe@example.org
 outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example.org
 imaps: login refused from 203.0.113.9: password
+https: login refused from 203.0.113.9: password
+health: unhealthy: store
+health: healthy again
 bumail: SIGTERM, stopping
 bumail: stopped
 ```
@@ -473,7 +674,14 @@ bumail: stopped
 | line | when |
 | --- | --- |
 | `bumail: <listener> listening on <address>:<port>: …` | at start, one per listener |
-| `bumail: <name> (port <n>) arrives in a later slice; not listening` | at start, for each later port not 0 |
+| `bumail: https listening on <address>:<port>: JMAP over HTTPS: Basic auth for the users of the directory` | at start; with `jmap.mode = "proxy"`, `JMAP over plain HTTP for 1 trusted proxy, which ends TLS: Basic auth …`, or `for <n> trusted proxies, which end TLS: …` |
+| `bumail: health listening on <address>:<port>: health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503` | at start |
+| `bumail: <name> (port <n>) arrives in a later slice; not listening` | at start, for each later port not 0: `http` |
+| `https: login refused from <ip>: <reason>` | a JMAP login refused: `password`, `unknown`, `disabled`, `blocked`, `malformed` or `busy`; the 401 is all the client gets. `<ip>` is the client's, behind a proxy |
+| `https: error in a request from <ip>: …` | the store or the directory failed during a JMAP request: the client got a 503 or a `serverFail` |
+| `https: a request with no client address was refused` | a JMAP request whose peer has no address: answered 500, never counted in the limiter's one bucket |
+| `health: unhealthy: <parts>` | the health check turned 503; `<parts>` the listeners (by name), `directory` or `store` that are not well |
+| `health: healthy again` | the health check is 200 again |
 | `bumail: the spool folder <path> is kept: <reason>` | at start, for an entry under `<data>/spool` whose age cannot be read, or that cannot be removed |
 | `bumail: the spool folder <path> was removed while in use; made it again` | another server swept this one's spool folder (the process was paused past 5 minutes, or the clocks disagree): the next heartbeat, or the next message, made it again |
 | `mx: <id> from <ip> <sender> delivered to <users> (…)` | a message taken; `(Junk)` when quarantined |
@@ -519,7 +727,7 @@ const server = await serve(config, {
 	port: (listener, configured) => configured, // 0 binds a free port, for a test
 	drainSeconds: 10,
 });
-server.listening; // [{ name: 'mx', hostname: '0.0.0.0', port: 25 }, { name: 'submissions', … }, …]
+server.listening; // [{ name: 'mx', hostname: '0.0.0.0', port: 25 }, …, { name: 'https', … }, { name: 'health', hostname: '127.0.0.1', port: 8080 }]
 
 process.on('SIGTERM', () => void server.stop());
 ```

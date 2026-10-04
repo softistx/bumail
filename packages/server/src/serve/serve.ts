@@ -5,8 +5,9 @@ import { Directory } from '../directory/directory';
 import { ServerError } from '../errors';
 import { type OpenedStore, openStore } from '../store/open';
 import {
+	bindOf,
 	createListener,
-	DESCRIPTION,
+	descriptionOf,
 	LATER,
 	LISTENERS,
 	type Listener,
@@ -116,14 +117,15 @@ async function bindListeners(
 		try {
 			const bound = await listener.server.listen({
 				port,
-				hostname: config.bind,
+				hostname: bindOf(name, config),
 			});
+			resources.up.add(name);
 			listening.push({ name, ...bound });
 		} catch (error) {
 			for (const { server } of started) server.stop(true);
 			throw new ServerError(
 				'UNAVAILABLE',
-				`${name} cannot listen on ${config.bind}:${port} (${bindReason(error)})`,
+				`${name} cannot listen on ${bindOf(name, config)}:${port} (${bindReason(error)})`,
 			);
 		}
 		started.push(listener);
@@ -141,7 +143,7 @@ function logStart(
 	log(`bumail: serving ${config.hostname}`);
 	for (const { name, hostname, port } of listening) {
 		log(
-			`bumail: ${name} listening on ${hostname}:${port}: ${DESCRIPTION[name]}`,
+			`bumail: ${name} listening on ${hostname}:${port}: ${descriptionOf(name, config)}`,
 		);
 	}
 	for (const name of LATER) {
@@ -223,6 +225,7 @@ export async function serve(
 		listening: bound.listening,
 		stop: stopper({
 			listeners: bound.started,
+			up: resources.up,
 			inflight: resources.inflight,
 			storeCalls,
 			opened,

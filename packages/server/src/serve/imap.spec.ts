@@ -96,7 +96,7 @@ describe('imap on 143, when turned on', () => {
 		client.end();
 	});
 
-	test('is off by default', async () => {
+	test('is off by default, as the 143 listener', async () => {
 		fixture = await startServer();
 		const f = fixture;
 		expect(f.server.listening.map((l) => l.name)).toEqual([
@@ -104,6 +104,8 @@ describe('imap on 143, when turned on', () => {
 			'submissions',
 			'submission',
 			'imaps',
+			'https',
+			'health',
 		]);
 	});
 });

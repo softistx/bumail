@@ -66,6 +66,21 @@ describe('the bumail command', () => {
 		);
 	});
 
+	test('check-config shows JMAP behind a proxy and the PROXY protocol, and a health check off loopback', async () => {
+		const path = writeConfig(
+			`${BASE}[ports]\nhttps = 8081\n[jmap]\nmode = "proxy"\norigin = "https://jmap.example.org"\ntrusted = ["10.0.0.0/8"]\n[health]\nbind = "0.0.0.0"\n[proxyProtocol]\ntrusted = ["10.0.0.1", "10.0.0.2"]\n`,
+		);
+		const { code, out } = await bumail(['check-config', '--config', path]);
+		expect(code).toBe(0);
+		expect(out).toContain('health 8080 (0.0.0.0)');
+		expect(out).toContain(
+			'  jmap          https://jmap.example.org (behind 1 trusted proxy, plain HTTP on 0.0.0.0:8081)\n',
+		);
+		expect(out).toContain(
+			'  mail proxies  2 trusted proxies, PROXY protocol\n',
+		);
+	});
+
 	test('check-config marks a store that sends credentials in clear', async () => {
 		const path = writeConfig(
 			`${BASE}[store]\nurl = "postgres://u:pw@db.internal/mail?sslmode=disable"\n[queue]\nurl = "redis://:pw@cache.internal"\ninsecure = true\n`,

@@ -1,11 +1,5 @@
 import type { Checker, Table } from './checker';
-import type {
-	InboundConfig,
-	JmapConfig,
-	PortsConfig,
-	SubmissionConfig,
-} from './types';
-import { checkHttpsUrl } from './urls';
+import type { InboundConfig, SubmissionConfig } from './types';
 
 const MiB = 1024 * 1024;
 const MAX_MESSAGE_SIZE = 1024 * MiB;
@@ -112,25 +106,4 @@ function perClient(
 			MAX_CONNECTIONS,
 		) ?? 10
 	);
-}
-
-/**
- * `[jmap]`: `origin`, where clients reach it, an `https:` origin.
- * Default `https://<hostname>`, with `ports.https` when it is not 443.
- */
-export function checkJmap(
-	checker: Checker,
-	raw: unknown,
-	hostname: string,
-	ports: PortsConfig,
-): JmapConfig {
-	const table = checker.table(raw, 'jmap', ['origin']);
-	const value = checker.string(table, 'origin', 'jmap');
-	const port =
-		ports.https === 443 || ports.https === 0 ? '' : `:${ports.https}`;
-	const fallback = `https://${hostname}${port}`;
-	if (value === undefined) return { origin: fallback };
-	return {
-		origin: checkHttpsUrl(checker, value, 'jmap.origin', true) ?? fallback,
-	};
 }

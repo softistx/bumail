@@ -5,10 +5,11 @@ import {
 	type TlsOptions,
 } from '@bumail/smtp';
 import type { MailStore } from '@bumail/store';
-import type { InboundConfig } from '../../config/types';
+import type { InboundConfig, ProxyProtocolConfig } from '../../config/types';
 import type { Directory } from '../../directory/directory';
 import { startSpf } from '../inbound';
 import type { Log } from '../log';
+import { proxyOption } from '../proxy';
 import { usersFor } from '../recipients';
 import type { Spool } from '../spool';
 import { receive, SPF } from './receive';
@@ -26,6 +27,8 @@ export interface MxContext {
 	/** `postmaster` from the configuration. */
 	readonly postmaster: string | undefined;
 	readonly tls: TlsOptions;
+	/** The proxies whose PROXY header is read; `undefined`: off. */
+	readonly proxyProtocol?: ProxyProtocolConfig | undefined;
 	/** Where messages wait while they are checked, within its byte budget. */
 	readonly spool: Spool;
 	readonly log: Log;
@@ -56,6 +59,7 @@ export function createMx(ctx: MxContext): SmtpServer {
 		mode: 'mx',
 		localDomains: (domain) => directory.domains.has(domain),
 		tls: ctx.tls,
+		...proxyOption(ctx.proxyProtocol),
 		maxMessageSize: ctx.inbound.maxMessageSize,
 		maxConnections: ctx.inbound.maxConnections,
 		maxConnectionsPerClient: ctx.inbound.maxConnectionsPerClient,

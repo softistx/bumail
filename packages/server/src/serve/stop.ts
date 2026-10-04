@@ -2,7 +2,8 @@ import type { Queue } from '@bumail/queue';
 import type { SmtpServer } from '@bumail/smtp';
 import type { Directory } from '../directory/directory';
 import type { OpenedStore } from '../store/open';
-import type { Listener } from './listeners';
+import type { HttpListener } from './http/listener';
+import type { Listener, ListenerName } from './listeners';
 import type { Log } from './log';
 import type { OpenedQueueStore } from './outbound';
 import type { Spool } from './spool';
@@ -13,6 +14,8 @@ export const SETTLE_MS = 5000;
 /** What a stop closes. */
 export interface Running {
 	readonly listeners: readonly Listener[];
+	/** The health check's view of the listeners: cleared as the stop begins. */
+	readonly up: Set<ListenerName>;
 	readonly inflight: ReadonlySet<Promise<unknown>>;
 	/** Store calls under way, IMAP's included. */
 	readonly storeCalls: ReadonlySet<Promise<unknown>>;
@@ -53,7 +56,8 @@ export async function closeResources(
 
 /**
  * The stop of a running server: listeners stopped, the queue claiming
- * nothing more, IMAP sessions closed, SMTP sessions drained for `drainMs`
+ * nothing more, IMAP sessions closed, SMTP sessions and the requests of JMAP
+ * and the health check drained for `drainMs`
  * then closed, deliveries, store calls and the queue's deliveries under
  * way given `SETTLE_MS`, then the queue, the store and the directory
  * closed. The queue gives back what it claimed and did not start; a
@@ -71,11 +75,15 @@ export function stopper(
 		while (!done() && !forced && Date.now() < end) await Bun.sleep(25);
 	};
 	const smtps: SmtpServer[] = [];
-	for (const l of running.listeners)
+	const https: HttpListener[] = [];
+	for (const l of running.listeners) {
 		if (l.kind === 'smtp') smtps.push(l.server);
+		if (l.kind === 'http') https.push(l.server);
+	}
 	return ({ force = false } = {}) => {
 		if (force) forced = true;
 		stopping ??= (async () => {
+			running.up.clear();
 			for (const { server, kind } of running.listeners)
 				server.stop(kind === 'imap');
 			let queueStopped = false;
@@ -92,10 +100,12 @@ export function stopper(
 			await waitUntil(
 				() =>
 					smtps.every((s) => s.connections === 0) &&
+					https.every((h) => h.pending === 0) &&
 					running.inflight.size === 0,
 				running.drainMs,
 			);
 			for (const server of smtps) server.stop(true);
+			for (const server of https) server.stop(true);
 			// Deliveries, and IMAP commands cut off with their sessions, finish
 			// the store calls they are in before the store closes.
 			await waitUntil(

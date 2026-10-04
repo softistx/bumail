@@ -18,7 +18,7 @@ below lists only what has landed.
 | `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite`, its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres` and its Redis store on `Bun.redis` as `@bumail/queue/redis` | `@bumail/smtp`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601) | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS; an OpenAPI 3.1 document of its routes, shipped as `@bumail/jmap/openapi.json` and kept in step with them by a spec | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
-| `@bumail/server` | the server app, **private** until it is complete (`"private": true`, so neither changesets nor `scripts/publish.ts` touch it): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, its directory of domains, users, aliases and DKIM keys (a `bun:sqlite` file in WAL mode, argon2id passwords, a capped verify, a per-client failure limiter, aliases to local users only), and the `bumail` command (`check-config`, `domain`, `user`, `alias`, `dkim`, and `serve`: MX on 25 with no AUTH, SPF, DKIM and DMARC, delivery into the store; submission on 465 and 587, AUTH only after TLS, a user sending as itself or its aliases, DKIM-signed; the outbound queue, by MX or a smarthost, DSNs to the local sender's mailbox; IMAP on 993, a certificate from files, a clean stop on SIGTERM) | `@bumail/store`, `@bumail/smtp`, `@bumail/imap`, `@bumail/queue`, `@bumail/auth`, `@bumail/dns`; it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
+| `@bumail/server` | the server app, **private** until it is complete (`"private": true`, so neither changesets nor `scripts/publish.ts` touch it): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, its directory of domains, users, aliases and DKIM keys (a `bun:sqlite` file in WAL mode, argon2id passwords, a capped verify, a per-client failure limiter, aliases to local users only), and the `bumail` command (`check-config`, `domain`, `user`, `alias`, `dkim`, and `serve`: MX on 25 with no AUTH, SPF, DKIM and DMARC, delivery into the store; submission on 465 and 587, AUTH only after TLS, a user sending as itself or its aliases, DKIM-signed; the outbound queue, by MX or a smarthost, DSNs to the local sender's mailbox; IMAP on 993, JMAP on 443 — HTTPS from files, or plain HTTP for trusted reverse proxies, the client from `X-Forwarded-For` only from them — a health check on loopback, the PROXY protocol on the mail ports from trusted proxies, a certificate from files, a clean stop on SIGTERM) | `@bumail/store`, `@bumail/smtp`, `@bumail/imap`, `@bumail/jmap`, `@bumail/queue`, `@bumail/auth`, `@bumail/dns`; it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
 | `@bumail/acme` | an ACME client (RFC 8555) on `fetch` and Web Crypto: `AcmeClient` (directory, nonces with the `badNonce` retry, account, orders, authorizations, challenges, finalize, the PEM chain; `https:` only, answers bounded, numbers clamped), `obtainCertificate` for the whole HTTP-01 flow, `http01Responder` for `Bun.serve`; and its primitives: a PKCS #10 CSR for DNS names on its own DER writer, the flattened JWS (ES256, RS256), the JWK thumbprint, key authorizations, P-256 and RSA keys as PKCS #8 PEM | — |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
@@ -138,7 +138,7 @@ imap            → store, mime
 queue           → smtp, mime (its specs use dns, as a devDependency)
 acme            (standalone)
 jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam and @alxia/openapi-routes as devDependencies)
-server          → store, smtp, imap, queue, auth, dns (its specs use jmap, as a devDependency, to check its adapter fits), and each package it wires as a slice first imports it; a private app, never a peer of any package
+server          → store, smtp, imap, jmap (with @alxia/core from npm), queue, auth, dns, and each package it wires as a slice first imports it; a private app, never a peer of any package
 ```
 
 `examples/demo` is an app, not a package: a private workspace that wires
@@ -270,6 +270,21 @@ Every PR goes into `develop`. Before merging:
   links.
 
 ## Deliberate duplications
+
+- **The trusted proxies and the address rules**, in `@bumail/smtp` and
+  `@bumail/imap` (`src/server/proxy/address.ts`, `trusted.ts` and its
+  spec, byte for byte the same) and in `@bumail/server` (`src/proxy/`,
+  the same three files byte for byte): IP addresses and CIDRs, no
+  zone, no prefix of 0, an IPv4-mapped address or peer matched as its
+  IPv4 address, and never a match across families (an IPv6 network,
+  however wide, trusts no IPv4 peer). Neither package exports them, and
+  the server needs them for `jmap.trusted` and `proxyProtocol.trusted`
+  alike: `check-config` runs `trustedPeers` on each entry, so whatever a
+  listener would refuse at start is a line of it, and JMAP matches its
+  peers with it. `src/proxy/canonical.ts` (the server's own) writes
+  every client's address, for the limiter and the log, in RFC 5952's
+  form with a mapped address as IPv4. A change to the rules is a change
+  to all three copies.
 
 - **The PostgreSQL plumbing**, in `@bumail/queue` and `@bumail/store`:
   `src/masked.ts` (and its spec) byte for byte — and in `@bumail/server`

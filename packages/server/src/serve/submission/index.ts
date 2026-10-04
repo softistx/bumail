@@ -8,12 +8,13 @@ import {
 } from '@bumail/smtp';
 import { isMailbox } from '@bumail/smtp/client';
 import type { MailStore } from '@bumail/store';
-import type { SubmissionConfig } from '../../config/types';
+import type { ProxyProtocolConfig, SubmissionConfig } from '../../config/types';
 import { checkLogin } from '../../directory/adapters';
 import type { AuthFailure } from '../../directory/authenticate';
 import type { Directory } from '../../directory/directory';
 import type { Log } from '../log';
 import { POSTMASTER_UNKNOWN, SPOOL_FULL, USER_UNKNOWN } from '../mx/replies';
+import { proxyOption } from '../proxy';
 import { usersFor } from '../recipients';
 import type { Spool } from '../spool';
 import { ADDRESS_LITERAL, ADDRESS_UNSENDABLE, senderNotYours } from './replies';
@@ -39,6 +40,8 @@ export interface SubmissionContext {
 	/** `postmaster` from the configuration. */
 	readonly postmaster: string | undefined;
 	readonly tls: TlsOptions;
+	/** The proxies whose PROXY header is read; `undefined`: off. */
+	readonly proxyProtocol?: ProxyProtocolConfig | undefined;
 	/** Where messages wait while they are signed and handed on, within its byte budget. */
 	readonly spool: Spool;
 	/** Where mail for other domains goes. */
@@ -76,6 +79,7 @@ export function createSubmission(
 		implicitTls: name === 'submissions',
 		localDomains: (domain) => directory.domains.has(domain),
 		tls: ctx.tls,
+		...proxyOption(ctx.proxyProtocol),
 		maxMessageSize: submission.maxMessageSize,
 		maxRecipients: submission.maxRecipients,
 		maxConnections: submission.maxConnections,

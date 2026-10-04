@@ -5,9 +5,11 @@ import { checkCertificates } from './certificates';
 import type { Checker, Table } from './checker';
 import { checkRoutes, checkSmarthost } from './delivery';
 import type { Env, Overrides } from './env';
-import { checkInbound, checkJmap, checkSubmission } from './limits';
+import { checkHealth, checkJmap } from './jmap';
+import { checkInbound, checkSubmission } from './limits';
 import { isDomainName } from './names';
 import { checkPorts } from './ports';
+import { checkProxyProtocol } from './proxy-protocol';
 import { checkStorage } from './storage';
 import type { ServerConfig } from './types';
 
@@ -27,6 +29,8 @@ const SECTIONS = [
 	'inbound',
 	'submission',
 	'jmap',
+	'health',
+	'proxyProtocol',
 ];
 
 export interface CheckContext {
@@ -80,7 +84,14 @@ export function checkConfig(
 	const routes = checkRoutes(checker, root['routes'], smarthost);
 	const inbound = checkInbound(checker, root['inbound']);
 	const submission = checkSubmission(checker, root['submission']);
-	const jmap = checkJmap(checker, root['jmap'], hostname ?? '', ports);
+	const jmap = checkJmap(checker, root['jmap'], {
+		hostname: hostname ?? '',
+		ports,
+		rawPorts: root['ports'],
+		bind: bindValue ?? '0.0.0.0',
+	});
+	const health = checkHealth(checker, root['health']);
+	const proxyProtocol = checkProxyProtocol(checker, root['proxyProtocol']);
 
 	if (checker.problems.length > 0) {
 		throw invalidConfig(context.file, checker.problems);
@@ -102,6 +113,8 @@ export function checkConfig(
 		inbound,
 		submission,
 		jmap,
+		health,
+		proxyProtocol,
 	};
 }
 

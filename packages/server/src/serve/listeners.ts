@@ -5,6 +5,9 @@ import type { SmtpServer } from '@bumail/smtp';
 import type { MailStore } from '@bumail/store';
 import type { PortsConfig, ServerConfig } from '../config/types';
 import type { Directory } from '../directory/directory';
+import { createHealth } from './http/health';
+import { createJmap } from './http/jmap';
+import type { HttpListener } from './http/listener';
 import { createImap } from './imap';
 import type { Log } from './log';
 import { createMx } from './mx';
@@ -18,7 +21,9 @@ export type ListenerName =
 	| 'submissions'
 	| 'submission'
 	| 'imaps'
-	| 'imap';
+	| 'imap'
+	| 'https'
+	| 'health';
 
 export const LISTENERS: readonly ListenerName[] = [
 	'mx',
@@ -26,14 +31,12 @@ export const LISTENERS: readonly ListenerName[] = [
 	'submission',
 	'imaps',
 	'imap',
+	'https',
+	'health',
 ];
 
 /** The ports whose listeners arrive in a later slice: logged, never bound. */
-export const LATER: readonly (keyof PortsConfig)[] = [
-	'https',
-	'http',
-	'health',
-];
+export const LATER: readonly (keyof PortsConfig)[] = ['http'];
 
 /** What each listener's log line adds after its address. */
 export const DESCRIPTION: Record<ListenerName, string> = {
@@ -44,7 +47,31 @@ export const DESCRIPTION: Record<ListenerName, string> = {
 		'submission with STARTTLS: AUTH only after TLS, then mail to anywhere',
 	imaps: 'IMAP over TLS from the first byte',
 	imap: 'IMAP with STARTTLS, required before any login',
+	https: 'JMAP over HTTPS: Basic auth for the users of the directory',
+	health:
+		'health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503',
 };
+
+/** What a listener's log line adds after its address: `DESCRIPTION`, JMAP's by its mode. */
+export function descriptionOf(
+	name: ListenerName,
+	config: ServerConfig,
+): string {
+	if (name !== 'https' || config.jmap.mode !== 'proxy')
+		return DESCRIPTION[name];
+	const { length } = config.jmap.trusted;
+	const who =
+		length === 1
+			? '1 trusted proxy, which ends TLS'
+			: `${length} trusted proxies, which end TLS`;
+	return `JMAP over plain HTTP for ${who}: Basic auth for the users of the directory`;
+}
+
+/** The address a listener binds to: JMAP's and the health check's own, else `bind`. */
+export function bindOf(name: ListenerName, config: ServerConfig): string {
+	if (name === 'https') return config.jmap.bind;
+	return name === 'health' ? config.health.bind : config.bind;
+}
 
 /** A listener created, SMTP or IMAP. */
 export type Listener =
@@ -57,6 +84,11 @@ export type Listener =
 			readonly name: ListenerName;
 			readonly kind: 'imap';
 			readonly server: ImapServer;
+	  }
+	| {
+			readonly name: ListenerName;
+			readonly kind: 'http';
+			readonly server: HttpListener;
 	  };
 
 /** What the listeners share: the server's resources, opened. */
@@ -72,6 +104,8 @@ export interface Resources {
 	describe(error: unknown): string;
 	/** Deliveries under way, which a stop waits for. */
 	readonly inflight: Set<Promise<unknown>>;
+	/** The names of the listeners bound and not stopping, for the health check. */
+	readonly up: Set<ListenerName>;
 	/** The IMAP servers started, told of each delivery. */
 	readonly imaps: ImapServer[];
 	/** Where mail for other domains goes. */
@@ -95,6 +129,24 @@ export function createListener(
 	resources: Resources,
 ): Listener {
 	const { config, directory, store, tls, log, describe } = resources;
+	if (name === 'https') {
+		const server = createJmap({ config, directory, store, tls, log, describe });
+		return { name, kind: 'http', server };
+	}
+	if (name === 'health') {
+		const expected = LISTENERS.filter(
+			(other) => other !== 'health' && config.ports[other] !== 0,
+		);
+		const server = createHealth({
+			config,
+			directory,
+			store,
+			expected,
+			up: resources.up,
+			log,
+		});
+		return { name, kind: 'http', server };
+	}
 	if (name === 'submissions' || name === 'submission') {
 		const submission = {
 			hostname: config.hostname,
@@ -103,6 +155,7 @@ export function createListener(
 			submission: config.submission,
 			postmaster: config.postmaster,
 			tls,
+			proxyProtocol: config.proxyProtocol,
 			spool: resources.spool,
 			queue: resources.queue,
 			sign: resources.sign,
@@ -118,6 +171,7 @@ export function createListener(
 			directory,
 			store,
 			tls,
+			proxyProtocol: config.proxyProtocol,
 			log,
 			describe,
 		};
@@ -135,6 +189,7 @@ export function createListener(
 		inbound: config.inbound,
 		postmaster: config.postmaster,
 		tls,
+		proxyProtocol: config.proxyProtocol,
 		spool: resources.spool,
 		log,
 		describe,

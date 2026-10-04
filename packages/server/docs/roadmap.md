@@ -37,19 +37,27 @@ npm yet.
   for days; a failure back to the sender as a DSN in its own mailbox.
   DKIM-signed with a key per domain, made by `bumail dkim`, which
   prints the record to publish.
+- **JMAP and the health check** (merged, not published): JMAP on 443 over
+  the same store, Basic auth for the directory's users through the same
+  failure limiter, HTTPS from the certificate files; or, behind Traefik
+  or another reverse proxy that ends TLS, plain HTTP for the proxies
+  named in the file, the client read from `X-Forwarded-For` only from
+  them, so logins are counted per client. `GET /healthz` on loopback,
+  200 or 503 with each part named. The PROXY protocol on the mail
+  ports, from the proxies named in the file, off by default.
 
 ## Next
 
 In this order, each its own step:
 
-- **JMAP over HTTPS on 443, and a health check on loopback.**
 - **Certificates reloaded without a restart**, then **from ACME**
   (HTTP-01 on port 80, ECDSA P-256 keys), through a separate
   `@bumail/acme` package.
 - **The DNS records a domain needs**, written by `bumail dns`: MX, SPF,
   DKIM and DMARC, as a zone file or plain records.
-- **A Docker image**: the server, its ports and one volume for
-  everything it keeps.
+- **A Docker image**, and a compose file with Traefik: the server, its
+  ports and one volume for everything it keeps, the mail ports through
+  Traefik's TCP routers, JMAP through its HTTP router.
 
 ## Later
 

@@ -6,6 +6,7 @@
  */
 import type { MailStore } from '@bumail/store';
 import { ServerError } from '../errors';
+import { canonical } from '../proxy/canonical';
 import { provisionAccount } from '../store/accounts';
 import type { AuthFailure, AuthResult } from './authenticate';
 
@@ -59,9 +60,12 @@ export async function checkLogin(
 	ip: string,
 	options: AdapterOptions,
 ): Promise<(AuthResult & { readonly ok: true }) | undefined> {
-	const result = await directory.authenticate(login, password, ip);
+	// One text per client, whichever listener it came to: IMAP, submission
+	// and JMAP count it in one bucket.
+	const client = canonical(ip) ?? ip;
+	const result = await directory.authenticate(login, password, client);
 	if (result.ok) return result;
-	options.onRefused?.(result.reason, ip);
+	options.onRefused?.(result.reason, client);
 	if (result.reason === 'busy')
 		throw new ServerError('UNAVAILABLE', BUSY_MESSAGE);
 	return undefined;
