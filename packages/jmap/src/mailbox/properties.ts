@@ -1,6 +1,6 @@
 import type { Mailbox, MailStore } from '@bumail/store';
 import type { Args } from '../api/args';
-import { hasFlag } from '../email/keywords';
+import { isUnread } from '../email/keywords';
 
 export const MAILBOX_PROPERTIES = [
 	'id',
@@ -40,21 +40,6 @@ export interface MailboxCounts {
 	readonly unreadEmails: number;
 	readonly totalThreads: number;
 	readonly unreadThreads: number;
-}
-
-/**
- * Whether an email counts as unread (RFC 8621 §2): it has neither `$seen`
- * nor `$draft`, however the store keeps them — `\Seen` and `\Draft`, or a
- * `$Seen` or `$Draft` kept as an ordinary keyword, in any case. The store's
- * own `unseen` is IMAP's, which only looks for `\Seen`.
- */
-export function isUnread(flags: readonly string[]): boolean {
-	return !(
-		hasFlag(flags, '\\Seen') ||
-		hasFlag(flags, '$seen') ||
-		hasFlag(flags, '\\Draft') ||
-		hasFlag(flags, '$draft')
-	);
 }
 
 /**

@@ -51,6 +51,21 @@ export function hasFlag(flags: readonly string[], flag: string): boolean {
 	return flags.some((one) => one.toLowerCase() === key);
 }
 
+/**
+ * Whether an email counts as unread (RFC 8621 §2): it has neither `$seen`
+ * nor `$draft`, however the store keeps them — `\Seen` and `\Draft`, or a
+ * `$Seen` or `$Draft` kept as an ordinary keyword, in any case. The store's
+ * own `unseen` is IMAP's, which only looks for `\Seen`.
+ */
+export function isUnread(flags: readonly string[]): boolean {
+	return !(
+		hasFlag(flags, '\\Seen') ||
+		hasFlag(flags, '$seen') ||
+		hasFlag(flags, '\\Draft') ||
+		hasFlag(flags, '$draft')
+	);
+}
+
 /** The spellings a message's flags give to a flag, its case aside. */
 export function storedSpellings(
 	flags: readonly string[],

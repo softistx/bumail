@@ -62,19 +62,33 @@ describe('edge cases of emails', () => {
 		}
 	});
 
-	test('Mailbox/get past maxQueryScan emails gives the email counts as thread counts', async () => {
+	test('Mailbox/get past maxQueryScan emails falls back to the store counts: unseen as unreadEmails, email counts as thread counts', async () => {
 		h = await harness('memory', { limits: { maxQueryScan: 1 } });
 		await h.add(SIMPLE);
 		await h.add(MULTIPART);
-		for (const properties of [null, ['totalThreads', 'unreadThreads']]) {
+		// Read by RFC 8621, but not \Seen: past the budget, the store's IMAP
+		// unseen stands in, so it counts as unread.
+		await h.add(SIMPLE, h.inbox.id, ['$Seen']);
+		const unseen = (await h.store.getMailbox(h.alice.id, h.inbox.id))?.unseen;
+		expect(unseen).toBe(3);
+		for (const properties of [
+			null,
+			['totalThreads', 'unreadThreads'],
+			['unreadEmails'],
+		]) {
 			const { args } = await h.call('Mailbox/get', {
 				ids: [h.inbox.id],
 				properties,
 			});
 			expect(args.type).toBeUndefined();
 			const [inbox] = args.list;
-			expect(inbox.totalThreads).toBe(2);
-			expect(inbox.unreadThreads).toBe(2);
+			if (properties === null || properties.includes('totalThreads')) {
+				expect(inbox.totalThreads).toBe(3);
+				expect(inbox.unreadThreads).toBe(unseen);
+			}
+			if (properties === null || properties.includes('unreadEmails')) {
+				expect(inbox.unreadEmails).toBe(unseen);
+			}
 		}
 		const all = await h.call('Mailbox/get', { ids: null, properties: null });
 		expect(all.args.type).toBeUndefined();
