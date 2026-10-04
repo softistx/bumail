@@ -54,7 +54,17 @@ const MAX_FROM_BYTES = 64 * 1024;
 /** `@`, and the characters a reader shows as one: FULLWIDTH and SMALL COMMERCIAL AT. */
 const AT_LIKE = /[@＠﹫]/;
 
-const decoder = new TextDecoder('utf-8', { fatal: false });
+/** Strict UTF-8: bytes that are not whole, valid characters throw. */
+const decoder = new TextDecoder('utf-8', { fatal: true });
+
+/** `bytes` as UTF-8, or `undefined` when they are not whole, valid UTF-8. */
+function utf8(bytes: Uint8Array): string | undefined {
+	try {
+		return decoder.decode(bytes);
+	} catch {
+		return undefined;
+	}
+}
 
 /**
  * One encoded-word (RFC 2047 §2) exactly: a charset token, an optional
@@ -102,8 +112,10 @@ function encodedBytes(encoding: string, text: string): Uint8Array {
 /**
  * Whether one encoded-word could show a reader an `@`: text that is not
  * strict B or Q, a charset off the list, a raw `@`, a byte 0x40, or a
- * UTF-8 word that decodes to ＠ or ﹫. Each word is strict, so none
- * splits a byte with its neighbour, and each is read on its own.
+ * UTF-8 word that is not whole characters (RFC 2047 §5: a reader joining
+ * it to its neighbour could assemble ＠) or that decodes to ＠ or ﹫.
+ * Each word is read on its own: one byte a character in the other
+ * charsets, whole characters in UTF-8, so no neighbour completes it.
  */
 function wordHidesAt(charset: string, encoding: string, text: string): boolean {
 	if (!CHARSETS.has(charset.toLowerCase())) return true;
@@ -111,9 +123,9 @@ function wordHidesAt(charset: string, encoding: string, text: string): boolean {
 	if (text.includes('@')) return true;
 	const bytes = encodedBytes(encoding, text);
 	if (bytes.includes(0x40)) return true;
-	return (
-		charset.toLowerCase() === 'utf-8' && AT_LIKE.test(decoder.decode(bytes))
-	);
+	if (charset.toLowerCase() !== 'utf-8') return false;
+	const decoded = utf8(bytes);
+	return decoded === undefined || AT_LIKE.test(decoded);
 }
 
 /**
@@ -146,7 +158,7 @@ export type FromProblem = 'count' | 'unreadable' | 'none';
  * part, a domain literal, an `@` anywhere else, a look-alike `@`, or an
  * encoded-word (RFC 2047) that is not strict or could show one gives
  * `'unreadable'`, so a reader is never shown an author this check did
- * not see; so does a field over 64 KiB. A display name or a comment that
+ * not see; so does a field over 64 KiB, or one that is not UTF-8. A display name or a comment that
  * holds an address is held to the same rule as the address. Linear in
  * the field's length.
  */
@@ -157,7 +169,10 @@ export function fromAddresses(
 	const [field] = fields;
 	if (field === undefined || fields.length > 1) return 'count';
 	if (field.length > MAX_FROM_BYTES) return 'unreadable';
-	const text = decoder.decode(field);
+	// Raw bytes that are not UTF-8 (Shift_JIS, GBK, Big5) are read
+	// differently by each reader: none is taken.
+	const text = utf8(field);
+	if (text === undefined) return 'unreadable';
 	const value = text.slice(text.indexOf(':') + 1).replace(/\r\n/g, '');
 	if (/[＠﹫]/.test(value) || hidesAt(value)) return 'unreadable';
 	const found: string[] = [];

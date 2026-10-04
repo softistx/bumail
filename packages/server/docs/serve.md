@@ -265,10 +265,11 @@ decode them differently:
   white space or fold inside it;
 - its text must be strict: B as whole base64 groups, padding only at
   the end and no base64url `-` or `_`; Q with every `=` followed by two
-  hex digits. So no word splits a byte with its neighbour, and each word
-  is read on its own;
+  hex digits;
 - its charset must be UTF-8, US-ASCII, ISO-8859-1 to 16 or
-  windows-1250 to 1258;
+  windows-1250 to 1258, and a UTF-8 word must hold whole characters
+  (RFC 2047 §5), so each word is read on its own and no neighbour
+  completes a character in it;
 - no word may hold an `@` or decode to one, nor, in UTF-8, to the
   look-alike `＠` (U+FF20) or `﹫` (U+FE6B), which are refused written
   plainly too.
@@ -278,7 +279,8 @@ So `=?UTF-8?Q?ceo=40bank.example?= <alice@example.com>` is refused like
 `=?UTF-8?Q?Alice_M=C3=BCller?= <alice@example.com>` is taken. **A name
 in ISO-2022-JP, Shift_JIS, GB2312, Big5, EUC-KR, KOI8-R or UTF-7 is
 refused**: its client must encode names in UTF-8, as current mail
-clients do by default. A From field over 64 KiB is refused too.
+clients do by default. A From field that is not valid UTF-8 written
+raw (Shift_JIS or GBK bytes, say), or over 64 KiB, is refused too.
 
 A session that logged in keeps its rights only while the user is
 unchanged: once it is removed, disabled (`bumail user disable`) or given

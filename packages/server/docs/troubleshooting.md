@@ -1532,7 +1532,7 @@ as an allow-list:
 - B text must be whole base64 groups, padded only at the end, with no
   `-` or `_`, and Q text must follow every `=` with two hex digits;
 - the charset must be UTF-8, US-ASCII, ISO-8859-1 to 16 or
-  windows-1250 to 1258;
+  windows-1250 to 1258, and a UTF-8 word must hold whole characters;
 - no word may hold or decode to an `@`, or in UTF-8 to `＠` or `﹫`,
   which are refused written plainly too.
 
@@ -1540,7 +1540,8 @@ as an allow-list:
 `ceo@bank.example`, and is refused. A name encoded in ISO-2022-JP,
 Shift_JIS, GB2312, Big5, EUC-KR, KOI8-R or UTF-7 is refused even when it
 holds no `@`: set the mail client to encode headers in UTF-8. A From
-field over 64 KiB is refused as well. Write From as
+field that is not valid UTF-8 written raw, or over 64 KiB, is refused
+as well. Write From as
 `Name <you@example.com>`.
 
 ### `550 5.6.0 The message needs exactly one From field`

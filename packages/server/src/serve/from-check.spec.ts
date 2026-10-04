@@ -93,10 +93,48 @@ describe('fromAddresses: an @ hidden from the check is refused', () => {
 		// A =? that starts no word, even in a quoted name: refused, since a
 		// reader may decode what follows.
 		['a =? in a quoted name', `"a =? b" ${ME}`],
+		// ＠ or ﹫ split across adjacent UTF-8 words: each word must hold
+		// whole characters, since a reader joins them.
+		['＠ split Q 2|1', `=?UTF-8?Q?ceo=EF=BC?==?UTF-8?Q?=A0bank?= ${ME}`],
+		[
+			'＠ split Q 2|1, a space',
+			`=?UTF-8?Q?ceo=EF=BC?= =?UTF-8?Q?=A0bank?= ${ME}`,
+		],
+		[
+			'＠ split Q 2|1, a fold',
+			`=?UTF-8?Q?ceo=EF=BC?=\r\n =?UTF-8?Q?=A0bank?= ${ME}`,
+		],
+		['＠ split Q 1|2', `=?UTF-8?Q?ceo=EF?= =?UTF-8?Q?=BC=A0bank?= ${ME}`],
+		[
+			'＠ split over three words',
+			`=?UTF-8?Q?ceo=EF?= =?UTF-8?Q?=BC?= =?UTF-8?Q?=A0bank?= ${ME}`,
+		],
+		['＠ split B', `=?UTF-8?B?Y2Vv77w=?= =?UTF-8?B?oGJhbms=?= ${ME}`],
+		['﹫ split Q', `=?UTF-8?Q?ceo=EF=B9?= =?UTF-8?Q?=ABbank?= ${ME}`],
+		[
+			'＠ split, utf-8 then utf-8*en',
+			`=?UTF-8?Q?ceo=EF=BC?= =?UTF-8*en?Q?=A0bank?= ${ME}`,
+		],
+		['＠ split, B then Q', `=?UTF-8?B?Y2Vv77w=?= =?UTF-8?Q?=A0bank?= ${ME}`],
 		// Past 64 KiB.
 		['a From over 64 KiB', `${'A'.repeat(70_000)} ${ME}`],
 	])('%s', (_, value) => {
 		expect(authors(value)).toBe('unreadable');
+	});
+});
+
+describe('fromAddresses: raw bytes that are not UTF-8 are refused', () => {
+	test.each([
+		['Shift_JIS ＠', [0x81, 0x97]],
+		['GBK ＠', [0xa3, 0xc0]],
+		['Big5 ＠', [0xa2, 0x49]],
+	])('%s', (_, at) => {
+		const header = Uint8Array.from([
+			...encoder.encode('From: ceo'),
+			...at,
+			...encoder.encode(`bank ${ME}\r\nSubject: x\r\n\r\n`),
+		]);
+		expect(fromAddresses(header)).toBe('unreadable');
 	});
 });
 
@@ -135,6 +173,12 @@ describe('fromAddresses: what a mail client writes is read', () => {
 		[
 			'a long name split across several words',
 			`=?UTF-8?Q?Alice_M=C3=BCller-Schmidt_von_der?=\r\n =?UTF-8?Q?_Gr=C3=BCnen_Wiese_und_Sohn?= =?UTF-8?B?LCBEaXJla3Rvcmlu?= ${ME}`,
+			['alice@example.com'],
+		],
+		['a raw UTF-8 name', `Jérôme Müller ${ME}`, ['alice@example.com']],
+		[
+			'B words split at character boundaries, as Gmail writes them',
+			`=?UTF-8?B?w4VsaWNlIE3DvGxsZXIt?=\r\n =?UTF-8?B?U2NobWlkdCBHcsO8bndhbGQ=?= ${ME}`,
 			['alice@example.com'],
 		],
 		[
