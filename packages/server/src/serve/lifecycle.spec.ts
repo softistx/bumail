@@ -50,10 +50,14 @@ describe('serve: starting', () => {
 		expect(f.lines[1]).toMatch(
 			/^bumail: mx listening on 0\.0\.0\.0:\d+: SMTP from other servers/,
 		);
-		expect(f.lines[2]).toMatch(/^bumail: imaps listening on 0\.0\.0\.0:\d+: /);
-		expect(f.lines.slice(3, 8)).toEqual([
-			'bumail: submissions (port 465) arrives in a later slice; not listening',
-			'bumail: submission (port 587) arrives in a later slice; not listening',
+		expect(f.lines[2]).toMatch(
+			/^bumail: submissions listening on 0\.0\.0\.0:\d+: submission over TLS from the first byte/,
+		);
+		expect(f.lines[3]).toMatch(
+			/^bumail: submission listening on 0\.0\.0\.0:\d+: submission with STARTTLS/,
+		);
+		expect(f.lines[4]).toMatch(/^bumail: imaps listening on 0\.0\.0\.0:\d+: /);
+		expect(f.lines.slice(5, 8)).toEqual([
 			'bumail: https (port 443) arrives in a later slice; not listening',
 			'bumail: http (port 80) arrives in a later slice; not listening',
 			'bumail: health (port 8080) arrives in a later slice; not listening',
@@ -113,7 +117,7 @@ describe('serve: starting', () => {
 			const config = await readConfig({ path: file, env: {} });
 			const error = await serve(config, {
 				log: () => {},
-				port: (name) => (name === 'mx' ? 0 : busy.port),
+				port: (name) => (name === 'imaps' ? busy.port : 0),
 			}).catch((e: unknown) => e);
 			expect(error).toBeInstanceOf(ServerError);
 			expect((error as ServerError).code).toBe('UNAVAILABLE');

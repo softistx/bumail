@@ -1,5 +1,6 @@
 import type { Resolver } from '@bumail/dns';
 import type { ImapServer } from '@bumail/imap';
+import type { Queue } from '@bumail/queue';
 import type { SmtpServer } from '@bumail/smtp';
 import type { MailStore } from '@bumail/store';
 import type { PortsConfig, ServerConfig } from '../config/types';
@@ -8,17 +9,27 @@ import { createImap } from './imap';
 import type { Log } from './log';
 import { createMx } from './mx';
 import type { Spool } from './spool';
+import { createSubmission, type Signer } from './submission';
 import type { TlsFiles } from './tls';
 
 /** The listeners `serve` starts, in the order it starts them. */
-export type ListenerName = 'mx' | 'imaps' | 'imap';
+export type ListenerName =
+	| 'mx'
+	| 'submissions'
+	| 'submission'
+	| 'imaps'
+	| 'imap';
 
-export const LISTENERS: readonly ListenerName[] = ['mx', 'imaps', 'imap'];
+export const LISTENERS: readonly ListenerName[] = [
+	'mx',
+	'submissions',
+	'submission',
+	'imaps',
+	'imap',
+];
 
 /** The ports whose listeners arrive in a later slice: logged, never bound. */
 export const LATER: readonly (keyof PortsConfig)[] = [
-	'submissions',
-	'submission',
 	'https',
 	'http',
 	'health',
@@ -27,6 +38,10 @@ export const LATER: readonly (keyof PortsConfig)[] = [
 /** What each listener's log line adds after its address. */
 export const DESCRIPTION: Record<ListenerName, string> = {
 	mx: 'SMTP from other servers: STARTTLS offered, no AUTH, mail for hosted addresses only',
+	submissions:
+		'submission over TLS from the first byte: AUTH required, then mail to anywhere',
+	submission:
+		'submission with STARTTLS: AUTH only after TLS, then mail to anywhere',
 	imaps: 'IMAP over TLS from the first byte',
 	imap: 'IMAP with STARTTLS, required before any login',
 };
@@ -59,6 +74,23 @@ export interface Resources {
 	readonly inflight: Set<Promise<unknown>>;
 	/** The IMAP servers started, told of each delivery. */
 	readonly imaps: ImapServer[];
+	/** Where mail for other domains goes. */
+	readonly queue: Queue;
+	readonly sign: Signer;
+}
+
+/** Tells the IMAP servers of a delivery, and keeps it under way for a stop. */
+function delivery(resources: Resources) {
+	return {
+		onDelivered: (accountId: string) => {
+			for (const imap of resources.imaps) imap.notify(accountId);
+		},
+		track: <T>(work: Promise<T>): Promise<T> => {
+			resources.inflight.add(work);
+			void work.finally(() => resources.inflight.delete(work)).catch(() => {});
+			return work;
+		},
+	};
 }
 
 /** Creates the listener `name` on `resources`, not yet bound. */
@@ -67,6 +99,23 @@ export function createListener(
 	resources: Resources,
 ): Listener {
 	const { config, directory, store, tls, log, describe } = resources;
+	if (name === 'submissions' || name === 'submission') {
+		const submission = {
+			hostname: config.hostname,
+			directory,
+			store,
+			submission: config.submission,
+			postmaster: config.postmaster,
+			tls,
+			spool: resources.spool,
+			queue: resources.queue,
+			sign: resources.sign,
+			log,
+			describe,
+			...delivery(resources),
+		};
+		return { name, kind: 'smtp', server: createSubmission(submission, name) };
+	}
 	if (name !== 'mx') {
 		const imap = {
 			hostname: config.hostname,
@@ -76,7 +125,11 @@ export function createListener(
 			log,
 			describe,
 		};
-		return { name, kind: 'imap', server: createImap(imap, name) };
+		return {
+			name,
+			kind: 'imap',
+			server: createImap(imap, name),
+		};
 	}
 	const server = createMx({
 		hostname: config.hostname,
@@ -89,14 +142,7 @@ export function createListener(
 		spool: resources.spool,
 		log,
 		describe,
-		onDelivered: (accountId) => {
-			for (const imap of resources.imaps) imap.notify(accountId);
-		},
-		track: (work) => {
-			resources.inflight.add(work);
-			void work.finally(() => resources.inflight.delete(work)).catch(() => {});
-			return work;
-		},
+		...delivery(resources),
 	});
 	return { name, kind: 'smtp', server };
 }

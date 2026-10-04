@@ -15,6 +15,12 @@ import {
 	type Resources,
 } from './listeners';
 import type { Log } from './log';
+import {
+	createOutbound,
+	type OpenedQueueStore,
+	type OutboundOptions,
+	openQueueStore,
+} from './outbound';
 import { Spool } from './spool';
 import { closeResources, stopper } from './stop';
 import { readTls } from './tls';
@@ -48,6 +54,8 @@ export interface ServeOptions {
 	port?(listener: ListenerName, configured: number): number;
 	/** Seconds `stop` waits for SMTP sessions to end before hanging up on them. Default 10. */
 	readonly drainSeconds?: number;
+	/** The queue's network, for specs: the port of MX hosts, a CA to trust, how often it looks. */
+	readonly outbound?: OutboundOptions;
 }
 
 /** A listener bound. */
@@ -83,17 +91,21 @@ function bindReason(error: unknown): string {
 		: message;
 }
 
-/** The directory and the store, opened; the directory closed again when the store fails. */
-function openResources(config: ServerConfig): {
+/** The directory, the store and the queue's, opened; those opened closed again when one fails. */
+async function openResources(config: ServerConfig): Promise<{
 	directory: Directory;
 	opened: OpenedStore;
-} {
+	queueStore: OpenedQueueStore;
+}> {
 	const directory = Directory.open({
 		file: directoryFile(config.directory.url),
 	});
+	let opened: OpenedStore | undefined;
 	try {
-		return { directory, opened: openStore(config.store) };
+		opened = openStore(config.store);
+		return { directory, opened, queueStore: openQueueStore(config.queue) };
 	} catch (error) {
+		await opened?.close().catch(() => {});
 		directory.close();
 		throw error;
 	}
@@ -156,8 +168,9 @@ function logStart(
 /**
  * Runs the server for `config`: reads the certificate (`tls.mode =
  * "files"`; `"acme"` is `NOT_IMPLEMENTED`), opens the spool, the
- * directory and the mail store, and starts each listener whose port is
- * not 0 — `mx`, `imaps`, `imap` — logging one line each. The other ports
+ * directory, the mail store and the queue, starts each listener whose
+ * port is not 0 — `mx`, `submissions`, `submission`, `imaps`, `imap` —
+ * logging one line each, then the queue's worker. The other ports
  * are logged as arriving later, and bound to nothing. What cannot be
  * opened or bound is `ServerError('UNAVAILABLE')`, with whatever was
  * started stopped again.
@@ -171,8 +184,9 @@ export async function serve(
 	const spool = Spool.open(config.data, config.inbound.spoolBytes, { log });
 	let directory: Directory;
 	let opened: OpenedStore;
+	let queueStore: OpenedQueueStore;
 	try {
-		({ directory, opened } = openResources(config));
+		({ directory, opened, queueStore } = await openResources(config));
 	} catch (error) {
 		spool.close();
 		throw error;
@@ -183,31 +197,58 @@ export async function serve(
 			config.store.url,
 		);
 	const storeCalls = new Set<Promise<unknown>>();
+	const store = trackedStore(opened.store, storeCalls);
+	const resolver =
+		options.resolver ??
+		cachedResolver(nodeResolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES }));
+	const inflight = new Set<Promise<unknown>>();
+	const imaps: ImapServer[] = [];
+	const queue = createOutbound(
+		config,
+		queueStore.store,
+		{
+			hostname: config.hostname,
+			directory,
+			store,
+			postmaster: config.postmaster,
+			resolver,
+			log,
+			describe: (error) => maskedFor(describe(error), config.queue.url),
+			onDelivered: (accountId) => {
+				for (const imap of imaps) imap.notify(accountId);
+			},
+			track: (work) => {
+				inflight.add(work);
+				void work.finally(() => inflight.delete(work)).catch(() => {});
+				return work;
+			},
+		},
+		options.outbound,
+	);
 	const resources: Resources = {
 		config,
 		directory,
-		store: trackedStore(opened.store, storeCalls),
-		resolver:
-			options.resolver ??
-			cachedResolver(
-				nodeResolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES }),
-			),
+		store,
+		resolver,
 		tls,
 		spool,
 		log,
 		describe,
-		inflight: new Set(),
-		imaps: [] as ImapServer[],
+		inflight,
+		imaps,
+		queue,
+		sign: async () => undefined,
 	};
 
 	let bound: Awaited<ReturnType<typeof bindListeners>>;
 	try {
 		bound = await bindListeners(resources, options);
 	} catch (error) {
-		await closeResources(opened, directory, log, describe);
+		await closeResources({ opened, directory, queueStore }, log, describe);
 		spool.close();
 		throw error;
 	}
+	queue.start();
 	logStart(config, bound.listening, log);
 	for (const { path, reason } of spool.kept) {
 		log(`bumail: the spool folder ${path} is kept: ${reason}`);
@@ -221,6 +262,8 @@ export async function serve(
 			storeCalls,
 			opened,
 			directory,
+			queue,
+			queueStore,
 			spool,
 			log,
 			describe,

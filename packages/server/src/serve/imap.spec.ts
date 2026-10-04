@@ -99,6 +99,11 @@ describe('imap on 143, when turned on', () => {
 	test('is off by default', async () => {
 		fixture = await startServer();
 		const f = fixture;
-		expect(f.server.listening.map((l) => l.name)).toEqual(['mx', 'imaps']);
+		expect(f.server.listening.map((l) => l.name)).toEqual([
+			'mx',
+			'submissions',
+			'submission',
+			'imaps',
+		]);
 	});
 });

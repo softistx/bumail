@@ -6,7 +6,12 @@ import { tempDir } from '../config/config.fixtures';
 import { readConfig } from '../config/read';
 import { Directory } from '../directory/directory';
 import { PASSWORD } from '../directory/directory.fixtures';
-import { type RunningServer, type ServeOptions, serve } from './serve';
+import {
+	type ListenerName,
+	type RunningServer,
+	type ServeOptions,
+	serve,
+} from './serve';
 
 export { LineClient, sendMail } from './line-client.fixtures';
 export { PASSWORD };
@@ -28,7 +33,7 @@ export interface Fixture {
 	readonly dir: string;
 	readonly lines: string[];
 	/** The port a listener is bound to. */
-	port(name: 'mx' | 'imaps' | 'imap'): number;
+	port(name: ListenerName): number;
 	stop(): Promise<void>;
 }
 

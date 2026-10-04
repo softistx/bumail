@@ -97,7 +97,14 @@ export async function selfSigned(
 	);
 	const ecdsaWithSha256 = seq(oid('1.2.840.10045.4.3.2'));
 	const subject = name(names[0] ?? 'localhost');
-	const altNames = seq(...names.map((n) => tlv(0x82, enc.encode(n))));
+	// An IPv4 address is an iPAddress name, anything else a dNSName.
+	const altNames = seq(
+		...names.map((n) =>
+			/^\d+\.\d+\.\d+\.\d+$/.test(n)
+				? tlv(0x87, Uint8Array.from(n.split('.').map(Number)))
+				: tlv(0x82, enc.encode(n)),
+		),
+	);
 	const tbs = seq(
 		tlv(0xa0, integer(Uint8Array.of(2))),
 		integer(crypto.getRandomValues(new Uint8Array(16))),
