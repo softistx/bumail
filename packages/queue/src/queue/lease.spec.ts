@@ -147,19 +147,23 @@ describe('a lease lost to an instance that finished the item', () => {
 	});
 });
 
-/** `store`, its renewals counted as they settle. */
+/** `store`, its renewals counted as they start and as they settle. */
 function counting(store: MemoryQueueStore) {
 	const renew = store.renew.bind(store);
+	/** What each renewal answered, in the order they settled. */
 	const renewals: (boolean | Error)[] = [];
+	const counts = { started: 0 };
 	return {
 		renewals,
-		/** Renewals answer through `answer`, given the store's own. */
+		counts,
+		/** Renewals answer through `answer`, given their index as started and the store's own. */
 		renewWith(
 			answer: (n: number, renew: () => Promise<boolean>) => Promise<boolean>,
 		) {
 			store.renew = async (...args) => {
+				const n = counts.started++;
 				try {
-					const held = await answer(renewals.length, () => renew(...args));
+					const held = await answer(n, () => renew(...args));
 					renewals.push(held);
 					return held;
 				} catch (error) {
@@ -311,6 +315,90 @@ describe('a cancel, and renewals that fail', () => {
 		expect(events.error.map((e) => (e.error as Error).message)).toEqual([
 			'database is locked',
 		]);
+		expect(events.delivered).toHaveLength(1);
+	});
+
+	test('a held renewal that settles after the outcome is recorded keeps its expiry', async () => {
+		const store = new MemoryQueueStore();
+		const { renewals, counts, renewWith } = counting(store);
+		const late = gate();
+		// The first renewal, at T0 + 500, holds until T0 + 1500 but answers
+		// only once the outcome is recorded; the next never answer.
+		renewWith(async (n, renew) => {
+			if (n > 0) return new Promise<boolean>(() => {});
+			const held = await renew();
+			await late.opened;
+			return held;
+		});
+		const held = gate();
+		const clock = fakeClock();
+		const { queue, sender, events } = instance(
+			store,
+			'w',
+			clock,
+			waitingFor(held),
+			{ leaseMs: 1000 },
+		);
+		const item = await queue.enqueue(MESSAGE, to);
+		const pass = queue.deliverDue();
+		await until(() => sender.calls.length === 1);
+		clock.advance(500);
+		await until(() => counts.started === 1);
+		await queue.cancel(item.id);
+		clock.advance(700);
+		// The lookup after `complete`, once `recorded()` ran: the renewal
+		// answers then, before the expiry is read.
+		const get = store.get.bind(store);
+		store.get = async (id) => {
+			late.open();
+			await until(() => renewals.length === 1);
+			return get(id);
+		};
+		held.open();
+		await pass;
+		expect(renewals).toEqual([true]);
+		// T0 + 1200 is before the renewal's T0 + 1500: a cancel.
+		expect(events.error).toEqual([]);
+		expect(events.delivered).toHaveLength(1);
+	});
+
+	test('renewals that settle out of order keep the latest expiry', async () => {
+		const store = new MemoryQueueStore();
+		const { renewals, counts, renewWith } = counting(store);
+		const slow = gate();
+		// The first renewal (T0 + 1500) answers after the second (T0 + 1800);
+		// the ones after never answer.
+		renewWith(async (n, renew) => {
+			if (n > 1) return new Promise<boolean>(() => {});
+			const held = await renew();
+			if (n === 0) await slow.opened;
+			return held;
+		});
+		const held = gate();
+		const clock = fakeClock();
+		const { queue, sender, events } = instance(
+			store,
+			'w',
+			clock,
+			waitingFor(held),
+			{ leaseMs: 1000 },
+		);
+		const item = await queue.enqueue(MESSAGE, to);
+		const pass = queue.deliverDue();
+		await until(() => sender.calls.length === 1);
+		clock.advance(500);
+		await until(() => counts.started === 1);
+		clock.advance(300);
+		await until(() => renewals.length === 1);
+		slow.open();
+		await until(() => renewals.length === 2);
+		expect(renewals).toEqual([true, true]);
+		await queue.cancel(item.id);
+		clock.advance(800);
+		held.open();
+		await pass;
+		// T0 + 1600 is before T0 + 1800, though past T0 + 1500: a cancel.
+		expect(events.error).toEqual([]);
 		expect(events.delivered).toHaveLength(1);
 	});
 });
