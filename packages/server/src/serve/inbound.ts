@@ -56,6 +56,68 @@ export const DKIM_TIMED_OUT: DkimResult = {
 	testing: false,
 };
 
+/** What DKIM answers when the message could not be read back. */
+function unreadable(error: unknown): DkimResult {
+	const reason = error instanceof Error ? error.message : String(error);
+	return {
+		result: 'temperror',
+		reason: `the message could not be read: ${reason}`,
+		testing: false,
+	};
+}
+
+/**
+ * `source` as it is, and whether reading it failed: a failure of this
+ * server's disk, not of the message.
+ */
+function watched(source: ReadableStream<Uint8Array>): {
+	readonly stream: ReadableStream<Uint8Array>;
+	failed(): boolean;
+} {
+	let failed = false;
+	let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+	const stream = new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			reader ??= source.getReader();
+			try {
+				const { done, value } = await reader.read();
+				if (done) controller.close();
+				else controller.enqueue(value);
+			} catch (error) {
+				failed = true;
+				controller.error(error);
+			}
+		},
+		async cancel(reason) {
+			await (reader ?? source).cancel(reason);
+		},
+	});
+	return { stream, failed: () => failed };
+}
+
+/**
+ * DKIM over the message `whole` gives, given up after `ms` as one
+ * `temperror`; `unread` when the message could not be read back.
+ */
+async function dkimOf(
+	whole: () => ReadableStream<Uint8Array>,
+	resolver: Resolver,
+	ms: number,
+): Promise<{
+	dkim: readonly DkimResult[];
+	timedOut: boolean;
+	unread: boolean;
+}> {
+	let source: ReturnType<typeof watched>;
+	try {
+		source = watched(whole());
+	} catch (error) {
+		return { dkim: [unreadable(error)], timedOut: false, unread: true };
+	}
+	const { dkim, timedOut } = await dkimWithin(source.stream, resolver, ms);
+	return { dkim, timedOut, unread: source.failed() };
+}
+
 /** DKIM over `message`, given up after `ms` as one `temperror`. */
 async function dkimWithin(
 	message: ReadableStream<Uint8Array>,
@@ -84,9 +146,10 @@ async function dkimWithin(
  * result; and what `inbound.dmarc` makes of them. `enforce` refuses
  * `p=reject` and sends `p=quarantine` to Junk; `mark` only records.
  * DKIM, SPF and DMARC each have `timeoutMs` (default 10 s); a DKIM that
- * ran out defers, under `enforce`, what DMARC would otherwise refuse or
- * quarantine, since a signature that would have passed may be among the
- * ones not checked. `spfIdentity` is `helo` for a bounce, whose SPF was
+ * ran out, or could not read the message back (`whole` throwing, or its
+ * stream failing), defers, under `enforce`, what DMARC would otherwise
+ * refuse or quarantine, since a signature that would have passed may be
+ * among the ones not checked. `spfIdentity` is `helo` for a bounce, whose SPF was
  * checked for the HELO name: `Authentication-Results` says
  * `smtp.helo=`, while DMARC is given it as RFC 7489 §3.1.2 counts it.
  */
@@ -106,8 +169,8 @@ export async function judge(
 ): Promise<Verdict> {
 	const { resolver } = options;
 	const timeout = options.timeoutMs ?? CHECK_TIMEOUT_MS;
-	const { dkim, timedOut } = await dkimWithin(
-		message.whole(),
+	const { dkim, timedOut, unread } = await dkimOf(
+		message.whole,
 		resolver,
 		timeout,
 	);
@@ -137,18 +200,20 @@ export async function judge(
 		...(forField === undefined ? {} : { spf: forField }),
 		dmarc,
 	});
-	const action = actionOf(dmarc, options.mode, timedOut);
+	// A signature not checked — out of time, or the message unreadable
+	// here — might have passed: never a refusal for this server's failure.
+	const action = actionOf(dmarc, options.mode, timedOut || unread);
 	return { dkim, spf, dmarc, field, action };
 }
 
 function actionOf(
 	dmarc: DmarcResult,
 	mode: InboundConfig['dmarc'],
-	dkimTimedOut: boolean,
+	dkimUnchecked: boolean,
 ): Verdict['action'] {
 	if (mode === 'mark') return 'deliver';
 	if (dmarc.result === 'temperror') return 'defer';
-	if (dkimTimedOut && dmarc.disposition !== 'none') return 'defer';
+	if (dkimUnchecked && dmarc.disposition !== 'none') return 'defer';
 	if (dmarc.disposition === 'reject') return 'reject';
 	if (dmarc.disposition === 'quarantine') return 'junk';
 	return 'deliver';

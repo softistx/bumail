@@ -185,21 +185,21 @@ Each message is checked with `@bumail/auth`:
 | fails, `p=reject` | `550 5.7.1 Rejected by the DMARC policy of …` | INBOX |
 | a From it cannot evaluate (none, two, a group) | `550 5.7.1 The From field cannot be evaluated for DMARC: …` | INBOX |
 | `temperror`: the policy could not be looked up | `451 4.7.0 DMARC check failed, try again later` | INBOX |
-| fails, but DKIM did not finish within 10 s | `451 4.7.0 DMARC check failed, try again later` | INBOX |
+| fails, but DKIM did not finish within 10 s, or could not read the message back from the spool | `451 4.7.0 DMARC check failed, try again later` | INBOX |
 
 Either way, the result is written into `Authentication-Results`. SPF on
 its own never refuses a message: forwarding breaks it, and DMARC needs
 only one of SPF and DKIM.
 
 The DNS is the system's resolver, through a cache. Each query has 5
-seconds per try and 2 tries, so 10 seconds at worst. DKIM, SPF and
-DMARC are each cut off after 10 seconds, as `temperror`. SPF runs from
-MAIL FROM, while the message comes, so after the end of DATA the checks
-take 20 seconds at worst (DKIM, then DMARC), within the 60 seconds the
-SMTP server gives its hook. A DKIM cut off cannot pass, so under
-`enforce` a message DMARC would refuse or quarantine is deferred
-instead, as a signature that would have passed may be among those not
-checked.
+seconds per try and 2 tries, so 10 seconds at worst. DKIM, SPF and DMARC
+are each cut off after 10 seconds, as `temperror`. SPF runs from MAIL
+FROM, while the message comes, so after the end of DATA the checks take
+20 seconds at worst (DKIM, then DMARC), within the 60 seconds the SMTP
+server gives its hook. A DKIM cut off, or one that could not read the
+message back from the spool, cannot pass, so under `enforce` a message
+DMARC would refuse or quarantine is deferred instead, as a signature
+that would have passed may be among those not checked.
 
 ## Reading mail over IMAP
 

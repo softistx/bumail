@@ -1241,11 +1241,14 @@ SPF record: the fix is on their side. To take such mail meanwhile,
 
 The From domain's DMARC record, or an aligned check, could not be had:
 its DNS did not answer within the bound. Or DKIM did not finish within
-10 seconds while DMARC would otherwise refuse or quarantine the message:
-a signature that would have passed may be among those not checked. The
-log says `deferred: DMARC or DKIM did not finish`. The sending server
-tries again. Only with `inbound.dmarc = "enforce"`; with `"mark"` the message
-is delivered. Repeated for every domain: check this host's resolver.
+10 seconds, or could not read the message back from the spool (a failure
+of this server's disk, never of the message), while DMARC would
+otherwise refuse or quarantine the message: a signature that would have
+passed may be among those not checked. The log says `deferred: DMARC or
+DKIM did not finish`, with `dkim=temperror` in its results. The sending
+server tries again. Only with `inbound.dmarc = "enforce"`; with `"mark"`
+the message is delivered. Repeated for every domain: check this host's
+resolver.
 
 ### `550 5.7.1 The From field cannot be evaluated for DMARC: none, several, or not one mailbox`
 
