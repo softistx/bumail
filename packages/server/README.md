@@ -82,7 +82,7 @@ alone.
 Credentials to a store on another machine go over TLS, or not at all,
 unless you say otherwise in so many words: `sslmode=disable` in a
 PostgreSQL URL, `insecure = true` beside a `redis:` one. The summary
-then shows the store as `postgres (plaintext)`.
+then shows such a store as `postgres (plaintext)` or `redis (plaintext)`.
 
 ## From code
 

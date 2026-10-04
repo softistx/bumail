@@ -116,7 +116,8 @@ The command exits 1 for these, and 2 for [bad usage](#usage).
 
 **When**: the configuration file is not there, or not readable:
 `(file): cannot be read (ENOENT)`. The parenthesis is the system's code:
-`ENOENT` (no such file), `EACCES` (not allowed), `EISDIR` (a directory).
+`ENOENT` (no such file), `EACCES` (not allowed). A directory is
+[not a regular file](#-is-not-a-regular-file).
 
 **Why**: the path is `--config`, else `BUMAIL_CONFIG`, else
 `/data/bumail.toml`: with neither given, the volume must hold that file.

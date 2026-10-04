@@ -141,6 +141,6 @@ export interface SubmissionConfig {
 
 /** JMAP, on `ports.https`. */
 export interface JmapConfig {
-	/** The origin clients reach it at. Default `https://<hostname>`, with the port when it is not 443. */
+	/** The origin clients reach it at. Default `https://<hostname>`, with the port when it is neither 443 nor 0. */
 	readonly origin: string;
 }
