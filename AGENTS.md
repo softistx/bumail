@@ -33,8 +33,7 @@ none of it names a private application.
 - **No package has a dependency.** What one needs at runtime is a peer: a
   sibling `@bumail/*`, `@alxia/core` for what speaks HTTP, or — for a store
   answer only, as the roadmap plans — the published client it wraps
-  (`@nxgt/mongo`, `mongodb` and `zod`,
-  `@nxgt/s3`). Apart from those store answers, nothing peers outside
+  (`@nxgt/s3`). Apart from those store answers, nothing peers outside
   `@bumail/*` and `@alxia/core`; every package also names `typescript` as
   an optional peer, for its types only. Any peer only once it is on npm:
   `verify:artifacts` refuses a required peer that is on no registry.

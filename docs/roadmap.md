@@ -21,13 +21,6 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
-- **`@bumail/queue`, more stores for several instances** — more answers
-  to the `QueueStore` contract, so several server instances share one
-  queue, each held to the same contract specs, none a dependency. The
-  PostgreSQL store is published and the Redis store merged (see
-  Shipped); MongoDB comes next, typed structurally against the
-  collection a MongoDB driver hands it, so the package peers on no
-  driver.
 - **The server app** — the packages wired into one process: SMTP on 25
   (MX), 465 (submission over implicit TLS) and 587 (submission with
   STARTTLS), IMAP on 993, JMAP over HTTPS on 443, the queue delivering
@@ -94,6 +87,10 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **A built-in spam classifier** — scoring stays behind a hook, so the
   choice of scorer is the operator's.
 - **Relaying without authentication** — not even as an option.
+- **MongoDB** — neither for the mail store nor for the queue. Several
+  instances already share their mail through the PostgreSQL store, and
+  the queue can use that same database, or Redis: a MongoDB store would
+  add maintenance and CI cost and nothing a deployment lacks.
 
 ## Shipped
 
