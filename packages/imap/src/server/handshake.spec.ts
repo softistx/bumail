@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { connect as netConnect } from 'node:net';
+import { type TLSSocket, connect as tlsConnect } from 'node:tls';
 import { MemoryMailStore } from '@bumail/store';
 import type { Socket } from 'bun';
 import { Client, localhostTls } from './client.fixtures';
+import { handlers } from './listener';
 import type { ImapServerOptions } from './options';
-import { createImapServer, handlers, type ImapServer } from './server';
+import { createImapServer, type ImapServer } from './server';
 import { imapOptions, seededStore } from './session.fixtures';
 import { settingsOf } from './settings';
 
@@ -12,8 +15,10 @@ const BYE = '* BYE [UNAVAILABLE] Too many connections, try later\r\n';
 let server: ImapServer | undefined;
 const sockets: Socket<undefined>[] = [];
 const clients: Client[] = [];
+const nodeSockets: TLSSocket[] = [];
 afterEach(() => {
 	for (const socket of sockets.splice(0)) socket.terminate();
+	for (const socket of nodeSockets.splice(0)) socket.destroy();
 	for (const client of clients.splice(0)) client.end();
 	server?.stop(true);
 	server = undefined;
@@ -33,13 +38,16 @@ async function start(overrides: Partial<ImapServerOptions> = {}) {
 async function raw(
 	port: number,
 	garbage?: string,
-): Promise<{ closed: () => boolean }> {
+): Promise<{ closed: () => boolean; received: () => number }> {
 	let closed = false;
+	let received = 0;
 	const socket = await Bun.connect({
 		hostname: '127.0.0.1',
 		port,
 		socket: {
-			data() {},
+			data(_, chunk) {
+				received += chunk.byteLength;
+			},
 			close() {
 				closed = true;
 			},
@@ -47,7 +55,7 @@ async function raw(
 	});
 	sockets.push(socket);
 	if (garbage !== undefined) socket.write(garbage);
-	return { closed: () => closed };
+	return { closed: () => closed, received: () => received };
 }
 
 /** A TLS client's first line: the greeting, or a refusal. */
@@ -115,14 +123,53 @@ describe('implicit TLS before the handshake', () => {
 		expect(await tlsClient(port)).toContain('IMAP4rev2 ready');
 	});
 
-	test('stop(true) with handshakes pending closes them and counts them out', async () => {
-		const port = await start();
+	test('stop(true) with handshakes pending resets them: nothing written, nothing thrown', async () => {
+		const errors: unknown[] = [];
+		const port = await start({
+			onError: (error) => {
+				errors.push(error);
+			},
+		});
 		const pending = [await raw(port), await raw(port), await raw(port)];
 		expect(await counted(3)).toBe(3);
-		server?.stop(true);
+		expect(() => server?.stop(true)).not.toThrow();
 		expect(await counted(0, 1)).toBe(0);
-		for (const socket of pending)
+		for (const socket of pending) {
 			expect(await closedWithin(socket, 1000)).toBe(true);
+			expect(socket.received()).toBe(0);
+		}
+		expect(errors).toEqual([]);
+	});
+
+	test('loginTimeout counts from the greeting, not from the TCP connection', async () => {
+		const port = await start({ loginTimeout: 1, handshakeTimeout: 10 });
+		// TCP first, then a wait longer than loginTimeout before the ClientHello.
+		const tcp = netConnect({ host: '127.0.0.1', port });
+		await new Promise<void>((resolve) => tcp.once('connect', () => resolve()));
+		await Bun.sleep(1500);
+		const tls = tlsConnect({
+			socket: tcp,
+			servername: 'localhost',
+			rejectUnauthorized: false,
+		});
+		nodeSockets.push(tls);
+		let text = '';
+		let greetedAt = 0;
+		let byeAt = 0;
+		tls.on('data', (chunk: Buffer) => {
+			text += chunk.toString();
+			if (!greetedAt && text.includes('IMAP4rev2 ready'))
+				greetedAt = Date.now();
+			if (!byeAt && text.includes('* BYE Too slow to log in'))
+				byeAt = Date.now();
+		});
+		const end = Date.now() + 4000;
+		while (!byeAt && Date.now() < end) await Bun.sleep(20);
+		// Greeted, though the TCP connection is older than loginTimeout…
+		expect(greetedAt).toBeGreaterThan(0);
+		// …and cut loginTimeout after that greeting.
+		expect(byeAt - greetedAt).toBeGreaterThanOrEqual(950);
+		expect(byeAt - greetedAt).toBeLessThan(1500);
 	});
 });
 

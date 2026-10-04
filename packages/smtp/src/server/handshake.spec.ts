@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { Socket } from 'bun';
 import { Client } from './client.fixtures';
+import { handlers } from './listener';
 import type { SmtpServerOptions } from './options';
-import { createSmtpServer, handlers, type SmtpServer } from './server';
+import { createSmtpServer, type SmtpServer } from './server';
 import { mxOptions } from './session.fixtures';
 import { settingsOf } from './settings';
 

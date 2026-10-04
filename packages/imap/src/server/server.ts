@@ -10,9 +10,6 @@ import {
 import type { ImapServerOptions } from './options';
 import { settingsOf } from './settings';
 
-/** For the specs that drive the shared handlers directly. */
-export { handlers } from './listener';
-
 export interface ImapServer {
 	/** Starts listening; resolves once the port is bound. Once only: a second call throws. */
 	listen(options: {

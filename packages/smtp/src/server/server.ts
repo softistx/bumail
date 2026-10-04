@@ -6,9 +6,6 @@ import type { SmtpServerOptions } from './options';
 import { settingsOf } from './settings';
 import { Slots } from './slots';
 
-/** For the specs that drive the shared handlers directly. */
-export { handlers } from './listener';
-
 export interface SmtpServer {
 	/** Starts listening; resolves once the port is bound. Once only: a second call throws. */
 	listen(options: {
