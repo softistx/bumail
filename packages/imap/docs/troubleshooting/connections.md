@@ -121,15 +121,19 @@ trusted peer's socket is reset rather than served, so the proxy's own
 address is never taken for a client's.
 
 **Fix**: turn the PROXY protocol on in the proxy, for every port the
-server listens on with `proxyProtocol`. With Traefik, on the service:
+server listens on with `proxyProtocol`. With Traefik, a TCP
+`serversTransport` the service names:
 
 ```yaml
 tcp:
+  serversTransports:
+    proxy-v2:
+      proxyProtocol:
+        version: 2
   services:
     imap:
       loadBalancer:
-        proxyProtocol:
-          version: 2
+        serversTransport: proxy-v2
         servers:
           - address: '10.0.0.20:143'
 ```

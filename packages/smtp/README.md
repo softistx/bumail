@@ -458,7 +458,7 @@ host; a 5xx stops. A null MX (RFC 7505) fails at once with `NULL_MX`.
 | export | |
 | --- | --- |
 | `createSmtpServer(options)` | the server; throws an `SmtpError` (`INVALID_OPTION`) on a bad option |
-| `SmtpServer` | `listen({ port, hostname? })` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `connections` |
+| `SmtpServer` | `listen({ port, hostname? })` (once; again, even before the first resolved, throws `ALREADY_LISTENING`; on implicit TLS, a key or certificate it cannot read or use throws `INVALID_OPTION`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `connections` |
 | `SmtpServerOptions` | `hostname`, `mode`, `localDomains`, `tls`, `implicitTls`, `authenticate`, the limits (`maxConnectionsPerClient` among them), `hookTimeout`, `handshakeTimeout`, `greetingDelay`, `proxyProtocol`, `onError`, and the hooks |
 | `ProxyProtocolOptions` | `trusted`: the proxies' IPv4 and IPv6 addresses and CIDRs, the only peers whose PROXY header (v1 or v2) is read |
 | `SmtpError`, `SmtpErrorCode` | `code`: `INVALID_OPTION`, `ALREADY_LISTENING`, and what a content stream or `onError` can get: `MESSAGE_TOO_BIG`, `BARE_LINE_BREAK`, `CONNECTION_LOST`, `HOOK_TIMEOUT`, `INVALID_HOOK_REPLY`, `MESSAGE_NOT_READ`; `sendMail`'s are listed below. `temporary`, `reply` and `rejected` are set for `sendMail`'s errors |

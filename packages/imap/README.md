@@ -158,7 +158,7 @@ has the Traefik configuration and every case.
 | export | |
 | --- | --- |
 | `createImapServer(options)` | the server; throws an `ImapError` (`INVALID_OPTION`) on a bad option |
-| `ImapServer` | `listen({ port, hostname? })`, which resolves to the bound `{ port, hostname }` (once; again throws `ALREADY_LISTENING`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `notify(accountId)` to wake the account's IDLE sessions, `connections`, the number of open connections |
+| `ImapServer` | `listen({ port, hostname? })`, which resolves to the bound `{ port, hostname }` (once; again, even before the first resolved, throws `ALREADY_LISTENING`; on implicit TLS, a key or certificate it cannot read or use throws `INVALID_OPTION`), `stop(closeConnections?)` (`true` hangs up on every client, after STARTTLS too), `notify(accountId)` to wake the account's IDLE sessions, `connections`, the number of open connections |
 | `ImapServerOptions` | `hostname`, `store`, `tls`, `implicitTls`, `authenticate`, the limits above, `proxyProtocol`, `onError` |
 | `ImapSession` | what `authenticate` and `onError` receive: `id`, `remoteAddress`, `secure`, `user`, `accountId`, and `data` for your own state |
 | `AuthResult` | what `authenticate` answers: an account id, or `null` / `undefined` to refuse |

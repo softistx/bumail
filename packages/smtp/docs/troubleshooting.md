@@ -29,6 +29,8 @@ A reply carries its enhanced status code (`5.7.1`, RFC 3463) only after
 - [`SmtpError: createSmtpServer(): proxyProtocol.trusted: "…" has a prefix length out of range`](#smtperror-createsmtpserver-proxyprotocoltrusted--has-a-prefix-length-out-of-range)
 - [`SmtpError: createSmtpServer(): proxyProtocol.trusted: … is not a string`](#smtperror-createsmtpserver-proxyprotocoltrusted--is-not-a-string)
 - [`SmtpError: listen(): the server is already listening on …`](#smtperror-listen-the-server-is-already-listening-on-)
+- [`SmtpError: listen(): the server is already starting to listen`](#smtperror-listen-the-server-is-already-starting-to-listen)
+- [`SmtpError: listen(): tls: { key, cert } cannot be used: …`](#smtperror-listen-tls--key-cert--cannot-be-used-)
 
 **Relaying and authentication**
 
@@ -542,6 +544,47 @@ const options = {
 
 await createSmtpServer(options).listen({ port: 25 });
 await createSmtpServer(options).listen({ port: 2525 });
+```
+
+### `SmtpError: listen(): the server is already starting to listen`
+
+**When**: a second `listen` on the same server while the first has not
+resolved yet. With `implicitTls`, `listen` reads the key and certificate
+before it binds, so two calls not awaited in turn meet here. Its `code` is
+`ALREADY_LISTENING`; the first call binds, this one binds nothing.
+
+**Fix**: await `listen` once per server, and create one server per port:
+
+```ts
+const server = createSmtpServer({ ...options, tls, implicitTls: true });
+await server.listen({ port: 465 }); // not Promise.all([server.listen(…), server.listen(…)])
+```
+
+### `SmtpError: listen(): tls: { key, cert } cannot be used: …`
+
+**When**: `listen` on an `implicitTls` server whose `tls.key` or
+`tls.cert` cannot be read — a `Bun.file` that does not exist — or is not
+a PEM key or certificate. The same error, word for word, with
+`proxyProtocol` or without. Its `code` is `INVALID_OPTION`; the rest of
+the message, and its `cause`, are the reason from the file system or
+`node:tls` (`ENOENT: no such file or directory, open '…'`,
+`…PEM routines…NO_START_LINE`). Nothing is bound.
+
+**Why**: `listen` reads both and checks them as a TLS context before it
+binds, so a bad key fails at start, not at the first client.
+
+**Fix**: pass the PEM text, or a `Bun.file` of a path that exists:
+
+```ts
+const tls = {
+	key: Bun.file('/etc/bumail/tls/privkey.pem'),
+	cert: Bun.file('/etc/bumail/tls/fullchain.pem'),
+};
+try {
+	await createSmtpServer({ ...options, tls, implicitTls: true }).listen({ port: 465 });
+} catch (error) {
+	console.error(error, (error as Error).cause);
+}
 ```
 
 ## Relaying and authentication
@@ -1575,8 +1618,9 @@ On an `implicitTls` port, the reverse also closes at once: the proxy sends
 a header to a server that does not trust it, and the header is not a TLS
 ClientHello, so the handshake fails.
 
-**Fix**: send the header from the proxy (with Traefik, `proxyProtocol:
-{ version: 2 }` on the TCP service), and list the proxy on the server. Both
+**Fix**: send the header from the proxy (with Traefik, a TCP
+`serversTransport` with `proxyProtocol: { version: 2 }`, named by the
+service), and list the proxy on the server. Both
 sides together, or neither:
 
 ```ts

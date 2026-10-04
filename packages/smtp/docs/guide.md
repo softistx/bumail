@@ -1264,8 +1264,9 @@ await server.listen({ port: 465 });
 
 ### With Traefik
 
-Traefik's TCP routers pass a connection through and, with
-`proxyProtocol.version` on the service, send a v2 header first. One entry
+Traefik's TCP routers pass a connection through and, with a
+`serversTransport` whose `proxyProtocol.version` is 2, send a v2 header
+first. One entry
 point per port, in the static configuration:
 
 ```yaml
@@ -1300,29 +1301,35 @@ tcp:
       entryPoints: [submissions]
       rule: 'HostSNI(`*`)'
       service: submissions
+  serversTransports:
+    proxy-v2:
+      proxyProtocol:
+        version: 2
   services:
     smtp:
       loadBalancer:
-        proxyProtocol:
-          version: 2
+        serversTransport: proxy-v2
         servers:
           - address: 'mail:25'
     submission:
       loadBalancer:
-        proxyProtocol:
-          version: 2
+        serversTransport: proxy-v2
         servers:
           - address: 'mail:587'
     submissions:
       loadBalancer:
-        proxyProtocol:
-          version: 2
+        serversTransport: proxy-v2
         servers:
           - address: 'mail:465'
 ```
 
-Newer Traefik releases also take the version on a TCP `serversTransport`
-the service names; the header sent is the same.
+This was run against Traefik v3.7 in Docker, a client reaching it with
+`openssl s_client` on 465 and with `-starttls smtp` on 25 and 587: the
+server saw the client's address in `onConnect` and every hook, Traefik's
+nowhere. Older v3 releases take the version on the service instead —
+`loadBalancer.proxyProtocol: { version: 2 }` beside `servers` — which
+v3.7 still honours, with a warning that it is deprecated in favour of the
+`serversTransport` above; the header sent is the same.
 
 The matching servers, trusting Traefik's address on the network it shares
 with the mail server (`172.20.0.2` here; give the proxy a fixed address

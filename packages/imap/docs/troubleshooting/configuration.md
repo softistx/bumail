@@ -125,6 +125,30 @@ proxyProtocol: { trusted: ['10.0.0.5'] }, // not [10] nor [['10.0.0.5']]
 A server listens once. For 143 and 993, create two servers from the same
 options, the second with `implicitTls: true`.
 
+## `ImapError: listen(): the server is already starting to listen`
+
+A second `listen` on the same server while the first has not resolved
+yet: with `implicitTls`, `listen` reads the key and certificate before it
+binds. Its `code` is `ALREADY_LISTENING`; the first call binds, this one
+binds nothing. Await `listen` once per server.
+
+## `ImapError: listen(): tls: { key, cert } cannot be used: …`
+
+`listen` on an `implicitTls` server whose `tls.key` or `tls.cert` cannot
+be read — a `Bun.file` that does not exist — or is not a PEM key or
+certificate. The same error, word for word, with `proxyProtocol` or
+without; its `code` is `INVALID_OPTION`, and the rest of the message, and
+its `cause`, are the reason from the file system or `node:tls`. Nothing is
+bound. Pass the PEM text, or a `Bun.file` of a path that exists:
+
+```ts
+const tls = {
+	key: Bun.file('/etc/bumail/tls/privkey.pem'),
+	cert: Bun.file('/etc/bumail/tls/fullchain.pem'),
+};
+await createImapServer({ ...options, tls, implicitTls: true }).listen({ port: 993 });
+```
+
 ## `ImapError: authenticate did not settle within hookTimeout (… s)`
 
 `onError` gets this when `authenticate` neither resolved nor rejected in

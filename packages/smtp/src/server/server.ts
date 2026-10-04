@@ -1,22 +1,45 @@
-import { createSecureContext, type SecureContext } from 'node:tls';
 import type { Socket, TCPSocketListener } from 'bun';
 import { SmtpError } from '../errors';
-import { listenerHandlers } from './admission';
+import { type Listening, listenerHandlers } from './admission';
 import type { Connection } from './connection';
 import { handlers, type SocketState } from './listener';
-import type { SmtpServerOptions, TlsOptions } from './options';
+import type { SmtpServerOptions } from './options';
 import { settingsOf } from './settings';
 import { Slots } from './slots';
+import { tlsContext } from './tls-context';
 
-/** The `node:tls` context implicit TLS behind a proxy runs on: `tls` read whole, files included. */
-async function proxyContext(tls: TlsOptions): Promise<SecureContext> {
-	const read = async (value: TlsOptions['key']) =>
-		typeof value === 'string'
-			? value
-			: Buffer.from(value instanceof Uint8Array ? value : await value.bytes());
-	return createSecureContext({
-		key: await read(tls.key),
-		cert: await read(tls.cert),
+/** A key or certificate `listen` cannot use: `INVALID_OPTION`, the reason as its `cause`. */
+const invalidTls = (message: string, cause: unknown) =>
+	new SmtpError('INVALID_OPTION', message, { cause });
+
+/** Binds the port, once `listen`'s guard passed. */
+async function bind(
+	options: SmtpServerOptions,
+	listening: Omit<Listening, 'proxied'>,
+	port: number,
+	hostname: string,
+): Promise<TCPSocketListener<SocketState>> {
+	// Implicit TLS: the key and certificate are checked first, so one
+	// that cannot be used fails here alike, with a proxy or without.
+	const context =
+		listening.secure && options.tls
+			? await tlsContext(options.tls, invalidTls)
+			: undefined;
+	// Behind a proxy: a clear listener, TLS after the header.
+	const proxied = listening.settings.trusts ? context : undefined;
+	return Bun.listen<SocketState>({
+		hostname,
+		port,
+		...(listening.secure && options.tls && !proxied
+			? { tls: { key: options.tls.key, cert: options.tls.cert } }
+			: {}),
+		socket: {
+			...handlers(listening.settings),
+			...listenerHandlers({
+				...listening,
+				...(proxied ? { proxied } : {}),
+			}),
+		},
 	});
 }
 
@@ -47,40 +70,34 @@ export function createSmtpServer(options: SmtpServerOptions): SmtpServer {
 	/** Implicit TLS sockets still in their handshake, for `stop(true)`. */
 	const handshaking = new Set<Socket<SocketState>>();
 	const secure = options.implicitTls === true;
+	/** `listen` is reading the TLS material, before it binds. */
+	let starting = false;
 	return {
 		get connections() {
 			return slots.size;
 		},
 		async listen({ port, hostname = '0.0.0.0' }) {
-			if (listener) {
+			if (listener || starting) {
 				throw new SmtpError(
 					'ALREADY_LISTENING',
-					`listen(): the server is already listening on ${listener.hostname}:${listener.port}`,
+					listener
+						? `listen(): the server is already listening on ${listener.hostname}:${listener.port}`
+						: 'listen(): the server is already starting to listen',
 				);
 			}
-			// Implicit TLS behind a proxy: a clear listener, TLS after the header.
-			const proxied =
-				secure && options.tls && settings.trusts
-					? await proxyContext(options.tls)
-					: undefined;
-			listener = Bun.listen<SocketState>({
-				hostname,
-				port,
-				...(secure && options.tls && !proxied
-					? { tls: { key: options.tls.key, cert: options.tls.cert } }
-					: {}),
-				socket: {
-					...handlers(settings),
-					...listenerHandlers({
-						settings,
-						slots,
-						handshaking,
-						secure,
-						...(proxied ? { proxied } : {}),
-					}),
-				},
-			});
-			return { port: listener.port, hostname: listener.hostname };
+			// Set before the first await: a second call meanwhile throws, never binds.
+			starting = true;
+			try {
+				listener = await bind(
+					options,
+					{ settings, slots, handshaking, secure },
+					port,
+					hostname,
+				);
+				return { port: listener.port, hostname: listener.hostname };
+			} finally {
+				starting = false;
+			}
 		},
 		stop(closeConnections = false) {
 			listener?.stop(closeConnections);

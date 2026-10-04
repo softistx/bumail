@@ -469,7 +469,7 @@ else.
 ### With Traefik
 
 A Traefik v3 TCP router in front of the server, its service sending
-PROXY protocol version 2. In the static configuration, two entry points:
+PROXY protocol version 2 through a `serversTransport`. In the static configuration, two entry points:
 
 ```yaml
 entryPoints:
@@ -488,26 +488,36 @@ tcp:
   routers:
     imap:
       entryPoints: [imap]
-      rule: HostSNI(`*`)
+      rule: 'HostSNI(`*`)'
       service: imap
     imaps:
       entryPoints: [imaps]
-      rule: HostSNI(`*`)
+      rule: 'HostSNI(`*`)'
       service: imaps
+  serversTransports:
+    proxy-v2:
+      proxyProtocol:
+        version: 2
   services:
     imap:
       loadBalancer:
-        proxyProtocol:
-          version: 2
+        serversTransport: proxy-v2
         servers:
           - address: '10.0.0.20:143'
     imaps:
       loadBalancer:
-        proxyProtocol:
-          version: 2
+        serversTransport: proxy-v2
         servers:
           - address: '10.0.0.20:993'
 ```
+
+This was run against Traefik v3.7 in Docker, a client reaching it with
+`openssl s_client` on 993 and with `-starttls imap` on 143: `authenticate`
+saw the client's address, not Traefik's. Older v3 releases take the
+version on the service instead — `loadBalancer.proxyProtocol: { version:
+2 }` beside `servers` — which v3.7 still honours, with a warning that it
+is deprecated in favour of the `serversTransport` above; the header sent
+is the same.
 
 The server, at `10.0.0.20`, trusts Traefik's address as it sees it,
 `10.0.0.5` here, and nothing else:
