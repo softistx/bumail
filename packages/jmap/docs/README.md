@@ -5,7 +5,7 @@ long one.
 
 | Page | Read it when |
 | --- | --- |
-| [Guide](guide.md) | mounting the server in an alxia app; writing `authenticate`; reading the session; knowing what each method does with the store — mailboxes, emails, threads — how blobs are uploaded and downloaded, what a state is, setting the limits; or checking which RFC a behaviour follows |
+| [Guide](guide.md) | mounting the server in an alxia app; writing `authenticate`; reading the session; knowing what each method does with the store — mailboxes, emails, threads — how blobs are uploaded and downloaded, what a state is, setting the limits; reading the OpenAPI document of the routes; or checking which RFC a behaviour follows |
 | [Troubleshooting](troubleshooting.md) | you have an error's text and want its entry: the index of every entry, by its exact text |
 | [Troubleshooting: configuration and onError](troubleshooting/configuration.md) | `jmap()` threw, or `onError` was called |
 | [Troubleshooting: authentication](troubleshooting/authentication.md) | a client got a 401, a 403 or a 503 |

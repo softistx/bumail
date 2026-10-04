@@ -1,0 +1,1206 @@
+{
+	"openapi": "3.1.1",
+	"info": {
+		"title": "@bumail/jmap",
+		"version": "1.0.0",
+		"summary": "The HTTP surface of the JMAP server of @bumail/jmap (RFC 8620, RFC 8621).",
+		"description": "The routes `jmap(options)` adds to the alxia app that mounts it: the session at `/.well-known/jmap`, and, under `basePath` (`/jmap` by default), the API, blob download and blob upload. It is documentation and a contract, kept in step with the routes by a spec of the package; the server does not validate requests against it.\n\nThe API is described as RFC 8620 §3 frames it: a Request of method calls and a Response of method responses, each an Invocation `[name, arguments, callId]`. The arguments of each method are left generic on purpose: an argument named `#name` is a back-reference (RFC 8620 §3.7) resolved from an earlier response, so a call's arguments are only known once the calls before it ran, and a method's error is an `error` invocation inside a 200, not an HTTP status. RFC 8620 and RFC 8621 define each method's arguments.\n\nThe limits stated are the defaults of the `limits` option; the session announces the ones in effect. The session announces an `eventSourceUrl`, as RFC 8620 requires, which no route serves yet: push is a later release.\n\nEvery route authenticates its request first, with HTTP Basic (RFC 7617) or a Bearer token (RFC 6750), and answers 401, 403 or 503 before anything else.",
+		"license": {
+			"name": "MIT",
+			"identifier": "MIT"
+		}
+	},
+	"externalDocs": {
+		"description": "The guide of @bumail/jmap",
+		"url": "https://github.com/softistx/bumail/blob/develop/packages/jmap/docs/guide.md"
+	},
+	"servers": [
+		{
+			"url": "{origin}",
+			"description": "The session is at `/.well-known/jmap` of the app that mounts the server, whatever `basePath` is.",
+			"variables": {
+				"origin": {
+					"default": "https://mail.example.com",
+					"description": "The `origin` option: the public origin the session's URLs start with."
+				}
+			}
+		}
+	],
+	"security": [
+		{
+			"basic": []
+		},
+		{
+			"bearer": []
+		}
+	],
+	"tags": [
+		{
+			"name": "session",
+			"description": "The Session resource (RFC 8620 §2)."
+		},
+		{
+			"name": "api",
+			"description": "Method calls (RFC 8620 §3)."
+		},
+		{
+			"name": "blobs",
+			"description": "Binary data (RFC 8620 §6)."
+		}
+	],
+	"paths": {
+		"/.well-known/jmap": {
+			"get": {
+				"operationId": "getSession",
+				"tags": ["session"],
+				"summary": "The session",
+				"description": "The Session object (RFC 8620 §2) of the authenticated account: the capabilities with the core limits, the one account `authenticate` answered, and the URLs of the API, download, upload and event source, built from the `origin` and `basePath` options. Its `state` is a hash of the rest; every API response carries it as `sessionState`.",
+				"responses": {
+					"200": {
+						"description": "The session.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Session"
+								}
+							}
+						}
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/BasicOnClear"
+					},
+					"503": {
+						"$ref": "#/components/responses/AuthUnavailable"
+					}
+				}
+			}
+		},
+		"/api": {
+			"servers": [
+				{
+					"url": "{origin}{basePath}",
+					"description": "The API, download and upload are under the `basePath` option. With another `basePath`, set this variable: the paths stay as they are.",
+					"variables": {
+						"origin": {
+							"default": "https://mail.example.com",
+							"description": "The `origin` option."
+						},
+						"basePath": {
+							"default": "/jmap",
+							"description": "The `basePath` option: a path such as `/jmap`, with no trailing slash."
+						}
+					}
+				}
+			],
+			"post": {
+				"operationId": "api",
+				"tags": ["api"],
+				"summary": "Method calls",
+				"description": "One JMAP Request (RFC 8620 §3.3): its calls run in order, each seeing the responses before it. A request refused as a whole is a problem (RFC 8620 §3.6.1) and no call runs; a call that fails is an `error` invocation in the 200 (RFC 8620 §3.6.2), and the calls after it still run.\n\nThe body is held to `maxSizeRequest` (10 MB): a `Content-Length` past it is refused unread, a chunked body at the first chunk past it. It must be UTF-8 JSON nesting at most `maxJsonDepth` (64) levels with at most `maxJsonTokens` (100 000) tokens, then a Request. Its `Content-Type` is not read. At most `maxConcurrentRequests` (4) requests of one account run at once.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/Request"
+							},
+							"example": {
+								"using": [
+									"urn:ietf:params:jmap:core",
+									"urn:ietf:params:jmap:mail"
+								],
+								"methodCalls": [
+									[
+										"Email/query",
+										{
+											"accountId": "A",
+											"filter": {
+												"inMailbox": "INBOX-ID"
+											},
+											"limit": 10
+										},
+										"q"
+									],
+									[
+										"Email/get",
+										{
+											"accountId": "A",
+											"#ids": {
+												"resultOf": "q",
+												"name": "Email/query",
+												"path": "/ids"
+											},
+											"properties": ["subject", "from"]
+										},
+										"g"
+									]
+								]
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "The Response (RFC 8620 §3.4): one method response per call, in order, each the method's arguments or an `error`.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Response"
+								},
+								"example": {
+									"methodResponses": [
+										[
+											"Email/query",
+											{
+												"accountId": "A",
+												"queryState": "12",
+												"canCalculateChanges": false,
+												"position": 0,
+												"ids": ["E1"]
+											},
+											"q"
+										],
+										[
+											"error",
+											{
+												"type": "unknownMethod"
+											},
+											"g"
+										]
+									],
+									"sessionState": "9f86d081884c7d65"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "The request is refused as a whole (RFC 8620 §3.6.1): not UTF-8 JSON (`notJSON`), not a Request (`notRequest`), a capability in `using` the server does not have (`unknownCapability`), or a limit broken (`limit`): `maxJsonDepth`, `maxJsonTokens`, `maxCallsInRequest`, or `maxSizeResponse` once the response grows past it, the calls after that not run.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"examples": {
+									"notJSON": {
+										"value": {
+											"type": "urn:ietf:params:jmap:error:notJSON",
+											"status": 400,
+											"detail": "The request body is not JSON"
+										}
+									},
+									"notRequest": {
+										"value": {
+											"type": "urn:ietf:params:jmap:error:notRequest",
+											"status": 400,
+											"detail": "methodCalls is not an array"
+										}
+									},
+									"unknownCapability": {
+										"value": {
+											"type": "urn:ietf:params:jmap:error:unknownCapability",
+											"status": 400,
+											"detail": "The server does not support the capability \"urn:ietf:params:jmap:contacts\""
+										}
+									},
+									"limit": {
+										"value": {
+											"type": "urn:ietf:params:jmap:error:limit",
+											"status": 400,
+											"detail": "The request makes more than 16 method calls",
+											"limit": "maxCallsInRequest"
+										}
+									}
+								}
+							}
+						}
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/BasicOnClear"
+					},
+					"413": {
+						"description": "The body is larger than `maxSizeRequest`: a `limit` problem naming it.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "urn:ietf:params:jmap:error:limit",
+									"status": 413,
+									"detail": "The request is larger than 10000000 bytes",
+									"limit": "maxSizeRequest"
+								}
+							}
+						}
+					},
+					"429": {
+						"description": "The account has `maxConcurrentRequests` requests in flight already: a `limit` problem naming it. The body is not read.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "urn:ietf:params:jmap:error:limit",
+									"status": 429,
+									"detail": "The account has 4 requests in flight already",
+									"limit": "maxConcurrentRequests"
+								}
+							}
+						}
+					},
+					"503": {
+						"$ref": "#/components/responses/AuthUnavailable"
+					}
+				}
+			}
+		},
+		"/download/{accountId}/{blobId}/{name}": {
+			"servers": [
+				{
+					"url": "{origin}{basePath}",
+					"description": "The API, download and upload are under the `basePath` option. With another `basePath`, set this variable: the paths stay as they are.",
+					"variables": {
+						"origin": {
+							"default": "https://mail.example.com",
+							"description": "The `origin` option."
+						},
+						"basePath": {
+							"default": "/jmap",
+							"description": "The `basePath` option: a path such as `/jmap`, with no trailing slash."
+						}
+					}
+				}
+			],
+			"get": {
+				"operationId": "download",
+				"tags": ["blobs"],
+				"summary": "Download a blob",
+				"description": "The session's `downloadUrl` (RFC 8620 §6.2), `{basePath}/download/{accountId}/{blobId}/{name}?accept={type}`: an upload of the account, an email's content by its `blobId`, or one part of an email by the part's `blobId`, decoded from its transfer encoding. One `Range: bytes=` range is served as a 206.\n\nEvery download is `nosniff` and sandboxed by its `Content-Security-Policy`, and is `inline` only for `image/png`, `image/jpeg`, `image/gif`, `image/webp` and `text/plain`; every other type is an `attachment`.",
+				"parameters": [
+					{
+						"name": "accountId",
+						"in": "path",
+						"required": true,
+						"description": "The authenticated account: any other, or one that is not an Id, is a 404.",
+						"schema": {
+							"$ref": "#/components/schemas/Id"
+						}
+					},
+					{
+						"name": "blobId",
+						"in": "path",
+						"required": true,
+						"description": "The blob: one the account does not have, or one that is not an Id, is a 404.",
+						"schema": {
+							"$ref": "#/components/schemas/Id"
+						}
+					},
+					{
+						"name": "name",
+						"in": "path",
+						"required": true,
+						"description": "The file name for `Content-Disposition`, any text, cut to 255 code points.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "accept",
+						"in": "query",
+						"required": false,
+						"description": "The `Content-Type` to serve the blob as, a media type without parameters. Left out or not a media type, the type is the part's or the upload's, else `application/octet-stream`.",
+						"schema": {
+							"type": "string",
+							"example": "application/pdf"
+						}
+					},
+					{
+						"name": "Range",
+						"in": "header",
+						"required": false,
+						"description": "One byte range, `bytes=start-end`, `bytes=start-` or `bytes=-suffix`. Several ranges, or a header that is not one of these, is ignored and the whole blob served.",
+						"schema": {
+							"type": "string",
+							"example": "bytes=0-1023"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "The whole blob.",
+						"headers": {
+							"Content-Disposition": {
+								"$ref": "#/components/headers/ContentDisposition"
+							},
+							"X-Content-Type-Options": {
+								"$ref": "#/components/headers/NoSniff"
+							},
+							"Content-Security-Policy": {
+								"$ref": "#/components/headers/Sandbox"
+							},
+							"Cache-Control": {
+								"$ref": "#/components/headers/Immutable"
+							},
+							"Accept-Ranges": {
+								"$ref": "#/components/headers/AcceptRanges"
+							}
+						},
+						"content": {
+							"*/*": {
+								"schema": {
+									"$ref": "#/components/schemas/Bytes"
+								}
+							}
+						}
+					},
+					"206": {
+						"description": "The range asked for.",
+						"headers": {
+							"Content-Range": {
+								"description": "`bytes start-end/size`.",
+								"schema": {
+									"type": "string"
+								}
+							},
+							"Content-Disposition": {
+								"$ref": "#/components/headers/ContentDisposition"
+							},
+							"X-Content-Type-Options": {
+								"$ref": "#/components/headers/NoSniff"
+							},
+							"Content-Security-Policy": {
+								"$ref": "#/components/headers/Sandbox"
+							},
+							"Cache-Control": {
+								"$ref": "#/components/headers/Immutable"
+							},
+							"Accept-Ranges": {
+								"$ref": "#/components/headers/AcceptRanges"
+							}
+						},
+						"content": {
+							"*/*": {
+								"schema": {
+									"$ref": "#/components/schemas/Bytes"
+								}
+							}
+						}
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/BasicOnClear"
+					},
+					"404": {
+						"description": "No blob of the account has this id, the account is not the authenticated one, or an id is not an Id.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "about:blank",
+									"status": 404,
+									"detail": "No blob has this id"
+								}
+							}
+						}
+					},
+					"416": {
+						"description": "The range starts past the end of the blob, ends before it starts, or is an empty suffix (`bytes=-0`). The body is empty.",
+						"headers": {
+							"Content-Range": {
+								"description": "`bytes */size`.",
+								"schema": {
+									"type": "string"
+								}
+							}
+						}
+					},
+					"503": {
+						"$ref": "#/components/responses/AuthUnavailable"
+					}
+				}
+			}
+		},
+		"/upload/{accountId}": {
+			"servers": [
+				{
+					"url": "{origin}{basePath}",
+					"description": "The API, download and upload are under the `basePath` option. With another `basePath`, set this variable: the paths stay as they are.",
+					"variables": {
+						"origin": {
+							"default": "https://mail.example.com",
+							"description": "The `origin` option."
+						},
+						"basePath": {
+							"default": "/jmap",
+							"description": "The `basePath` option: a path such as `/jmap`, with no trailing slash."
+						}
+					}
+				}
+			],
+			"post": {
+				"operationId": "upload",
+				"tags": ["blobs"],
+				"summary": "Upload a blob",
+				"description": "The session's `uploadUrl` (RFC 8620 §6.1). The body is held to `maxSizeUpload` (25 MiB) as the API's is to `maxSizeRequest`, and kept in memory for `uploadTtl` (3600 s); an account holds at most `uploadQuota` (100 MiB) of uploads at once, and has at most `maxConcurrentUpload` (4) in flight. The `blobId` is the SHA-256 of the bytes, so the same bytes uploaded twice are one upload.",
+				"parameters": [
+					{
+						"name": "accountId",
+						"in": "path",
+						"required": true,
+						"description": "The authenticated account: any other, or one that is not an Id, is a 404.",
+						"schema": {
+							"$ref": "#/components/schemas/Id"
+						}
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"description": "The bytes. Their type is the `Content-Type` without its parameters, lowercased, or `application/octet-stream` when it is not a media type.",
+					"content": {
+						"*/*": {
+							"schema": {
+								"$ref": "#/components/schemas/Bytes"
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "The upload (RFC 8620 §6.1).",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Upload"
+								}
+							}
+						}
+					},
+					"401": {
+						"$ref": "#/components/responses/Unauthorized"
+					},
+					"403": {
+						"$ref": "#/components/responses/BasicOnClear"
+					},
+					"404": {
+						"description": "The account is not the authenticated one, or is not an Id. The body is not read.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "about:blank",
+									"status": 404,
+									"detail": "No account has this id"
+								}
+							}
+						}
+					},
+					"413": {
+						"description": "A `limit` problem: the body is larger than `maxSizeUpload`, or the account holds `uploadQuota` bytes of uploads already.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"examples": {
+									"maxSizeUpload": {
+										"value": {
+											"type": "urn:ietf:params:jmap:error:limit",
+											"status": 413,
+											"detail": "The upload is larger than 26214400 bytes",
+											"limit": "maxSizeUpload"
+										}
+									},
+									"uploadQuota": {
+										"value": {
+											"type": "urn:ietf:params:jmap:error:limit",
+											"status": 413,
+											"detail": "The account holds 104857600 bytes of uploads already: use them or wait for them to expire",
+											"limit": "uploadQuota"
+										}
+									}
+								}
+							}
+						}
+					},
+					"429": {
+						"description": "The account has `maxConcurrentUpload` uploads in flight already: a `limit` problem naming it. The body is not read.",
+						"headers": {
+							"Cache-Control": {
+								"$ref": "#/components/headers/NoStore"
+							}
+						},
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/Problem"
+								},
+								"example": {
+									"type": "urn:ietf:params:jmap:error:limit",
+									"status": 429,
+									"detail": "The account has 4 uploads in flight already",
+									"limit": "maxConcurrentUpload"
+								}
+							}
+						}
+					},
+					"503": {
+						"$ref": "#/components/responses/AuthUnavailable"
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"securitySchemes": {
+			"basic": {
+				"type": "http",
+				"scheme": "basic",
+				"description": "HTTP Basic (RFC 7617): base64 of UTF-8 `user:password`, the password everything after the first `:`. Refused with a 403 on a clear request — one whose URL is not `https:`, or that the `secure` option says is not — before `authenticate` is called, unless `allowInsecureBasic` is set, for local tests only."
+			},
+			"bearer": {
+				"type": "http",
+				"scheme": "bearer",
+				"description": "A Bearer token (RFC 6750), taken on any request: the `b64token` syntax, `[A-Za-z0-9-._~+/]+=*`."
+			}
+		},
+		"headers": {
+			"NoStore": {
+				"description": "`no-store`.",
+				"schema": {
+					"type": "string",
+					"const": "no-store"
+				}
+			},
+			"ContentDisposition": {
+				"description": "`inline` or `attachment`, with `filename` in ASCII and `filename*` in UTF-8 (RFC 6266, RFC 8187).",
+				"schema": {
+					"type": "string"
+				}
+			},
+			"NoSniff": {
+				"description": "`nosniff`.",
+				"schema": {
+					"type": "string",
+					"const": "nosniff"
+				}
+			},
+			"Sandbox": {
+				"description": "`default-src 'none'; sandbox`: a blob never runs as a page of the server's origin.",
+				"schema": {
+					"type": "string",
+					"const": "default-src 'none'; sandbox"
+				}
+			},
+			"Immutable": {
+				"description": "`private, immutable, max-age=31536000`: a blob id names the same bytes for good.",
+				"schema": {
+					"type": "string",
+					"const": "private, immutable, max-age=31536000"
+				}
+			},
+			"AcceptRanges": {
+				"description": "`bytes`.",
+				"schema": {
+					"type": "string",
+					"const": "bytes"
+				}
+			}
+		},
+		"responses": {
+			"Unauthorized": {
+				"description": "No credentials the server can read — no `Authorization`, another scheme, a header past 8 KiB, Basic that is not base64 of UTF-8 `user:password` — (`Authentication required`), or `authenticate` refused them (`Authentication failed`).",
+				"headers": {
+					"WWW-Authenticate": {
+						"description": "Sent twice: `Basic realm=\"JMAP\", charset=\"UTF-8\"` and `Bearer realm=\"JMAP\"`.",
+						"schema": {
+							"type": "string"
+						}
+					},
+					"Cache-Control": {
+						"$ref": "#/components/headers/NoStore"
+					}
+				},
+				"content": {
+					"application/problem+json": {
+						"schema": {
+							"$ref": "#/components/schemas/Problem"
+						},
+						"example": {
+							"type": "about:blank",
+							"status": 401,
+							"detail": "Authentication required"
+						}
+					}
+				}
+			},
+			"BasicOnClear": {
+				"description": "Basic credentials on a clear request, refused unread: `authenticate` is not called.",
+				"headers": {
+					"Cache-Control": {
+						"$ref": "#/components/headers/NoStore"
+					}
+				},
+				"content": {
+					"application/problem+json": {
+						"schema": {
+							"$ref": "#/components/schemas/Problem"
+						},
+						"example": {
+							"type": "about:blank",
+							"status": 403,
+							"detail": "Basic authentication is refused on a clear connection: use HTTPS"
+						}
+					}
+				}
+			},
+			"AuthUnavailable": {
+				"description": "`authenticate` threw, did not settle within `hookTimeout` (30 s), or named an account the store does not have; `onError` is told.",
+				"headers": {
+					"Retry-After": {
+						"description": "`5` seconds.",
+						"schema": {
+							"type": "string",
+							"const": "5"
+						}
+					},
+					"Cache-Control": {
+						"$ref": "#/components/headers/NoStore"
+					}
+				},
+				"content": {
+					"application/problem+json": {
+						"schema": {
+							"$ref": "#/components/schemas/Problem"
+						},
+						"example": {
+							"type": "about:blank",
+							"status": 503,
+							"detail": "Temporary authentication failure"
+						}
+					}
+				}
+			}
+		},
+		"schemas": {
+			"Id": {
+				"description": "An Id (RFC 8620 §1.2): 1 to 255 characters of the URL-safe base64 alphabet.",
+				"type": "string",
+				"pattern": "^[A-Za-z0-9_-]{1,255}$"
+			},
+			"UnsignedInt": {
+				"description": "An UnsignedInt (RFC 8620 §1.3).",
+				"type": "integer",
+				"minimum": 0,
+				"maximum": 9007199254740991
+			},
+			"Bytes": {
+				"description": "Raw bytes.",
+				"type": "string",
+				"contentMediaType": "application/octet-stream"
+			},
+			"Session": {
+				"description": "The Session object (RFC 8620 §2).",
+				"type": "object",
+				"required": [
+					"capabilities",
+					"accounts",
+					"primaryAccounts",
+					"username",
+					"apiUrl",
+					"downloadUrl",
+					"uploadUrl",
+					"eventSourceUrl",
+					"state"
+				],
+				"properties": {
+					"capabilities": {
+						"type": "object",
+						"required": [
+							"urn:ietf:params:jmap:core",
+							"urn:ietf:params:jmap:mail"
+						],
+						"properties": {
+							"urn:ietf:params:jmap:core": {
+								"$ref": "#/components/schemas/CoreCapability"
+							},
+							"urn:ietf:params:jmap:mail": {
+								"description": "RFC 8621 §1.3.1: an empty object.",
+								"type": "object"
+							}
+						}
+					},
+					"accounts": {
+						"description": "One account: the one `authenticate` answered, by its id.",
+						"type": "object",
+						"minProperties": 1,
+						"maxProperties": 1,
+						"additionalProperties": {
+							"$ref": "#/components/schemas/Account"
+						}
+					},
+					"primaryAccounts": {
+						"type": "object",
+						"required": ["urn:ietf:params:jmap:mail"],
+						"additionalProperties": {
+							"$ref": "#/components/schemas/Id"
+						}
+					},
+					"username": {
+						"description": "The account's name in the store.",
+						"type": "string"
+					},
+					"apiUrl": {
+						"description": "`{origin}{basePath}/api`.",
+						"type": "string"
+					},
+					"downloadUrl": {
+						"description": "`{origin}{basePath}/download/{accountId}/{blobId}/{name}?accept={type}`, an RFC 6570 level 1 template.",
+						"type": "string"
+					},
+					"uploadUrl": {
+						"description": "`{origin}{basePath}/upload/{accountId}`.",
+						"type": "string"
+					},
+					"eventSourceUrl": {
+						"description": "`{origin}{basePath}/eventsource?types={types}&closeafter={closeafter}&ping={ping}`: required by RFC 8620, and not served until push lands.",
+						"type": "string"
+					},
+					"state": {
+						"description": "A hash of the rest of the session: it changes only when the limits, the URLs or the account's name do.",
+						"type": "string"
+					}
+				}
+			},
+			"CoreCapability": {
+				"description": "`urn:ietf:params:jmap:core` (RFC 8620 §2): the limits in effect.",
+				"type": "object",
+				"required": [
+					"maxSizeUpload",
+					"maxConcurrentUpload",
+					"maxSizeRequest",
+					"maxConcurrentRequests",
+					"maxCallsInRequest",
+					"maxObjectsInGet",
+					"maxObjectsInSet",
+					"collationAlgorithms"
+				],
+				"properties": {
+					"maxSizeUpload": {
+						"$ref": "#/components/schemas/UnsignedInt",
+						"description": "Default 26214400 (25 MiB)."
+					},
+					"maxConcurrentUpload": {
+						"$ref": "#/components/schemas/UnsignedInt",
+						"description": "Default 4."
+					},
+					"maxSizeRequest": {
+						"$ref": "#/components/schemas/UnsignedInt",
+						"description": "Default 10000000 (10 MB)."
+					},
+					"maxConcurrentRequests": {
+						"$ref": "#/components/schemas/UnsignedInt",
+						"description": "Default 4."
+					},
+					"maxCallsInRequest": {
+						"$ref": "#/components/schemas/UnsignedInt",
+						"description": "Default 16."
+					},
+					"maxObjectsInGet": {
+						"$ref": "#/components/schemas/UnsignedInt",
+						"description": "Default 500."
+					},
+					"maxObjectsInSet": {
+						"$ref": "#/components/schemas/UnsignedInt",
+						"description": "Default 500."
+					},
+					"collationAlgorithms": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						},
+						"example": ["i;unicode-casemap"]
+					}
+				}
+			},
+			"Account": {
+				"description": "An Account (RFC 8620 §2).",
+				"type": "object",
+				"required": ["name", "isPersonal", "isReadOnly", "accountCapabilities"],
+				"properties": {
+					"name": {
+						"type": "string"
+					},
+					"isPersonal": {
+						"type": "boolean",
+						"const": true
+					},
+					"isReadOnly": {
+						"type": "boolean",
+						"const": false
+					},
+					"accountCapabilities": {
+						"type": "object",
+						"required": ["urn:ietf:params:jmap:mail"],
+						"properties": {
+							"urn:ietf:params:jmap:mail": {
+								"$ref": "#/components/schemas/MailAccountCapability"
+							}
+						}
+					}
+				}
+			},
+			"MailAccountCapability": {
+				"description": "`urn:ietf:params:jmap:mail` of an account (RFC 8621 §1.3.1).",
+				"type": "object",
+				"required": [
+					"maxMailboxesPerEmail",
+					"maxMailboxDepth",
+					"maxSizeMailboxName",
+					"maxSizeAttachmentsPerEmail",
+					"emailQuerySortOptions",
+					"mayCreateTopLevelMailbox"
+				],
+				"properties": {
+					"maxMailboxesPerEmail": {
+						"type": ["integer", "null"]
+					},
+					"maxMailboxDepth": {
+						"type": ["integer", "null"]
+					},
+					"maxSizeMailboxName": {
+						"type": "integer",
+						"const": 255
+					},
+					"maxSizeAttachmentsPerEmail": {
+						"$ref": "#/components/schemas/UnsignedInt",
+						"description": "`maxSizeUpload`."
+					},
+					"emailQuerySortOptions": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						},
+						"example": ["receivedAt", "size", "from", "to", "subject"]
+					},
+					"mayCreateTopLevelMailbox": {
+						"type": "boolean"
+					}
+				}
+			},
+			"Request": {
+				"description": "A Request (RFC 8620 §3.3). A request that is not one is a `notRequest` problem; one past `maxCallsInRequest` (16) calls a `limit` problem.",
+				"type": "object",
+				"required": ["using", "methodCalls"],
+				"properties": {
+					"using": {
+						"description": "The capabilities the calls use. A name the server does not have is an `unknownCapability` problem.",
+						"type": "array",
+						"maxItems": 64,
+						"items": {
+							"$ref": "#/components/schemas/Name",
+							"examples": [
+								"urn:ietf:params:jmap:core",
+								"urn:ietf:params:jmap:mail"
+							]
+						}
+					},
+					"methodCalls": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/Invocation"
+						}
+					},
+					"createdIds": {
+						"description": "Creation ids to ids, from an earlier request: at most `maxObjectsInSet` (500).",
+						"type": "object",
+						"propertyNames": {
+							"$ref": "#/components/schemas/Name"
+						},
+						"additionalProperties": {
+							"description": "The id: at most 255 characters.",
+							"type": "string",
+							"maxLength": 255
+						}
+					}
+				}
+			},
+			"Name": {
+				"description": "A method name, a capability, or a creation id: 1 to 255 characters.",
+				"type": "string",
+				"minLength": 1,
+				"maxLength": 255
+			},
+			"CallId": {
+				"description": "A call id: at most 255 characters, which the response gives back.",
+				"type": "string",
+				"maxLength": 255
+			},
+			"Invocation": {
+				"description": "A method call (RFC 8620 §3.2): `[name, arguments, callId]`. A method this server does not have, or whose capability is not in `using`, answers `unknownMethod`. The server has `Core/echo`, `Mailbox/get`, `Mailbox/changes`, `Mailbox/query`, `Mailbox/set`, `Email/get`, `Email/changes`, `Email/query`, `Email/set`, `Email/import` and `Thread/get`.",
+				"type": "array",
+				"prefixItems": [
+					{
+						"$ref": "#/components/schemas/Name"
+					},
+					{
+						"$ref": "#/components/schemas/Arguments"
+					},
+					{
+						"$ref": "#/components/schemas/CallId"
+					}
+				],
+				"minItems": 3,
+				"maxItems": 3
+			},
+			"Arguments": {
+				"description": "A method's arguments, as RFC 8620 and RFC 8621 define them for it. An argument whose name starts with `#` is a back-reference to an earlier response (RFC 8620 §3.7), and gives the argument without the `#`.",
+				"type": "object",
+				"patternProperties": {
+					"^#": {
+						"$ref": "#/components/schemas/ResultReference"
+					}
+				}
+			},
+			"ResultReference": {
+				"description": "A ResultReference (RFC 8620 §3.7): the response with the call id `resultOf`, which must be named `name`, read at `path`, an RFC 6901 JSON Pointer where `*` maps the rest over an array. It expands to at most `maxReferenceItems` (5000) values, and the references of one request to at most `maxReferenceBytes` (4 MiB) of JSON; past either, or when it does not resolve, the call answers `invalidResultReference`.",
+				"type": "object",
+				"required": ["resultOf", "name", "path"],
+				"properties": {
+					"resultOf": {
+						"type": "string"
+					},
+					"name": {
+						"type": "string"
+					},
+					"path": {
+						"type": "string"
+					}
+				}
+			},
+			"Response": {
+				"description": "A Response (RFC 8620 §3.4). It grows to at most `maxSizeResponse` (64 MiB) of JSON: past it, the request is a `limit` problem.",
+				"type": "object",
+				"required": ["methodResponses", "sessionState"],
+				"properties": {
+					"methodResponses": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ResponseInvocation"
+						}
+					},
+					"createdIds": {
+						"description": "Only when the request gave `createdIds`: those, and every creation id the request created.",
+						"type": "object",
+						"additionalProperties": {
+							"type": "string"
+						}
+					},
+					"sessionState": {
+						"description": "The session's `state`.",
+						"type": "string"
+					}
+				}
+			},
+			"ResponseInvocation": {
+				"description": "One call's response, with its call id: the method's response, or an `error`.",
+				"oneOf": [
+					{
+						"$ref": "#/components/schemas/MethodResponse"
+					},
+					{
+						"$ref": "#/components/schemas/ErrorResponse"
+					}
+				]
+			},
+			"MethodResponse": {
+				"description": "`[name, arguments, callId]`: the method's own response arguments.",
+				"type": "array",
+				"prefixItems": [
+					{
+						"allOf": [
+							{
+								"$ref": "#/components/schemas/Name"
+							}
+						],
+						"not": {
+							"const": "error"
+						}
+					},
+					{
+						"type": "object"
+					},
+					{
+						"$ref": "#/components/schemas/CallId"
+					}
+				],
+				"minItems": 3,
+				"maxItems": 3
+			},
+			"ErrorResponse": {
+				"description": "`[\"error\", MethodError, callId]` (RFC 8620 §3.6.2): the call failed, the rest of the request went on.",
+				"type": "array",
+				"prefixItems": [
+					{
+						"const": "error"
+					},
+					{
+						"$ref": "#/components/schemas/MethodError"
+					},
+					{
+						"$ref": "#/components/schemas/CallId"
+					}
+				],
+				"minItems": 3,
+				"maxItems": 3
+			},
+			"MethodError": {
+				"description": "A method-level error (RFC 8620 §3.6.2, RFC 8621), inside a 200. `serverFail` is the server's or the store's failure, which `onError` is told of.",
+				"type": "object",
+				"required": ["type"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"enum": [
+							"serverUnavailable",
+							"serverFail",
+							"serverPartialFail",
+							"unknownMethod",
+							"invalidArguments",
+							"invalidResultReference",
+							"forbidden",
+							"accountNotFound",
+							"accountNotSupportedByMethod",
+							"accountReadOnly",
+							"requestTooLarge",
+							"cannotCalculateChanges",
+							"stateMismatch",
+							"anchorNotFound",
+							"unsupportedSort",
+							"unsupportedFilter",
+							"tooManyChanges",
+							"tooLarge"
+						]
+					},
+					"description": {
+						"type": "string"
+					}
+				}
+			},
+			"Problem": {
+				"description": "An RFC 7807 problem details object. The JMAP request-level errors (RFC 8620 §3.6.1) have their `urn:ietf:params:jmap:error:` type; an authentication refusal or a 404 is `about:blank`. Client text repeated in `detail` is cut after 100 characters.",
+				"type": "object",
+				"required": ["type", "status", "detail"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"enum": [
+							"urn:ietf:params:jmap:error:notJSON",
+							"urn:ietf:params:jmap:error:notRequest",
+							"urn:ietf:params:jmap:error:unknownCapability",
+							"urn:ietf:params:jmap:error:limit",
+							"about:blank"
+						]
+					},
+					"status": {
+						"type": "integer"
+					},
+					"detail": {
+						"type": "string"
+					},
+					"limit": {
+						"description": "For `urn:ietf:params:jmap:error:limit`: the limit broken, by its name in the session or in the `limits` option.",
+						"type": "string",
+						"enum": [
+							"maxSizeRequest",
+							"maxConcurrentRequests",
+							"maxCallsInRequest",
+							"maxJsonDepth",
+							"maxJsonTokens",
+							"maxSizeResponse",
+							"maxSizeUpload",
+							"maxConcurrentUpload",
+							"uploadQuota"
+						]
+					}
+				}
+			},
+			"Upload": {
+				"description": "An upload's answer (RFC 8620 §6.1).",
+				"type": "object",
+				"required": ["accountId", "blobId", "type", "size"],
+				"properties": {
+					"accountId": {
+						"$ref": "#/components/schemas/Id"
+					},
+					"blobId": {
+						"$ref": "#/components/schemas/Id"
+					},
+					"type": {
+						"type": "string"
+					},
+					"size": {
+						"$ref": "#/components/schemas/UnsignedInt"
+					}
+				}
+			}
+		}
+	}
+}

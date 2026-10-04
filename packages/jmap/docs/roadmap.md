@@ -73,6 +73,15 @@ and bounded. Each comes out once the store contract grows it.
 
 Merged, not yet published.
 
+- **An OpenAPI 3.1 document of the routes** — `@bumail/jmap/openapi.json`
+  describes the session, the API's Request and Response envelopes with
+  the RFC 8620 problems and method errors, the download with `Range`, the
+  upload, the Basic and Bearer schemes, and `basePath` as a server
+  variable: for a viewer, a gateway or a client generator. A spec keeps it
+  in step with the routes, both ways.
+
+### 0.2.0
+
 - **Unread counts exactly as RFC 8621 §2 defines them** — a mailbox's
   `unreadEmails` and `unreadThreads` count an email as read whenever it
   has `$seen`, however the store keeps it (the IMAP `\Seen` flag, or a

@@ -77,6 +77,7 @@
       "version": "0.2.0",
       "devDependencies": {
         "@alxia/core": "^0.3.0",
+        "@alxia/openapi-routes": "^0.2.0",
         "@bumail/mime": "workspace:^",
         "@bumail/store": "workspace:^",
         "@types/bun": "^1.4.2",
@@ -158,6 +159,8 @@
   },
   "packages": {
     "@alxia/core": ["@alxia/core@0.3.0", "", { "peerDependencies": { "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-4nKvxrHaqVfBKqZwSXCGsv85y/0P1+hTEe25GK2rOZkwf+uhpvtV5nUhjWaPAmbF/c6+k2FVgdELIGR2pi3AFg=="],
+
+    "@alxia/openapi-routes": ["@alxia/openapi-routes@0.2.0", "", { "peerDependencies": { "@alxia/core": "^0.3.0", "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-vw8Pre9AeEDbpCTydbTCoiuW0J+cqLhxA8nYnScDz52G0bSAyvDvO+TqWRgjjX630n4RBM8VKV08+vo62QyHcQ=="],
 
     "@biomejs/biome": ["@biomejs/biome@2.5.15", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.15", "@biomejs/cli-darwin-x64": "2.5.15", "@biomejs/cli-linux-arm64": "2.5.15", "@biomejs/cli-linux-arm64-musl": "2.5.15", "@biomejs/cli-linux-x64": "2.5.15", "@biomejs/cli-linux-x64-musl": "2.5.15", "@biomejs/cli-win32-arm64": "2.5.15", "@biomejs/cli-win32-x64": "2.5.15" }, "bin": { "biome": "bin/biome" } }, "sha512-WZTW4slm/pdkh92K6t/3aEN++44JD1PQ7squ7RCMLI1flHGl43DVOIGXvCjHiZgBMO1V4uYxoFNtqrIA4qGuIQ=="],
 

@@ -2,7 +2,8 @@
 
 The long version of the [README](../README.md): how `@bumail/jmap` is
 mounted, how it authenticates, what the session says, what each method
-does with the store, how blobs travel, the limits, and the RFCs it follows.
+does with the store, how blobs travel, the limits, its OpenAPI document,
+and the RFCs it follows.
 
 - [Mounting the server](#mounting-the-server)
 - [Authenticating](#authenticating)
@@ -15,6 +16,7 @@ does with the store, how blobs travel, the limits, and the RFCs it follows.
 - [States and changes](#states-and-changes)
 - [Limits](#limits)
 - [onError](#onerror)
+- [The OpenAPI document](#the-openapi-document)
 - [RFCs followed, and what is not](#rfcs-followed-and-what-is-not)
 
 ## Mounting the server
@@ -468,6 +470,56 @@ wrong outside the client's control:
 A client that hangs up while sending an API or upload body is not an
 error: `onError` is not told, alxia logs nothing, and the host app's
 `onResponse` sees a 499 with no body.
+
+## The OpenAPI document
+
+`openapi/jmap.json`, exported as `@bumail/jmap/openapi.json`, is an
+OpenAPI 3.1 document of the four routes `jmap()` adds. It is written by
+hand, as documentation and a contract: the server never reads it, and
+validates nothing against it.
+
+```ts
+import document from '@bumail/jmap/openapi.json' with { type: 'json' };
+
+// Serve it beside the server, for a viewer or a client generator:
+app.get('/openapi.json', ({ reply }) => reply(200, document));
+```
+
+| operation | path | what it describes |
+| --- | --- | --- |
+| `getSession` | `GET /.well-known/jmap` | the Session object: the core capability with its limits, the account and its mail capability, the URLs |
+| `api` | `POST /api` | the Request and Response envelopes; the 400 problems `notJSON`, `notRequest`, `unknownCapability` and `limit`; the 413 and 429 `limit` problems |
+| `download` | `GET /download/{accountId}/{blobId}/{name}` | `accept`, `Range`, the 200 and 206 with their headers, the 404 and the 416 |
+| `upload` | `POST /upload/{accountId}` | the 201 `{ accountId, blobId, type, size }`, the 404, the 413 `maxSizeUpload` and `uploadQuota` problems, the 429 |
+
+Every operation also answers the 401, 403 and 503 of
+[Authenticating](#authenticating), under the `basic` and `bearer`
+security schemes; `basic` says that a clear request is refused.
+
+**`basePath`.** The session is at the root of the document's server,
+`{origin}`. The other three paths have their own server,
+`{origin}{basePath}`, whose `basePath` variable defaults to `/jmap`: a
+server mounted with `basePath: '/mail/v1'` is described by the same
+document with that variable set. The limits it states are the defaults;
+the session announces the ones in effect.
+
+**Why the method calls are generic.** An Invocation is a `prefixItems`
+tuple, `[name, arguments, callId]`, and the arguments are an object whose
+`#`-prefixed keys are ResultReferences. A per-method schema would be
+wrong twice: an argument may be a back-reference, so it is only known once
+the calls before it ran (RFC 8620 §3.7), and a method that fails answers
+`["error", { type }, callId]` inside the 200 (RFC 8620 §3.6.2), which the
+document describes as `ErrorResponse`, with every `type` the server sends.
+RFC 8620 and RFC 8621 define each method's arguments.
+
+**Kept in step.** `src/server/openapi.spec.ts` turns the document into the
+operations `@alxia/openapi-routes` reads — method, full path, and
+`schema.detail.operationId` — and runs its `matchesSpec` against a real
+`jmap()` mounted in a host app, with the default `basePath` and another:
+a route added without a document entry fails it, and so does an entry
+with no route. It also checks that the document is OpenAPI 3.1 and that
+every `$ref` resolves, and that a real session, an API response with an
+`error`, an upload and four problems fit the document's schemas.
 
 ## RFCs followed, and what is not
 
