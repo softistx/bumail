@@ -38,6 +38,11 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
+- **`@bumail/acme`, the client** — on the primitives published below: the
+  directory, nonces, the account, an order, HTTP-01 challenges answered
+  on port 80, finalize and the certificate chain, tested against Pebble,
+  Let's Encrypt's test CA. The server app obtains and renews its
+  certificates through it. DNS-01, and with it wildcard names, later.
 - **A Docker image, all in one** — the server app in one container: ports
   25, 465, 587, 993, 443 and 80, and one volume for the mail, the queue and
   the certificates. Its guide says what sending mail from a container
@@ -103,6 +108,13 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ### Published
 
+- **`@bumail/acme`, the primitives of an ACME client**, in acme 0.1.0 —
+  a certificate signing request (PKCS #10) for DNS names, signed with
+  ECDSA P-256 or RSA through Web Crypto on a DER writer of its own; the
+  flattened JWS every ACME request is (ES256, RS256); the JWK
+  thumbprint, key authorizations and the HTTP-01 path; keys written as
+  PKCS #8 PEM that Bun's TLS takes. Its own package, with no required
+  peer, so a server can obtain certificates with nothing else of bumail.
 - **`@bumail/store`, a PostgreSQL store**, in store 0.4.0, as
   `@bumail/store/postgres` — the store contract on PostgreSQL through
   Bun's own `Bun.sql`, so it peers on no driver, as the queue's does, for

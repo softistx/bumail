@@ -1,7 +1,7 @@
 {
-	"name": "@bumail/jmap",
-	"version": "0.3.2",
-	"description": "A JMAP server (RFC 8620, RFC 8621) on alxia: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any @bumail/store",
+	"name": "@bumail/acme",
+	"version": "0.1.0",
+	"description": "The primitives of an ACME client (RFC 8555) on Web Crypto: a CSR for DNS names, flattened JWS with ES256 and RS256, the JWK thumbprint, key authorizations and HTTP-01 paths, and PKCS #8 keys",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -9,7 +9,6 @@
 	"files": [
 		"dist",
 		"docs",
-		"openapi",
 		"README.md",
 		"package.json",
 		"LICENSE"
@@ -20,13 +19,12 @@
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
 		},
-		"./openapi.json": "./openapi/jmap.json",
 		"./package.json": "./package.json"
 	},
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/softistx/bumail.git",
-		"directory": "packages/jmap"
+		"directory": "packages/acme"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org",
@@ -43,17 +41,9 @@
 		]
 	},
 	"devDependencies": {
-		"@alxia/core": "^0.3.1",
-		"@alxia/openapi-routes": "^0.2.0",
-		"@bumail/mime": "workspace:^",
-		"@bumail/store": "workspace:^",
-		"@types/bun": "^1.4.2",
-		"jmap-jam": "^0.13.8"
+		"@types/bun": "^1.4.2"
 	},
 	"peerDependencies": {
-		"@alxia/core": "^0.3.1",
-		"@bumail/mime": "workspace:^",
-		"@bumail/store": "workspace:^",
 		"typescript": "^6.0.3 || ^7.0.0"
 	},
 	"peerDependenciesMeta": {

@@ -62,6 +62,8 @@ jobs:
       BUMAIL_TEST_POSTGRES_REQUIRED: 1
       BUMAIL_TEST_REDIS_URL: redis://localhost:6379
       BUMAIL_TEST_REDIS_REQUIRED: 1
+      # `@bumail/acme`'s openssl cross-checks fail here rather than skip.
+      BUMAIL_TEST_OPENSSL_REQUIRED: 1
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
