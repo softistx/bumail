@@ -48,7 +48,7 @@ obtain its certificates and renew them (see the
 
 ## Shipped
 
-### Unreleased — merged, not yet published
+### 0.2.0
 
 - **The ACME client** (RFC 8555): `AcmeClient` — the directory, kept;
   nonces kept from every answer and fetched by a HEAD when none is left;

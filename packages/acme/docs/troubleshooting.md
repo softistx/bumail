@@ -625,7 +625,7 @@ const keyPair = await importKeyPairPem(await Bun.file('key.pem').text());
 
 ### `AcmeError: … is an RSA key of … bits; only 2048, 3072 and 4096 are supported`
 
-**When**: an RSA key's modulus is not 2048, 3072 or 4096 bits long (a JWK's `n` measured without leading zero bytes), as a `CryptoKey`, a PKCS #8 PEM, or a JWK given to `jwkThumbprint` or `keyAuthorization`.
+**When**: an RSA key's modulus is not 2048, 3072 or 4096 bits long (a JWK's `n` measured without leading zero bytes), as a `CryptoKey`, a PKCS #8 PEM, or a JWK given to `jwkThumbprint` or `keyAuthorization`. A key pair given to `createCsr` or `signJws` (and so an `AcmeClient`'s account key, at its first request) has both halves measured, the public key first: the message names the one refused, `….publicKey` or `….privateKey`.
 
 **Why**: those are the sizes Let's Encrypt takes; a CA refuses a smaller key, and an odd size.
 
