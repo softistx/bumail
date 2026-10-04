@@ -326,7 +326,7 @@ S3 and the metadata in a database.
 - an in-memory store;
 - a store on disk, on `bun:sqlite`, which writes the bytes with fsync before
   it commits;
-- Next: PostgreSQL, for a server that runs as several instances; then
+- Next: PostgreSQL on `Bun.sql`, for a server that runs as several instances; then
   MongoDB, and a separate blob store (disk, S3, GridFS).
 
 Every implementation passes the same contract tests, so the SMTP server,
@@ -476,7 +476,7 @@ These hold for every package. [AGENTS.md](../AGENTS.md) has the full rules.
 
 - **No runtime dependency.** A package needs only Bun, other `@bumail/*`
   packages, and the peers AGENTS.md allows (such as the clients a store
-  for PostgreSQL or MongoDB will use).
+  for MongoDB will use).
 - **Bun only.** The repository is built and tested on Bun 1.4.2.
 - **Never an open relay.** Relaying requires AUTH in every default and
   every test, and AUTH is offered only once the connection is encrypted.

@@ -10,7 +10,8 @@ Nothing in progress: the next entry is picked from Next.
 
 ## Next
 
-- **A PostgreSQL adapter** — the same contract on PostgreSQL, for a mail
+- **A PostgreSQL adapter** — the same contract on PostgreSQL through
+  `Bun.sql`, with no driver to install, for a mail
   server that runs as several instances sharing one store, held to the
   same contract specs as the memory and `bun:sqlite` stores, with message
   bytes on the disk or S3. It comes before a MongoDB answer.
