@@ -41,6 +41,8 @@ describe('checkName', () => {
 	test.each([
 		[42, 'createCsr(): a name is a string, not number'],
 		[null, 'createCsr(): a name is a string, not null'],
+		[['a.example'], 'createCsr(): a name is a string, not an array'],
+		[1n, 'createCsr(): a name is a string, not bigint'],
 		[
 			'bücher.example',
 			'createCsr(): "bücher.example" is not ASCII; give an internationalized name as its A-labels (xn--…)',

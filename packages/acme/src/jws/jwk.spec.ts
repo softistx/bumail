@@ -106,6 +106,25 @@ describe('jwkThumbprint (RFC 7638)', () => {
 		await expect(jwkThumbprint(jwk)).rejects.toThrow(message);
 	});
 
+	test('a kty or crv that is not a string is named by its kind', async () => {
+		await expect(
+			jwkThumbprint({ kty: 1n, n: 'AA', e: 'AQAB' } as never),
+		).rejects.toThrow(
+			new AcmeError(
+				'INVALID_KEY',
+				'jwkThumbprint(): the key has kty bigint; only "EC" and "RSA" are supported',
+			),
+		);
+		await expect(
+			jwkThumbprint({ kty: 'EC', crv: 1n, x: 'AA', y: 'AA' } as never),
+		).rejects.toThrow(
+			new AcmeError(
+				'INVALID_KEY',
+				'jwkThumbprint(): the key is an EC key on bigint; only P-256 is supported',
+			),
+		);
+	});
+
 	test('a private CryptoKey is refused: the thumbprint is of the public key', async () => {
 		const { privateKey } = await generateKeyPair('P-256');
 		await expect(jwkThumbprint(privateKey)).rejects.toThrow(

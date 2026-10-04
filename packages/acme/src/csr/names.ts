@@ -1,3 +1,4 @@
+import { shown } from '../encoding';
 import { AcmeError } from '../errors';
 
 /** The most names `createCsr` puts in one request, Let's Encrypt's limit per certificate. */
@@ -25,9 +26,7 @@ function invalid(message: string): AcmeError {
  */
 export function checkName(name: unknown): string {
 	if (typeof name !== 'string') {
-		throw invalid(
-			`a name is a string, not ${name === null ? 'null' : typeof name}`,
-		);
+		throw invalid(`a name is a string, not ${shown(name)}`);
 	}
 	if (!/^[\x21-\x7e]*$/.test(name)) {
 		throw invalid(

@@ -299,8 +299,8 @@ given; [troubleshooting](troubleshooting.md) lists every message.
 | --- | --- |
 | `INVALID_NAME` | a name `createCsr` will not put in a request |
 | `INVALID_OPTION` | an option of the wrong type or out of range: no names, too many, a duplicate, a nonce or URL a JWS cannot carry, a payload that is not an object |
-| `INVALID_KEY` | a key of another algorithm, of the wrong type (public for private), not extractable when it must be, or a PEM holding none |
-| `INVALID_TOKEN` | a challenge token that is not base64url |
+| `INVALID_KEY` | a key of another algorithm, an RSA key of another size than 2048, 3072 or 4096 bits or with an exponent other than 65537, a key of the wrong type (public for private), not extractable when it must be, or a PEM holding none |
+| `INVALID_TOKEN` | a challenge token that is not base64url, or longer than 1024 characters |
 
 ```ts
 import { AcmeError, http01Path } from '@bumail/acme';

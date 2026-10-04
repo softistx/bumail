@@ -1,4 +1,4 @@
-import { base64url } from '../encoding';
+import { base64url, shown } from '../encoding';
 import { AcmeError } from '../errors';
 import {
 	algorithmOf,
@@ -48,7 +48,7 @@ function requiredMembers(jwk: JsonWebKey, where: string): PublicJwk {
 		if (jwk.crv !== 'P-256') {
 			throw new AcmeError(
 				'INVALID_KEY',
-				`${where} is an EC key on ${JSON.stringify(jwk.crv)}; only P-256 is supported`,
+				`${where} is an EC key on ${shown(jwk.crv)}; only P-256 is supported`,
 			);
 		}
 		return { kty: 'EC', crv: 'P-256', x: text('x'), y: text('y') };
@@ -65,7 +65,7 @@ function requiredMembers(jwk: JsonWebKey, where: string): PublicJwk {
 	}
 	throw new AcmeError(
 		'INVALID_KEY',
-		`${where} has kty ${JSON.stringify(jwk.kty)}; only "EC" and "RSA" are supported`,
+		`${where} has kty ${shown(jwk.kty)}; only "EC" and "RSA" are supported`,
 	);
 }
 
