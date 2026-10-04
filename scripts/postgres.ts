@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Starts the PostgreSQL the queue's PostgreSQL specs run against, in
- * Docker, and prints the line that points them at it.
+ * Starts the PostgreSQL the specs of `@bumail/queue/postgres` and
+ * `@bumail/store/postgres` run against, in Docker, and prints the line
+ * that points them at it.
  *
  *   bun run postgres:test         # start (or reuse) postgres:17, wait, print the URL
  *   bun run postgres:test stop    # remove the container
