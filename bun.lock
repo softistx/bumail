@@ -57,7 +57,7 @@
     },
     "packages/imap": {
       "name": "@bumail/imap",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@bumail/mime": "workspace:^",
         "@bumail/store": "workspace:^",
@@ -74,7 +74,7 @@
     },
     "packages/jmap": {
       "name": "@bumail/jmap",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "devDependencies": {
         "@alxia/core": "^0.3.0",
         "@alxia/openapi-routes": "^0.2.0",
@@ -142,7 +142,7 @@
     },
     "packages/store": {
       "name": "@bumail/store",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "devDependencies": {
         "@types/bun": "^1.4.2",
       },
