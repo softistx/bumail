@@ -19,8 +19,8 @@ concurrency:
 jobs:
   ci:
     name: CI
-    # GitHub-hosted, as every softistx repository. This one is private, so its
-    # minutes count against the account's quota: keep the job short.
+    # GitHub-hosted, as every softistx repository. This one is public, so its
+    # minutes are free, but a short job still keeps the feedback quick.
     runs-on: ubuntu-latest
     # alxia's job, on the same skeleton, takes 1 to 2 minutes. Past 8 it is
     # hung, and the six-hour default would hold the runner for nothing.
