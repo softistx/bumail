@@ -78,7 +78,7 @@ function diagnosticOfError(
 	return {
 		status: `${temporary ? 4 : 5}.${detail}`,
 		text: cleanText(text, max),
-		...(host ? { host } : {}),
+		...(host ? { host: cleanText(host, 255) } : {}),
 	};
 }
 
@@ -110,7 +110,10 @@ export function outcomesOf(
 			updates.get(address) ?? {
 				address,
 				status: 'deferred',
-				reply: { text: 'The delivery said nothing of this recipient', host },
+				reply: {
+					text: 'The delivery said nothing of this recipient',
+					...(host ? { host: cleanText(host, 255) } : {}),
+				},
 			},
 	);
 }

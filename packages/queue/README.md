@@ -4,8 +4,9 @@ The outbound queue of a mail server: it keeps every message your server
 sends to another one, delivers it through `@bumail/smtp/client`, retries
 what failed for now, and sends a delivery status notification (RFC 3464)
 back when it gives up. Each recipient has its own state, the queue
-survives a restart on `bun:sqlite`, and several workers can share one
-queue. No runtime dependency: only peers.
+survives a restart on `bun:sqlite` or PostgreSQL, and several workers —
+on one machine, or on many with PostgreSQL — can share one queue. No
+runtime dependency: only peers.
 
 ## Install
 
@@ -25,6 +26,7 @@ queue that only uses a smarthost needs none.
 | `@bumail/queue` | `createQueue`, the `QueueStore` contract, `QueueError` and the types |
 | `@bumail/queue/memory` | `MemoryQueueStore`: in memory, lost on a restart — for specs and trials |
 | `@bumail/queue/sqlite` | `SqliteQueueStore`: on disk with `bun:sqlite`, shared by the processes of one machine |
+| `@bumail/queue/postgres` | `PostgresQueueStore`: on PostgreSQL through Bun's own `Bun.sql`, shared by instances on several machines |
 
 ## Usage
 
@@ -144,6 +146,35 @@ makes is 0700; one that exists keeps its mode.
 item opens one session per recipient domain — and `perDomain` (2) its
 sessions to one recipient domain.
 
+## PostgreSQL, for several machines
+
+```ts
+import { nodeResolver } from '@bumail/dns';
+import { createQueue } from '@bumail/queue';
+import { PostgresQueueStore } from '@bumail/queue/postgres';
+
+// In each instance, on the same database. A Bun.SQL client of your own works too:
+// PostgresQueueStore.open({ sql: new Bun.SQL({ url, max: 10 }) }).
+const store = PostgresQueueStore.open({
+	sql: Bun.env['DATABASE_URL'] ?? 'postgres://bumail@localhost:5432/mail',
+	tablePrefix: 'bumail_queue_', // the default: bumail_queue_items, …_messages, …_schema
+});
+await store.migrate(); // makes the tables; the first call would anyway
+const queue = createQueue({ store, hostname: 'mail.example.net', resolver: nodeResolver() });
+queue.start();
+
+process.on('SIGTERM', async () => {
+	await queue.stop();
+	await store.close(); // closes the client it opened for the URL, never yours
+});
+```
+
+A claim is one `UPDATE … RETURNING` whose item a `SELECT … FOR UPDATE
+SKIP LOCKED` picks: two instances never take the same item, and none
+waits on one another is taking. An instance that crashes loses its items
+when their leases expire, as with `bun:sqlite`. No driver to install:
+`Bun.sql` is Bun's.
+
 ## Events and admin
 
 ```ts
@@ -212,8 +243,8 @@ control character in it.
 
 ## Traps
 
-- **Bun only.** The store on disk uses `bun:sqlite`, so the package runs
-  on Bun 1.4.2 or later, not on Node.
+- **Bun only.** The stores use `bun:sqlite` and `Bun.sql`, so the package
+  runs on Bun 1.4.2 or later, not on Node.
 - **It sends what you enqueue, to anyone.** The queue is not a relay
   policy: enqueue only what an authenticated user submitted, or what your
   own server writes, never what an unauthenticated client handed you.
@@ -232,12 +263,13 @@ control character in it.
 | `QueueError`, `QueueErrorCode` | `INVALID`, `MESSAGE_TOO_BIG`, `TOO_MANY_RECIPIENTS`, `QUEUE_FULL`, `CLOSED`, `LEASE_LOST` |
 | `MemoryQueueStore` | from `@bumail/queue/memory` |
 | `SqliteQueueStore`, `SqliteQueueStoreOptions` | from `@bumail/queue/sqlite`: `SqliteQueueStore.open({ directory, busyTimeout? })`, `close()` |
+| `PostgresQueueStore`, `PostgresQueueStoreOptions`, `PostgresClient`, `PostgresQueryable` | from `@bumail/queue/postgres`: `PostgresQueueStore.open({ sql, tablePrefix? })`, `migrate()`, `close()`; `sql` a `Bun.SQL` client or a `postgres://` URL |
 
 ## Documentation
 
 These pages ship in the package, under `docs/`.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/README.md): the pages, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/guide.md): enqueuing, delivery and routing, the retry schedule, DSNs, several workers and leases, events and admin, the stores, testing, and writing a store of your own.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/guide.md): enqueuing, delivery and routing, the retry schedule, DSNs, several workers and leases, events and admin, the stores (PostgreSQL included), testing, and writing a store of your own.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/troubleshooting.md): every `QueueError`, and what to do about it.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/queue/docs/roadmap.md): what is coming, and what is not planned.

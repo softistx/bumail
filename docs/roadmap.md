@@ -21,13 +21,12 @@ No dates. Each entry says what someone running or embedding the server gets.
 
 ## Next
 
-- **`@bumail/queue`, stores for several instances** — more answers to the
-  `QueueStore` contract, so several server instances share one queue,
-  each held to the same contract specs, none a dependency. PostgreSQL
-  comes first, on Bun's own `Bun.sql`, the claim a `SELECT … FOR UPDATE
-  SKIP LOCKED`; then Redis, on `Bun.redis`; then MongoDB, typed
-  structurally against the collection a MongoDB driver hands it, so the
-  package peers on no driver.
+- **`@bumail/queue`, more stores for several instances** — more answers
+  to the `QueueStore` contract, so several server instances share one
+  queue, each held to the same contract specs, none a dependency. The
+  PostgreSQL store is merged (see Shipped); Redis comes next, on
+  `Bun.redis`; then MongoDB, typed structurally against the collection a
+  MongoDB driver hands it, so the package peers on no driver.
 - **`@bumail/store`, a PostgreSQL adapter** — the store contract on
   PostgreSQL through `Bun.sql`, so it peers on no driver, as the queue's
   does, for a server that runs as several instances, held to the
@@ -105,6 +104,17 @@ No dates. Each entry says what someone running or embedding the server gets.
 - **Relaying without authentication** — not even as an option.
 
 ## Shipped
+
+### Unreleased — merged, not yet published
+
+- **`@bumail/queue`, a PostgreSQL store**, as `@bumail/queue/postgres` —
+  the `QueueStore` contract on PostgreSQL through Bun's own `Bun.sql`, so
+  several server instances, on several machines, share one queue with no
+  driver to install. A claim is one `UPDATE … RETURNING` whose item a
+  `SELECT … FOR UPDATE SKIP LOCKED` picks, so two instances never take
+  the same item, and a crashed instance's items are claimed again once
+  their leases expire. Its tables, the `bun:sqlite` store's, are made by
+  `migrate()` or on first use, under a table prefix.
 
 ### Published
 

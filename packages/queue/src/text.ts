@@ -22,14 +22,35 @@ export function replaceControls(text: string, by: string): string {
 }
 
 /**
- * Every control character (CR and LF included) as a space, runs of space
- * as one, cut at `max` characters with `...`: what a reply leaves in an
- * item, an event and a DSN.
+ * Every control character (CR and LF included) as a space, a lone
+ * surrogate as U+FFFD, runs of space as one, cut at `max` characters with
+ * `...`, never inside a surrogate pair: what a reply leaves in an item,
+ * an event and a DSN.
  */
 export function cleanText(text: string, max: number): string {
-	const clean = replaceControls(text, ' ').replace(/ {2,}/g, ' ').trim();
-	return clean.length > max ? `${clean.slice(0, max - 3)}...` : clean;
+	const clean = replaceControls(text.toWellFormed(), ' ')
+		.replace(/ {2,}/g, ' ')
+		.trim();
+	return clean.length > max ? `${cut(clean, max - 3)}...` : clean;
 }
+
+/**
+ * The first `length` UTF-16 units, never ending inside a surrogate pair:
+ * a lone surrogate is text no store can keep (PostgreSQL's `jsonb` refuses
+ * it), nor any UTF-8 encode.
+ */
+function cut(text: string, length: number): string {
+	const head = text.slice(0, length);
+	const last = head.charCodeAt(head.length - 1);
+	return last >= 0xd800 && last <= 0xdbff ? head.slice(0, -1) : head;
+}
+
+/**
+ * Text every store can keep: no NUL (PostgreSQL's `text` and `jsonb` hold
+ * none) and no lone surrogate. `cleanText`'s output always is.
+ */
+export const isStorable = (text: string): boolean =>
+	text.isWellFormed() && !text.includes('\0');
 
 /** `cleanText`, then anything not printable ASCII as `?`: for a `message/delivery-status` field. */
 export const asciiText = (text: string, max: number): string =>

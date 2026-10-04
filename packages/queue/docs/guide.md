@@ -13,6 +13,7 @@ workers share it.
 - [Events](#events)
 - [Admin](#admin)
 - [The stores](#the-stores)
+- [PostgreSQL](#postgresql)
 - [Testing](#testing)
 - [Writing a store](#writing-a-store)
 - [Options](#options)
@@ -234,7 +235,8 @@ is written as `utf-8; j\x{F6}rg@…`, RFC 6533), and every field is folded.
 
 ## Several workers, leases and stopping
 
-Any number of queues may share one store, in one process or several:
+Any number of queues may share one store, in one process or several —
+or, with [PostgreSQL](#postgresql), on several machines:
 
 ```ts
 const store = SqliteQueueStore.open({ directory: '/var/lib/bumail/queue' });
@@ -352,7 +354,7 @@ store.close(); // closing twice is fine
   each item is claimed once; a writer waits up to `busyTimeout`
   milliseconds for another.
   Not on a network file system: SQLite's locks do not hold there. For
-  several machines, a server database is on the roadmap.
+  several machines, use [PostgreSQL](#postgresql).
 - **Messages in a table of their own**, `messages`, dropped with their
   item in the same transaction. A queue holds a message for days at most
   and never shares one between items, so content addressing (as
@@ -360,6 +362,128 @@ store.close(); // closing twice is fine
   add and the drop atomic with no file to sweep after a crash.
 - **Migrations** run on open, in one transaction; a database written by a
   newer version is refused.
+
+### `PostgresQueueStore`
+
+On PostgreSQL, for instances on several machines: see
+[PostgreSQL](#postgresql).
+
+## PostgreSQL
+
+```ts
+import { createQueue } from '@bumail/queue';
+import { PostgresQueueStore } from '@bumail/queue/postgres';
+
+const sql = new Bun.SQL({ url: Bun.env['DATABASE_URL'], max: 10 });
+const store = PostgresQueueStore.open({ sql });
+await store.migrate();
+const queue = createQueue({ store, hostname, resolver, owner: `${host}-${process.pid}` });
+queue.start();
+
+process.on('SIGTERM', async () => {
+	await queue.stop();
+	await sql.close(); // yours: the store never closes a client it was given
+});
+```
+
+`@bumail/queue/postgres` runs on Bun's own `Bun.sql`: there is no
+driver to install and no peer to add. Every instance of your server opens
+a store on the same database, and they share one queue.
+
+### The client
+
+- **`sql`** is a `Bun.SQL` client of yours — you size its pool and close
+  it — or a `postgres://` (or `postgresql://`) URL, for which the store
+  opens a client with Bun's defaults and closes it in `close()`. A
+  `Bun.SQL` client for SQLite or MySQL is refused.
+- It is typed by its shape, `PostgresClient` (`unsafe`, `begin` and
+  `close`), so the declarations need nothing of `@types/bun`; a `Bun.SQL`
+  client fits it.
+- **Nothing connects at `open`**: a wrong option is refused there, and a
+  database out of reach on the first call.
+
+### The schema
+
+Three tables, each named by `tablePrefix` (`bumail_queue_` by default),
+in the connection's default schema (its `search_path`):
+
+| table | what it holds |
+| --- | --- |
+| `<prefix>items` | an item a row: `seq` (an identity, the order among items equally due), `id` (`text`, unique), `sender`, `recipients` (`jsonb`, each recipient's state), `size`, `created_at`, `next_attempt_at`, `attempts`, `delay_notified`, `lease_owner` and `lease_expires_at`. Times are milliseconds since the epoch, as `double precision`, as the queue gives them. `<prefix>items_due`, on `(next_attempt_at, seq)`, serves the claim |
+| `<prefix>messages` | the message as enqueued, whole, as `bytea`, keyed by its item's `id` and dropped with it (`ON DELETE CASCADE`) |
+| `<prefix>schema` | the version: how many migrations ran |
+
+They are the `bun:sqlite` store's tables, column for column. The prefix
+is lowercase letters, digits and underscores, starting with a letter or
+an underscore, 40 characters at most: it is written into the statements,
+never bound. Give each queue its own prefix to keep several in one
+database. A `bytea` holds 1 GB at most, far above `limits.maxMessageSize`
+(25 MiB by default).
+
+### Migrations
+
+`migrate()` makes the tables, or brings them to the last migration, in
+one transaction; without it, the first call that needs them does. It
+runs once per store. Instances starting together wait on one advisory
+lock (`pg_advisory_xact_lock`), so each migration runs once. A
+migration that fails is `INVALID`, `The PostgreSQL queue cannot be set
+up: …`, and the next call tries again; tables written by a newer version
+of the package are refused.
+
+The role needs `CREATE` on the schema the first time, then only `SELECT`,
+`INSERT`, `UPDATE` and `DELETE` on the three tables: a store whose tables
+are current only reads their version, with no lock and no DDL. So run
+`migrate()` once from a deploy step with an owner's role, and give the
+workers a narrower one:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE
+	ON bumail_queue_items, bumail_queue_messages, bumail_queue_schema
+	TO bumail_worker;
+```
+
+After an upgrade that adds a migration, run that step again before the
+workers start: theirs cannot make the change.
+
+### Several instances and leases
+
+```sql
+UPDATE <prefix>items SET lease_owner = $1, lease_expires_at = $3
+WHERE seq = (SELECT seq FROM <prefix>items
+	WHERE next_attempt_at <= $2 AND (lease_owner IS NULL OR lease_expires_at <= $2)
+	ORDER BY next_attempt_at, seq LIMIT 1
+	FOR UPDATE SKIP LOCKED)
+RETURNING …
+```
+
+- **A claim** is that one statement: the earliest due item that no other
+  transaction is taking, locked as it is picked, then leased. Two
+  instances never take the same item, and none waits on an item another
+  is claiming: it takes the next.
+- **The lease** works as on `bun:sqlite`: renewed every third of
+  `leaseMs`, let go of with the outcome. `complete` locks the item's row
+  and records the outcome only while its owner holds the lease. An
+  instance that crashes loses its items when their leases expire, and
+  another takes them then; one that stalled past its lease records
+  nothing once another instance has claimed the item (`LEASE_LOST`):
+  `complete` checks who owns the lease, not when it expires.
+- **The clocks** of the instances must agree: each gives the time of its
+  own claims and leases, as the store keeps no clock. An instance whose
+  clock runs ahead sees leases expire early by as much. Keep the machines
+  on NTP; the 10-minute `leaseMs` leaves room for seconds of skew.
+- **`limits.maxItems`**: the adds that count wait on one advisory lock,
+  so two instances never both take the last place.
+
+### Pool size
+
+Each call holds a connection for one statement, `complete` and an add
+with `limits.maxItems` for one short transaction. A worker has at most
+`concurrency` items (20) in flight, each mostly waiting on a remote SMTP
+server, not the database: `Bun.SQL`'s default pool of 10 connections is
+enough for one, and a call waits for a free connection rather than fail.
+Raise `max` only when a busy worker waits on the pool, and keep every
+instance's pool, and your application's, within the server's
+`max_connections` (100 by default): four instances of `max: 10` take 40.
 
 ## Testing
 
@@ -425,6 +549,10 @@ codes, and keeps its promises:
   dropped with its message.
 - Times are given by the caller; the store keeps no clock.
 - Nothing it returns is shared with what it keeps.
+- Text it keeps holds no NUL and no lone surrogate: the contract's
+  checks refuse them (`INVALID`) in what is added, claimed and recorded,
+  since PostgreSQL cannot keep them, and an id holding one is unknown.
+  The queue never gives a store such text: it cleans every reply.
 
 The contract's specs, `describeQueueStore`, which both stores here run,
 are internal for now: a store written outside this package cannot run

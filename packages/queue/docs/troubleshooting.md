@@ -36,6 +36,7 @@ parts shown as … vary.
 - [`QueueError: The lease on … was lost while it was delivered`](#queueerror-the-lease-on--was-lost-while-it-was-delivered)
 - [`SmtpError: sendMail(): …` (`INVALID_OPTION`), with recipients deferred as `4.3.5`](#smtperror-sendmail--invalid_option-with-recipients-deferred-as-435)
 - [`SQLiteError: database is locked`, or another store error, during a delivery](#sqliteerror-database-is-locked-or-another-store-error-during-a-delivery)
+- [`PostgresError: …`, or a connection error, during a delivery](#postgreserror--or-a-connection-error-during-a-delivery)
 
 **The `bun:sqlite` store** (`@bumail/queue/sqlite`)
 
@@ -44,6 +45,15 @@ parts shown as … vary.
 - [`QueueError: The database is at schema version …, newer than this store's …`](#queueerror-the-database-is-at-schema-version--newer-than-this-stores-)
 - [`QueueError: busyTimeout must be an integer of at least 0, not …`](#queueerror-busytimeout-must-be-an-integer-of-at-least-0-not-)
 - [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed)
+
+**The PostgreSQL store** (`@bumail/queue/postgres`)
+
+- [`QueueError: A PostgreSQL queue store needs sql: a Bun.SQL client or a postgres:// URL`](#queueerror-a-postgresql-queue-store-needs-sql-a-bunsql-client-or-a-postgres-url)
+- [`QueueError: sql is a … client; the queue needs a PostgreSQL one`](#queueerror-sql-is-a--client-the-queue-needs-a-postgresql-one)
+- [`QueueError: tablePrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`](#queueerror-tableprefix-must-be-lowercase-letters-digits-and-underscores-starting-with-a-letter-or-an-underscore-at-most-40-characters-not-)
+- [`QueueError: The URL in sql cannot be opened: …`](#queueerror-the-url-in-sql-cannot-be-opened-)
+- [`QueueError: The PostgreSQL queue cannot be set up: …`](#queueerror-the-postgresql-queue-cannot-be-set-up-)
+- [`QueueError: The database is at schema version …, newer than this store's …`](#queueerror-the-database-is-at-schema-version--newer-than-this-stores-), and [`QueueError: The queue store is closed`](#queueerror-the-queue-store-is-closed), as for `bun:sqlite`
 
 **Listing** (`list`)
 
@@ -228,8 +238,9 @@ or `… must be a number from … to …, not …`. A number option out of its r
 
 ### `QueueError: owner must be a non-empty string`
 
-**Code:** `INVALID`. Leave `owner` out for a random one, or give each
-worker its own name.
+**Code:** `INVALID`, also as `owner holds a NUL or a lone surrogate,
+which a store cannot keep`. Leave `owner` out for a random one, or give
+each worker its own name.
 
 ## The `error` event
 
@@ -271,6 +282,22 @@ tries again; only a renewal that finds the lease taken stops (as
 **Fix:** a longer `busyTimeout` when several processes write a lot; a
 store that keeps failing will lose the lease once it expires.
 
+### `PostgresError: …`, or a connection error, during a delivery
+
+**When:** the `error` event, with the item's `id`, while it is delivered,
+on `@bumail/queue/postgres`.
+**Why:** a lease renewal failed: the database restarted, a connection
+dropped, or the server refused one past its `max_connections`. As on
+`bun:sqlite`, the next renewal tries again, and only a lease taken by
+another instance stops them. A claim that fails the same way rejects
+`deliverDue()`, or is told on `error` under `start()`, which tries again
+at its next pass. An outcome that cannot be recorded is told on `error`
+with the item's `id`; the item stays as it was, and is claimed again once
+its lease expires — its recipients may then get the message twice.
+**Fix:** check the database is up and reachable; when the server counts
+too many connections, give each instance's client a smaller `max` (see
+the guide's Pool size) or raise `max_connections`.
+
 ## The `bun:sqlite` store
 
 ### `QueueError: A SQLite queue store needs a directory`
@@ -287,8 +314,8 @@ should read the queue.
 
 ### `QueueError: The database is at schema version …, newer than this store's …`
 
-**Code:** `INVALID`. A newer version of the package wrote the database:
-upgrade this one.
+**Code:** `INVALID`. A newer version of the package wrote the database
+(`queue.sqlite`, or on PostgreSQL the prefix's tables): upgrade this one.
 
 ### `QueueError: busyTimeout must be an integer of at least 0, not …`
 
@@ -297,7 +324,68 @@ upgrade this one.
 ### `QueueError: The queue store is closed`
 
 **Code:** `CLOSED`. The store was used after `close()`: call
-`queue.stop()` first, then `store.close()`.
+`queue.stop()` first, then `store.close()`. The PostgreSQL store says the
+same.
+
+## The PostgreSQL store
+
+### `QueueError: A PostgreSQL queue store needs sql: a Bun.SQL client or a postgres:// URL`
+
+**Code:** `INVALID`.
+**When:** `PostgresQueueStore.open` without `sql`, or with a string that
+is not a `postgres://` or `postgresql://` URL, or an object without
+`unsafe`, `begin` and `close`. The message never repeats the URL, which
+may hold a password.
+**Fix:**
+
+```ts
+PostgresQueueStore.open({ sql: 'postgres://bumail:secret@db.internal:5432/mail' });
+// or a client of yours, sized as you need:
+PostgresQueueStore.open({ sql: new Bun.SQL({ url, max: 10 }) });
+```
+
+### `QueueError: sql is a … client; the queue needs a PostgreSQL one`
+
+**Code:** `INVALID`. A `Bun.SQL` client made for SQLite or MySQL
+(`adapter: 'sqlite'`, a `mysql://` URL). For SQLite, use
+`@bumail/queue/sqlite`; otherwise give a PostgreSQL client.
+
+### `QueueError: tablePrefix must be lowercase letters, digits and underscores, starting with a letter or an underscore, at most 40 characters, not …`
+
+**Code:** `INVALID`.
+**Why:** the prefix is written into every statement, never bound as a
+value, so anything that is not a plain name is refused — and 40
+characters keep the longest name built on it within PostgreSQL's 63.
+**Fix:** `tablePrefix: 'mail_queue_'`. To put the tables in another
+schema, set the connection's `search_path` rather than a dotted prefix.
+
+### `QueueError: The URL in sql cannot be opened: …`
+
+**Code:** `INVALID`.
+**When:** `PostgresQueueStore.open` with a URL `Bun.SQL` refuses before
+connecting, such as a `sslmode` it does not know. The rest is Bun's
+reason (`The argument 'sslmode' must be one of: disable, allow, prefer,
+require, verify-ca, verify-full. Received '…'`); the URL is never
+repeated, and the password is masked should the reason name it.
+**Fix:** correct the parameter: `?sslmode=require`, or `verify-full` to
+check the server's certificate.
+
+### `QueueError: The PostgreSQL queue cannot be set up: …`
+
+**Code:** `INVALID`.
+**When:** the first call on a store, or `migrate()`, when the tables
+cannot be made or brought up to date. The rest of the message is the
+database's: `Failed to connect`, `password authentication failed for
+user "…"`, `permission denied for schema public`.
+**Why:** the database is out of reach, the credentials are wrong, or the
+tables are missing or behind and the role may not create them: a role
+without `CREATE` can use tables that are current, never make them.
+**Fix:** check the URL and that the server answers. For `permission
+denied`, run `migrate()` once with an owner's role — on a new database,
+and after an upgrade that adds a migration — and keep the workers on
+their narrower role (the guide's [Migrations](guide.md#migrations)); or
+give the role `CREATE` on the schema. The next call tries again: nothing is left half made,
+since a migration is one transaction.
 
 ## Listing
 
@@ -337,6 +425,12 @@ never gives it. Each message names what is wrong:
 - `QueueError: delayNotified must be true or false`
 - `QueueError: recipients must be an array of { address, status:
   delivered, deferred or failed }`
+- `QueueError: A reply is an object with a text`, `reply.status must be
+  a string`, `reply.host must be a string`
+- `QueueError: … holds a NUL or a lone surrogate, which a store cannot
+  keep` (`from`, `A recipient`, `owner`, `reply.text`, `reply.status`,
+  `reply.host`): every store refuses them, since PostgreSQL cannot keep
+  them; the queue's own replies never hold one
 
 A list's `offset` and `limit` are checked as under [Listing](#listing).
 

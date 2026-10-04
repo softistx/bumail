@@ -69,6 +69,19 @@ function adding({ create }: StoreFactories): void {
 		expect(await store.cancel('nope')).toBeUndefined();
 		expect(await store.reschedule('nope', T0)).toBe(false);
 	});
+
+	test('an id no store could hold, a NUL or a lone surrogate in it, is unknown too', async () => {
+		const store = await create();
+		await store.add(entry());
+		for (const id of ['a\u0000b', 'a\ud83d']) {
+			expect(await store.get(id)).toBeUndefined();
+			expect(await store.readMessage(id)).toBeUndefined();
+			expect(await store.renew(id, 'w1', T0)).toBe(false);
+			expect(await store.reschedule(id, T0)).toBe(false);
+			expect(await store.cancel(id)).toBeUndefined();
+		}
+		expect(await store.count()).toBe(1);
+	});
 }
 
 function listing({ create }: StoreFactories): void {
@@ -117,5 +130,11 @@ function listing({ create }: StoreFactories): void {
 			'INVALID',
 		);
 		await rejects(store.add(entry({ createdAt: Number.NaN })), 'INVALID');
+		await rejects(store.add(entry({ from: 'a\u0000@example.net' })), 'INVALID');
+		await rejects(
+			store.add(entry({ to: ['jo\ud83d@example.com'] })),
+			'INVALID',
+		);
+		expect(await store.count()).toBe(0);
 	});
 }
