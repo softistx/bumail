@@ -1,5 +1,5 @@
 ---
-'@bumail/queue': patch
+'@bumail/queue': minor
 ---
 
 `@bumail/queue/postgres` runs every transaction that writes (claim, renewal, outcome, add, reschedule, cancel, migration) at `READ COMMITTED`, whatever the client's sessions default to: with a client whose `default_transaction_isolation` is `repeatable read` or `serializable`, concurrent writes failed with SQLSTATE 40001, instances migrating together failed, and `limits.maxItems` could let more items in than its limit.
