@@ -19,6 +19,7 @@
 		"changeset:version": "changeset version && bun install --lockfile-only",
 		"changeset:publish": "bun run build && bun run verify:artifacts && bun run scripts/publish.ts",
 		"verify:artifacts": "bun run scripts/verify-artifacts.ts",
+		"postgres:test": "bun run scripts/postgres.ts",
 		"changeset:status": "changeset status --since=origin/develop",
 		"demo": "bun run build && bun examples/demo/main.ts",
 		"demo:e2e": "bun run build && bun examples/demo/e2e.ts"
