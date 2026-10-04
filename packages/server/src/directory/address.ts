@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { domainToASCII } from 'node:url';
 import { isDomainName } from '../config/names';
 import { ServerError } from '../errors';
@@ -29,12 +30,20 @@ export interface Address {
 /**
  * A domain as the directory keeps it — lowercase, in A-labels, without a
  * trailing dot — or `undefined` when it is not a domain name of two
- * labels or more. `Bücher.Example.` is `xn--bcher-kva.example`.
+ * labels or more. `Bücher.Example.` is `xn--bcher-kva.example`. An IP
+ * address, a percent-escape (which `domainToASCII` would decode) and a
+ * last label of digits or `0x…` hex are refused.
  */
 export function domainOf(name: string): string | undefined {
-	if (typeof name !== 'string' || /[\s@]/.test(name)) return undefined;
-	const ascii = domainToASCII(name.replace(/\.$/, ''));
-	return ascii !== '' && isDomainName(ascii) ? ascii : undefined;
+	if (typeof name !== 'string' || /[\s@%]/.test(name)) return undefined;
+	const bare = name.replace(/\.$/, '');
+	if (isIP(bare.replace(/^\[|\]$/g, '')) !== 0) return undefined;
+	const ascii = domainToASCII(bare);
+	if (ascii === '' || !isDomainName(ascii)) return undefined;
+	// A last label of digits or hex (`0x7f`) is how WHATWG URL reads an
+	// IPv4 address (`1.2.3.4`, `example.0x7f`), never a top-level domain.
+	const last = ascii.slice(ascii.lastIndexOf('.') + 1);
+	return /^(?:\d+|0x[0-9a-f]*)$/.test(last) ? undefined : ascii;
 }
 
 /**

@@ -37,6 +37,11 @@ export const MIGRATIONS: readonly string[] = [
 	) STRICT, WITHOUT ROWID;
 	CREATE INDEX alias_targets_target ON alias_targets (target);
 	`,
+	// 2: a user's version, bumped by every change a login depends on, so
+	// a process caching a login sees another's change at its next look.
+	`
+	ALTER TABLE users ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+	`,
 ];
 
 /**

@@ -36,8 +36,9 @@ describe('clientKey', () => {
 		['64:ff9b::c633:6402', '198.51.100.2'],
 		['[2001:db8:1:2::9]', '2001:db8:1:2::/64'],
 		['fe80::1%en0', 'fe80:0:0:0::/64'],
-		['', ''],
-		['/run/bumail.sock', '/run/bumail.sock'],
+		['', undefined],
+		['/run/bumail.sock', undefined],
+		['not an address', undefined],
 	])('%p counts as %p', (ip, key) => {
 		expect(clientKey(ip)).toBe(key);
 	});
@@ -91,34 +92,87 @@ describe('FailureLimiter', () => {
 		expect(limiter.size).toBe(0);
 	});
 
-	test('remembers maxClients at most, forgetting the one that failed longest ago', () => {
-		const { limiter } = clocked({ maxFailures: 1, maxClients: 2 });
+	test('remembers maxClients at most, forgetting the oldest below the limit, never a blocked one', () => {
+		const { limiter } = clocked({ maxFailures: 2, maxClients: 2 });
+		limiter.fail('192.0.2.1');
 		limiter.fail('192.0.2.1');
 		limiter.fail('192.0.2.2');
-		limiter.fail('192.0.2.1');
 		limiter.fail('192.0.2.3');
 		expect(limiter.size).toBe(2);
-		expect(limiter.blocked('192.0.2.2')).toBe(false);
+		expect(limiter.blocked('192.0.2.1')).toBe(true);
+		expect(limiter.blockedUntil('192.0.2.2')).toBeUndefined();
+		limiter.fail('192.0.2.3');
+		limiter.fail('192.0.2.4');
+		// Both remembered are blocked: the newcomer is not remembered.
+		expect(limiter.size).toBe(2);
 		expect(limiter.blocked('192.0.2.1')).toBe(true);
 		expect(limiter.blocked('192.0.2.3')).toBe(true);
 	});
 
-	test('counts logins under way until they end, a success included', () => {
+	test('a spray of malformed logins from many /64s neither evicts a blocked client nor fills the table', () => {
+		const { limiter } = clocked({ maxFailures: 3, maxClients: 10 });
+		for (let i = 0; i < 3; i++) limiter.fail('2001:db8:bad::1');
+		expect(limiter.blocked('2001:db8:bad::1')).toBe(true);
+		for (let i = 0; i < 5000; i++) {
+			limiter.fail(`2001:db8:${(i % 65536).toString(16)}:${i >> 16}::1`, {
+				create: false,
+			});
+		}
+		expect(limiter.size).toBe(1);
+		for (let i = 0; i < 5000; i++) {
+			limiter.fail(`2001:db9:${(i % 65536).toString(16)}::1`);
+		}
+		expect(limiter.size).toBe(10);
+		expect(limiter.blocked('2001:db8:bad::1')).toBe(true);
+	});
+
+	test('a malformed login counts against a client already known', () => {
 		const { limiter } = clocked();
-		expect([1, 2, 3].map(() => limiter.begin('192.0.2.1'))).toEqual([
-			true,
-			true,
-			true,
+		limiter.fail('192.0.2.1', { create: false });
+		expect(limiter.size).toBe(0);
+		limiter.fail('192.0.2.1');
+		limiter.fail('192.0.2.1', { create: false });
+		limiter.fail('192.0.2.1', { create: false });
+		expect(limiter.blocked('192.0.2.1')).toBe(true);
+	});
+
+	test('caps the logins under way per client as busy, never blocked', () => {
+		const { limiter } = clocked({ maxFailures: 3 });
+		expect(limiter.maxPending).toBe(3);
+		expect([1, 2, 3, 4].map(() => limiter.begin('192.0.2.1'))).toEqual([
+			'started',
+			'started',
+			'started',
+			'busy',
 		]);
-		expect(limiter.begin('192.0.2.1')).toBe(false);
-		expect(limiter.blocked('192.0.2.1')).toBe(true);
-		limiter.end('192.0.2.1', false);
 		expect(limiter.blocked('192.0.2.1')).toBe(false);
+		limiter.end('192.0.2.1', false);
+		expect(limiter.begin('192.0.2.1')).toBe('started');
 		limiter.end('192.0.2.1', true);
 		limiter.end('192.0.2.1', true);
-		expect(limiter.begin('192.0.2.1')).toBe(true);
+		// One failure left, one login under way: no room for another guess.
+		expect(limiter.begin('192.0.2.1')).toBe('busy');
 		limiter.end('192.0.2.1', true);
-		expect(limiter.blocked('192.0.2.1')).toBe(true);
+		expect(limiter.begin('192.0.2.1')).toBe('blocked');
+	});
+
+	test('maxPending defaults to 5, and never exceeds maxFailures', () => {
+		expect(new FailureLimiter().maxPending).toBe(5);
+		expect(
+			new FailureLimiter({ maxFailures: 2, maxPending: 8 }).maxPending,
+		).toBe(2);
+	});
+
+	test('does not limit a client that is no IP address', () => {
+		const { limiter } = clocked({ maxFailures: 1 });
+		for (let i = 0; i < 5; i++) {
+			expect(limiter.begin('')).toBe('started');
+			limiter.end('', true);
+		}
+		expect(limiter.blocked('')).toBe(false);
+		expect(limiter.limits('')).toBe(false);
+		expect(limiter.limits('192.0.2.1')).toBe(true);
+		expect(limiter.size).toBe(0);
 	});
 
 	test('refuses options that are not positive integers', () => {
@@ -126,6 +180,7 @@ describe('FailureLimiter', () => {
 			{ maxFailures: 0 },
 			{ windowSeconds: 1.5 },
 			{ maxClients: -1 },
+			{ maxPending: 0 },
 		]) {
 			expect(() => new FailureLimiter(options)).toThrow(ServerError);
 		}

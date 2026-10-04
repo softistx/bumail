@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
-import type { Directory } from './directory';
+import { join } from 'node:path';
+import { tempDir } from '../config/config.fixtures';
+import { Directory } from './directory';
 import { PASSWORD, seededDirectory } from './directory.fixtures';
 import { Gate } from './gate';
 import { FailureLimiter } from './limiter';
@@ -113,7 +115,8 @@ describe('authenticate', () => {
 				result.ok ? 'ok' : result.reason,
 			);
 			expect(reasons.filter((reason) => reason === 'password').length).toBe(5);
-			expect(reasons.filter((reason) => reason === 'blocked').length).toBe(25);
+			expect(reasons.filter((reason) => reason === 'busy').length).toBe(25);
+			// Sent in turn instead, the sixth guess on would be blocked: as many verified.
 			expect(await dir.authenticate('alice@example.com', PASSWORD, IP)).toEqual(
 				{
 					ok: false,
@@ -123,6 +126,102 @@ describe('authenticate', () => {
 		} finally {
 			verify.mockRestore();
 		}
+	});
+
+	test('never refuses 20 correct logins sent at once from one client as blocked', async () => {
+		const dir = await directory({ cacheSeconds: 0 });
+		const results = await Promise.all(
+			Array.from({ length: 20 }, () =>
+				dir.authenticate('alice@example.com', PASSWORD, IP),
+			),
+		);
+		const reasons = results.map((result) => (result.ok ? 'ok' : result.reason));
+		expect(reasons.filter((reason) => reason === 'ok').length).toBeGreaterThan(
+			0,
+		);
+		expect(
+			reasons.every((reason) => reason === 'ok' || reason === 'busy'),
+		).toBe(true);
+		expect(dir.limiter.blocked(IP)).toBe(false);
+		// Once remembered, they all pass, without a verify.
+		const cached = await directory();
+		await cached.authenticate('alice@example.com', PASSWORD, IP);
+		const again = await Promise.all(
+			Array.from({ length: 20 }, () =>
+				cached.authenticate('Alice@example.com', PASSWORD, IP),
+			),
+		);
+		expect(again.every((result) => result.ok)).toBe(true);
+	});
+
+	test('remembers a verified login, until the user changes in any process', async () => {
+		const file = join(tempDir(), 'directory.sqlite');
+		const server = Directory.open({ file });
+		const command = Directory.open({ file });
+		opened.push(server, command);
+		command.domains.add('example.com');
+		await command.users.add('alice@example.com', PASSWORD);
+		const verify = spyOn(Bun.password, 'verify');
+		const login = (password = PASSWORD) =>
+			server.authenticate('alice@example.com', password, IP);
+		try {
+			expect((await login()).ok).toBe(true);
+			expect((await login()).ok).toBe(true);
+			expect(verify).toHaveBeenCalledTimes(1);
+			expect((await login('wrong guess')).ok).toBe(false);
+			expect(verify).toHaveBeenCalledTimes(2);
+
+			command.users.setDisabled('alice@example.com', true);
+			expect(await login()).toEqual({ ok: false, reason: 'disabled' });
+			command.users.setDisabled('alice@example.com', false);
+			expect((await login()).ok).toBe(true);
+
+			await command.users.setPassword(
+				'alice@example.com',
+				'a brand new passphrase',
+			);
+			expect(await login()).toEqual({ ok: false, reason: 'password' });
+			expect((await login('a brand new passphrase')).ok).toBe(true);
+
+			command.users.remove('alice@example.com');
+			expect(await login('a brand new passphrase')).toEqual({
+				ok: false,
+				reason: 'unknown',
+			});
+			await command.users.add('alice@example.com', 'someone else entirely');
+			expect((await login('a brand new passphrase')).ok).toBe(false);
+		} finally {
+			verify.mockRestore();
+		}
+	});
+
+	test('does not limit, and says so once, a login from no IP address', async () => {
+		let told = 0;
+		const dir = await directory({
+			limiter: new FailureLimiter({ maxFailures: 1 }),
+			onUnlimited: () => told++,
+		});
+		for (let i = 0; i < 3; i++) {
+			expect(
+				await dir.authenticate('alice@example.com', 'wrong guess', ''),
+			).toEqual({
+				ok: false,
+				reason: 'password',
+			});
+		}
+		expect(told).toBe(1);
+	});
+
+	test('a malformed login creates no client, but counts against a known one', async () => {
+		const dir = await directory({
+			limiter: new FailureLimiter({ maxFailures: 2 }),
+		});
+		for (let i = 0; i < 5; i++)
+			await dir.authenticate('alice@example.com', '', IP);
+		expect(dir.limiter.size).toBe(0);
+		await dir.authenticate('alice@example.com', 'wrong guess', IP);
+		await dir.authenticate('alice@example.com', '', IP);
+		expect(dir.limiter.blocked(IP)).toBe(true);
 	});
 
 	test('takes a password typed in another Unicode form', async () => {

@@ -6,8 +6,10 @@ export interface FailureLimiterOptions {
 	readonly maxFailures?: number;
 	/** How long a failure counts, in seconds. Default 900 (15 minutes). */
 	readonly windowSeconds?: number;
-	/** Clients remembered at once; past it, the one whose last failure is oldest is forgotten. Default 100 000. */
+	/** Clients remembered at once; past it, the blocked are kept and the one below the limit whose last failure is oldest is forgotten. Default 100 000. */
 	readonly maxClients?: number;
+	/** Logins one client may have under way at once; past it, `busy`. At most `maxFailures`. Default 5. */
+	readonly maxPending?: number;
 	/** The clock, in milliseconds. Default `Date.now`. */
 	readonly now?: () => number;
 }
@@ -57,13 +59,15 @@ function ipv4Of(g: readonly number[]): string {
  * Who a failure is counted against: an IPv4 address as it is; an IPv6
  * address that embeds one — IPv4-mapped (`::ffff:192.0.2.1`, in dotted
  * or hex form) or NAT64 (`64:ff9b::/96`) — as that IPv4 address; any
- * other IPv6 address by its /64, which one machine usually holds whole;
- * and anything else — a Unix socket, an empty string — as given.
+ * other IPv6 address by its /64, which one machine usually holds whole.
+ * Anything else — an empty string, a Unix socket — is `undefined`: no
+ * client the limiter can tell apart, so it is not limited, rather than
+ * putting every such login in one bucket one guesser would block for all.
  */
-export function clientKey(ip: string): string {
+export function clientKey(ip: string): string | undefined {
 	const address = ip.replace(/^\[|\]$/g, '').replace(/%.*$/, '');
 	if (isIP(address) === 4) return address;
-	if (isIP(address) !== 6) return ip;
+	if (isIP(address) !== 6) return undefined;
 	const g = groups(address.toLowerCase());
 	const prefix = g.slice(0, 6).join(':');
 	if (prefix === '0:0:0:0:0:65535' || prefix === '100:65435:0:0:0:0') {
@@ -75,6 +79,9 @@ export function clientKey(ip: string): string {
 		.join(':')}::/64`;
 }
 
+/** What `begin` answers. */
+export type Begun = 'started' | 'blocked' | 'busy';
+
 /**
  * Failed logins counted per client, in memory, for the listeners to
  * refuse a client that keeps guessing.
@@ -82,10 +89,12 @@ export function clientKey(ip: string): string {
  * - A client is blocked once `maxFailures` of its failures fall within
  *   the last `windowSeconds`, and free again as soon as fewer do: a
  *   sliding window, so the oldest failure ageing out frees one try.
- * - A login under way counts as a failure until it ends (`begin`,
- *   `end`): logins sent at once get no more guesses than logins sent
- *   in turn. A client may so have at most `maxFailures` logins under
- *   way at once.
+ *   Only failures block: a client with the right password is never
+ *   refused for the logins it has under way.
+ * - A client has at most `maxPending` logins under way at once, and no
+ *   more than it has failures left before a block: past either, a login
+ *   is `busy`, a temporary refusal. So guesses sent all at once get no
+ *   more verified than guesses sent in turn.
  * - While blocked, `authenticate` refuses it without verifying, and does
  *   not count those tries, so trying harder never extends a block: each
  *   failure ageing out gives back one try, and `windowSeconds` after its
@@ -94,10 +103,15 @@ export function clientKey(ip: string): string {
  *   account must not wipe the count it guesses others' under.
  * - It lives in memory: a restart forgets it, and each instance counts
  *   its own. At most `maxClients` are remembered, so a spray from many
- *   addresses costs a bounded amount of memory.
+ *   addresses costs a bounded amount of memory. A blocked client is
+ *   never forgotten to make room: the one below the limit whose last
+ *   failure is oldest is; with none, the newcomer is not remembered.
+ * - A login whose client is not an IP address (`clientKey` answers
+ *   `undefined`) is not limited at all.
  */
 export class FailureLimiter {
 	readonly maxFailures: number;
+	readonly maxPending: number;
 	readonly windowMs: number;
 	readonly #maxClients: number;
 	readonly #now: () => number;
@@ -108,6 +122,10 @@ export class FailureLimiter {
 
 	constructor(options: FailureLimiterOptions = {}) {
 		this.maxFailures = positive(options.maxFailures, 10, 'maxFailures');
+		this.maxPending = Math.min(
+			positive(options.maxPending, 5, 'maxPending'),
+			this.maxFailures,
+		);
 		this.windowMs =
 			positive(options.windowSeconds, 900, 'windowSeconds') * 1000;
 		this.#maxClients = positive(options.maxClients, 100_000, 'maxClients');
@@ -124,62 +142,89 @@ export class FailureLimiter {
 		return times;
 	}
 
-	/** The failures of `key` in the window, and its logins under way. */
-	#count(key: string): number {
+	/** Whether `ip` is limited at all: whether it is an IP address. */
+	limits(ip: string): boolean {
+		return clientKey(ip) !== undefined;
+	}
+
+	/** Whether `ip` is blocked now: `maxFailures` of its failures within the window. */
+	blocked(ip: string): boolean {
+		const key = clientKey(ip);
 		return (
-			this.#recent(key, this.#now()).length + (this.#pending.get(key) ?? 0)
+			key !== undefined &&
+			this.#recent(key, this.#now()).length >= this.maxFailures
 		);
 	}
 
 	/**
-	 * Whether `ip` is blocked now: its failures within the window and its
-	 * logins under way reach `maxFailures`.
+	 * Starts a login from `ip`: `started`, to be ended by `end`;
+	 * `blocked`, when its failures reach `maxFailures`; `busy`, when it
+	 * has `maxPending` logins under way, or as many as it has failures
+	 * left. Neither of the last two starts anything.
 	 */
-	blocked(ip: string): boolean {
-		return this.#count(clientKey(ip)) >= this.maxFailures;
-	}
-
-	/**
-	 * Starts a login from `ip`: `false`, starting nothing, when it is
-	 * blocked. A login under way counts as a failure until `end`, so a
-	 * client sending many at once gets no more verified than one sending
-	 * them in turn.
-	 */
-	begin(ip: string): boolean {
+	begin(ip: string): Begun {
 		const key = clientKey(ip);
-		if (this.#count(key) >= this.maxFailures) return false;
-		this.#pending.set(key, (this.#pending.get(key) ?? 0) + 1);
-		return true;
+		if (key === undefined) return 'started';
+		const failures = this.#recent(key, this.#now()).length;
+		if (failures >= this.maxFailures) return 'blocked';
+		const pending = this.#pending.get(key) ?? 0;
+		if (pending >= this.maxPending || failures + pending >= this.maxFailures) {
+			return 'busy';
+		}
+		this.#pending.set(key, pending + 1);
+		return 'started';
 	}
 
 	/** Ends a login `begin` started, counting it as a failure when `failed`. */
 	end(ip: string, failed: boolean): void {
 		const key = clientKey(ip);
+		if (key === undefined) return;
 		const pending = (this.#pending.get(key) ?? 0) - 1;
 		if (pending > 0) this.#pending.set(key, pending);
 		else this.#pending.delete(key);
 		if (failed) this.fail(ip);
 	}
 
-	/** Counts a failed login from `ip`. */
-	fail(ip: string): void {
+	/**
+	 * Counts a failed login from `ip`. With `create: false` — a login
+	 * refused before any verify — it counts only against a client
+	 * already remembered, so a spray of such logins from new addresses
+	 * cannot crowd anyone out.
+	 */
+	fail(ip: string, options: { readonly create?: boolean } = {}): void {
 		const key = clientKey(ip);
+		if (key === undefined) return;
 		const now = this.#now();
 		const times = this.#recent(key, now);
+		const known = this.#failures.has(key);
+		if (!known && options.create === false) return;
 		times.push(now);
 		// Only the last maxFailures matter for a block.
 		if (times.length > this.maxFailures) times.shift();
 		this.#failures.delete(key);
 		this.#failures.set(key, times);
-		if (this.#failures.size > this.#maxClients) {
-			const oldest = this.#failures.keys().next().value;
-			if (oldest !== undefined) this.#failures.delete(oldest);
+		if (!known && this.#failures.size > this.#maxClients) {
+			this.#evict(key, now);
 		}
+	}
+
+	/** Forgets the client below the limit whose last failure is oldest; with none, `newcomer`. */
+	#evict(newcomer: string, now: number): void {
+		for (const key of this.#failures.keys()) {
+			if (key === newcomer) continue;
+			if (this.#recent(key, now).length < this.maxFailures) {
+				this.#failures.delete(key);
+				return;
+			}
+		}
+		this.#failures.delete(newcomer);
 	}
 
 	/** When `ip` is free again, in milliseconds of the clock; `undefined` when it is not blocked. */
 	blockedUntil(ip: string): number | undefined {
-		const times = this.#recent(clientKey(ip), this.#now());
+		const key = clientKey(ip);
+		if (key === undefined) return undefined;
+		const times = this.#recent(key, this.#now());
 		if (times.length < this.maxFailures) return undefined;
 		return (times[times.length - this.maxFailures] ?? 0) + this.windowMs;
 	}

@@ -8,6 +8,8 @@ describe('domainOf', () => {
 		['example.com.', 'example.com'],
 		['Bücher.Example', 'xn--bcher-kva.example'],
 		['mail.sub.example.org', 'mail.sub.example.org'],
+		['123.example.com', '123.example.com'],
+		['0x7f.example', '0x7f.example'],
 	])('%p is %p', (given, kept) => {
 		expect(domainOf(given)).toBe(kept);
 	});
@@ -20,6 +22,16 @@ describe('domainOf', () => {
 		'example..com',
 		'a@example.com',
 		`${'a'.repeat(64)}.com`,
+		'192.0.2.1',
+		'[::1]',
+		'::1',
+		'1.2.3.4.',
+		'0x7f.1',
+		'example.0x7f',
+		'example.0x',
+		'example.123',
+		'exa%6dple.com',
+		'example%2ecom',
 	])('%p is not a domain name', (given) => {
 		expect(domainOf(given)).toBeUndefined();
 	});
@@ -44,6 +56,8 @@ describe('addressOf', () => {
 		'@example.com',
 		'alice@',
 		'alice@localhost',
+		'alice@192.0.2.1',
+		'alice@exa%6dple.com',
 		'.alice@example.com',
 		'alice.@example.com',
 		'al..ice@example.com',

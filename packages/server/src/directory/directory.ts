@@ -9,7 +9,7 @@ import {
 import { openDatabase } from './database';
 import { Domains } from './domains';
 import type { FailureLimiter } from './limiter';
-import { findRecord, Users } from './users';
+import { findRecord, Users, userVersion } from './users';
 
 export interface DirectoryOptions extends AuthenticatorOptions {
 	/** The SQLite file, created if need be: `directory.url` without its `sqlite:`. */
@@ -34,7 +34,13 @@ export class Directory {
 		this.domains = new Domains(db);
 		this.users = new Users(db);
 		this.aliases = new Aliases(db);
-		this.#auth = new Authenticator((login) => findRecord(db, login), options);
+		this.#auth = new Authenticator(
+			{
+				find: (login) => findRecord(db, login),
+				version: (address) => userVersion(db, address),
+			},
+			options,
+		);
 	}
 
 	/** Opens the directory at `file`; what fails is `ServerError('UNAVAILABLE')`. */

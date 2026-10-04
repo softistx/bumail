@@ -25,6 +25,8 @@ interface UserRow {
 /** A user, with what `authenticate` checks. */
 export interface UserRecord extends UserEntry {
 	readonly hash: string;
+	/** Bumped by a new password, a disable and an enable. */
+	readonly version: number;
 }
 
 function entry(row: UserRow): UserEntry {
@@ -59,11 +61,33 @@ export function findRecord(
 	const parsed = addressOf(address);
 	if (parsed === undefined) return undefined;
 	const row = db
-		.query<UserRow & { hash: string }, [string]>(
-			`SELECT ${COLUMNS}, hash FROM users WHERE address = ?`,
+		.query<UserRow & { hash: string; version: number }, [string]>(
+			`SELECT ${COLUMNS}, hash, version FROM users WHERE address = ?`,
 		)
 		.get(parsed.address);
-	return row === null ? undefined : { ...entry(row), hash: row.hash };
+	return row === null
+		? undefined
+		: { ...entry(row), hash: row.hash, version: row.version };
+}
+
+/**
+ * The version of the user at `address`, as kept (lowercase), or
+ * `undefined` when there is none: what a cached login is checked
+ * against, one indexed read.
+ */
+export function userVersion(db: Database, address: string): number | undefined {
+	const row = db
+		.query<{ version: number }, [string]>(
+			'SELECT version FROM users WHERE address = ?',
+		)
+		.get(address);
+	return row?.version;
+}
+
+/** A version no earlier user at the address is likely to have had: 48 random bits. */
+function randomVersion(): number {
+	const [high = 0, low = 0] = crypto.getRandomValues(new Uint32Array(2));
+	return (high & 0xffff) * 2 ** 32 + low;
 }
 
 /** The users: who logs in, and whose mailbox mail is delivered to. */
@@ -146,9 +170,11 @@ export class Users {
 			this.#free(key, domain);
 			this.#db
 				.query(
-					'INSERT INTO users (address, domain, hash, disabled, created) VALUES (?, ?, ?, 0, ?)',
+					'INSERT INTO users (address, domain, hash, disabled, created, version) VALUES (?, ?, ?, 0, ?, ?)',
 				)
-				.run(key, domain, hash, Date.now());
+				// A random first version: a user removed and added again is
+				// not the one a login was cached for.
+				.run(key, domain, hash, Date.now(), randomVersion());
 			return entry(this.#require(key));
 		});
 	}
@@ -179,7 +205,9 @@ export class Users {
 		immediate(this.#db, () => {
 			this.#require(key);
 			this.#db
-				.query('UPDATE users SET hash = ? WHERE address = ?')
+				.query(
+					'UPDATE users SET hash = ?, version = version + 1 WHERE address = ?',
+				)
 				.run(hash, key);
 		});
 	}
@@ -190,7 +218,9 @@ export class Users {
 		return immediate(this.#db, () => {
 			this.#require(key);
 			this.#db
-				.query('UPDATE users SET disabled = ? WHERE address = ?')
+				.query(
+					'UPDATE users SET disabled = ?, version = version + 1 WHERE address = ?',
+				)
 				.run(disabled ? 1 : 0, key);
 			return entry(this.#require(key));
 		});

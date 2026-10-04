@@ -54,6 +54,7 @@ export {
 export {
 	clientKey,
 	FailureLimiter,
+	type Begun,
 	type FailureLimiterOptions,
 } from './directory/limiter';
 export {

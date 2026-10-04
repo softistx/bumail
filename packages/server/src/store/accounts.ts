@@ -19,8 +19,11 @@ function exists(error: unknown): boolean {
  * login is the address — created with its mailboxes if need be: `INBOX`,
  * `Sent`, `Drafts`, `Archive`, `Junk` and `Trash`, each with its role.
  * Safe to call again, and at once from two places: what is there already
- * is kept, a mailbox renamed by its user included, and a missing role is
- * added back. An account kept from a user removed earlier is the one
+ * is kept, a mailbox renamed by its user included. A missing role is
+ * added back as a new mailbox of its default name — unless a mailbox
+ * already has that name without the role (a user's own `Junk`, say):
+ * the store has no call that gives an existing mailbox a role, so that
+ * mailbox is left as it is and the role stays missing. An account kept from a user removed earlier is the one
  * found, with its mail.
  */
 export async function provisionAccount(

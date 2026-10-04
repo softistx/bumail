@@ -155,11 +155,12 @@ directory commands' own refusals are under
 - [`the mail store is in use by another process, such as the running server`](#the-mail-store-is-in-use-by-another-process-such-as-the-running-server)
 - [`the mail store cannot be opened (…)`](#the-mail-store-cannot-be-opened-)
 - [`the mail store failed (…)`](#the-mail-store-failed-)
+- [`the user … is disabled, but its mail is not purged: …; run the command again`](#the-user--is-disabled-but-its-mail-is-not-purged--run-the-command-again)
 - [`added the user …, but not its mailboxes: …; the server creates them at its first login`](#added-the-user--but-not-its-mailboxes--the-server-creates-them-at-its-first-login)
 
 *From code*
 
-- [`too many logins wait for a verify; try again later`](#too-many-logins-wait-for-a-verify-try-again-later)
+- [`too many logins under way; try again later`](#too-many-logins-under-way-try-again-later)
 - [`maxVerifies must be an integer of 1 or more`](#maxverifies-must-be-an-integer-of-1-or-more)
 - [`the directory URL must be sqlite: and a path`](#the-directory-url-must-be-sqlite-and-a-path)
 **Usage** (exit code 2)
@@ -995,24 +996,42 @@ then.
 
 **Fix**: fix the store, as the reason says; nothing needs undoing.
 
+#### `the user … is disabled, but its mail is not purged: …; run the command again`
+
+**When**: `user remove --purge` opened the store, disabled the user so
+no login could create its account again during the purge, and then the
+store failed deleting the account. The reason is the store's. Exits 5;
+the user is still there, disabled, and its mail may be partly deleted.
+
+**Fix**: fix the store, as the reason says, and run the same command
+again: it finishes the purge and removes the user. To keep the user
+instead, `bumail user enable` it.
+
 ### From code
 
-#### `too many logins wait for a verify; try again later`
+#### `too many logins under way; try again later`
 
 **When**: thrown by an adapter (`smtpAuthenticate`, `imapAuthenticate`,
 `jmapAuthenticate`) when `authenticate` answered `busy`: more than
-`maxQueuedVerifies` logins waited for a verify. The listener tells the
-client a temporary failure, and its `onError` gets this.
+`maxQueuedVerifies` logins waited for a verify, or one client had
+`maxPending` (5) logins under way already, or as many as it has
+failures left before a block. The listener tells the client a temporary
+failure, and its `onError` gets this. A login already verified within
+`cacheSeconds` is answered from the cache and is never `busy`.
 
-**Fix**: a burst passes; if it is steady, raise `maxVerifies` on a
-machine with the memory for it (19 MiB each).
+**Fix**: a burst passes, and the client's retry succeeds. If it is
+steady from the whole server, raise `maxVerifies` on a machine with the
+memory for it (19 MiB each); if one client meets it with the right
+password, it opens many connections at once with a password that
+changed or is not yet cached: it passes once one of them is verified.
 
 #### `maxVerifies must be an integer of 1 or more`
 
 **When**: `Directory.open` with `maxVerifies` that is not a positive
 integer. `maxQueuedVerifies must be an integer of 0 or more`, and
 `maxFailures`, `windowSeconds` or `maxClients must be an integer of 1 or
-more` (from `new FailureLimiter`), are its siblings.
+more` (from `new FailureLimiter`, with `maxPending`), and
+`cacheSeconds must be an integer of 0 or more`, are its siblings.
 
 **Fix**: give whole numbers, or leave the option out for its default.
 

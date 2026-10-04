@@ -20,8 +20,7 @@ entry for each message.
 ## Where it is
 
 One SQLite file, `directory.url` in the configuration, by default
-`sqlite:<data>/directory.sqlite` (`/data/directory.sqlite` in the
-image). It is created on first use, readable by its owner only (0600),
+`sqlite:<data>/directory.sqlite`. It is created on first use, readable by its owner only (0600),
 in WAL mode: the running server reads it while a `bumail` command
 writes it from another process, and a write waits up to 5 seconds for
 another.
@@ -40,7 +39,11 @@ The directory keeps every name in lower case, and compares names
 without case:
 
 - **Domains** are lowercased, without a trailing dot, and kept in
-  A-labels: `Bücher.Example.` is `xn--bcher-kva.example`.
+  A-labels: `Bücher.Example.` is `xn--bcher-kva.example`. An IP
+  address (`192.0.2.1`, `[::1]`), a percent-escape (`exa%6dple.com`)
+  and a last label of digits or `0x…` hex (`example.123`,
+  `example.0x7f`), which URL parsers read as an IPv4 address, are not
+  domain names.
 - **Local parts** are lowercased too, after Unicode NFC. RFC 5321 lets
   the server that hosts a mailbox decide whether case matters in its
   local parts; here it does not, as no user expects `Alice@` and
@@ -156,7 +159,9 @@ change its users, remove it and add it again.
 | 5 | the directory or the mail store cannot be opened or used |
 
 (3 is `serve`'s, which is not implemented yet.) Errors go to standard
-error as `bumail: <message>`; nothing else does.
+error as `bumail: <message>`. Standard error also carries the password
+prompts and the notice `serve` prints; standard output carries only
+what a command reports (`added the user …`, a listing).
 
 ## Passwords
 
@@ -185,22 +190,35 @@ error as `bumail: <message>`; nothing else does.
 
 1. **The limiter.** A client that failed too often lately is refused
    at once, as `blocked`, whatever it sends: nothing is verified, so
-   guessing on costs the server nothing. Its logins still under way
-   count as failures until they end, so guesses sent all at once get no
-   more verified than guesses sent in turn.
+   guessing on costs the server nothing.
 2. **Bounds.** An empty password, or a login or a password over 1024
    bytes, is `malformed`, and refused without a verify.
-3. **The verify.** At most **4** run at once; the others wait their
+3. **The cache.** A login verified within the last `cacheSeconds` (60)
+   is answered at once, without a verify: JMAP authenticates every
+   request, and a client sends many at once. It is keyed by the address
+   and an HMAC of the password under a key each process draws at
+   random, so it holds no password. Every hit reads the user's version
+   in the directory, which `user passwd`, `user disable` and `user
+   enable` bump and `user remove` deletes, from whichever process: a
+   change counts at the very next request, not a minute later.
+   `cacheSeconds: 0` turns it off.
+4. **Logins under way.** One client has at most `maxPending` (5)
+   logins being verified at once, and no more than it has failures left
+   before a block; past either, a login is `busy`, never `blocked`. So
+   guesses sent all at once get no more verified than guesses sent in
+   turn, and a client with the right password is never blocked for the
+   logins it has under way.
+5. **The verify.** At most **4** run at once; the others wait their
    turn, in order, up to 1000 waiting, past which a login is `busy`
    (the listener answers a temporary failure). Each verify holds
    19 MiB, so the cap keeps a burst of logins from taking the memory
    and CPU the mail needs.
-4. **Unknown users cost as much as known ones.** A login that is no
+6. **Unknown users cost as much as known ones.** A login that is no
    user — unknown, an alias, not an address — verifies a dummy hash
    made with the same parameters when the directory opens, so the time
    a refusal takes — the first one included — does not tell which
    addresses exist.
-5. **The answer**: the user, or `unknown`, `password` (wrong) or
+7. **The answer**: the user, or `unknown`, `password` (wrong) or
    `disabled` (right, but the user is disabled). A client is told only
    that its login failed; the reason is for the server's log.
 
@@ -212,13 +230,17 @@ every listener:
 - **Who a client is**: an IPv4 address; an IPv6 address that embeds
   one — IPv4-mapped (`::ffff:192.0.2.1`, or `::ffff:c000:201`) or
   NAT64 (`64:ff9b::/96`) — as that IPv4 address; any other IPv6 address
-  by its **/64**, which one machine usually holds whole.
+  by its **/64**, which one machine usually holds whole. A login from
+  no IP address (an empty one, a Unix socket) is not limited: there is
+  no client to tell apart, and one bucket for all of them would let one
+  guesser block everyone. The first such login logs a warning
+  (`onUnlimited` replaces it); a listener behind a proxy must pass the
+  client's address.
 - **What counts**: every refusal but `blocked` and `busy`. Tries while
-  blocked are not counted, so hammering never extends a block. A login
-  under way counts as a failure until it ends (`begin(ip)`, `end(ip,
-  failed)`), so one client has at most `maxFailures` logins in flight:
-  a mail client opening several connections at once stays well under
-  10.
+  blocked are not counted, so hammering never extends a block. A
+  `malformed` login, refused before any verify, counts only against a
+  client already remembered: a spray of them from new addresses
+  remembers no one.
 - **When it blocks**: at `maxFailures` (10) failures within the last
   `windowSeconds` (900, 15 minutes). The window slides: each failure
   ageing out gives one try back, and a client whose failures are all
@@ -226,8 +248,11 @@ every listener:
 - **A success does not clear it**: an attacker who holds one account
   must not reset the count it guesses other accounts under.
 - **Memory is bounded**: at most `maxClients` (100 000) are
-  remembered; past it, the client whose last failure is oldest is
-  forgotten. A restart forgets everything, and each server instance
+  remembered; past it, the client below `maxFailures` whose last
+  failure is oldest is forgotten. A blocked client is never forgotten
+  to make room, so a spray from many addresses cannot reset an
+  attacker's count; with every client blocked, the newcomer is not
+  remembered. A restart forgets everything, and each server instance
   counts its own.
 
 ## Mailboxes in the store
@@ -235,7 +260,10 @@ every listener:
 A user's mail lives in the mail store (`store.url`), in the account
 whose login is the user's address, with six mailboxes: `INBOX`, `Sent`,
 `Drafts`, `Archive`, `Junk` (where DMARC's quarantine puts mail) and
-`Trash`, each with its role.
+`Trash`, each with its role. A mailbox that already has one of those
+names without its role — a user's own `Junk`, say — is left as it is,
+and that role stays missing: the store has no way to give an existing
+mailbox a role, and a second `Junk` would be refused.
 
 - `bumail user add` creates them. A SQLite store is held by one process
   at a time, so while the server runs, the command finds it in use, says
@@ -246,9 +274,10 @@ whose login is the user's address, with six mailboxes: `INBOX`, `Sent`,
   user can no longer log in and its mail is refused, but the account
   stays in the store, so a removal by mistake loses nothing: adding the
   address again finds the same account, with its mail. Add `--purge` to
-  delete the account, its mailboxes and its mail too. It deletes the
-  mail first, then removes the user, so a store that fails leaves the
-  user in place and the same command can run again. With a SQLite
+  delete the account, its mailboxes and its mail too. It disables the
+  user first, so no login creates the account again meanwhile, then
+  deletes the mail, then removes the user: a store that fails leaves
+  the user in place, disabled, and the same command can run again. With a SQLite
   store, stop the server first, since `--purge` needs the store and
   refuses (exit 5, nothing removed) while the server holds it. Purge
   before giving an old address to someone else.
@@ -302,8 +331,8 @@ which v1 does not issue. Each adapter throws on `busy`, which each
 listener answers as a temporary failure (`454`, `NO [UNAVAILABLE]`,
 `503`).
 
-`Directory.open` also takes `maxVerifies`, `maxQueuedVerifies` and a
-`limiter`, a `new FailureLimiter({ maxFailures, windowSeconds,
-maxClients })`; `provisionAccount(store, address)` and
+`Directory.open` also takes `maxVerifies`, `maxQueuedVerifies`,
+`cacheSeconds`, `onUnlimited` and a `limiter`, a `new FailureLimiter({
+maxFailures, windowSeconds, maxClients, maxPending })`; `provisionAccount(store, address)` and
 `purgeAccount(store, address)` are what `user add` and `user remove
 --purge` do to the store.

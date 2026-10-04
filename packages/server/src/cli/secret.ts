@@ -1,7 +1,7 @@
 import { Checker } from '../config/checker';
 import { MAX_FILE_SIZE, readText } from '../config/files';
 import { ServerError } from '../errors';
-import type { PasswordSource } from './args';
+import type { PasswordSource } from './verbs';
 
 /** What reading a password needs of the process. */
 export interface Terminal {
@@ -56,63 +56,99 @@ export async function readPassword(
 	return first;
 }
 
-/** The terminal's bytes decoded across chunks, and what came after the last Enter: a pasted second line. */
-const decoder = new TextDecoder();
-let typedAhead = '';
+/** What a hidden prompt has read: the line so far, and what came after the last line. */
+export interface LineState {
+	/** The line typed so far. */
+	text: string;
+	/** Decoded input not yet taken: what followed an Enter, for the next line. */
+	pending: string;
+	/** The last character taken was a CR, so an LF right after it is part of that Enter. */
+	afterReturn: boolean;
+	/** Decodes the terminal's bytes, a character split across two reads included. */
+	readonly decoder: TextDecoder;
+}
+
+/** What `take` found. */
+export type Taken =
+	| { readonly kind: 'more' }
+	| { readonly kind: 'line'; readonly line: string }
+	| { readonly kind: 'cancel' };
+
+/** A fresh state, for a terminal read from the start. */
+export function lineState(): LineState {
+	return {
+		text: '',
+		pending: '',
+		afterReturn: false,
+		decoder: new TextDecoder(),
+	};
+}
 
 /**
- * Reads a line from the process's terminal without echoing it: raw mode,
- * Backspace erasing, Enter ending it, Ctrl-C and Ctrl-D giving up. A
- * character split across two reads is decoded whole, and what follows
- * an Enter is kept for the next prompt, so `pw⏎pw⏎` pasted at once
- * answers both.
+ * Takes what the terminal sent, after what was pending: Backspace (DEL
+ * or BS) erases a character, Enter (CR, LF, or CR LF even split across
+ * reads) ends the line, Ctrl-C or Ctrl-D cancels it. What follows an
+ * Enter stays pending for the next line, so `pw⏎pw⏎` pasted at once
+ * answers two prompts. Changes `state`; reads nothing else.
+ */
+export function take(
+	state: LineState,
+	chunk: Uint8Array = new Uint8Array(),
+): Taken {
+	const chars = [
+		...(state.pending + state.decoder.decode(chunk, { stream: true })),
+	];
+	state.pending = '';
+	for (let i = 0; i < chars.length; i++) {
+		const char = chars[i] ?? '';
+		const afterReturn = state.afterReturn;
+		state.afterReturn = char === '\r';
+		if (char === '\n' && afterReturn) continue;
+		if (char === '\r' || char === '\n') {
+			const line = state.text;
+			state.text = '';
+			state.pending = chars.slice(i + 1).join('');
+			return { kind: 'line', line };
+		}
+		if (char === '\u0003' || char === '\u0004') {
+			state.text = '';
+			return { kind: 'cancel' };
+		}
+		if (char === '\u007f' || char === '\b') {
+			state.text = [...state.text].slice(0, -1).join('');
+		} else {
+			state.text += char;
+		}
+	}
+	return { kind: 'more' };
+}
+
+/** The process's terminal, across prompts. */
+const terminal = lineState();
+
+/**
+ * Reads a line from the process's terminal without echoing it, in raw
+ * mode, as `take` reads it.
  */
 export function promptHidden(label: string): Promise<string> {
 	const { stdin, stderr } = process;
 	stderr.write(label);
 	return new Promise((resolve, reject) => {
-		let text = '';
-		const finish = (rest: string, error?: ServerError) => {
-			typedAhead = rest;
+		const settle = (taken: Taken): boolean => {
+			if (taken.kind === 'more') return false;
 			stdin.off('data', onData);
 			stdin.setRawMode(false);
 			stdin.pause();
 			stderr.write('\n');
-			if (error === undefined) resolve(text);
-			else reject(error);
-		};
-		/** Takes `input`; `true` once the line is over. */
-		const take = (input: string): boolean => {
-			const chars = [...input];
-			for (let i = 0; i < chars.length; i++) {
-				const char = chars[i] ?? '';
-				const rest = chars
-					.slice(i + 1)
-					.join('')
-					.replace(/^\n/, '');
-				if (char === '\r' || char === '\n') {
-					finish(rest);
-					return true;
-				}
-				if (char === '\u0003' || char === '\u0004') {
-					finish('', new ServerError('INVALID', 'no password typed'));
-					return true;
-				}
-				if (char === '\u007f' || char === '\b') {
-					text = [...text].slice(0, -1).join('');
-				} else {
-					text += char;
-				}
-			}
-			return false;
+			if (taken.kind === 'line') resolve(taken.line);
+			else reject(new ServerError('INVALID', 'no password typed'));
+			return true;
 		};
 		const onData = (chunk: Uint8Array) => {
-			take(decoder.decode(chunk, { stream: true }));
+			settle(take(terminal, chunk));
 		};
-		const ahead = typedAhead;
-		typedAhead = '';
 		stdin.setRawMode(true);
-		if (take(ahead)) return;
+		if (settle(take(terminal))) return;
 		stdin.resume();
 		stdin.on('data', onData);
 	});

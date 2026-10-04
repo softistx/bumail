@@ -44,8 +44,7 @@ export interface AdapterOptions {
 }
 
 /** What `busy` throws: each listener answers it as a temporary failure (454, `NO [UNAVAILABLE]`, 503). */
-export const BUSY_MESSAGE =
-	'too many logins wait for a verify; try again later';
+export const BUSY_MESSAGE = 'too many logins under way; try again later';
 
 async function check(
 	directory: Authenticates,

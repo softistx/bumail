@@ -9,10 +9,10 @@ import {
 	openStore,
 	storeFailure,
 } from '../store/open';
-import type { Args } from './args';
 import { readPassword, type Terminal } from './secret';
+import type { ManageArgs } from './verbs';
 
-type Manage = Extract<Args, { kind: 'manage' }>;
+type Manage = ManageArgs;
 
 /** Where a directory command writes, and what it reads. */
 export interface ManageIo {
@@ -132,9 +132,19 @@ const commands: Record<Manage['noun'], Handler> = {
 		} else if (args.purge) {
 			const user = directory.users.checkRemovable(address);
 			await withStore(config, async ({ store }) => {
-				// The mail first: should the store fail, the user is still
-				// there, and the same command can be run again.
-				await purgeAccount(store, user.address);
+				// Disabled first, so no login creates the account again while
+				// it goes; the mail next, so should the store fail, the user
+				// is still there, disabled, and the command can run again.
+				directory.users.setDisabled(user.address, true);
+				try {
+					await purgeAccount(store, user.address);
+				} catch (error) {
+					const reason = storeFailure(error, config.store).message;
+					throw new ServerError(
+						'UNAVAILABLE',
+						`the user ${user.address} is disabled, but its mail is not purged: ${reason}; run the command again`,
+					);
+				}
 				directory.users.remove(user.address);
 			});
 			out(`removed the user ${user.address} and its mail\n`);
