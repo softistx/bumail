@@ -1,7 +1,7 @@
 {
 	"name": "@bumail/queue",
 	"version": "0.2.0",
-	"description": "The outbound mail queue of a mail server: every recipient's state, retries with back-off, delivery status notifications (RFC 3464), leases for several workers, and a memory, a bun:sqlite and a PostgreSQL (Bun.sql) store, delivering through @bumail/smtp/client",
+	"description": "The outbound mail queue of a mail server: every recipient's state, retries with back-off, delivery status notifications (RFC 3464), leases for several workers, and a memory, a bun:sqlite, a PostgreSQL (Bun.sql) and a Redis (Bun.redis) store, delivering through @bumail/smtp/client",
 	"license": "MIT",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -34,6 +34,11 @@
 			"import": "./dist/postgres/index.js",
 			"default": "./dist/postgres/index.js"
 		},
+		"./redis": {
+			"types": "./dist/redis/index.d.ts",
+			"import": "./dist/redis/index.js",
+			"default": "./dist/redis/index.js"
+		},
 		"./package.json": "./package.json"
 	},
 	"repository": {
@@ -55,7 +60,8 @@
 			"src/index.ts",
 			"src/memory/index.ts",
 			"src/sqlite/index.ts",
-			"src/postgres/index.ts"
+			"src/postgres/index.ts",
+			"src/redis/index.ts"
 		]
 	},
 	"devDependencies": {
