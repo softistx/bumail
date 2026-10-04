@@ -23,12 +23,8 @@ import { QueueError } from '../errors';
 import { masked } from '../masked';
 import { isStorable } from '../text';
 import { type Connection, connect, type Tables } from './connect';
-import { READ_COMMITTED } from './isolation';
-import type {
-	PostgresClient,
-	PostgresQueryable,
-	PostgresQueueStoreOptions,
-} from './options';
+import { writing, written } from './isolation';
+import type { PostgresClient, PostgresQueueStoreOptions } from './options';
 import { type ItemRow, itemOf, rowsOf } from './rows';
 import { migrate } from './schema';
 import { type Statements, statementsOf } from './statements';
@@ -109,18 +105,9 @@ export class PostgresQueueStore implements QueueStore {
 		return rowsOf<T>((await this.#sql()).unsafe(query, values));
 	}
 
-	/** `fn` in a transaction at READ COMMITTED: every write goes through here. */
-	async #write<T>(fn: (tx: PostgresQueryable) => Promise<T>): Promise<T> {
-		const sql = await this.#sql();
-		return (await sql.begin(async (tx: PostgresQueryable) => {
-			await tx.unsafe(READ_COMMITTED);
-			return fn(tx);
-		})) as T;
-	}
-
 	/** One statement that writes, at READ COMMITTED; its rows. */
-	#written<T>(query: string, values: unknown[] = []): Promise<T[]> {
-		return this.#write((tx) => rowsOf<T>(tx.unsafe(query, values)));
+	async #written<T>(query: string, values: unknown[] = []): Promise<T[]> {
+		return written<T>(await this.#sql(), query, values);
 	}
 
 	async add(item: NewQueueItem, options: AddOptions = {}): Promise<QueueItem> {
@@ -141,7 +128,7 @@ export class PostgresQueueStore implements QueueStore {
 			return added;
 		}
 		// Adds that count wait on one lock, so two never both take the last place.
-		await this.#write(async (tx) => {
+		await writing(await this.#sql(), async (tx) => {
 			await tx.unsafe(q.lockAdds);
 			const [row] = await rowsOf<{ n: number }>(tx.unsafe(q.count));
 			const n = row?.n ?? 0;
@@ -210,7 +197,7 @@ export class PostgresQueueStore implements QueueStore {
 		if (!isStorable(id)) return undefined;
 		const q = this.#q;
 		let done: QueueItem | undefined;
-		await this.#write(async (tx) => {
+		await writing(await this.#sql(), async (tx) => {
 			const [row] = await rowsOf<ItemRow>(tx.unsafe(q.held, [id, owner]));
 			if (!row) return;
 			const item = applyAttempt(itemOf(row), result);

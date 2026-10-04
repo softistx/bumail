@@ -98,6 +98,7 @@ recipient's outcome is recorded with the reply that decided it.
 | `sendMail` refuses the route's options (`INVALID_OPTION`) | `deferred`, as `4.3.5` | tried again later, and an `error` event: the configuration is yours to fix |
 | a recipient a store holds that `sendMail` would refuse | `failed`, as `5.1.3` | final, alone; a DSN |
 | a sender a store holds that `sendMail` would refuse | `failed`, as `5.1.7` | final, every recipient, with no session; a DSN to that sender, which itself fails as `5.1.3` |
+| a message the store lost ([below](#a-message-the-store-lost)) | `failed`, as `5.3.0` | final, every pending recipient, with no session; a DSN without the original, and a `MESSAGE_UNREADABLE` error |
 
 An error is read by its `name` (`SmtpError`) and `code`, not by its
 class: an app with a second copy of `@bumail/smtp` installed, or a
@@ -167,19 +168,30 @@ or deleted, a row removed by hand — cannot be sent. Rather than leave it
 leased, claimed again at every lease and holding its `limits.maxItems`
 place, the attempt fails every recipient still pending, at once:
 
-- each one's `failed` event carries `{ status: '5.3.0', text: 'Message
-  unreadable: the queue store holds the item but not its message' }`,
-  and the attempt counts;
+- the failures are recorded, and the attempt counts; then
 - the `error` event gets a `QueueError` of code `MESSAGE_UNREADABLE`,
   `The message of … is unreadable: the store holds the item but not its
   message, so every pending recipient failed`, with the item's `id`;
+- each recipient's `failed` event follows, its `reply` `{ status:
+  '5.3.0', text: 'Message unreadable: the queue store holds the item but
+  not its message' }`, with no `code`, since no server answered;
 - the failure DSN goes to the sender as usual — never about a message
   from `<>` — with no third part, since there is nothing to return;
 - the item leaves the queue. Recipients already delivered keep their
   state, and are not told again.
 
-An item that is gone along with its message (cancelled, or finished by
-another worker) is left alone, as before.
+In that order: the record, the `error`, the `failed` events, the `dsn`
+event. Nothing is told before the record: when the lease was lost
+meanwhile, the attempt reports `LEASE_LOST` only, and the worker that
+holds the item next tells the failures; when `complete` throws, the
+`error` event gets that error alone. An item that is gone along with its
+message (cancelled, or finished by another worker) is left alone, as
+before.
+
+A store keeps an item from being claimed before its message can be read
+— the message written first, or both in one step — so a message missing
+at a claim is always damage, never an add still under way. Every store
+here adds both in one step.
 
 ## Retries
 
@@ -334,9 +346,13 @@ off(); // stops listening
 | `dsn` | `{ kind: 'delayed' \| 'failed', id, of, to, recipients }`: `id` is the DSN's own item, `of` the item it reports on |
 | `error` | `{ error, id? }`: a store that failed (a lease renewal included), a DSN that could not be enqueued, a lease lost (`LEASE_LOST`), a message the store lost (`MESSAGE_UNREADABLE`), a route `sendMail` refused (`INVALID_OPTION`) |
 
-Events come once the outcome is recorded. A listener that throws is
-ignored. `reply.code` is absent when no server answered: a connection
-error, a timeout, the DNS.
+Events about an outcome come once it is recorded, in this order: a
+`MESSAGE_UNREADABLE` error when the store lost the message, each
+recipient's `delivered`, `deferred` or `failed`, then the `dsn` events.
+Other errors are told as they happen: a route `sendMail` refused during
+its session, and a lease lost or a store that failed in place of the
+outcome. A listener that throws is ignored. `reply.code` is absent
+when no server answered: a connection error, a timeout, the DNS.
 
 ## Admin
 
@@ -763,8 +779,15 @@ points at it, and `mxPort` its port.
 A store implements `QueueStore`, throws `QueueError` with the contract's
 codes, and keeps its promises:
 
+- `add` never makes an item claimable before its message is readable:
+  write the message first, or both in one step.
 - `claim` is atomic: two claimers, in any process, never get the same
   item; an item whose lease expired is claimable again.
+- `readMessage` gives `undefined` once the item is gone, and also when
+  the store still holds the item but has lost its message: the queue
+  then fails the item's pending recipients as `5.3.0`
+  ([a message the store lost](#a-message-the-store-lost)), so never
+  throw for a missing message.
 - `complete` applies the outcome, the schedule and the count, and lets go
   of the lease, in one step and only for the lease's owner; a final
   status is never changed; an item whose every recipient is final is

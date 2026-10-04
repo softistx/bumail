@@ -161,12 +161,11 @@ export async function deliverItem(
 	ctx: DeliveryContext,
 	item: QueueItem,
 ): Promise<void> {
-	const { store, events } = ctx;
+	const { store } = ctx;
 	const message = await store.readMessage(item.id);
 	if (!message) {
 		// Gone with its message: cancelled, or finished by another worker.
 		if ((await store.get(item.id)) === undefined) return;
-		events.emit('error', { error: unreadableError(item.id), id: item.id });
 		const failed = [...groupsOf(item).values()].flat().map(unreadable);
 		await record(ctx, item, failed, false, undefined);
 		return;
@@ -197,6 +196,9 @@ export async function deliverItem(
 /**
  * Records an attempt's outcomes — which lets go of the lease — then tells
  * the events and sends the DSNs, the original returned when there is one.
+ * With no `message` (the store lost it), the `MESSAGE_UNREADABLE` error
+ * comes first of the events, and only once the failures are recorded: a
+ * lease lost meanwhile, or a `complete` that throws, says nothing of them.
  */
 async function record(
 	ctx: DeliveryContext,
@@ -228,6 +230,9 @@ async function record(
 		);
 		events.emit('error', { error, id: item.id });
 		return;
+	}
+	if (!message) {
+		events.emit('error', { error: unreadableError(item.id), id: item.id });
 	}
 	emitOutcomes(events, item, settled);
 	await notify(ctx, item, message, 'failed', settled.failed, now);

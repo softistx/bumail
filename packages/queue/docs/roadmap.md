@@ -7,7 +7,7 @@ only number on it.
 ## Now
 
 Nothing in progress: the MongoDB store, first under Next, is the next
-one taken. The Redis store is merged (see Shipped).
+one taken. The Redis store shipped in 0.3.0 (see Shipped).
 
 ## Next
 

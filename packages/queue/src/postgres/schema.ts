@@ -1,6 +1,6 @@
 import { QueueError } from '../errors';
 import type { Tables } from './connect';
-import { READ_COMMITTED } from './isolation';
+import { writing } from './isolation';
 import type { PostgresClient, PostgresQueryable } from './options';
 import { rowsOf } from './rows';
 
@@ -91,10 +91,9 @@ export async function migrate(
 		checkNotNewer(current, all.length);
 		if (current === all.length) return;
 	}
-	await client.begin(async (sql: PostgresQueryable) => {
-		// READ COMMITTED, as every write: under a stricter level the version
-		// read after the lock would be the snapshot's, from before it.
-		await sql.unsafe(READ_COMMITTED);
+	// READ COMMITTED, as every write: under a stricter level the version
+	// read after the lock would be the snapshot's, from before it.
+	await writing(client, async (sql: PostgresQueryable) => {
 		await sql.unsafe('SELECT pg_advisory_xact_lock(hashtext($1)) IS NULL', [
 			tables.schema,
 		]);
