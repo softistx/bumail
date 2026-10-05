@@ -36,8 +36,9 @@ async function mounted(
 				throw new Error('directory down');
 			return alice.id;
 		},
-		secure: (_request, client) => {
+		secure: (request, client) => {
 			told.secure.push(client);
+			if (request.headers.has('x-test-throw')) throw new Error('secure broke');
 			return client.url.protocol === 'https:';
 		},
 		onError: (_error, context) => {
@@ -153,7 +154,10 @@ describe('the client authenticate, secure and onError are told', () => {
 				methodCalls: [['Mailbox/get', { accountId: m.alice.id }, 'c']],
 			}),
 		});
-		expect(((await answered.json()) as any).methodResponses[0][1]).toEqual({
+		const body = (await answered.json()) as {
+			methodResponses: [string, unknown, string][];
+		};
+		expect(body.methodResponses[0]?.[1]).toEqual({
 			type: 'serverFail',
 		});
 		expect(
@@ -161,6 +165,29 @@ describe('the client authenticate, secure and onError are told', () => {
 		).toEqual([
 			['203.0.113.9', undefined],
 			['203.0.113.9', 'Mailbox/get'],
+		]);
+	});
+
+	test('reaches onError when secure throws, and the request is taken as clear', async () => {
+		const m = await mounted((server) =>
+			alxia({ proxy: trustProxy({ trusted: ['10.0.0.0/8'] }) }).plugin(server),
+		);
+		close = m.close;
+		const response = await m.host.fetch(
+			new Request(`${ORIGIN}/.well-known/jmap`, {
+				headers: {
+					authorization: basic,
+					'x-forwarded-for': '203.0.113.11',
+					'x-forwarded-proto': 'https',
+					'x-test-throw': '1',
+				},
+			}),
+			peer('10.0.0.1'),
+		);
+		expect(response.status).toBe(403);
+		expect(m.told.authenticate).toEqual([]);
+		expect(m.told.onError.map(({ client }) => client.ip)).toEqual([
+			'203.0.113.11',
 		]);
 	});
 });

@@ -53,6 +53,22 @@ describe('jmap behind a proxy that ends TLS', () => {
 		expect(session.apiUrl).toStartWith('https://jmap.example.org/');
 	});
 
+	test('counts a forwarded client under one text: mapped, upper-case, bracketed with a port', async () => {
+		fixture = await startJmap(PROXY_CONFIG);
+		for (const [entry, logged] of [
+			['::ffff:203.0.113.7', '203.0.113.7'],
+			['2001:DB8:9:0::1', '2001:db8:9::1'],
+			['[2001:DB8::1]:4000', '2001:db8::1'],
+		] as const) {
+			await fixture.session(
+				forwarded(entry, { authorization: basic('wrong') }),
+			);
+			expect(fixture.lines).toContain(
+				`https: login refused from ${logged}: password`,
+			);
+		}
+	});
+
 	test('counts failed logins per forwarded client, not in the proxy bucket', async () => {
 		fixture = await startJmap(PROXY_CONFIG);
 		for (let i = 0; i < 10; i++) {
@@ -139,19 +155,6 @@ describe('jmap behind a proxy that ends TLS', () => {
 		expect((await chain('http, https'))?.status).toBe(403);
 		// What the client wrote, left of what the proxies did, is never read.
 		expect((await chain('http, https, http'))?.status).toBe(200);
-	});
-
-	test('ignores X-Forwarded-For and X-Forwarded-Proto from a peer that is not trusted', async () => {
-		fixture = await startJmap(
-			PROXY_CONFIG.replace('["127.0.0.1", "::1"]', '["10.9.9.9"]'),
-		);
-		const response = await fixture.session(
-			forwarded('203.0.113.7', { authorization: basic('wrong') }),
-		);
-		// Not secure by the peer's say-so: Basic is refused before it is checked.
-		expect(response.status).toBe(403);
-		expect(fixture.lines.join('\n')).not.toContain('203.0.113.7');
-		expect((await fixture.session(forwarded('203.0.113.7'))).status).toBe(403);
 	});
 
 	test('answers 403 to every request of a peer it does not trust, before it reads a header', async () => {

@@ -84,7 +84,8 @@ const app = alxia({
 		…,
 		// the scheme the outermost trusted proxy wrote, never the client's
 		secure: (_request, client) => client.url.protocol === 'https:',
-		authenticate: (credentials, _request, client) => login(credentials, client.ip),
+		// your own check, its limiter keyed by the forwarded client's address
+		authenticate: (credentials, _request, client) => check(credentials, client.ip),
 	}),
 );
 ```

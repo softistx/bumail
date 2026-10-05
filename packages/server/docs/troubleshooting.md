@@ -2053,8 +2053,8 @@ take for TLS, and is refused before the password is read.
 With `jmap.mode = "proxy"`, every request is answered `403` with the
 body `{"error":"untrusted_proxy"}` when its TCP peer is not in
 `jmap.trusted`: before any header, login or route is looked at, and not
-logged. (Releases on `@alxia/core` 0.9 or earlier answered `forbidden`,
-in plain text.) Usually the proxy
+logged. (Earlier releases of `@bumail/server` answered `forbidden`, in
+plain text.) Usually the proxy
 connects from an address you did not list (another Docker network, or
 its container's address instead of the network's): put the address or
 CIDR it connects from in `trusted`. A client reaching the plain HTTP port
