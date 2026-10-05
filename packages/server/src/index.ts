@@ -29,6 +29,7 @@ export {
 	type ClientSession,
 	imapAuthenticate,
 	type JmapLogin,
+	type JmapLoginClient,
 	jmapAuthenticate,
 	type LoginCredentials,
 	smtpAuthenticate,

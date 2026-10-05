@@ -3,6 +3,7 @@ import type { CallContext } from '../api/context';
 import { dispatch } from '../api/dispatch';
 import { METHODS } from '../api/methods';
 import { checkRequest, parseJson, type Refused } from '../api/request';
+import type { JmapClient } from '../server/options';
 import type { Runtime } from '../server/runtime';
 import { sessionOf } from '../server/session';
 import type { Authenticated } from './auth';
@@ -22,6 +23,7 @@ function refusal(refused: Refused) {
 async function answer(
 	runtime: Runtime,
 	auth: Authenticated,
+	client: JmapClient,
 	request: Request,
 	reply: FreeReplyFunction,
 ): Promise<AnyReply> {
@@ -42,6 +44,7 @@ async function answer(
 		created: new Map(Object.entries(checked.request.createdIds ?? {})),
 		uploads: runtime.uploads,
 		request,
+		client,
 		bodyBudget: limits.maxBodyValuesTotal,
 		references: {
 			maxItems: limits.maxReferenceItems,
@@ -65,12 +68,13 @@ async function answer(
 export function handleApi(
 	runtime: Runtime,
 	auth: Authenticated,
+	client: JmapClient,
 	request: Request,
 	reply: FreeReplyFunction,
 ): Promise<AnyReply> {
 	return runtime.requests.run(
 		auth.accountId,
-		() => answer(runtime, auth, request, reply),
+		() => answer(runtime, auth, client, request, reply),
 		() => {
 			request.body?.cancel().catch(() => undefined);
 			return limitProblem(

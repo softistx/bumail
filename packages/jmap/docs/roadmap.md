@@ -73,6 +73,13 @@ and bounded. Each comes out once the store contract grows it.
 
 Merged, not yet published.
 
+- **`@alxia/core` 0.10, and who a request is from** — the peer range
+  moves on to `^0.10.0`. `authenticate` and `secure` get a last
+  argument, `client` — `{ ip, url }`, the host app's `ctx.ip` and
+  `originalUrl(ctx)` — and `onError`'s context a `client`, so behind
+  `alxia({ proxy: trustProxy(…) })` a login limiter and the TLS check
+  read what the trusted proxies said, with no header of your own. Hooks
+  written for the two arguments keep working; every answer is unchanged.
 - **`@alxia/core` 0.9** — the peer range moves on to `^0.9.0`. A
   request with the wrong method and no credentials, or wrong ones, is a
   401 where it was a 405: the `Allow` of a 405 names the routes' methods

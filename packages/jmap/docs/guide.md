@@ -92,12 +92,33 @@ and `Bearer realm="JMAP"`. Every refusal is an RFC 7807 problem
 (`application/problem+json`) of type `about:blank`.
 
 A request is clear unless its URL is `https:`. Behind a proxy that ends
-TLS, `secure(request)` decides instead — trust a header only when your
-proxy sets it and strips the client's:
+TLS, `secure(request, client)` decides instead. `client` is what the
+host app knows of the request: `client.ip` is its `ctx.ip`, `client.url`
+its `originalUrl(ctx)`. Declare the proxies on the host with
+`trustProxy`, and `client.url` has the scheme the outermost trusted
+proxy wrote, never one a client sent:
 
 ```ts
-jmap({ …, secure: (request) => request.headers.get('x-forwarded-proto') === 'https' });
+import { alxia, trustProxy } from '@alxia/core';
+
+alxia({ proxy: trustProxy({ trusted: ['10.0.0.0/8'], untrusted: 'refuse-all' }) }).plugin(
+	jmap({ …, secure: (_request, client) => client.url.protocol === 'https:' }),
+);
 ```
+
+The scheme is only as good as the edge: the outermost proxy must set or
+overwrite `X-Forwarded-Proto`, as Traefik does, or a client's own entry
+stands where the edge's should. Without `secure`, the default reads the
+request's own URL, not `client.url`: `trustProxy` alone does not lift
+the refusal of Basic, so set `secure` as above.
+
+`untrusted: 'refuse-all'` answers 403 every connection that is no
+trusted proxy, before any route; leave it out to serve direct clients
+too, whose `client` is then the connection's. `authenticate` gets the
+same `client` as its third argument, and `onError`'s context as
+`client`: key a login limiter by `client.ip`, which behind the proxy is
+the forwarded client's, one text per address. With no server
+(`app.request`, a spec), `client.ip` is `undefined`.
 
 `allowInsecureBasic: true` takes Basic over `http:`. It exists for local
 tests and examples; a server on the Internet never sets it.
@@ -466,7 +487,7 @@ message after 200.
 
 ## onError
 
-`onError(error, { request, accountId?, method? })` is told of what went
+`onError(error, { request, client, accountId?, method? })` is told of what went
 wrong outside the client's control:
 
 | error | when | the client gets |

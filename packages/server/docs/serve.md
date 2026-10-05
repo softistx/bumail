@@ -510,7 +510,8 @@ header, login or route is looked at: only the proxies are served.
 
 The server then reads, from a trusted proxy only, the client in
 `X-Forwarded-For` (the right-most entry that is not a trusted proxy)
-and TLS in `X-Forwarded-Proto` (the right-most is `https`); see
+and TLS in `X-Forwarded-Proto` (the entry the outermost trusted proxy
+wrote is `https`); see
 [`[jmap]`](guide.md#jmap). So logins behind Traefik are counted per
 client, not all in the proxy's one bucket. Traefik sets both headers
 itself, and by default replaces any a client sent; leave

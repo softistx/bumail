@@ -118,6 +118,28 @@ describe('the adapters', () => {
 		expect(ips).toEqual(['2001:db8::1']);
 	});
 
+	test('jmap hands ipOf the client @bumail/jmap names', async () => {
+		const dir = await directory();
+		const store = new MemoryMailStore();
+		const seen: unknown[] = [];
+		const jmap = jmapAuthenticate(dir, store, (_request, client) => {
+			seen.push(client);
+			return client?.ip ?? '';
+		});
+		const request = new Request('http://10.0.0.5/jmap');
+		const client = {
+			ip: '203.0.113.7',
+			url: new URL('https://mail.example.com/'),
+		};
+		const id = await jmap(
+			{ scheme: 'basic', username: 'alice@example.com', password: PASSWORD },
+			request,
+			client,
+		);
+		expect(id).toBe((await store.findAccount('alice@example.com'))?.id ?? '');
+		expect(seen).toEqual([client]);
+	});
+
 	test('busy is thrown, for each listener to answer as a temporary failure', async () => {
 		const busy = {
 			authenticate: async (): Promise<AuthResult> => ({

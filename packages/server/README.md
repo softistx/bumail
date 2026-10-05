@@ -429,7 +429,7 @@ be used 5.
 | `AuthResult`, `AuthFailure`, `AuthenticatorOptions`, `DirectoryOptions` | `authenticate`'s answer, its reasons (`blocked`, `malformed`, `unknown`, `password`, `disabled`, `busy`), and the options |
 | `FailureLimiter`, `FailureLimiterOptions`, `Begun`, `clientKey(ip)` | failed logins per client: `blocked(ip)`; `begin(ip)`, answering a `Begun` (`'started' \| 'blocked' \| 'busy'`), and `end(ip, failed)` around a login; `fail(ip)`, for a login that cost a verify; `limits(ip)`; `blockedUntil(ip)`; `maxFailures` (10), `windowSeconds` (900), `maxClients` (100 000), `maxPending` (5, capped at `maxFailures`). `clientKey(ip)` is the key a client is counted under — `@bumail/smtp`'s, as the SMTP listeners count connections — or `undefined` for anything that is no IP address, which is not limited |
 | `smtpAuthenticate(directory, options?)`, `imapAuthenticate(directory, store, options?)`, `jmapAuthenticate(directory, store, ipOf, options?)` | `authenticate` in the shape `@bumail/smtp`, `@bumail/imap` and `@bumail/jmap` take; `options.onRefused(reason, ip)` |
-| `Authenticates`, `LoginCredentials`, `ClientSession`, `JmapLogin`, `AdapterOptions`, `BUSY_MESSAGE` | the types around them, and what they throw on `busy` |
+| `Authenticates`, `LoginCredentials`, `ClientSession`, `JmapLogin`, `JmapLoginClient`, `AdapterOptions`, `BUSY_MESSAGE` | the types around them, and what they throw on `busy` |
 | `provisionAccount(store, address)`, `purgeAccount(store, address)`, `MAILBOXES` | a user's account in the mail store, with its six mailboxes; deleting it |
 | `openStore(config.store)`, `OpenedStore` | opens the mail store `store.url` names |
 | `directoryFile(url)` | the file of a `sqlite:` directory URL |

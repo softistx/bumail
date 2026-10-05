@@ -15,9 +15,23 @@ export type JmapCredentials =
 /** What `authenticate` answers: the store account to serve, or `null` (or `undefined`) to refuse. */
 export type AuthResult = string | null | undefined;
 
+/**
+ * Who a request is from, as the host app knows it: its context's `ip`
+ * and `originalUrl(ctx)`. Behind `alxia({ proxy: trustProxy(…) })`, both
+ * are what the trusted proxies said; without it, the connection's.
+ */
+export interface JmapClient {
+	/** `ctx.ip`: the client's address, `undefined` when it is unknown (no server, a unix socket). */
+	readonly ip: string | undefined;
+	/** `originalUrl(ctx)`: the URL the client asked for, with the scheme and host the trusted proxies wrote. */
+	readonly url: URL;
+}
+
 /** What `onError` is told along with the error. */
 export interface ErrorContext {
 	readonly request: Request;
+	/** Who the request is from, as `authenticate` and `secure` are told. */
+	readonly client: JmapClient;
 	/** The account the request was authenticated as, once it was. */
 	readonly accountId?: string;
 	/** The method call that failed, for an error inside one. */
@@ -74,11 +88,14 @@ export interface JmapOptions {
 	/**
 	 * Checks credentials: the id of the account in `store` to serve, or
 	 * `null` to refuse. Basic is asked only over HTTPS unless
-	 * `allowInsecureBasic` is set; Bearer always.
+	 * `allowInsecureBasic` is set; Bearer always. `client` is who the
+	 * request is from, as the host app knows it: the address a login
+	 * limiter counts.
 	 */
 	authenticate(
 		credentials: JmapCredentials,
 		request: Request,
+		client: JmapClient,
 	): AuthResult | Promise<AuthResult>;
 	/** The public origin the session's URLs start with: `https://mail.example.com`. */
 	readonly origin: string;
@@ -94,10 +111,11 @@ export interface JmapOptions {
 	readonly allowInsecureBasic?: boolean;
 	/**
 	 * Whether a request came over TLS. Default: its URL is `https:`. Behind
-	 * a proxy that ends TLS, read what the proxy says, such as
-	 * `X-Forwarded-Proto`, only when the proxy sets it.
+	 * a proxy that ends TLS, read what the proxy says only when the proxy
+	 * sets it: under the host's `alxia({ proxy: trustProxy(…) })`,
+	 * `client.url.protocol === 'https:'`.
 	 */
-	secure?(request: Request): boolean;
+	secure?(request: Request, client: JmapClient): boolean;
 	/**
 	 * Told of what went wrong in the app's code or the store: an
 	 * `authenticate` that threw or timed out, an account it named that the

@@ -1,5 +1,6 @@
 import type { MailStore } from '@bumail/store';
 import type { Uploads } from '../blob/uploads';
+import type { JmapClient } from '../server/options';
 import type { Settings } from '../server/settings';
 import type { ReferenceBudget } from './refs';
 
@@ -14,6 +15,8 @@ export interface CallContext {
 	readonly created: Map<string, string>;
 	readonly uploads: Uploads;
 	readonly request: Request;
+	/** Who the request is from, for `onError`. */
+	readonly client: JmapClient;
 	/** Bytes of body values this request may still return. */
 	bodyBudget: number;
 	/** Bytes of JSON this request's back-references may still copy. */

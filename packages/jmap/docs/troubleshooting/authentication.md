@@ -27,13 +27,22 @@ or the account is not allowed in. Nothing more is said to the client.
 Basic credentials came on a request whose URL is `http:`. The password
 would cross the network as written, so `authenticate` is not called. Use
 HTTPS, or a Bearer token. Behind a proxy that ends TLS, the request the
-server sees is `http:`: tell it how to know better.
+server sees is `http:`: tell it how to know better, from what the host's
+`trustProxy` read. A host that declares `trustProxy` but leaves `secure`
+out still gets this 403: the default reads the request's own URL, not
+`client.url`.
 
 ```ts
-jmap({ …, secure: (request) => request.headers.get('x-forwarded-proto') === 'https' });
+import { alxia, trustProxy } from '@alxia/core';
+
+alxia({ proxy: trustProxy({ trusted: ['10.0.0.0/8'], untrusted: 'refuse-all' }) }).plugin(
+	jmap({ …, secure: (_request, client) => client.url.protocol === 'https:' }),
+);
 ```
 
-Trust that header only when your proxy sets it and strips the client's.
+`client.url` takes the scheme from a trusted proxy alone, the entry the
+outermost one wrote: list every proxy of the chain in `trusted`, and
+have the outermost overwrite `X-Forwarded-Proto` or every one append.
 For local tests, `allowInsecureBasic: true`.
 
 ## `503 Temporary authentication failure`

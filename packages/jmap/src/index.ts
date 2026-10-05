@@ -3,6 +3,7 @@ export { type JmapServer, jmap } from './server/jmap';
 export type {
 	AuthResult,
 	ErrorContext,
+	JmapClient,
 	JmapCredentials,
 	JmapLimits,
 	JmapOptions,

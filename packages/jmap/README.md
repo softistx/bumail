@@ -12,7 +12,7 @@ back-references, Mailbox, Email and Thread, and blob download and upload.
 bun add @bumail/jmap @alxia/core @bumail/store @bumail/mime
 ```
 
-`@alxia/core` (0.9.0 or later), `@bumail/store` and `@bumail/mime` are
+`@alxia/core` (0.10.0 or later), `@bumail/store` and `@bumail/mime` are
 peers: install the versions your app uses. `typescript` is an optional
 peer, for the types.
 
@@ -62,20 +62,32 @@ this example, runnable from a clone: `bun install && bun run build`, then
 ## Authentication
 
 `authenticate` gets `{ scheme: 'basic', username, password }` or
-`{ scheme: 'bearer', token }`, and the `Request`. It answers the id of the
+`{ scheme: 'bearer', token }`, the `Request`, and the `client`: `{ ip,
+url }`, the host app's `ctx.ip` and `originalUrl(ctx)` — the address a
+login limiter counts. It answers the id of the
 store account to serve, or `null` to refuse (a 401 with both challenges).
 It runs under `hookTimeout` (30 s): one that throws, hangs or names an
 account the store does not have is a 503, and `onError` is told.
 
 **Basic is taken only over HTTPS.** On a clear request it is refused with a
 403 before `authenticate` is called, as `@bumail/imap` and `@bumail/smtp`
-refuse a login before TLS. Behind a proxy that ends TLS, say how to tell:
+refuse a login before TLS. Behind a proxy that ends TLS, declare the
+proxies on the host app with `trustProxy`, and read what they said:
 
 ```ts
-jmap({
-	…,
-	secure: (request) => request.headers.get('x-forwarded-proto') === 'https', // only if your proxy sets it
-});
+import { alxia, trustProxy } from '@alxia/core';
+
+const app = alxia({
+	proxy: trustProxy({ trusted: ['10.0.0.0/8'], untrusted: 'refuse-all' }),
+}).plugin(
+	jmap({
+		…,
+		// the scheme the outermost trusted proxy wrote, never the client's
+		secure: (_request, client) => client.url.protocol === 'https:',
+		// your own check, its limiter keyed by the forwarded client's address
+		authenticate: (credentials, _request, client) => check(credentials, client.ip),
+	}),
+);
 ```
 
 `allowInsecureBasic: true` lifts the refusal, for local tests only. Bearer
@@ -211,7 +223,8 @@ Its `info.version` is the version of the document, not of the package.
 | `JmapLimits` | the limits above |
 | `JmapCredentials` | what `authenticate` gets: `{ scheme: 'basic', username, password }` or `{ scheme: 'bearer', token }` |
 | `AuthResult` | what `authenticate` answers: an account id, or `null` / `undefined` |
-| `ErrorContext` | what `onError` gets beside the error: `request`, `accountId`, `method` |
+| `JmapClient` | who a request is from, as `authenticate`, `secure` and `onError` are told: `ip` (`ctx.ip`) and `url` (`originalUrl(ctx)`) |
+| `ErrorContext` | what `onError` gets beside the error: `request`, `client`, `accountId`, `method` |
 | `JmapError`, `JmapErrorCode` | `code`: `INVALID_OPTION`, and `HOOK_TIMEOUT`, which `onError` gets |
 | `@bumail/jmap/openapi.json` | the OpenAPI 3.1 document of the routes, as JSON |
 
