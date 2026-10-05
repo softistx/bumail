@@ -155,6 +155,19 @@ out of versioning. `typecheck` ends with `typecheck:demo`, so CI
 typechecks the demo, in both jobs; its e2e is not run in CI, because it
 needs Docker (for Mailpit).
 
+The server's image is the repository's `Dockerfile` (the whole stack
+compiled by `bun build --compile` to one binary on a small glibc base, uid
+10001, `/data` the only volume, nothing baked in), and `deploy/` holds the
+compose files (`compose.yaml` standalone, `compose.traefik.yaml`,
+`compose.traefik-tcp.yaml`), the Traefik snippets and the
+end-to-end test's own files (`deploy/test/`). `bun run docker:e2e`
+(`scripts/docker-e2e.ts`, its protocol clients in `scripts/docker-e2e/`)
+builds the image and runs the deploy guide against a Traefik v3, Pebble
+and a test DNS under the compose project `bumail-e2e-docker`, on high
+ports of 127.0.0.1; it removes everything it made. CI's "Docker" job
+builds the image without pushing it. The image is not pushed to any
+registry; nothing here may `docker push`.
+
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
 this section draws their arrows. A package that uses a sibling declares it by
 `workspace:^`, as a peer and a devDependency, and imports it by its

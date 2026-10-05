@@ -728,9 +728,16 @@ answers 503 until the health check itself is closed.
 
 ```yaml
 healthcheck:
-  test: ['CMD', 'bun', '-e', "fetch('http://127.0.0.1:8080/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+  test: ['CMD', '/usr/local/bin/bumail', 'health']
   interval: 30s
 ```
+
+`bumail health` is that check: it reads `ports.health` and `health.bind`
+from the configuration, asks `/healthz` and exits 0 for a 200, 1 for
+anything else. The Docker image has it as its `HEALTHCHECK`, since it has
+no `curl`; `--tls-pending` also exits 0 for a server waiting for its
+first certificate, so Traefik routes the CA's challenge to it
+([deploy guide](deploy.md#behind-traefik)).
 
 Looks that come together share one check, reused for about a
 second, so a flood of them costs the store one call. The log says when it turns unhealthy, and when it is well again, not at
