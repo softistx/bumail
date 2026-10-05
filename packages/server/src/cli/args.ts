@@ -1,6 +1,6 @@
 import { type DnsArgs, resolveDns } from './dns/args';
 import { type HealthArgs, type InitArgs, resolveImage } from './image-args';
-import { take as takeValue, unknownOption } from './option-syntax';
+import { is, take as takeValue, unknownOption } from './option-syntax';
 import {
 	isNoun,
 	type ManageArgs,
@@ -60,13 +60,10 @@ function readOptions(
 		const arg = argv[i] ?? '';
 		if (arg === '-h' || arg === '--help') return { kind: 'help' };
 		if (arg === '-v' || arg === '--version') return { kind: 'version' };
-		if (arg === '--config' || arg.startsWith('--config=')) {
+		if (is(arg, '--config')) {
 			if (options.config !== undefined) throw usage('--config is given twice');
 			[options.config, i] = take(i, '--config');
-		} else if (
-			arg === '--password-file' ||
-			arg.startsWith('--password-file=')
-		) {
+		} else if (is(arg, '--password-file')) {
 			if (options.passwordFile !== undefined) {
 				throw usage('--password-file is given twice');
 			}
@@ -75,7 +72,7 @@ function readOptions(
 			options.passwordStdin = true;
 		} else if (arg === '--purge') {
 			options.purge = true;
-		} else if (arg === '--selector' || arg.startsWith('--selector=')) {
+		} else if (is(arg, '--selector')) {
 			if (options.selector !== undefined) {
 				throw usage('--selector is given twice');
 			}
@@ -86,10 +83,10 @@ function readOptions(
 			options.json = true;
 		} else if (arg === '--check') {
 			options.check = true;
-		} else if (arg === '--ip' || arg.startsWith('--ip=')) {
+		} else if (is(arg, '--ip')) {
 			if (options.ip !== undefined) throw usage('--ip is given twice');
 			[options.ip, i] = take(i, '--ip');
-		} else if (arg === '--ip6' || arg.startsWith('--ip6=')) {
+		} else if (is(arg, '--ip6')) {
 			if (options.ip6 !== undefined) throw usage('--ip6 is given twice');
 			[options.ip6, i] = take(i, '--ip6');
 		} else if (arg.startsWith('-')) {

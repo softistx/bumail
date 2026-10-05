@@ -358,9 +358,13 @@ describe('bumail init', () => {
 			],
 			[[...BASE, '--frobnicate'], 'unknown option --frobnicate'],
 			[[...BASE, 'extra'], 'unexpected argument extra'],
-			// An option that looks like a password is refused, never repeated.
+			// An option that looks like a password is refused, never repeated,
+			// and init takes none, not even --password-stdin.
 			[[...BASE, '-pSecret123'], 'unknown option -p…'],
-			[[...BASE, '--password=Secret123'], 'a password is never taken'],
+			[[...BASE, '--password=Secret123'], 'init takes no --password'],
+			[[...BASE, '--password-stdin'], 'init takes no --password-stdin'],
+			[[...BASE, '--password-file=f'], 'init takes no --password-file'],
+			[['health', '--password-stdin'], 'health takes no --password-stdin'],
 			[[...BASE, '-xSecret123'], 'unknown option -x…'],
 			[['health', '--force'], 'health takes no --force'],
 		];

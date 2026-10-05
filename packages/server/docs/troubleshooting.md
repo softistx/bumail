@@ -2363,7 +2363,7 @@ With `restart: unless-stopped` and a CA that cannot be reached, the
 container loops: healthy for each start's tries, then exit 5, then a
 restart. See it in `docker inspect --format '{{.RestartCount}}'
 <container>`, and in the log lines `tls: the stored certificate is not
-used: expired` and `tls: obtaining … failed`: the cause is the CA's,
+used: expired` and `tls: obtaining a certificate failed (try … of …)`: the cause is the CA's,
 not the health check's.
 
 ### `… returned 404`: the challenge behind Traefik

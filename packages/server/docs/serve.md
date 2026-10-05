@@ -784,7 +784,7 @@ that cannot be reached, the container therefore loops: each start is
 healthy for the bounded tries, then the server exits 5 and Docker
 restarts it. The loop shows in `docker inspect --format
 '{{.RestartCount}}'` and in the log lines `tls: the stored certificate is
-not used: expired` and `tls: obtaining … failed`.
+not used: expired` and `tls: obtaining a certificate failed (try … of …)`.
 
 Looks that come together share one check, reused for about a
 second, so a flood of them costs the store one call. The log says when it turns unhealthy, and when it is well again, not at
