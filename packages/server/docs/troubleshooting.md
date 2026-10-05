@@ -1435,8 +1435,9 @@ above. The renewal is made again: its retries wait 10 minutes to 6 hours.
 
 ### `tls: no certificate stored in …; using the previous pair`
 
-Not a problem, but it says a renewal was cut short: `cert.pem` or
-`key.pem` is gone (a file removed by hand, or a volume restored in part), so the server started with the pair before it, `cert.prev.pem`
+Not a problem, but something removed the current pair: `cert.pem` or
+`key.pem` is gone (a file removed by hand, or a volume restored in
+part), so the server started with the pair before it, `cert.prev.pem`
 and `key.prev.pem`, which it put back as the current one. A previous pair
 that is expired, names another host or lacks a file is not used, and the
 server waits for a new certificate as under

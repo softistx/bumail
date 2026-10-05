@@ -548,7 +548,9 @@ The directory is made 0700 when the server creates it; one that exists
 guess, created exclusively and never through a symbolic link), synced,
 renamed over the old one, and the directory synced; a temporary file
 left by a write that failed is removed at once, and one left by an
-earlier process is removed at the next start. A new pair is
+earlier process is removed at the next start (only the server's own
+temporaries: `<file>.<pid>.<uuid>.tmp` for its five files, so other
+files in a shared directory are left alone). A new pair is
 written in this order: both new files, then the old pair under the
 `.prev.` names, then both renames, so a crash at any moment leaves one
 whole pair under one of the two names. A new key is made for each

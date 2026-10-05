@@ -16,7 +16,9 @@ import {
 import { join } from 'node:path';
 import type { TlsFiles } from '../tls';
 
-const STALE = /\.\d+\.[0-9a-f-]{36}\.tmp$/;
+// Only the names #write and writePair make: acme.dir may be shared, as /data.
+const STALE =
+	/^(?:account\.key|(?:key|cert)(?:\.prev)?\.pem)\.\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
 const FLAGS =
 	constants.O_CREAT |

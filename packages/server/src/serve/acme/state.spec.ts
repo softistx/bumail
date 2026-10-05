@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	rmSync,
 	statSync,
 	symlinkSync,
 	writeFileSync,
@@ -127,11 +128,16 @@ describe('AcmeState', () => {
 		const uuid = crypto.randomUUID();
 		const other = `key.pem.${process.pid + 1}.${uuid}.tmp`;
 		const own = `key.pem.${process.pid}.${uuid}.tmp`;
-		for (const name of [other, own, 'notes.tmp', 'cert.pem'])
+		const foreign = `backup.sql.42.${uuid}.tmp`;
+		const dashes = `key.pem.7.${'-'.repeat(36)}.tmp`;
+		for (const name of [other, own, foreign, dashes, 'notes.tmp', 'cert.pem'])
 			writeFileSync(join(dir, name), 'x');
 		new AcmeState(dir).removeStaleTemporaries();
-		expect(readdirSync(dir).sort()).toEqual(['cert.pem', 'notes.tmp']);
+		expect(readdirSync(dir).sort()).toEqual(
+			['cert.pem', dashes, foreign, 'notes.tmp'].sort(),
+		);
 		new AcmeState(join(dir, 'missing')).removeStaleTemporaries();
+		for (const name of [foreign, dashes]) rmSync(join(dir, name));
 
 		// While the second temporary is made, the first is in flight.
 		let calls = 0;
