@@ -2314,7 +2314,10 @@ message ends `; see bumail --help` (exit code 2, nothing written):
   proxy is believed about the client's address, so list only the
   proxy's network, such as the Docker network.
 - `init takes no --tls-pending`, and `health takes no …`: each command
-  takes its own options.
+  takes its own options. Neither reads a password, so any option starting
+  with `-pass` or `--pass` gets the same answer: `init takes no
+  --password-stdin`, `health takes no --password` (for `--password=…`,
+  whose value is not repeated).
 
 ### `bumail: <file>:` and `hostname: …`, from `init`
 
@@ -2530,7 +2533,9 @@ The directory commands add:
 - `bumail: --password-stdin and --password-file are both given; give one; see bumail --help`
 - `bumail: a password is never taken from the command line: use --password-stdin or --password-file, or type it at the prompt; see bumail --help`
   — an option starting with `-pass` or `--pass`, such as
-  `--password=…`. Its value is not repeated.
+  `--password=…`, given to a command that reads a password. Its value is
+  not repeated. `init` and `health` read none and answer `init takes no
+  --password` instead.
 - `bumail: standard input is not a terminal, so no password can be typed: give --password-stdin or --password-file; see bumail --help`
   — `user add` or `user passwd` without either option, in a script or
   a container without a terminal.
