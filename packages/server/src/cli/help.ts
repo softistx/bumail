@@ -22,7 +22,8 @@ Commands:
                  next steps; it refuses to replace a file unless --force:
        --hostname <name>      the server's own name, the MX host (required)
        --domain <domain>      a domain to host; repeat for more (required)
-       [--data <dir>]         where it keeps everything; default /data
+       [--data <dir>]         where it keeps everything, an absolute path;
+                              default /data
        [--acme-email <addr>]  the CA's contact for expiry notices
        [--acme-staging]       Let's Encrypt's staging CA, for a first try
        [--acme-directory <url>]  another ACME CA, a private or test one
