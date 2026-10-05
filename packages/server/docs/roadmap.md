@@ -133,4 +133,6 @@ Nothing is queued ahead of what is under Later.
 
 ## Shipped
 
-Nothing published yet.
+- **0.1.0**: the first release, on npm as `@bumail/server` and as the
+  image `ghcr.io/softistx/bumail`: everything under Now marked shipped
+  in 0.1.0.
