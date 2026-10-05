@@ -1,4 +1,5 @@
 import type { Database } from 'bun:sqlite';
+import { dkimRecord } from '@bumail/auth';
 import { ServerError } from '../errors';
 import { checkDomain, domainOf } from './address';
 import { immediate } from './database';
@@ -43,7 +44,7 @@ function entry(row: KeyRow): DkimKeyEntry {
 		domain: row.domain,
 		selector: row.selector,
 		name: `${row.selector}._domainkey.${row.domain}`,
-		record: `v=DKIM1; k=rsa; p=${row.public_key}`,
+		record: dkimRecord({ publicKey: row.public_key }),
 		created: new Date(row.created),
 	};
 }

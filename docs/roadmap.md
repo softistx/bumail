@@ -71,15 +71,14 @@ No dates. Each entry says what someone running or embedding the server gets.
   can release a caught message to bumail's MX on port 25. Now that
   submission and IMAP exist, a real mail client (Thunderbird, Apple Mail)
   logs in, sends and reads through bumail itself.
-- **The DNS records a domain needs, written for you** — from a domain, its
-  MX hosts, its sending IPs and its DKIM keys, the records to publish: MX,
-  SPF (`v=spf1 …`), each DKIM key's TXT at `<selector>._domainkey`, DMARC
-  at `_dmarc`, and later MTA-STS and TLS-RPT. As a BIND zone file, which
-  Cloudflare, Route 53 and most DNS hosts import as is, and as plain
-  records (name, type, value, TTL) for a provider's API. Each record value
-  comes from the package that reads it — `@bumail/auth` writes the SPF,
-  DKIM and DMARC values it would itself accept — and `@bumail/dns` writes
-  the zone file. The server app's `bumail dns` prints them per domain.
+- **The DNS records a domain needs, MTA-STS and TLS-RPT** — `bumail dns`
+  (merged, not released) already prints each domain's MX, SPF, DKIM,
+  DMARC and autoconfig SRV records, as a BIND zone file or as JSON, each
+  value written by `@bumail/auth` (`spfRecord`, `dmarcRecord`,
+  `dkimRecord`) and the zone by `@bumail/dns` (`formatZone`), and checks
+  them against the live DNS. What is left is MTA-STS (RFC 8461) and
+  TLS-RPT (RFC 8460): their TXT records, and the policy file served over
+  HTTPS at `mta-sts.<domain>`.
 - **`@bumail/smtp`, connection reuse** — several messages to one
   destination over one session, for the queue to deliver in batches.
 - **A blob store, apart from the mailbox store** — message bytes kept

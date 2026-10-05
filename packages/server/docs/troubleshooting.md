@@ -17,7 +17,8 @@ number, a scheme. A path is the key, dotted from the top
 (`store.url (BUMAIL_STORE_URL)`); `(file)` is the file itself. No
 problem repeats a URL or a secret, so a URL is named by its scheme.
 
-The command exits 1 for these, and 2 for [bad usage](#usage). The
+The command exits 1 for these (and for `bumail dns --check` finding a
+record [missing or different](#bumail-dns---check-missing-differs-unavailable-unchecked)), and 2 for [bad usage](#usage). The
 directory commands' own refusals are under
 [the directory commands](#the-directory-commands).
 
@@ -158,6 +159,12 @@ directory commands' own refusals are under
 - [`the domain … has a DKIM key already; --replace makes a new one`](#the-domain--has-a-dkim-key-already---replace-makes-a-new-one)
 - [`the domain … has no DKIM key`](#the-domain--has-no-dkim-key), and `…; bumail dkim generate makes one`
 - [`the selector must be a DNS name: letters, digits, hyphens and dots`](#the-selector-must-be-a-dns-name-letters-digits-hyphens-and-dots)
+
+*`bumail dns`*
+
+- [`no domain is hosted here; bumail domain add adds one`](#no-domain-is-hosted-here-bumail-domain-add-adds-one)
+- [`missing`, `differs`, `unavailable` and `unchecked`, in `bumail dns --check`](#bumail-dns---check-missing-differs-unavailable-unchecked)
+- [`; its A record is the server's public IPv4 address …` and the other comments](#bumail-dns-the-comments-in-its-output)
 
 *Passwords*
 
@@ -907,7 +914,7 @@ every command.
 
 #### `"…" is not a domain name`
 
-**When**: `domain add`, `domain remove`, or a `list` given a domain,
+**When**: `domain add`, `domain remove`, `dns`, or a `list` given a domain,
 with what is not a domain name of two labels or more: a name with a
 space or an `@`, a label over 63 characters. A value with no `.` and
 no `@` — `localhost`, or a password typed in the wrong place — is not
@@ -971,7 +978,7 @@ bumail user list example.com
 #### `the domain … is not hosted here; add it first`
 
 **When**: `user add` or `alias add` with an address in a domain the
-directory does not have.
+directory does not have, or `dns` given such a domain.
 
 **Fix**: add the domain first.
 
@@ -1097,6 +1104,68 @@ goes unsigned; `bumail dkim generate <domain>` makes one.
 one or more DNS labels: ASCII letters (taken lowercase), digits and
 hyphens, not starting or ending with a hyphen, joined by dots. `s1`,
 `mail2`, `k.example` are fine; `my_key` is not.
+
+### `bumail dns`
+
+#### `no domain is hosted here; bumail domain add adds one`
+
+**When**: `bumail dns` with no domain named, and the directory has none
+(exit code 4): there is nothing to write records for. Naming a domain
+that is not hosted is `the domain … is not hosted here; add it first`,
+[above](#the-domain--is-not-hosted-here-add-it-first).
+
+**Fix**: add the domain, then print its records.
+
+```sh
+bumail domain add example.com
+bumail dns example.com --ip 192.0.2.10
+```
+
+#### `bumail dns --check`: `missing`, `differs`, `unavailable`, `unchecked`
+
+**When**: `bumail dns --check` reported a record with one of these words
+and exited 1 (`unchecked` alone does not):
+
+- `missing`: the DNS has no record of that kind at the name. Publish it, or
+  wait: a change can take the record's TTL, and a resolver that cached the
+  absence a little longer. `bumail dns` prints the record.
+- `differs`: the DNS has a record of that kind, but not the wanted one, and
+  `found` shows it. An A record at another address means `--ip` is not the
+  address in the DNS; an SPF or DMARC record you edited on purpose differs
+  too, since a record is compared as written. Replace it, or keep your
+  version and read the exit code as yours to judge. Two SPF records at one
+  name are a `permerror` for every receiver: replace, never add.
+- `unavailable`: the DNS did not answer (`TEMPORARY` or `TIMEOUT`, and its
+  message). Nothing is known about that record; run it again, and look at
+  the machine's resolver.
+- `unchecked`: an SRV record, which `@bumail/dns` cannot look up. Not a
+  fault, and no part of the exit code; look it up yourself with `dig`.
+
+```sh
+bumail dns example.com --ip 192.0.2.10 --check
+dig +short TXT _dmarc.example.com
+```
+
+#### `bumail dns`: the comments in its output
+
+**When**: a line of the zone file starts with `;`. It is a comment a DNS
+host ignores, and says what is left to you:
+
+- `its A record is the server's public IPv4 address, which the server
+  cannot know: run bumail dns --ip <address>, …`: the server cannot see its
+  own public address (it may be behind NAT or a proxy). Run again with
+  `--ip`, or add the A record yourself. Without it `--check` only asks that
+  the host name resolve.
+- `optional: if the server has a public IPv6 address, …`: add `--ip6` to
+  write its AAAA record; skip it with none.
+- `no DKIM key yet: bumail dkim generate <domain> makes one, …`: the
+  domain's mail goes unsigned, and there is no key record to publish yet.
+  Make the key, then print the records again.
+- `outbound mail goes through the smarthost …: add its SPF include …`: with
+  `[smarthost]`, the provider sends your mail, so the SPF record must name
+  it: change `v=spf1 mx -all` to `v=spf1 mx include:<provider's SPF domain> -all`.
+- `optional: … CAA 0 issue "letsencrypt.org"`: not published unless you
+  uncomment it; it restricts who may issue the host name's certificate.
 
 ### Passwords
 
@@ -1895,12 +1964,12 @@ The command exits 2, with `ServerError`'s code `USAGE`, for:
 
 - `bumail: no command given; see bumail --help`
 - `bumail: unknown command …; see bumail --help` — the commands are
-  `serve`, `check-config`, `domain`, `user`, `alias` and `dkim`. A word that is
+  `serve`, `check-config`, `dns`, `domain`, `user`, `alias` and `dkim`. A word that is
   not lowercase letters and hyphens is shown as `…`, in case it is a
   password; so is an unexpected argument.
 - `bumail: unknown option …; see bumail --help` — the options are
   `--config`, `--password-stdin`, `--password-file`, `--purge`,
-  `--selector`, `--replace`, `-h` or
+  `--selector`, `--replace`, `--ip`, `--ip6`, `--json`, `--check`, `-h` or
   `--help`, and `-v` or `--version`. A short option is named by its
   first letter alone (`-p…`), and a long one without what follows its
   `=`, so neither repeats a password typed there.
@@ -1924,9 +1993,19 @@ The directory commands add:
   password is never taken from the command line`, the extra operand
   being, most likely, a password: it is not repeated.
 - `bumail: … takes no --password-stdin; see bumail --help`, and the
-  same for `--password-file`, `--purge`, `--selector` and `--replace`:
+  same for `--password-file`, `--purge`, `--selector`, `--replace`,
+  `--ip`, `--ip6`, `--json` and `--check`:
   only `user add` and `user passwd` read a password, only `user remove`
-  purges, only `dkim generate` takes a selector or replaces a key.
+  purges, only `dkim generate` takes a selector or replaces a key, only
+  `dns` takes an address, JSON or a check.
+- `bumail: dns takes a domain at most, not …; see bumail --help`: `bumail
+  dns` takes one domain, or none for every hosted one.
+- `bumail: --ip takes an IPv4 address; see bumail --help`, and `--ip6
+  takes an IPv6 address`: the value is of the other family, or not an
+  address; it is not repeated.
+- `bumail: --ip needs an IPv4 address; see bumail --help`, and `--ip6
+  needs an IPv6 address`; `--ip is given twice`, and the same for
+  `--ip6`.
 - `bumail: --password-stdin and --password-file are both given; give one; see bumail --help`
 - `bumail: a password is never taken from the command line: use --password-stdin or --password-file, or type it at the prompt; see bumail --help`
   — an option starting with `-pass` or `--pass`, such as

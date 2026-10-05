@@ -7,7 +7,8 @@ configured by one TOML file, run as the `bumail` command.
 is built here one step at a time, and published once it is complete. Today
 it reads and checks its configuration (`bumail check-config`), manages
 its directory of domains, users, aliases and DKIM keys (`bumail domain`,
-`bumail user`, `bumail alias`, `bumail dkim`), **receives mail** for its users
+`bumail user`, `bumail alias`, `bumail dkim`), prints the DNS records
+its domains need and checks them (`bumail dns`), **receives mail** for its users
 on port 25, **sends mail** for them from 465 and 587, DKIM-signed,
 through its queue, and serves it over IMAP on 993 and over JMAP on 443,
 with a certificate from files, directly or behind Traefik, and answers a
@@ -245,6 +246,29 @@ as a zone file line:
 
 The private key is kept in the directory's file (0600) and never
 printed; removing a domain removes its key.
+
+## DNS
+
+```sh
+bumail dns --ip 192.0.2.10                  # every hosted domain, as a zone file
+bumail dns example.com --ip 192.0.2.10 --check   # look each record up; exit 0 when all are there
+bumail dns --json                           # the same, for a script
+```
+
+```text
+example.com. IN MX 10 mail.example.com.
+example.com. IN TXT "v=spf1 mx -all"
+bumail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0B…" "…"
+_dmarc.example.com. IN TXT "v=DMARC1; p=quarantine; adkim=s; aspf=s; rua=mailto:postmaster@example.com"
+_submissions._tcp.example.com. IN SRV 0 1 465 mail.example.com.
+```
+
+The MX, SPF, DKIM, DMARC and autoconfig SRV records of each domain, and
+the host name's A and AAAA from `--ip` and `--ip6` (the server cannot
+know its own public address). DMARC starts at `quarantine` with strict
+alignment, and the zone file imports as it is at most DNS hosts. After
+publishing, `--check` exits 1 until every record is there. See
+[the directory guide](https://github.com/softistx/bumail/blob/develop/packages/server/docs/directory.md#bumail-dns).
 
 ## From code
 

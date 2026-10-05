@@ -1,6 +1,8 @@
+import type { Resolver } from '@bumail/dns';
 import { readConfig } from '../config/read';
 import { ServerError, type ServerErrorCode } from '../errors';
 import { parseArgs } from './args';
+import { dnsCommand } from './dns';
 import { HELP } from './help';
 import { manage } from './manage';
 import type { Terminal } from './secret';
@@ -13,6 +15,8 @@ export interface Io {
 	readonly err: (text: string) => void;
 	readonly env: Readonly<Record<string, string | undefined>>;
 	readonly version: string;
+	/** The DNS `dns --check` queries; default `node:dns`. */
+	readonly resolver?: Resolver;
 	/** Where a new password is read from. */
 	readonly terminal: Terminal;
 	/**
@@ -36,6 +40,8 @@ export const EXIT = {
 	notImplemented: 3,
 	refused: 4,
 	unavailable: 5,
+	/** `dns --check`: a record is missing or differs; the value of `invalidConfig`, since both are "not as it should be". */
+	dnsDiffers: 1,
 } as const;
 
 const EXIT_OF: Record<ServerErrorCode, number> = {
@@ -65,6 +71,9 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 			...(args.config === undefined ? {} : { path: args.config }),
 			env: io.env,
 		});
+		if (args.kind === 'dns') {
+			return (await dnsCommand(args, config, io)) ? EXIT.ok : EXIT.dnsDiffers;
+		}
 		if (args.kind === 'manage') {
 			await manage(args, config, io);
 			return EXIT.ok;
