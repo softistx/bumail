@@ -35,6 +35,14 @@ Commands:
   dkim list                   list the domains with a key, and its selector
   dkim remove <domain>        remove a domain's key: its mail goes unsigned
 
+  dns [<domain>]              print the DNS records every hosted domain (or
+      [--ip <address>]        one) needs: MX, SPF, DKIM, DMARC and the
+      [--ip6 <address>]       autoconfig SRV records, as a zone file; --ip and
+      [--json]                --ip6 add the host name's A and AAAA records
+      [--check]               --check looks them up in the DNS instead, and
+                              exits 1 when one is missing or differs, 5
+                              when the DNS gave no answer
+
 Options:
   --config <file>        the TOML configuration; default $BUMAIL_CONFIG,
                          then ${DEFAULT_CONFIG_PATH}
@@ -51,9 +59,11 @@ The environment overrides URLs and secrets only, each also as *_FILE:
   BUMAIL_HOSTNAME, BUMAIL_STORE_URL, BUMAIL_QUEUE_URL,
   BUMAIL_SMARTHOST_PASSWORD
 
-Exit codes: 0 done (serve: stopped cleanly), 1 invalid configuration,
+Exit codes: 0 done (serve: stopped cleanly), 1 invalid configuration (dns
+--check: a record missing, different or doubled),
 2 bad usage, 3 reserved (nothing returns it now), 4 refused
 by the directory (an address, a password, a name taken, not found,
 still in use, a selector), 5 the directory, the mail store, the queue,
-a port or the certificate (none came from the ACME CA) unavailable.
+a port or the certificate (none came from the ACME CA) unavailable (dns
+--check: the DNS gave no answer).
 `;

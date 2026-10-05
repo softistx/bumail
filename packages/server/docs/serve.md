@@ -15,6 +15,7 @@ from files, or obtained and renewed from an ACME CA; see the
 - [Sending mail on 465 and 587](#sending-mail-on-465-and-587)
 - [The queue](#the-queue)
 - [DKIM signing](#dkim-signing)
+- [Checking your DNS](#checking-your-dns)
 - [Reading mail over IMAP](#reading-mail-over-imap)
 - [JMAP over HTTPS](#jmap-over-https)
 - [Behind Traefik](#behind-traefik)
@@ -386,7 +387,8 @@ as a zone file line:
   bumail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0B…" "…"
 ```
 
-Publish the record at your DNS host: the name and the value, or the
+Publish the record at your DNS host (`bumail dns` prints it with the
+others, and [checks it](#checking-your-dns)): the name and the value, or the
 zone file line, whose value is split into strings of 255 bytes at most,
 as TXT records must be. Mail is signed from the next message on — no
 restart — so publish it soon after: until then, receivers find no key
@@ -408,6 +410,31 @@ published a few days, for mail signed with it still on its way:
 ```sh
 bumail dkim generate example.com --selector s2 --replace
 ```
+
+## Checking your DNS
+
+A server nobody can find, or whose mail receivers distrust, is the usual
+way a deployment fails, and it is all DNS. `bumail dns` prints what
+to publish and checks that you did:
+
+```sh
+bumail domain add example.com
+bumail user add alice@example.com
+bumail dkim generate example.com
+bumail dns example.com --ip 192.0.2.10          # copy these into your DNS host
+bumail dns example.com --ip 192.0.2.10 --check  # a few minutes later: exits 0 when all is there
+bumail serve
+```
+
+The records are the MX, the host name's A and AAAA, SPF, the DKIM key,
+DMARC and the autoconfig SRV records; [the directory page](directory.md#bumail-dns)
+has the output, what each is for, and why DMARC starts at `quarantine`.
+Run `--check` again after any change, and from a machine that is not the
+server: a DNS answer can differ from outside. Two things it cannot do:
+the reverse DNS (PTR) of the server's address is set at your hosting
+provider, and many receivers refuse mail without one that matches the
+host name; and port 25 outbound is blocked by some providers, which no
+DNS record fixes.
 
 ## Reading mail over IMAP
 

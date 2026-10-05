@@ -19,3 +19,4 @@ export type {
 	Resolver,
 	TxtRecord,
 } from './types';
+export { formatZone, type ZoneRecord, type ZoneRecordType } from './zone';

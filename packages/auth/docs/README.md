@@ -5,6 +5,6 @@ long one.
 
 | Page | Read it when |
 | --- | --- |
-| [Guide](guide.md) | verifying inbound mail, reading a result, signing outbound mail, making and publishing keys, choosing limits, checking SPF, checking DMARC and its organizational domain, writing `Authentication-Results`, or writing specs against a fixture |
+| [Guide](guide.md) | verifying inbound mail, reading a result, signing outbound mail, making and publishing keys, writing the SPF, DKIM and DMARC records, choosing limits, checking SPF, checking DMARC and its organizational domain, writing `Authentication-Results`, or writing specs against a fixture |
 | [Troubleshooting](troubleshooting.md) | a call threw an `AuthError`, or a result came back with a `reason` you want explained |
 | [Roadmap](roadmap.md) | wondering what is coming (DMARC reports, ARC), and what is not planned |

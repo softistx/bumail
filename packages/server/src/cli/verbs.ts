@@ -21,6 +21,8 @@ interface VerbSpec {
 	readonly purge?: boolean;
 	/** Takes `--selector` and `--replace`. */
 	readonly key?: boolean;
+	/** Takes `--ip`, `--ip6`, `--json` and `--check`. */
+	readonly dns?: boolean;
 }
 
 /** Each noun's verbs. */
@@ -92,6 +94,10 @@ export interface Options {
 	purge: boolean;
 	selector: string | undefined;
 	replace: boolean;
+	ip: string | undefined;
+	ip6: string | undefined;
+	json: boolean;
+	check: boolean;
 }
 
 /**
@@ -180,5 +186,15 @@ export function refuseOptions(
 			throw usage(`${name} takes no --selector`);
 		}
 		if (options.replace) throw usage(`${name} takes no --replace`);
+	}
+	if (spec.dns !== true) {
+		for (const [flag, given] of [
+			['--ip', options.ip !== undefined],
+			['--ip6', options.ip6 !== undefined],
+			['--json', options.json],
+			['--check', options.check],
+		] as const) {
+			if (given) throw usage(`${name} takes no ${flag}`);
+		}
 	}
 }

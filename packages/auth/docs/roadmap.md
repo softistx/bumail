@@ -6,7 +6,9 @@ number on it.
 
 ## Now
 
-- Nothing in progress: the next entry is picked from Next.
+- **Record writers** (next release): `spfRecord`, `dmarcRecord` and
+  `dkimRecord` write the TXT values a domain publishes, each read back by
+  its parser.
 
 ## Next
 

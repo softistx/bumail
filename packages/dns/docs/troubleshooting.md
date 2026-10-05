@@ -24,6 +24,7 @@ is the group it is listed under. The parts shown as … vary.
 - [`DnsError: A name to look up is a string, not …`](#dnserror-a-name-to-look-up-is-a-string-not-)
 - [`DnsError: "…" is not an IPv4 or IPv6 address to look up`](#dnserror--is-not-an-ipv4-or-ipv6-address-to-look-up)
 - [`DnsError: The DNS refused the name in … (…)`](#dnserror-the-dns-refused-the-name-in--)
+- [`DnsError: formatZone(): records[…]: name: …`](#dnserror-formatzone-records-name-)
 
 **INVALID_OPTION**
 
@@ -31,6 +32,7 @@ is the group it is listed under. The parts shown as … vary.
 - [`DnsError: nodeResolver(): servers must be IP addresses, optionally with a port ('1.1.1.1', '[::1]:53'); …`](#dnserror-noderesolver-servers-must-be-ip-addresses-optionally-with-a-port-1111-153-)
 - [`DnsError: nodeResolver(): … configure node:dns, so they cannot go with a backend; configure the backend itself`](#dnserror-noderesolver--configure-nodedns-so-they-cannot-go-with-a-backend-configure-the-backend-itself)
 - [`DnsError: cachedResolver(): … must be an integer of at least …, not …`](#dnserror-cachedresolver--must-be-an-integer-of-at-least--not-)
+- [`DnsError: formatZone(): …`](#dnserror-formatzone-)
 
 ## NOT_FOUND
 
@@ -214,6 +216,16 @@ refused it.
 **Fix**: report it with the name, so the check here can catch it first.
 Treat it as a malformed name meanwhile.
 
+### `DnsError: formatZone(): records[…]: name: …`
+
+**When**: `formatZone` was given a record whose `name` is not a host name:
+a space, URL syntax, an IP address, an empty label. The rest of the message
+is `normalizeName`'s, the entry above.
+
+**Fix**: write the owner name in full, as a host name. `@` and relative
+names are not understood: `example.com`, not `@`, and
+`_dmarc.example.com`, not `_dmarc`.
+
 ## INVALID_OPTION
 
 ### `DnsError: nodeResolver(): … must be an integer of at least …, not …`
@@ -283,3 +295,23 @@ import { cachedResolver, nodeResolver } from '@bumail/dns';
 cachedResolver(nodeResolver(), { maxEntries: 1000, maxTtl: 86_400, negativeTtl: 300 });
 // negativeTtl: 0 keeps no NOT_FOUND at all
 ```
+
+### `DnsError: formatZone(): …`
+
+**When**: `formatZone` could not write a record, or `records` is not an
+array. The message names the record by its index (`records[2]`) and says
+why:
+
+- `the A value "…" is not an IPv4 address`, or `an IPv6 address`, `a host
+  name`, `"<weight> <port> <target>", such as "1 993 mail.example.com"`,
+  `"<flags> <tag> <value>", such as "0 issue letsencrypt.org"`: the
+  `value` is not what the type holds.
+- `MX records need a priority`, `SRV records need a priority`, `A records
+  take no priority`: `priority` is for MX and SRV alone.
+- `priority must be an integer from 0 to 65535, …` and `ttl must be an
+  integer from 0 to 2147483647, …`.
+- `the type "…" is not one of A, AAAA, MX, TXT, SRV, CAA, CNAME, NS, PTR`.
+- `value must be a string`, `must be an object`, `records must be an array`.
+
+**Fix**: correct the record. An SRV's `value` holds the weight and the
+port, and its priority is the field: `{ type: 'SRV', priority: 0, value: '1 993 mail.example.com' }`.
