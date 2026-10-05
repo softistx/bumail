@@ -1,4 +1,6 @@
 import { type DnsArgs, resolveDns } from './dns/args';
+import { type HealthArgs, type InitArgs, resolveImage } from './image-args';
+import { take as takeValue, unknownOption } from './option-syntax';
 import {
 	isNoun,
 	type ManageArgs,
@@ -24,19 +26,9 @@ export type Args =
 			readonly config: string | undefined;
 	  }
 	| ManageArgs
+	| InitArgs
+	| HealthArgs
 	| DnsArgs;
-
-/**
- * An unknown option as a message names it: a long one without what
- * follows its `=`, a short one by its first letter alone, so neither
- * `--pw=secret` nor `-psecret`, as some tools take a password, repeats it.
- */
-function optionName(arg: string): string {
-	if (!arg.startsWith('--'))
-		return arg.length > 2 ? `${arg.slice(0, 2)}…` : arg;
-	const eq = arg.indexOf('=');
-	return eq === -1 ? arg : arg.slice(0, eq);
-}
 
 /** What an option that takes a value takes, for the message that it was given none. */
 const NEEDS: Readonly<Record<string, string>> = {
@@ -62,15 +54,8 @@ function readOptions(
 		json: false,
 		check: false,
 	};
-	/** The value of `--name value` or `--name=value`, and the index past it. */
-	const take = (i: number, name: string): [string, number] => {
-		const arg = argv[i] ?? '';
-		const value = arg === name ? argv[i + 1] : arg.slice(name.length + 1);
-		if (value === undefined || value === '') {
-			throw usage(`${name} needs ${NEEDS[name] ?? 'a file'}`);
-		}
-		return [value, arg === name ? i + 1 : i];
-	};
+	const take = (i: number, name: string): [string, number] =>
+		takeValue(argv, i, name, NEEDS[name] ?? 'a file');
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i] ?? '';
 		if (arg === '-h' || arg === '--help') return { kind: 'help' };
@@ -107,12 +92,8 @@ function readOptions(
 		} else if (arg === '--ip6' || arg.startsWith('--ip6=')) {
 			if (options.ip6 !== undefined) throw usage('--ip6 is given twice');
 			[options.ip6, i] = take(i, '--ip6');
-		} else if (/^-+pass/i.test(arg)) {
-			throw usage(
-				'a password is never taken from the command line: use --password-stdin or --password-file, or type it at the prompt',
-			);
 		} else if (arg.startsWith('-')) {
-			throw usage(`unknown option ${optionName(arg)}`);
+			throw unknownOption(arg);
 		} else {
 			words.push(arg);
 		}
@@ -127,6 +108,8 @@ function readOptions(
  * word that does not read like one, or what follows an option's `=`.
  */
 export function parseArgs(argv: readonly string[]): Args {
+	const image = resolveImage(argv);
+	if (image !== undefined) return image;
 	const read = readOptions(argv);
 	if (!('words' in read)) return read;
 	const { words, options } = read;

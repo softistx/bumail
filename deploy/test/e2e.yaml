@@ -1,0 +1,64 @@
+# Laid over compose.traefik.yaml or compose.traefik-tcp.yaml by the end-to-end
+# test (scripts/docker-e2e.ts): beside bumail, its own Traefik, Pebble (an ACME
+# test CA that validates HTTP-01 for real) and pebble-challtestsrv (the DNS that
+# sends the test names to Traefik), all on the network the deploy files join.
+# Everything is published on 127.0.0.1 and on high ports, so no other
+# container on the machine is touched. Needs E2E_DIR (the folder holding the
+# test CA's certificate) set by the script.
+services:
+  bumail:
+    # The test DNS, so `bumail dns --check` looks the test names up there.
+    dns: ['${E2E_IP_CHALLTESTSRV}']
+    environment:
+      # Pebble's CA is not a public one: bumail's ACME client (fetch) trusts it
+      # through Bun's NODE_EXTRA_CA_CERTS.
+      NODE_EXTRA_CA_CERTS: /pebble/minica.pem
+    volumes:
+      - ${E2E_DIR}/minica.pem:/pebble/minica.pem:ro
+
+  traefik:
+    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
+    command: ['--configFile=/etc/traefik/traefik.yml']
+    environment:
+      LEGO_CA_CERTIFICATES: /pebble/minica.pem
+    ports:
+      - '127.0.0.1:${E2E_PORT_HTTPS}:443'
+      - '127.0.0.1:${E2E_PORT_SMTP}:25'
+      - '127.0.0.1:${E2E_PORT_SUBMISSIONS}:465'
+      - '127.0.0.1:${E2E_PORT_SUBMISSION}:587'
+      - '127.0.0.1:${E2E_PORT_IMAPS}:993'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${E2E_DIR}/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yaml:/etc/traefik/dynamic/dynamic.yaml:ro
+      - ${E2E_DIR}/minica.pem:/pebble/minica.pem:ro
+      - traefik-acme:/acme
+    networks:
+      proxy:
+        ipv4_address: ${E2E_IP_TRAEFIK}
+    depends_on: [pebble, challtestsrv]
+
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:2.10.1
+    command: ['-config', '/test/config/e2e.json', '-strict=false', '-dnsserver', 'challtestsrv:53']
+    environment:
+      PEBBLE_VA_NOSLEEP: '1'
+    volumes:
+      - ./test/pebble.json:/test/config/e2e.json:ro
+    networks: [proxy]
+    depends_on: [challtestsrv]
+
+  challtestsrv:
+    image: ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1
+    # Only the DNS and its management API: the challenges are answered by
+    # bumail and Traefik themselves. No default IPv6 answer: it would send
+    # Pebble to ::1.
+    command: ['-http01', '', '-https01', '', '-tlsalpn01', '', '-doh', '', '-dnsserver', ':53', '-defaultIPv6', '']
+    ports:
+      - '127.0.0.1:${E2E_PORT_CHALLTESTSRV}:8055'
+    networks:
+      proxy:
+        ipv4_address: ${E2E_IP_CHALLTESTSRV}
+
+volumes:
+  traefik-acme:

@@ -1,0 +1,35 @@
+# Traefik's static configuration for the end-to-end test (scripts/docker-e2e.ts):
+# the entry points of the deploy guide, a Docker provider that sees only this
+# test's project, the file provider holding deploy/traefik/dynamic.yaml, and a
+# certificate resolver on the test CA, which Pebble reaches on port 443 by
+# TLS-ALPN-01 for Traefik's own certificate (JMAP's HTTPS).
+log:
+  level: INFO
+accessLog: {}
+entryPoints:
+  web:
+    address: ':80'
+  websecure:
+    address: ':443'
+  smtp:
+    address: ':25'
+  submissions:
+    address: ':465'
+  submission:
+    address: ':587'
+  imaps:
+    address: ':993'
+providers:
+  docker:
+    exposedByDefault: false
+    network: '@NETWORK@'
+    constraints: 'Label(`com.docker.compose.project`, `@PROJECT@`)'
+  file:
+    directory: /etc/traefik/dynamic
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: e2e@bumail.test
+      storage: /acme/acme.json
+      caServer: https://pebble:14000/dir
+      tlsChallenge: {}

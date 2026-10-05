@@ -12,7 +12,7 @@ its domains need and checks them (`bumail dns`), **receives mail** for its users
 on port 25, **sends mail** for them from 465 and 587, DKIM-signed,
 through its queue, and serves it over IMAP on 993 and over JMAP on 443,
 with a certificate from files or obtained and renewed from an ACME CA,
-directly or behind Traefik, and answers a health check on loopback. See
+directly or behind Traefik, and answers a health check on loopback. It runs as a Docker image (`bumail init`, `bumail health` and the compose files in `deploy/`). See
 the
 [roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md)
 for what comes next.
@@ -163,7 +163,7 @@ outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example
 - **`tls.mode = "acme"`**, the default, keeps the certificate on the
   volume (`<data>/acme`): used at once when it is valid, else obtained
   from the CA by HTTP-01 on port 80 before any TLS listener starts, with
-  the health check saying `tls: down` meanwhile; renewed 30 days before
+  the health check saying `tls: pending` meanwhile; renewed 30 days before
   its end and applied to every listener together; the log says
   `tls: obtained (…)`, `tls: renewed (…)` or `tls: renewal failed: …`.
   Port 80 serves nothing but the challenges. `tls.mode = "files"` reads
@@ -185,6 +185,41 @@ outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example
 
 [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md)
 has every listener, the log and the stop in detail.
+
+## Docker
+
+One image holds the whole stack, and one volume, `/data`, holds the
+configuration, the SQLite directory with its DKIM keys, the mail, the queue
+and the ACME state: nothing is baked into the image. The compose files in
+[`deploy/`](https://github.com/softistx/bumail/tree/develop/deploy) build
+it from the repository's `Dockerfile` (nothing is pulled), standalone or
+behind Traefik:
+
+```sh
+cd deploy && cp .env.example .env
+docker compose run --rm bumail init --hostname mail.example.com --domain example.com
+docker compose run --rm bumail user add alice@example.com
+docker compose up -d
+```
+
+`bumail init` writes the starter `bumail.toml`, makes the directory, hosts
+the domains and generates their DKIM keys, then prints the next steps; it
+refuses to replace a file unless `--force`. `bumail health` asks the
+loopback `/healthz`, for the image's `HEALTHCHECK`:
+
+```sh
+docker compose exec bumail bumail health
+```
+
+```text
+ok
+```
+
+It exits 0 for a 200 and 1 otherwise. [Deploy with
+Docker](https://github.com/softistx/bumail/blob/develop/packages/server/docs/deploy.md)
+takes it from DNS to a test mail, with the Traefik variants (HTTP routers
+for JMAP and the ACME challenge, or TCP routers and the PROXY protocol for
+the mail ports), upgrades, backups, logs and the firewall.
 
 ## The directory
 
@@ -327,6 +362,8 @@ const authenticate = smtpAuthenticate(directory); // @bumail/smtp's authenticate
 | | |
 | --- | --- |
 | `bumail check-config` | check the configuration, print a summary; exits 0, or 1 |
+| `bumail init` | write a starter `bumail.toml` from `--hostname`, `--domain` (repeatable), `--acme-email`, `--acme-staging`, `--acme-directory`, `--behind-traefik`, `--proxy-protocol`, `--trusted-proxy` (repeatable), `--data` and `--force`; make the directory, host the domains, generate their DKIM keys, print the next steps; refuses to replace a file without `--force` (exit 4) |
+| `bumail health` | ask the server's loopback `/healthz`; exits 0 for a 200, 1 otherwise; `--tls-pending` also counts a server that has served no certificate yet (for a container's `HEALTHCHECK`) |
 | `bumail serve` | check the configuration, then run the server until SIGTERM or SIGINT (SIGHUP looks for a renewed certificate); exits 0 once stopped, 5 for a port or a file it cannot use, or for no certificate from the ACME CA |
 | `bumail domain add\|list\|remove` | the domains the server hosts |
 | `bumail user add\|list\|passwd\|disable\|enable\|remove` | the users; `--password-stdin`, `--password-file`, `remove --purge`; `list [<domain>]` |
@@ -372,6 +409,7 @@ be used 5.
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/server/docs/README.md): the pages below, and when to read each.
 - [Guide](https://github.com/softistx/bumail/blob/develop/packages/server/docs/guide.md): every key of the configuration, its default, and what the environment overrides.
+- [Deploy with Docker](https://github.com/softistx/bumail/blob/develop/packages/server/docs/deploy.md): the image and the compose files, seven steps from DNS to a test mail, the Traefik variants (HTTP routers, or TCP routers with the PROXY protocol), upgrades, backups, logs and the firewall.
 - [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md): `bumail serve`, each listener, what port 25 takes and refuses, SPF, DKIM and DMARC, sending mail on 465 and 587, the queue, DKIM signing and `bumail dkim`, IMAP logins, JMAP, running behind Traefik, the health check, the PROXY protocol, the log and the stop.
 - [The directory](https://github.com/softistx/bumail/blob/develop/packages/server/docs/directory.md): domains, users and aliases, every command with an example, passwords, logins and the failure limiter.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/server/docs/troubleshooting.md): every problem `check-config` reports, every refusal of the directory commands, every reason `serve` stops or refuses a message, every reply a mail client gets when sending, every line of the queue's log, and what to do about it.

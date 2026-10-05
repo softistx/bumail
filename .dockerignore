@@ -1,0 +1,17 @@
+.git
+.github
+.claude
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+.changeset
+docs
+examples
+deploy
+*.md
+!packages/**/*.md
+**/.env
+**/.env.*
+*.log
+.DS_Store

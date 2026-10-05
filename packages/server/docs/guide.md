@@ -29,7 +29,7 @@ The first of:
 
 1. `--config <file>` on the command line (`--config=<file>` works too);
 2. `BUMAIL_CONFIG`;
-3. `/data/bumail.toml`, on the volume the Docker image will mount.
+3. `/data/bumail.toml`, on the volume the Docker image mounts (`bumail init` writes it; see [the deploy guide](deploy.md)).
 
 A relative path inside the file — `tls.cert`, `tls.key`,
 `smarthost.passwordFile` — starts from the file's own directory.

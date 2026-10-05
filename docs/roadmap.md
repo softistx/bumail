@@ -46,19 +46,18 @@ No dates. Each entry says what someone running or embedding the server gets.
   itself or its aliases; mail for a hosted domain straight to its
   mailbox, the rest through `@bumail/queue` by MX or a smarthost, a
   failure back to the sender as a DSN in its own mailbox; DKIM-signed
-  with a key per domain made by `bumail dkim`. The steps that follow
-  are in [its roadmap](../packages/server/docs/roadmap.md).
+  with a key per domain made by `bumail dkim`. **And it ships as a Docker
+  image**: one image, one `/data` volume for the configuration, the
+  directory, the mail, the queue and the certificates, and compose files
+  that build it — standalone, or behind Traefik with its HTTP routers for
+  JMAP and the ACME challenge, or its TCP routers and the PROXY protocol
+  for the mail ports — set up by `bumail init` and checked by
+  `bumail health`; its guide says what sending mail from a container
+  takes (an open outbound port 25, a PTR record, or a smarthost). The
+  steps that follow are in [its roadmap](../packages/server/docs/roadmap.md).
 
 ## Next
 
-- **A Docker image, all in one** — the server app in one container: ports
-  25, 465, 587, 993, 443 and 80, and one volume for the mail, the queue and
-  the certificates. Its guide says what sending mail from a container
-  takes: many cloud hosts and home connections block outbound port 25,
-  and receiving servers distrust an address without reverse DNS (a PTR
-  record naming the server, whose name resolves back to it). Where port 25
-  is closed, or no PTR can be set, the queue sends through a smarthost —
-  a relay provider on 587 or 465 — instead.
 - **`@bumail/auth`, DMARC reports and ARC** — aggregate and failure
   reports to a domain's `rua=` and `ruf=` (RFC 7489 §7), and ARC
   (RFC 8617), so forwarded mail keeps its authentication. DKIM, SPF and

@@ -81,7 +81,7 @@ describePebble('tls.mode = "acme"', (pebble) => {
 		);
 		const waiting = await fetch(`http://127.0.0.1:${health}/healthz`);
 		expect(waiting.status).toBe(503);
-		expect(await waiting.json()).toMatchObject({ tls: 'down' });
+		expect(await waiting.json()).toMatchObject({ tls: 'pending' });
 		release();
 		const f = await run.started;
 		fixtures.push(f);

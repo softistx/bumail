@@ -1,0 +1,94 @@
+# bumail behind Traefik's HTTP routers, on an external Docker network Traefik
+# is on.
+#
+#   - JMAP: Traefik ends TLS on its `websecure` entry point and speaks plain
+#     HTTP to bumail's port 8081 (`bumail init --behind-traefik`).
+#   - ACME: bumail gets its own certificate for the mail ports. A router sends
+#     `Host(<host>) && PathPrefix(/.well-known/acme-challenge/)` on the `web`
+#     entry point to bumail's port 80, at priority 10000, so nothing in
+#     front of it takes the challenge.
+#   - The mail ports, 25, 465, 587 and 993, are published by this container
+#     directly. Where Traefik owns them, use compose.traefik-tcp.yaml.
+#
+#   cp .env.example .env     # BUMAIL_HOST, COMPOSE_FILE=compose.traefik.yaml, TRAEFIK_NETWORK
+#   docker compose run --rm bumail init --hostname mail.example.com --domain example.com \
+#     --behind-traefik --trusted-proxy <the network's subnet>
+#   docker compose up -d
+#
+# Guide: ../packages/server/docs/deploy.md
+name: bumail
+
+services:
+  bumail:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    # Built here by default; a published image instead:
+    #   image: ghcr.io/softistx/bumail:<version>
+    image: ${BUMAIL_IMAGE:-bumail:local}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # The log goes to standard output: keep Docker from filling the disk with it.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+    ports:
+      - '25:25'
+      - '465:465'
+      - '587:587'
+      - '993:993'
+    volumes:
+      - data:/data
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [proxy]
+    # Traefik routes only to a container Docker calls healthy, and a first start
+    # waits for its certificate (the server answers 503 until then) while the
+    # CA must reach port 80 through Traefik. --tls-pending counts that wait as
+    # healthy, so the challenge route exists in time. Any other fault is still
+    # unhealthy.
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/bumail', 'health', '--tls-pending']
+      interval: 30s
+      timeout: 10s
+      start_period: 5m
+      start_interval: 3s
+      retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-proxy}
+      # JMAP: HTTPS on Traefik's own certificate, plain HTTP to bumail.
+      - traefik.http.routers.bumail-jmap.rule=Host(`${BUMAIL_HOST}`)
+      - traefik.http.routers.bumail-jmap.entrypoints=websecure
+      - traefik.http.routers.bumail-jmap.tls=true
+      - traefik.http.routers.bumail-jmap.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.bumail-jmap.service=bumail-jmap
+      - traefik.http.services.bumail-jmap.loadbalancer.server.port=8081
+      # ACME HTTP-01: only the challenge path of this host, ahead of any other
+      # router on port 80 (the default priority is the length of the rule).
+      - traefik.http.routers.bumail-acme.rule=Host(`${BUMAIL_HOST}`) && PathPrefix(`/.well-known/acme-challenge/`)
+      - traefik.http.routers.bumail-acme.entrypoints=web
+      - traefik.http.routers.bumail-acme.priority=10000
+      - traefik.http.routers.bumail-acme.service=bumail-acme
+      - traefik.http.services.bumail-acme.loadbalancer.server.port=80
+    # environment:
+    #   BUMAIL_SMARTHOST_PASSWORD_FILE: /run/secrets/smarthost_password
+    # secrets: [smarthost_password]
+
+networks:
+  proxy:
+    name: ${TRAEFIK_NETWORK:-proxy}
+    external: true
+
+volumes:
+  data:
+
+# secrets:
+#   smarthost_password:
+#     file: ./secrets/smarthost_password

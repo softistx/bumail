@@ -1,0 +1,19 @@
+# Laid over compose.yaml by the end-to-end test (scripts/docker-e2e.ts): the
+# standalone variant, where bumail binds port 80 itself, on the test network
+# (at a fixed address the test's DNS answers with) and trusting the test CA.
+services:
+  bumail:
+    dns: ['${E2E_IP_CHALLTESTSRV}']
+    environment:
+      NODE_EXTRA_CA_CERTS: /pebble/minica.pem
+    volumes:
+      - ${E2E_DIR}/minica.pem:/pebble/minica.pem:ro
+    networks:
+      default: {}
+      proxy:
+        ipv4_address: ${E2E_IP_STANDALONE}
+
+networks:
+  proxy:
+    name: ${E2E_NETWORK}
+    external: true

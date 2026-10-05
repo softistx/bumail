@@ -66,7 +66,7 @@ export async function bindListeners(
  * certificate stored — port 80 and the health check come first, then
  * `first` obtains the certificate (`resources.tls` takes it), and only
  * then do the TLS listeners bind: none can be made without a pair, and
- * the health check says `tls: down` meanwhile.
+ * the health check says `tls: pending` meanwhile.
  */
 export async function bindAll(
 	resources: Resources,

@@ -1,0 +1,9 @@
+# Added to Traefik's DYNAMIC configuration, through its file provider
+# (`providers.file.directory` or `filename`): the serversTransport the TCP
+# services of compose.traefik-tcp.yaml name, which sends the PROXY protocol,
+# version 2, to bumail before the client's first byte.
+tcp:
+  serversTransports:
+    bumail-proxy-v2:
+      proxyProtocol:
+        version: 2

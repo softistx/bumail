@@ -173,8 +173,8 @@ directory commands' own refusals are under
 *`bumail dns`*
 
 - [`no domain is hosted here; bumail domain add adds one`](#no-domain-is-hosted-here-bumail-domain-add-adds-one)
-- [`the stored DKIM key of … is empty; …`](#the-stored-dkim-key-of--is-empty-bumail-dkim-generate---replace-makes-a-new-one)
-- [`the stored DKIM key of … cannot be used (…); …`](#the-stored-dkim-key-of--cannot-be-used--bumail-dkim-generate---replace-makes-a-new-one)
+- [`the stored DKIM key of … is empty; …`](#the-stored-dkim-key-of--is-empty-bumail-dkim-generate----replace-makes-a-new-one)
+- [`the stored DKIM key of … cannot be used (…); …`](#the-stored-dkim-key-of--cannot-be-used--bumail-dkim-generate----replace-makes-a-new-one)
 - [`missing`, `differs`, `duplicate`, `unavailable` and `unchecked`, in `bumail dns --check`](#bumail-dns---check-missing-differs-duplicate-unavailable-unchecked)
 - [`; its A record is the server's public IPv4 address …` and the other comments](#bumail-dns-the-comments-in-its-output)
 
@@ -283,6 +283,19 @@ directory commands' own refusals are under
 - [`outbound: … deferred until …: …`](#outbound--deferred-until--)
 - [`outbound: … failed: …`](#outbound--failed-), and `outbound: …: a failed DSN to <…> queued as …`
 - [`outbound: error …: …`](#outbound-error--)
+
+**The image and the deploy** (the `init` and `health` commands, and what goes wrong running the image)
+
+- [`bumail: … exists; --force replaces it, and keeps the directory and its keys`](#bumail--exists---force-replaces-it-and-keeps-the-directory-and-its-keys)
+- [`bumail: init needs …`, `--behind-traefik needs --trusted-proxy …`](#bumail-init-needs----behind-traefik-needs---trusted-proxy-)
+- [`bumail: <file>:` and `hostname: …`, from `init`](#bumail-file-and-hostname--from-init)
+- [`bumail: unhealthy: …`, `bumail: the health check is turned off (ports.health = 0)`](#bumail-unhealthy--bumail-the-health-check-is-turned-off-portshealth--0)
+- [`… returned 404`: the challenge behind Traefik](#-returned-404-the-challenge-behind-traefik)
+- [`Failed to listen at …: EACCES`, in the container](#failed-to-listen-at--eacces-in-the-container)
+- [`OCI runtime exec failed: … "sh": executable file not found in $PATH`](#oci-runtime-exec-failed--sh-executable-file-not-found-in-path)
+- [`bumail: standard input is not a terminal …`, from `docker compose run`](#bumail-standard-input-is-not-a-terminal--from-docker-compose-run)
+- [`tls: obtaining a certificate failed …: fetch failed`, with a private or test CA](#tls-obtaining-a-certificate-failed--fetch-failed-with-a-private-or-test-ca)
+- [`bumail: login refused from …`, always the proxy's address](#bumail-login-refused-from--always-the-proxys-address)
 
 **Usage** (exit code 2)
 
@@ -1573,7 +1586,7 @@ wait goes on. Send it again once the server is serving.
 **When**: at start, with no usable certificate. It is logged at once and
 every 30 seconds while the server asks `<directory>` for one. The TLS
 listeners are not up yet: port 80 and the health check are, and
-`GET /healthz` answers 503 with `"tls":"down"`. See
+`GET /healthz` answers 503 with `"tls":"pending"`. See
 [the first start](serve.md#the-first-start).
 
 **Fix**: wait for `tls: obtained (…)`, or read the
@@ -1684,10 +1697,13 @@ window.
 ### The health check says `"tls":"down"`
 
 **When**: with `tls.mode = "acme"`, `GET /healthz` answers 503 and its
-body has `"tls":"down"`. At start it means no certificate has come yet
-([`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-));
-later, that the certificate in use has expired, because every renewal
-failed ([`tls: renewal failed: …`](#tls-renewal-failed-)).
+body has `"tls":"pending"` or `"tls":"down"`. `pending` is the first
+start: no certificate has come yet
+([`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-)),
+for the bounded tries, after which the server exits 5. `down` is that the
+certificate in use has expired, because every renewal failed
+([`tls: renewal failed: …`](#tls-renewal-failed-)); the listeners are up
+and the server is unhealthy until a certificate comes.
 
 ### `tls: reloaded (…)`
 
@@ -2257,6 +2273,211 @@ down, a full disk), a lease lost to another worker, or a route
 `sendMail` refuses (`INVALID_OPTION`, such as a smarthost that sends
 credentials without TLS), which defers its recipients as `4.3.5` until
 fixed. The reason has the queue URL's password masked.
+
+## The image and the deploy
+
+The [deploy guide](deploy.md) runs the image. `bumail init` and `bumail
+health` are the two commands it adds.
+
+### `bumail: … exists; --force replaces it, and keeps the directory and its keys`
+
+**When**: `bumail init` found the configuration file (`--config`,
+`$BUMAIL_CONFIG`, or `/data/bumail.toml`) already there. Exit code 4;
+nothing was written, and the directory was not touched.
+
+**Why**: `init` is for a new server. It never replaces a file that is
+there, since a second `init` would lose the first's choices.
+
+**Fix**: edit the file, or run `bumail init … --force`, which writes it
+again from the flags, and leaves the directory, its domains and its DKIM keys
+as they were (each domain or key that exists is reported `; kept`).
+
+### `bumail: init needs …`, `--behind-traefik needs --trusted-proxy …`
+
+**When**: `bumail init` was given a set of options it refuses, and the
+message ends `; see bumail --help` (exit code 2, nothing written):
+
+- `init needs --hostname`, `init needs at least one --domain`
+- `--behind-traefik needs --trusted-proxy: the CIDR of the Docker network
+  Traefik reaches bumail on`, and the same for `--proxy-protocol`: the
+  proxies whose word about the client is believed are never a default.
+  `docker network inspect <network> --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -m1 '\.'`
+  names its IPv4 subnet.
+- `--trusted-proxy needs --behind-traefik or --proxy-protocol, which it
+  names the proxies of`
+- `--acme-staging and --acme-directory are both given; give one`
+- `… is given twice` for an option that takes one value (`--hostname`,
+  `--data`, `--acme-email`, `--acme-directory`, `--config`); only
+  `--domain` and `--trusted-proxy` repeat.
+- A warning, not a refusal (`bumail: warning: --trusted-proxy names a
+  range that is not private or loopback …`): the file is written. A trusted
+  proxy is believed about the client's address, so list only the
+  proxy's network, such as the Docker network.
+- `init takes no --tls-pending`, and `health takes no …`: each command
+  takes its own options.
+
+### `bumail: <file>:` and `hostname: …`, from `init`
+
+**When**: the configuration `init` would write does not pass the checks
+of `check-config`, whose problems it prints under the file's name: a
+`hostname` that is not a name, a `--trusted-proxy` that is not an address
+or a CIDR (or is `/0`, which trusts every peer), an `--acme-directory`
+that is not `https:`. Exit code 1, and **nothing is written**: the text is
+checked in a temporary file first, which is removed.
+
+**Fix**: the flag the line names; each problem is explained under
+[Any key](#any-key) and its section. A domain that is not a domain name
+(`--domain localhost`) is refused before anything is written, exit code 4.
+
+### `bumail: unhealthy: …`, `bumail: the health check is turned off (ports.health = 0)`
+
+`bumail health` asks `GET /healthz` of the server this configuration
+runs, on `ports.health` at `health.bind` (loopback by default), and exits
+0 for a 200. It is the container's `HEALTHCHECK`; read it with
+`docker inspect --format '{{json .State.Health}}' <container>`.
+
+- `bumail: unhealthy: 503 {"status":"unavailable",…}` (exit 1): the server
+  answered and says what is down: a listener, the directory, the store,
+  `"tls":"pending"` while it waits for its first certificate, or
+  `"tls":"down"` past the end of the last one
+  ([the health check](serve.md#the-health-check)).
+- `bumail: unhealthy: http://127.0.0.1:8080/healthz did not answer; is
+  bumail serve running?` (exit 1): nothing listens: the server is not
+  running, is still binding, or exited. Read `docker compose logs bumail`.
+- `bumail: the health check is turned off (ports.health = 0)` (exit 5):
+  with the check off the image's `HEALTHCHECK` cannot pass. Turn it on,
+  or disable the health check in the compose file.
+- A configuration that does not load fails as `check-config` does, exit 1.
+
+`bumail health --tls-pending` also exits 0 (`ok (waiting for a
+certificate)`) for a 503 that is only `"tls":"pending"`: the server waits for its
+**first** certificate, and its port-80 listener, the directory and the
+store answer. `pending` means this process has served no pair yet, so a
+stored pair that has expired (rejected at start) is `pending` too.
+`"tls":"down"` is a pair that was served and has since expired, and stays
+unhealthy with the flag. A first certificate that never comes keeps the
+container healthy only during the bounded first-start tries (five, about
+four minutes), after which the server exits 5 and the container restarts.
+
+With `restart: unless-stopped` and a CA that cannot be reached, the
+container loops: healthy for each start's tries, then exit 5, then a
+restart. See it in `docker inspect --format '{{.RestartCount}}'
+<container>`, and in the log lines `tls: the stored certificate is not
+used: expired` and `tls: obtaining … failed`: the cause is the CA's,
+not the health check's.
+
+### `… returned 404`: the challenge behind Traefik
+
+**When**: the first start behind Traefik logs, and retries,
+
+```text
+tls: obtaining a certificate failed (try 1 of 5): … the authorization for "mail.example.com" is "invalid": urn:ietf:params:acme:error:unauthorized: Non-200 status code from HTTP: http://mail.example.com:80/.well-known/acme-challenge/… returned 404
+```
+
+and the Traefik access log has no `bumail-acme@docker` line for it.
+
+**Why**: Traefik routes only to a container Docker calls **healthy**, and
+a container waiting for its certificate answers its health check 503, so
+Docker says `starting`, and Traefik leaves its routers out: the challenge
+is answered by Traefik's own 404, and the certificate that would make the
+container healthy never comes. `docker compose ps` shows `(health:
+starting)`.
+
+**Fix**: the health check in `compose.traefik.yaml` and
+`compose.traefik-tcp.yaml` is `bumail health --tls-pending`, which counts
+that first-start wait (`"tls":"pending"`) as healthy, and nothing else. A compose file of your own needs the same in its
+`healthcheck:`, or none. Other causes of a 404 or a timeout on port 80
+(a redirect on the `web` entry point, a Traefik resolver on the HTTP
+challenge, a router of higher priority) are in
+[ACME behind Traefik](serve.md#acme-behind-traefik).
+
+### `Failed to listen at …: EACCES`, in the container
+
+**When**: `bumail serve` in the image cannot bind 25, 80, 443, 465, 587
+or 993 (see [`… cannot listen on …:… (…)`](#-cannot-listen-on--)).
+
+**Why**: the image runs as uid 10001. A port below 1024 needs
+`net.ipv4.ip_unprivileged_port_start` at 1024 or less in the container's
+network namespace, which Docker sets to 0 for a container on a bridge
+network. It does not when the container uses `network_mode: host` (the
+host's own value, 1024 or more by default, applies and cannot be set
+per container), or under a runtime that sets its own.
+
+**Fix**: keep the compose file's `sysctls: net.ipv4.ip_unprivileged_port_start: 0`
+on a bridge network; with `network_mode: host`, set the sysctl on the host
+(`sysctl -w net.ipv4.ip_unprivileged_port_start=0`) or use higher ports with
+`[ports]` and map them.
+
+### `OCI runtime exec failed: … "sh": executable file not found in $PATH`
+
+**When**: `docker compose exec bumail sh`, or any command that is not
+`bumail`.
+
+**Why**: the image has no shell and no tools besides `bumail`, to keep it
+small and give a break-in nothing to use.
+
+**Fix**: run the commands `bumail` has, as a one-off container on the
+same volume (`docker compose run --rm bumail user list`) or in the
+running one (`docker compose exec bumail bumail user list`). To look at
+the volume's files, mount it in another image:
+`docker run --rm -v bumail_data:/data:ro alpine ls -la /data`.
+
+### `bumail: standard input is not a terminal …`, from `docker compose run`
+
+**When**: `docker compose run --rm bumail user add alice@example.com` in
+a script, a CI job or a cron: `bumail: standard input is not a terminal,
+so no password can be typed: give --password-stdin or --password-file`
+(exit code 2). With a pipe into it and `--password-stdin`, Docker itself
+may refuse first: `the input device is not a TTY`.
+
+**Why**: the password is read at a hidden prompt, which needs a terminal,
+and `docker compose run` allocates one unless told not to.
+
+**Fix**: `-T` for no terminal, with `--password-stdin` and the password on
+standard input:
+
+```sh
+printf '%s\n' "$PASSWORD" | docker compose run --rm -T bumail user add alice@example.com --password-stdin
+```
+
+or `--password-file` on a file of the volume or a Docker secret.
+
+### `tls: obtaining a certificate failed …: fetch failed`, with a private or test CA
+
+**When**: `acme.directory` names a CA whose certificate is not a public
+one (a company CA, Pebble), and every try fails with `fetch failed` or a
+TLS error.
+
+**Why**: the ACME client trusts the system's certificate authorities, which
+the image has, and nothing else.
+
+**Fix**: a testing aid, never needed with Let's Encrypt and set by none
+of the compose files in `deploy/`. For a private or test CA only, mount
+its certificate read-only and name it for Bun in the container's
+`environment:`: `NODE_EXTRA_CA_CERTS=/etc/ssl/private-ca.pem`. This is how
+`bun run docker:e2e` trusts Pebble (in `deploy/test/`, not in the deploy
+files). Do not use a CA you do not control for a real server.
+
+### `bumail: login refused from …`, always the proxy's address
+
+**When**: behind Traefik's TCP routers, every refused login, every
+`mx:` line and every `Received` header names the same address, Traefik's.
+
+**Why**: the proxy does not send the PROXY protocol, or bumail does not
+read it, so the TCP peer is the client.
+
+**Fix**: three things must agree:
+
+- the TCP services carry the label
+  `traefik.tcp.services.<name>.loadbalancer.serverstransport=bumail-proxy-v2@file`;
+- the file provider holds that transport, with `proxyProtocol.version: 2`
+  ([deploy guide](deploy.md#behind-traefik-mail-ports-included-tcp-routers-and-the-proxy-protocol));
+- `[proxyProtocol] trusted` holds Traefik's address (`bumail init
+  --proxy-protocol --trusted-proxy <subnet>`).
+
+If Traefik's address is not in `trusted`, bumail serves it as itself and
+every log line names Traefik. If it is, and Traefik sends no header, the
+connection is reset instead.
 
 ## Usage
 

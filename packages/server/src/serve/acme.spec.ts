@@ -135,8 +135,55 @@ describe('tls.mode = "acme": a stored certificate', () => {
 	});
 });
 
+describe('tls.mode = "acme": the health check and an expired certificate', () => {
+	test('an expired stored pair is not served: at start it is tls: pending, like any wait for a first certificate', async () => {
+		const { dir } = await stored([A], {
+			notBefore: new Date(Date.now() - 3 * DAY),
+			notAfter: new Date(Date.now() - DAY),
+		});
+		const abort = new AbortController();
+		const health = freePort();
+		const run = startAcme({
+			dir,
+			health,
+			signal: abort.signal,
+			acme: { fetch: () => new Promise<never>(() => {}), waitingLogMs: 20 },
+		});
+		await until(
+			() => run.lines.some((line) => line.startsWith('tls: waiting')),
+			'the wait',
+		);
+		expect(run.lines).toContain(
+			'tls: the stored certificate is not used: expired',
+		);
+		const report = await fetch(`http://127.0.0.1:${health}/healthz`);
+		expect(report.status).toBe(503);
+		expect(await report.json()).toMatchObject({ tls: 'pending' });
+		abort.abort();
+		await run.started.catch(() => {});
+	});
+
+	test('a pair that was served and then expires is tls: down, with every listener up', async () => {
+		const { dir } = await stored([A], {
+			notBefore: new Date(Date.now() - DAY),
+			notAfter: new Date(Date.now() + 1500),
+		});
+		const f = await start({ dir, acme: { fetch: refusing().fetch } });
+		const url = `http://127.0.0.1:${f.port('health')}/healthz`;
+		expect(await (await fetch(url)).json()).toMatchObject({ tls: 'up' });
+		await until(async () => (await fetch(url)).status === 503, 'it to expire');
+		const report = await fetch(url);
+		expect(report.status).toBe(503);
+		expect(await report.json()).toMatchObject({
+			status: 'unavailable',
+			tls: 'down',
+			listeners: { mx: 'up', https: 'up', http: 'up' },
+		});
+	});
+});
+
 describe('tls.mode = "acme": waiting for a first certificate', () => {
-	test('port 80 and the health check are up, the health check says tls: down, the log says it is waiting, and a signal ends the wait', async () => {
+	test('port 80 and the health check are up, the health check says tls: pending, the log says it is waiting, and a signal ends the wait', async () => {
 		const dir = tempDir();
 		const abort = new AbortController();
 		const health = freePort();
@@ -159,7 +206,7 @@ describe('tls.mode = "acme": waiting for a first certificate', () => {
 		expect(report.status).toBe(503);
 		expect(await report.json()).toMatchObject({
 			status: 'unavailable',
-			tls: 'down',
+			tls: 'pending',
 			listeners: { mx: 'down', https: 'down', http: 'up' },
 		});
 		const home = await fetch(`http://127.0.0.1:${http}/`, {

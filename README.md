@@ -34,8 +34,8 @@ mailboxes over IMAP on 993 and over JMAP on 443 (HTTPS, or plain HTTP
 behind a reverse proxy such as Traefik that ends TLS), with a certificate
 from files or from an ACME CA (`@bumail/acme`, renewed by the server), a health
 check (`GET /healthz`) on loopback and the PROXY protocol, from proxies
-you list, on the mail ports. What comes — the rest of the server app, a blob
-store and a Docker image that runs it — in what order and why, is in
+you list, on the mail ports, and it runs as a Docker image. What comes — the rest of the server app, a blob
+store — in what order and why, is in
 [docs/roadmap.md](./docs/roadmap.md).
 
 ## Development

@@ -1,0 +1,63 @@
+# bumail, standalone: no proxy in front. It publishes the mail ports, binds
+# port 80 for the ACME CA's HTTP-01 challenge, and answers JMAP itself on 443
+# with the certificate it obtained.
+#
+#   cp .env.example .env
+#   docker compose run --rm bumail init --hostname mail.example.com --domain example.com
+#   docker compose up -d
+#
+# Guide: ../packages/server/docs/deploy.md
+name: bumail
+
+services:
+  bumail:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    # The image is built here by default. To pull a published one instead,
+    # set BUMAIL_IMAGE in .env, or replace the line below with
+    #   image: ghcr.io/softistx/bumail:<version>
+    image: ${BUMAIL_IMAGE:-bumail:local}
+    restart: unless-stopped
+    # A clean stop takes up to 15 seconds: give `docker stop` twice that.
+    stop_grace_period: 30s
+    # The log goes to standard output: keep Docker from filling the disk with it.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+    ports:
+      - '25:25' # SMTP from other servers: never AUTH, never a relay
+      - '80:80' # ACME HTTP-01 challenges, and a redirect to HTTPS
+      - '443:443' # JMAP over HTTPS
+      - '465:465' # submission over TLS
+      - '587:587' # submission with STARTTLS
+      - '993:993' # IMAP over TLS
+    volumes:
+      # The configuration, the directory and its DKIM keys, the mail, the
+      # queue and the ACME state: everything to back up is in this volume.
+      - data:/data
+    sysctls:
+      # The server runs as uid 10001 and binds ports below 1024: Docker sets
+      # this by default in a container's network namespace; this line makes it
+      # explicit, and keeps it when a daemon default says otherwise.
+      net.ipv4.ip_unprivileged_port_start: 0
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs: [/tmp]
+    # Secrets are never in the configuration file: a URL with a password, or
+    # the smarthost's password, comes from a file Docker mounts, through
+    # BUMAIL_STORE_URL_FILE, BUMAIL_QUEUE_URL_FILE or
+    # BUMAIL_SMARTHOST_PASSWORD_FILE. Uncomment the three groups to use one.
+    # environment:
+    #   BUMAIL_SMARTHOST_PASSWORD_FILE: /run/secrets/smarthost_password
+    # secrets: [smarthost_password]
+
+volumes:
+  data:
+
+# secrets:
+#   smarthost_password:
+#     file: ./secrets/smarthost_password

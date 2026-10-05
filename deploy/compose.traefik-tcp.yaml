@@ -1,0 +1,105 @@
+# bumail behind Traefik, mail ports included: the HTTP routers of
+# compose.traefik.yaml for JMAP and the ACME challenge, plus a TCP router for
+# each of 25, 465, 587 and 993 that passes the bytes through untouched
+# (`HostSNI(*)`, no `tls` section) and sends the PROXY protocol, version 2,
+# through a serversTransport, so bumail still sees the real client.
+#
+# Traefik needs the entry points and the transport of traefik/static.yaml and
+# traefik/dynamic.yaml added to its own configuration, and bumail must trust
+# only Traefik's network: `bumail init --proxy-protocol --trusted-proxy <cidr>`.
+#
+# Guide: ../packages/server/docs/deploy.md
+name: bumail
+
+services:
+  bumail:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    # Built here by default; a published image instead:
+    #   image: ghcr.io/softistx/bumail:<version>
+    image: ${BUMAIL_IMAGE:-bumail:local}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    # The log goes to standard output: keep Docker from filling the disk with it.
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '5'
+    # No `ports:` for the mail ports: Traefik publishes them.
+    volumes:
+      - data:/data
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [proxy]
+    # Traefik routes only to a container Docker calls healthy, and a first start
+    # waits for its certificate (the server answers 503 until then) while the
+    # CA must reach port 80 through Traefik. --tls-pending counts that wait as
+    # healthy, so the challenge route exists in time. Any other fault is still
+    # unhealthy.
+    healthcheck:
+      test: ['CMD', '/usr/local/bin/bumail', 'health', '--tls-pending']
+      interval: 30s
+      timeout: 10s
+      start_period: 5m
+      start_interval: 3s
+      retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-proxy}
+      # JMAP and the ACME challenge, as in compose.traefik.yaml.
+      - traefik.http.routers.bumail-jmap.rule=Host(`${BUMAIL_HOST}`)
+      - traefik.http.routers.bumail-jmap.entrypoints=websecure
+      - traefik.http.routers.bumail-jmap.tls=true
+      - traefik.http.routers.bumail-jmap.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.routers.bumail-jmap.service=bumail-jmap
+      - traefik.http.services.bumail-jmap.loadbalancer.server.port=8081
+      - traefik.http.routers.bumail-acme.rule=Host(`${BUMAIL_HOST}`) && PathPrefix(`/.well-known/acme-challenge/`)
+      - traefik.http.routers.bumail-acme.entrypoints=web
+      - traefik.http.routers.bumail-acme.priority=10000
+      - traefik.http.routers.bumail-acme.service=bumail-acme
+      - traefik.http.services.bumail-acme.loadbalancer.server.port=80
+      # SMTP from other servers: entry point `smtp` (25).
+      - traefik.tcp.routers.bumail-smtp.rule=HostSNI(`*`)
+      - traefik.tcp.routers.bumail-smtp.entrypoints=smtp
+      - traefik.tcp.routers.bumail-smtp.service=bumail-smtp
+      - traefik.tcp.services.bumail-smtp.loadbalancer.server.port=25
+      - traefik.tcp.services.bumail-smtp.loadbalancer.serverstransport=bumail-proxy-v2@file
+      # Submission over TLS: `submissions` (465).
+      - traefik.tcp.routers.bumail-submissions.rule=HostSNI(`*`)
+      - traefik.tcp.routers.bumail-submissions.entrypoints=submissions
+      - traefik.tcp.routers.bumail-submissions.service=bumail-submissions
+      - traefik.tcp.services.bumail-submissions.loadbalancer.server.port=465
+      - traefik.tcp.services.bumail-submissions.loadbalancer.serverstransport=bumail-proxy-v2@file
+      # Submission with STARTTLS: `submission` (587).
+      - traefik.tcp.routers.bumail-submission.rule=HostSNI(`*`)
+      - traefik.tcp.routers.bumail-submission.entrypoints=submission
+      - traefik.tcp.routers.bumail-submission.service=bumail-submission
+      - traefik.tcp.services.bumail-submission.loadbalancer.server.port=587
+      - traefik.tcp.services.bumail-submission.loadbalancer.serverstransport=bumail-proxy-v2@file
+      # IMAP over TLS: `imaps` (993).
+      - traefik.tcp.routers.bumail-imaps.rule=HostSNI(`*`)
+      - traefik.tcp.routers.bumail-imaps.entrypoints=imaps
+      - traefik.tcp.routers.bumail-imaps.service=bumail-imaps
+      - traefik.tcp.services.bumail-imaps.loadbalancer.server.port=993
+      - traefik.tcp.services.bumail-imaps.loadbalancer.serverstransport=bumail-proxy-v2@file
+    # environment:
+    #   BUMAIL_SMARTHOST_PASSWORD_FILE: /run/secrets/smarthost_password
+    # secrets: [smarthost_password]
+
+networks:
+  proxy:
+    name: ${TRAEFIK_NETWORK:-proxy}
+    external: true
+
+volumes:
+  data:
+
+# secrets:
+#   smarthost_password:
+#     file: ./secrets/smarthost_password

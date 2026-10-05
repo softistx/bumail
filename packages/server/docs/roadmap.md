@@ -2,8 +2,7 @@
 
 What `@bumail/server` gives someone running a mail server, and what is
 coming. This page is a direction, not a commitment. The package is
-private until it is complete, with its Docker image: nothing here is on
-npm yet.
+private until it is complete: nothing here is on npm yet.
 
 ## Now
 
@@ -76,14 +75,23 @@ npm yet.
   stored pair and never renews. Port 80 serves only the challenges, so
   behind Traefik one router rule sends `/.well-known/acme-challenge/` to
   it while Traefik keeps its own certificates for HTTPS.
+- **A Docker image and its deploy files** (not published): one
+  image of the whole server as a single binary, non-root, with one
+  `/data` volume for the configuration, the directory and its DKIM keys,
+  the mail, the queue and the ACME state, and nothing baked in. `bumail
+  init` writes the starter configuration, makes the directory and the
+  DKIM keys, and prints what is left; `bumail health` is its health
+  check. Compose files build the image locally: standalone, with bumail on
+  every port and binding 80 for ACME; behind Traefik, with HTTP routers
+  for JMAP and the challenge; or with Traefik's TCP routers for the mail
+  ports and the PROXY protocol, taken from trusted IPs only. The [deploy
+  guide](deploy.md) goes from DNS to a test mail, and `bun run docker:e2e`
+  runs it against Traefik and a test CA. The image is not pushed anywhere
+  yet.
 
 ## Next
 
-In this order, each its own step:
-
-- **A Docker image**, and a compose file with Traefik: the server, its
-  ports and one volume for everything it keeps, the mail ports through
-  Traefik's TCP routers, JMAP through its HTTP router.
+Nothing is queued ahead of what is under Later.
 
 ## Later
 
