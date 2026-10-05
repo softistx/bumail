@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { sameDkimRecord, sameDmarcRecord, sameSpfRecord } from '@bumail/auth';
 import { DnsError, normalizeName, type Resolver } from '@bumail/dns';
 import type { Plan, Wanted } from './plan';
 
@@ -7,10 +8,18 @@ import type { Plan, Wanted } from './plan';
  * - `ok`: the record is there.
  * - `missing`: there is no such record.
  * - `differs`: there is one of its kind, but not this one; `found` has what is there.
+ * - `duplicate`: there are several SPF or several DMARC records at the name, which every receiver
+ *   answers with `permerror`, whichever is right; `found` has them.
  * - `unavailable`: the DNS gave no answer (`detail` says why), so nothing is known.
  * - `unchecked`: not looked up, since `@bumail/dns` cannot (SRV, CAA).
  */
-export type Status = 'ok' | 'missing' | 'differs' | 'unavailable' | 'unchecked';
+export type Status =
+	| 'ok'
+	| 'missing'
+	| 'differs'
+	| 'duplicate'
+	| 'unavailable'
+	| 'unchecked';
 
 export interface Checked {
 	readonly wanted: Wanted;
@@ -27,10 +36,25 @@ function canonical(address: string): string {
 		: address;
 }
 
-/** The tag a TXT record starts with (`v=spf1`, `v=DMARC1`, `v=DKIM1`), which says what it is a record of. */
-function kindOf(text: string): string {
-	return text.split(/[; ]/, 1)[0] ?? '';
+type TextKind = 'spf' | 'dmarc' | 'dkim';
+
+const KINDS: Readonly<Record<string, TextKind>> = {
+	spf1: 'spf',
+	dmarc1: 'dmarc',
+	dkim1: 'dkim',
+};
+
+/** What a TXT record is a record of, by its `v=` tag, any case and spacing; `undefined` for any other text. */
+function kindOf(text: string): TextKind | undefined {
+	const version = /^\s*v\s*=\s*([a-z0-9]+)\s*(?:[; ]|$)/i.exec(text)?.[1];
+	return KINDS[(version ?? '').toLowerCase()];
 }
+
+const SAME: Readonly<Record<TextKind, (a: string, b: string) => boolean>> = {
+	spf: sameSpfRecord,
+	dmarc: sameDmarcRecord,
+	dkim: sameDkimRecord,
+};
 
 /** What the DNS holds at a record's name, and whether the wanted record is among it. */
 async function lookUp(
@@ -54,11 +78,15 @@ async function lookUp(
 			found,
 		};
 	}
+	const kind = kindOf(record.value) as TextKind;
 	const found = (await resolver.txt(record.name))
 		.map((r) => r.text.trim())
-		.filter((text) => kindOf(text) === kindOf(record.value));
-	if (found.includes(record.value)) return { status: 'ok', found };
-	return { status: found.length === 0 ? 'missing' : 'differs', found };
+		.filter((text) => kindOf(text) === kind);
+	if (found.length === 0) return { status: 'missing', found };
+	if (found.length > 1 && kind !== 'dkim')
+		return { status: 'duplicate', found };
+	const there = found.some((text) => SAME[kind](text, record.value));
+	return { status: there ? 'ok' : 'differs', found };
 }
 
 async function checkOne(resolver: Resolver, wanted: Wanted): Promise<Checked> {
@@ -114,65 +142,65 @@ async function resolves(
 	};
 }
 
+/** The reverse DNS of an address given with `--ip` or `--ip6` should name the host. */
+async function reverse(
+	resolver: Resolver,
+	address: string,
+	hostname: string,
+): Promise<Checked> {
+	const wanted: Wanted = {
+		scope: hostname,
+		purpose: 'host',
+		optional: false,
+		record: { name: address, type: 'PTR', value: hostname },
+	};
+	try {
+		const found = (await resolver.ptr(address)).map((r) => r.name);
+		return {
+			wanted,
+			status: found.includes(normalizeName(hostname)) ? 'ok' : 'differs',
+			found,
+		};
+	} catch (error) {
+		if (!(error instanceof DnsError)) throw error;
+		return error.code === 'NOT_FOUND'
+			? { wanted, status: 'missing', found: [] }
+			: { wanted, status: 'unavailable', found: [], detail: error.message };
+	}
+}
+
 /** Every record the plan wants, looked up through `resolver`: optional ones are left out. */
 export async function check(
 	plan: Plan,
 	resolver: Resolver,
 ): Promise<readonly Checked[]> {
 	const wanted = plan.records.filter((record) => !record.optional);
-	const results = await Promise.all(wanted.map((w) => checkOne(resolver, w)));
-	return plan.hasIp
-		? results
-		: [await resolves(resolver, plan.hostname), ...results];
+	const [results, ptrs, host] = await Promise.all([
+		Promise.all(wanted.map((w) => checkOne(resolver, w))),
+		Promise.all(
+			plan.addresses.map((address) =>
+				reverse(resolver, address, plan.hostname),
+			),
+		),
+		plan.hasIp
+			? Promise.resolve([])
+			: resolves(resolver, plan.hostname).then((c) => [c]),
+	]);
+	const own = (c: Checked) => c.wanted.scope === plan.hostname;
+	return [
+		...host,
+		...results.filter(own),
+		...ptrs,
+		...results.filter((c) => !own(c)),
+	];
 }
 
-/** Whether every record checked is there (an unchecked one counts as there). */
-export function allThere(checks: readonly Checked[]): boolean {
-	return checks.every((c) => c.status === 'ok' || c.status === 'unchecked');
-}
-
-const WIDTH = 72;
-
-function clip(text: string): string {
-	return text.length > WIDTH ? `${text.slice(0, WIDTH)}…` : text;
-}
-
-/** `value` of a record as the report shows it. */
-function shown({ record }: Wanted): string {
-	return record.type === 'MX'
-		? `${record.priority} ${record.value}`
-		: record.value;
-}
-
-/** The report of `bumail dns --check`: a line per record, then what it comes to. */
-export function renderChecks(checks: readonly Checked[]): string {
-	const out: string[] = [];
-	let scope = '';
-	for (const c of checks) {
-		if (c.wanted.scope !== scope) {
-			scope = c.wanted.scope;
-			out.push(scope);
-		}
-		const { record } = c.wanted;
-		out.push(
-			`  ${c.status.padEnd(11)}${record.type.padEnd(5)}${record.name}  ${clip(shown(c.wanted))}`,
-		);
-		if (c.status === 'differs') {
-			for (const text of c.found)
-				out.push(`${' '.repeat(18)}found  ${clip(text)}`);
-		}
-		if (c.detail !== undefined) out.push(`${' '.repeat(18)}${clip(c.detail)}`);
-	}
-	const count = (status: Status) =>
-		checks.filter((c) => c.status === status).length;
-	const problems = (['missing', 'differs', 'unavailable'] as const)
-		.filter((status) => count(status) > 0)
-		.map((status) => `${count(status)} ${status}`);
-	out.push(
-		'',
-		problems.length === 0
-			? `all ${checks.length - count('unchecked')} records checked are in the DNS${count('unchecked') > 0 ? `; ${count('unchecked')} (SRV) cannot be looked up here` : ''}`
-			: `${problems.join(', ')}: bumail dns prints what to publish`,
-	);
-	return `${out.join('\n')}\n`;
+/** `ok`; `unavailable` when the only trouble is a DNS that did not answer; `wrong` when a record is missing, differs or is doubled. */
+export function outcome(
+	checks: readonly Checked[],
+): 'ok' | 'wrong' | 'unavailable' {
+	const has = (...statuses: Status[]) =>
+		checks.some((c) => statuses.includes(c.status));
+	if (has('missing', 'differs', 'duplicate')) return 'wrong';
+	return has('unavailable') ? 'unavailable' : 'ok';
 }

@@ -58,6 +58,14 @@ describe('dmarcRecord refuses', () => {
 			'rua "a@example.com,b@',
 		],
 		[{ p: 'none', ruf: 'mailto:' }, 'ruf "mailto:"'],
+		[
+			{ p: 'none', rua: 'postmaster' },
+			'rua "postmaster" is not an e-mail address',
+		],
+		[
+			{ p: 'none', ruf: 'mailto:nobody' },
+			'ruf "mailto:nobody" is not an e-mail address',
+		],
 		[{ p: 'none', rua: [] }, 'rua must be an address'],
 		[{ p: 'none', rua: [''] }, 'rua must hold addresses'],
 	])('%j', (options, message) => {

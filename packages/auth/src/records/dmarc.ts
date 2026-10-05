@@ -48,6 +48,9 @@ function destination(name: string, text: unknown): string {
 		throw refused(`${name} must hold addresses or URIs, as strings`);
 	}
 	const uri = /^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `mailto:${text}`;
+	if (uri.toLowerCase().startsWith('mailto:') && !uri.includes('@')) {
+		throw refused(`${name} "${text}" is not an e-mail address: it has no "@"`);
+	}
 	if (/[,;\s]/.test(uri) || parseUri(uri) === undefined) {
 		throw refused(
 			`${name} "${text}" is not an address or a URI (a "!10m" size may end it) without a comma, a semicolon or a space`,

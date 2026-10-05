@@ -54,7 +54,6 @@ export {
 	type DkimKeyEntry,
 	type DkimKeys,
 	type DkimSigningKey,
-	zoneLine,
 } from './directory/dkim';
 export type { DomainEntry, Domains } from './directory/domains';
 export {

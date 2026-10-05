@@ -60,6 +60,8 @@ describe('dkimRecord refuses', () => {
 		[{ publicKey: 'QUJDRA' }, 'publicKey is not base64'],
 		[{ publicKey: 'QUJD', keyType: 'ed25519' as const }, '32 bytes, not 3'],
 		[{ publicKey: 'QUJD', keyType: 'dsa' as never }, "keyType must be 'rsa'"],
+		[{ publicKey: '', testing: true }, 'a revoked key'],
+		[{ publicKey: '', keyType: 'ed25519' as const }, 'a revoked key'],
 		[{ publicKey: 7 as never }, 'publicKey must be a base64 string or bytes'],
 	])('%j', (options, message) => {
 		expect(() => dkimRecord(options)).toThrow(message);

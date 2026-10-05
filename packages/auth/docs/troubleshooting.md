@@ -37,6 +37,11 @@ strings` (the same for `ip4` and `ip6`), `all must be one of -all, ~all,
 ?all, +all, not …`, `a, mx and include make … DNS lookups, more than the 10
 RFC 7208 §4.6.4 allows`, or `options must be an object`.
 
+`spfRecord(): options must be an object` is a call with no options.
+`spfRecord(): the record "…" is not one checkSpf reads` is the record it
+built failing the parser it must satisfy, a guard that no check above
+caught; it names the text, so please report it.
+
 **Fix**: give addresses and domains as arrays of strings, and keep the
 lookups to ten: drop an `include`, or list the provider's addresses as
 `ip4`, which cost none.
@@ -54,6 +59,12 @@ not …` (also `aspf`), `pct must be an integer from 0 to 100, not …`,
 comma, a semicolon or a space` (also `ruf`), `rua must be an address, a
 URI, or a non-empty array`, `rua must hold addresses or URIs, as strings`.
 
+`dmarcRecord(): options must be an object` is a call with no options, and
+`dmarcRecord(): the record "…" is not one checkDmarc reads` is the built
+record failing the parser, a guard that should never fire: report it with
+the text. `rua "…" is not an e-mail address: it has no "@"` is a
+destination with no mailbox, or a `mailto:` URI with none.
+
 **Fix**: pass `p` always, one destination per array item, and an address
 or a `mailto:` URI. A destination holding a comma or a semicolon would
 end the tag early, so it is refused rather than written.
@@ -67,6 +78,11 @@ dmarcRecord({ p: 'quarantine', rua: ['postmaster@example.com'] });
 **When**: `dkimRecord` could not write the record: `publicKey is not
 base64`, `an ed25519 publicKey is 32 bytes, not …`, `keyType must be 'rsa'
 or 'ed25519', not …`, `publicKey must be a base64 string or bytes`.
+
+`dkimRecord(): options must be an object` is a call with no options, and
+`a revoked key (an empty publicKey) takes no keyType or testing` is an
+empty key given with `ed25519` or `testing`: a revoked record is just
+`v=DKIM1; p=`.
 
 **Fix**: pass the public key, not the private one: for RSA the
 SubjectPublicKeyInfo as base64 or bytes, for Ed25519 the 32 raw bytes

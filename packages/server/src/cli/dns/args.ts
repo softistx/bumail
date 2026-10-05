@@ -1,5 +1,5 @@
 import { isIP } from 'node:net';
-import { type Options, refuseOptions, usage, word } from './verbs';
+import { type Options, refuseOptions, usage, word } from '../verbs';
 
 /** `bumail dns [<domain>] [--ip <address>] [--ip6 <address>] [--json] [--check]`. */
 export type DnsArgs = {

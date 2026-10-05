@@ -6,7 +6,7 @@
 - [Signing a message](#signing-a-message)
 - [Keys](#keys)
 - [Publishing the key](#publishing-the-key)
-- [Writing the DNS records](#writing-the-dns-records)
+- [Writing the DNS records](#writing-the-dns-records), and [comparing one with what is published](#comparing-a-record-with-what-is-published)
 - [Choosing a canonicalisation](#choosing-a-canonicalisation)
 - [Body lengths (`l=`)](#body-lengths-l)
 - [Checking SPF](#checking-spf)
@@ -328,6 +328,28 @@ the base64, not the RSA structure: a key that is not an RSA key comes
 back from `verifyDkim` as `permerror` `key p= is not an rsa public key`.
 `testing: true` adds `t=y`, and an empty `publicKey` writes
 `v=DKIM1; p=`, a revoked key.
+
+### Comparing a record with what is published
+
+`sameSpfRecord`, `sameDmarcRecord` and `sameDkimRecord` say whether two
+texts are the same record **as the receiver reads it**, which is how to
+check that the DNS holds what you wrote: it may differ in white space,
+case, a leading `+`, default tags and CIDR lengths (`mx/32`), or be split
+into strings, and still be the same record.
+
+```ts
+import { sameDkimRecord, sameDmarcRecord, sameSpfRecord } from '@bumail/auth';
+
+sameSpfRecord('v=spf1 mx -all', 'V=SPF1  +mx  -ALL'); // true
+sameSpfRecord('v=spf1 mx -all', 'v=spf1 mx ~all'); // false
+sameDmarcRecord('v=DMARC1; p=none', 'v=DMARC1;p=none;adkim=r;pct=100'); // true
+sameDkimRecord('v=DKIM1; k=rsa; p=QUJD', 'v=DKIM1; p=QUJD'); // true
+```
+
+The order of an SPF record's terms matters, since the first to match
+decides. A text the parser cannot read is the same as nothing, so `false`,
+even against itself. An SPF record with two copies, or a DMARC one with
+two, is for you to look for: each of those is a `permerror` for a receiver.
 
 ## Choosing a canonicalisation
 

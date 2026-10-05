@@ -1,13 +1,14 @@
-import { nodeResolver, type Resolver } from '@bumail/dns';
+import { AuthError } from '@bumail/auth';
+import { DnsError, nodeResolver, type Resolver } from '@bumail/dns';
 import type { ServerConfig } from '../../config/types';
 import { domainOf } from '../../directory/address';
 import { directoryFile } from '../../directory/database';
 import { Directory } from '../../directory/directory';
 import { ServerError } from '../../errors';
-import type { DnsArgs } from '../dns-args';
-import { allThere, check, renderChecks } from './check';
-import { plan } from './plan';
-import { renderJson, renderZone } from './render';
+import type { DnsArgs } from './args';
+import { check, outcome } from './check';
+import { type Plan, plan } from './plan';
+import { renderChecks, renderJson, renderZone } from './render';
 
 /** What `bumail dns` writes to, and, for `--check`, asks. */
 export interface DnsIo {
@@ -45,34 +46,54 @@ function domainsOf(directory: Directory, named: string | undefined): string[] {
 	return [domain];
 }
 
+/** A record `@bumail/auth` or `@bumail/dns` cannot write, such as a corrupt stored key, as an error with a message. */
+function unwritable<T>(write: () => T): T {
+	try {
+		return write();
+	} catch (error) {
+		if (error instanceof AuthError || error instanceof DnsError) {
+			throw new ServerError(
+				'INVALID',
+				`the DNS records cannot be written: ${error.message}`,
+			);
+		}
+		throw error;
+	}
+}
+
 /**
  * Runs `bumail dns`: prints the records every hosted domain (or the one
  * named) needs, as a zone file or as JSON, or with `--check` looks each
- * up in the DNS and reports it. Answers `false` only when
- * `--check` finds a record missing, different, or not answered for.
+ * up in the DNS and reports it. Answers `ok`, or with `--check` `wrong`
+ * (a record missing, different or doubled) or `unavailable` (only
+ * because the DNS did not answer).
  */
 export async function dnsCommand(
 	args: DnsArgs,
 	config: ServerConfig,
 	{ out, resolver }: DnsIo,
-): Promise<boolean> {
+): Promise<'ok' | 'wrong' | 'unavailable'> {
 	const directory = Directory.open({
 		file: directoryFile(config.directory.url),
 	});
-	let wanted: ReturnType<typeof plan>;
+	let wanted: Plan;
 	try {
-		wanted = plan(config, directory, domainsOf(directory, args.domain), args);
+		wanted = unwritable(() =>
+			plan(config, directory, domainsOf(directory, args.domain), args),
+		);
 	} finally {
 		directory.close();
 	}
 	if (!args.check) {
-		out(args.json ? renderJson(wanted) : renderZone(wanted));
-		return true;
+		out(
+			unwritable(() => (args.json ? renderJson(wanted) : renderZone(wanted))),
+		);
+		return 'ok';
 	}
 	const checks = await check(
 		wanted,
 		resolver ?? nodeResolver({ timeout: TIMEOUT_MS, tries: TRIES }),
 	);
 	out(args.json ? renderJson(wanted, checks) : renderChecks(checks));
-	return allThere(checks);
+	return outcome(checks);
 }

@@ -54,11 +54,12 @@ npm yet.
   keeps the old pair and logs why, once.
 - **The DNS records a domain needs, and a check of them** (merged, not
   published): `bumail dns` prints, for every hosted domain or one, the MX,
-  SPF (`v=spf1 mx -all`), DKIM, DMARC (`quarantine`, strict alignment) and
+  SPF (`v=spf1 mx -all`), DKIM, DMARC (`quarantine` once the domain has a DKIM key, strict DKIM alignment) and
   autoconfig SRV records (RFC 6186, RFC 8620), and the host name's A and
   AAAA from `--ip` and `--ip6`, as a zone file DNS hosts import, or as
-  JSON. `--check` looks each up in the DNS and exits 1 while one is
-  missing or differs.
+  JSON. `--check` looks each up in the DNS, parsed as the receivers read them,
+  and exits 1 while one is missing, differs or is doubled (5 when the DNS
+  gave no answer).
 
 ## Next
 
@@ -78,9 +79,8 @@ In this order, each its own step:
   `mta-sts.<domain>`.
 - **SRV and CAA in `bumail dns --check`**, once `@bumail/dns` can look them
   up; they are listed as `unchecked` until then.
-- **`bumail dns --check` with a policy of your own**: `--dmarc <policy>`
+- **`bumail dns` with a policy of your own**: `--dmarc <policy>`
   and an SPF `include` for a provider, instead of editing the output.
-
 - **A `421` to SMTP clients still connected when the server stops**, as
   RFC 5321 §3.8 suggests, rather than a plain hang-up; it needs a
   stop with a reply in `@bumail/smtp`.

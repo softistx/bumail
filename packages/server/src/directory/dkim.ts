@@ -190,13 +190,3 @@ export class DkimKeys {
 			: { selector: row.selector, privateKey: row.private_key };
 	}
 }
-
-/**
- * The record as a zone file line: TXT strings are 255 bytes at most
- * (RFC 1035 §3.3.14), so a 2048-bit key's is split into several, which a
- * resolver joins.
- */
-export function zoneLine(key: DkimKeyEntry): string {
-	const parts = key.record.match(/.{1,250}/g) ?? [];
-	return `${key.name}. IN TXT ${parts.map((p) => `"${p}"`).join(' ')}`;
-}

@@ -179,7 +179,9 @@ dkimRecord({ publicKey: spkiBase64 }); // 'v=DKIM1; k=rsa; p=MIIBIjAN…' at <se
 dkimRecord({ publicKey: raw32Bytes, keyType: 'ed25519' }); // k=ed25519
 ```
 
-`@bumail/dns`'s `formatZone` turns them into zone-file lines.
+`@bumail/dns`'s `formatZone` turns them into zone-file lines, and
+`sameSpfRecord`, `sameDmarcRecord` and `sameDkimRecord` compare a record with
+what the DNS holds, as the receiver reads both.
 
 ## Traps
 
@@ -311,6 +313,7 @@ dkimRecord({ publicKey: raw32Bytes, keyType: 'ed25519' }); // k=ed25519
 | `DmarcRecordOptions` | `p` (required), `sp`, `rua`, `ruf` (an address or URI, or an array), `pct`, `adkim`, `aspf` |
 | `dkimRecord(options)` | the DKIM key record's text: `v=DKIM1; k=rsa; p=…`; an empty key is a revoked one |
 | `DkimRecordOptions` | `publicKey` (base64 or bytes; required), `keyType` (`'rsa'` default, or `'ed25519'`), `testing` (`t=y`) |
+| `sameSpfRecord(a, b)`, `sameDmarcRecord(a, b)`, `sameDkimRecord(a, b)` | whether two texts are the same record as the receiver reads it: white space, case, default tags and `+` do not matter; `false` for text that is not a record |
 | `formatAuthenticationResults(authservId, results)` | the `Authentication-Results` field (RFC 8601), folded, CRLF included |
 | `AuthenticationResultsInput` | `dkim` (`DkimResult[]`), `spf` (`SpfCheck`), `dmarc` (`DmarcResult`), each optional |
 | `AuthError`, `AuthErrorCode` | thrown for an option or input, an `ip`, a message to sign or a key: `INVALID_OPTION`, `INVALID_MESSAGE`, `INVALID_KEY`; `cause` holds a wrapped error |

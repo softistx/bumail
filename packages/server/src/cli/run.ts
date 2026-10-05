@@ -40,7 +40,7 @@ export const EXIT = {
 	notImplemented: 3,
 	refused: 4,
 	unavailable: 5,
-	/** `dns --check`: a record is missing or differs; the value of `invalidConfig`, since both are "not as it should be". */
+	/** `dns --check`: a record is missing, differs or is doubled; the value of `invalidConfig`, since both are "not as it should be". */
 	dnsDiffers: 1,
 } as const;
 
@@ -72,7 +72,12 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 			env: io.env,
 		});
 		if (args.kind === 'dns') {
-			return (await dnsCommand(args, config, io)) ? EXIT.ok : EXIT.dnsDiffers;
+			const found = await dnsCommand(args, config, io);
+			return found === 'ok'
+				? EXIT.ok
+				: found === 'wrong'
+					? EXIT.dnsDiffers
+					: EXIT.unavailable;
 		}
 		if (args.kind === 'manage') {
 			await manage(args, config, io);

@@ -52,7 +52,14 @@ export function dkimRecord(options: DkimRecordOptions): string {
 			? withoutFws(publicKey)
 			: encodeBase64(publicKey);
 	const flags = options.testing === true ? '; t=y' : '';
-	if (base64 === '') return 'v=DKIM1; p=';
+	if (base64 === '') {
+		if (options.testing === true || type !== 'rsa') {
+			throw refused(
+				'a revoked key (an empty publicKey) takes no keyType or testing',
+			);
+		}
+		return 'v=DKIM1; p=';
+	}
 	const bytes = decodeBase64Strict(base64);
 	if (bytes === undefined) throw refused('publicKey is not base64');
 	if (type === 'ed25519' && bytes.length !== 32) {

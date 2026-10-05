@@ -40,7 +40,8 @@ Commands:
       [--ip6 <address>]       autoconfig SRV records, as a zone file; --ip and
       [--json]                --ip6 add the host name's A and AAAA records
       [--check]               --check looks them up in the DNS instead, and
-                              exits 1 when one is missing or differs
+                              exits 1 when one is missing or differs, 5
+                              when the DNS gave no answer
 
 Options:
   --config <file>        the TOML configuration; default $BUMAIL_CONFIG,
@@ -59,9 +60,9 @@ The environment overrides URLs and secrets only, each also as *_FILE:
   BUMAIL_SMARTHOST_PASSWORD
 
 Exit codes: 0 done (serve: stopped cleanly), 1 invalid configuration (dns
---check: a record missing, different or not answered for),
+--check: a record missing, different or doubled),
 2 bad usage, 3 not available yet (serve with tls.mode "acme"), 4 refused
 by the directory (an address, a password, a name taken, not found,
 still in use, a selector), 5 the directory, the mail store, the queue,
-a port or the certificate unavailable.
+a port or the certificate unavailable (dns --check: the DNS gave no answer).
 `;

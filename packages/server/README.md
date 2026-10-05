@@ -259,15 +259,16 @@ bumail dns --json                           # the same, for a script
 example.com. IN MX 10 mail.example.com.
 example.com. IN TXT "v=spf1 mx -all"
 bumail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0B…" "…"
-_dmarc.example.com. IN TXT "v=DMARC1; p=quarantine; adkim=s; aspf=s; rua=mailto:postmaster@example.com"
+_dmarc.example.com. IN TXT "v=DMARC1; p=quarantine; adkim=s; rua=mailto:postmaster@example.com"
 _submissions._tcp.example.com. IN SRV 0 1 465 mail.example.com.
 ```
 
 The MX, SPF, DKIM, DMARC and autoconfig SRV records of each domain, and
 the host name's A and AAAA from `--ip` and `--ip6` (the server cannot
 know its own public address). DMARC starts at `quarantine` with strict
-alignment, and the zone file imports as it is at most DNS hosts. After
-publishing, `--check` exits 1 until every record is there. See
+DKIM alignment (`none` until the domain has a key), and the zone file
+imports as it is at most DNS hosts. After publishing, `--check` exits 1
+until every record is there, and 5 when the DNS did not answer. See
 [the directory guide](https://github.com/softistx/bumail/blob/develop/packages/server/docs/directory.md#bumail-dns).
 
 ## From code
@@ -345,7 +346,7 @@ be used 5.
 | `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `OutboundOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`, `reloadTls()` (look at the certificate files now, as SIGHUP does); the types around them; `OutboundOptions` is `mxPort`, `ca`, `pollInterval`, `send`, for a test |
 | `DEFAULT_DRAIN_SECONDS`, `ACME_LATER` | 10, the seconds a stop waits for SMTP sessions; what `serve` says of `tls.mode = "acme"` |
 | `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, cacheSeconds?, onUnlimited?, limiter? })`: `domains`, `users`, `aliases`, `dkim`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |
-| `DkimKeys`, `DkimKeyEntry`, `DkimSigningKey`, `DEFAULT_SELECTOR`, `DKIM_KEY_BITS`, `zoneLine(key)` | the directory's DKIM keys: `generate(domain, { selector?, replace? })`, `get`, `list`, `remove`, `signingKey` (for the server); what they answer (`domain`, `selector`, `name`, `record`, `created`); `'bumail'`, 2048; the record as a zone file line |
+| `DkimKeys`, `DkimKeyEntry`, `DkimSigningKey`, `DEFAULT_SELECTOR`, `DKIM_KEY_BITS` | the directory's DKIM keys: `generate(domain, { selector?, replace? })`, `get`, `list`, `remove`, `signingKey` (for the server); what they answer (`domain`, `selector`, `name`, `record`, `created`); `'bumail'`, 2048 |
 | `Domains`, `Users`, `Aliases` | the types of its three parts: `add`, `get`, `list`, `remove`, and `has` (domains), `setPassword`, `setDisabled`, `require`, `checkAddable`, `checkRemovable` (users; none hands out a hash), `targets` (aliases) |
 | `DomainEntry`, `UserEntry`, `AliasEntry` | what they answer |
 | `AuthResult`, `AuthFailure`, `AuthenticatorOptions`, `DirectoryOptions` | `authenticate`'s answer, its reasons (`blocked`, `malformed`, `unknown`, `password`, `disabled`, `busy`), and the options |

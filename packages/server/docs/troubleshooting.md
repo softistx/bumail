@@ -18,7 +18,8 @@ number, a scheme. A path is the key, dotted from the top
 problem repeats a URL or a secret, so a URL is named by its scheme.
 
 The command exits 1 for these (and for `bumail dns --check` finding a
-record [missing or different](#bumail-dns---check-missing-differs-unavailable-unchecked)), and 2 for [bad usage](#usage). The
+record [missing, different or doubled](#bumail-dns---check-missing-differs-duplicate-unavailable-unchecked)),
+and 2 for [bad usage](#usage). The
 directory commands' own refusals are under
 [the directory commands](#the-directory-commands).
 
@@ -163,7 +164,8 @@ directory commands' own refusals are under
 *`bumail dns`*
 
 - [`no domain is hosted here; bumail domain add adds one`](#no-domain-is-hosted-here-bumail-domain-add-adds-one)
-- [`missing`, `differs`, `unavailable` and `unchecked`, in `bumail dns --check`](#bumail-dns---check-missing-differs-unavailable-unchecked)
+- [`the DNS records cannot be written: …`](#the-dns-records-cannot-be-written-)
+- [`missing`, `differs`, `duplicate`, `unavailable` and `unchecked`, in `bumail dns --check`](#bumail-dns---check-missing-differs-duplicate-unavailable-unchecked)
 - [`; its A record is the server's public IPv4 address …` and the other comments](#bumail-dns-the-comments-in-its-output)
 
 *Passwords*
@@ -1121,20 +1123,39 @@ bumail domain add example.com
 bumail dns example.com --ip 192.0.2.10
 ```
 
-#### `bumail dns --check`: `missing`, `differs`, `unavailable`, `unchecked`
+#### `the DNS records cannot be written: …`
 
-**When**: `bumail dns --check` reported a record with one of these words
-and exited 1 (`unchecked` alone does not):
+**When**: `bumail dns` (exit code 4) found a record it could not write: the
+message ends with `@bumail/auth`'s or `@bumail/dns`'s own, such as
+`dkimRecord(): publicKey is not base64`. Only a damaged directory causes
+it, a stored DKIM key that is not base64, say.
+
+**Fix**: make the key again, which replaces the damaged one.
+
+```sh
+bumail dkim generate example.com --replace
+```
+
+#### `bumail dns --check`: `missing`, `differs`, `duplicate`, `unavailable`, `unchecked`
+
+**When**: `bumail dns --check` reported a record with one of these words.
+It exits 1 for `missing`, `differs` and `duplicate`, 5 when `unavailable`
+is all there is, and 0 for `unchecked` alone:
 
 - `missing`: the DNS has no record of that kind at the name. Publish it, or
   wait: a change can take the record's TTL, and a resolver that cached the
   absence a little longer. `bumail dns` prints the record.
 - `differs`: the DNS has a record of that kind, but not the wanted one, and
   `found` shows it. An A record at another address means `--ip` is not the
-  address in the DNS; an SPF or DMARC record you edited on purpose differs
-  too, since a record is compared as written. Replace it, or keep your
-  version and read the exit code as yours to judge. Two SPF records at one
-  name are a `permerror` for every receiver: replace, never add.
+  address in the DNS; a PTR that names another host means the reverse DNS,
+  which your hosting provider sets, is not the host name yet. SPF, DMARC
+  and DKIM records are compared as parsed, so case and spacing do not
+  differ, but an SPF record you extended on purpose does: replace it, or
+  keep your version and read the exit code as yours to judge.
+- `duplicate`: two SPF records, or two DMARC records, stand at the name,
+  and every receiver answers `permerror` to either case, whichever is the
+  right one. Delete the extra: a domain has one SPF record, which holds
+  every `include:` it needs, and one DMARC record.
 - `unavailable`: the DNS did not answer (`TEMPORARY` or `TIMEOUT`, and its
   message). Nothing is known about that record; run it again, and look at
   the machine's resolver.
@@ -1156,11 +1177,19 @@ host ignores, and says what is left to you:
   own public address (it may be behind NAT or a proxy). Run again with
   `--ip`, or add the A record yourself. Without it `--check` only asks that
   the host name resolve.
+- `the reverse DNS (PTR) of … should be …`: set at your hosting provider,
+  not in your zone. `--check` looks it up when `--ip` is given.
+- `the SRV records carry the ports the server listens on: …`: behind
+  Docker port mapping or a proxy, the public ports differ; edit them in
+  the SRV records.
+- `no _jmap._tcp record: jmap.origin names an IP address, …`: an SRV
+  target is a host name. Give `jmap.origin` a host name to get the record.
 - `optional: if the server has a public IPv6 address, …`: add `--ip6` to
   write its AAAA record; skip it with none.
 - `no DKIM key yet: bumail dkim generate <domain> makes one, …`: the
-  domain's mail goes unsigned, and there is no key record to publish yet.
-  Make the key, then print the records again.
+  domain's mail goes unsigned, there is no key record to publish yet, and
+  its DMARC record says `p=none` meanwhile. Make the key, then print the
+  records again: DMARC becomes `quarantine`.
 - `outbound mail goes through the smarthost …: add its SPF include …`: with
   `[smarthost]`, the provider sends your mail, so the SPF record must name
   it: change `v=spf1 mx -all` to `v=spf1 mx include:<provider's SPF domain> -all`.

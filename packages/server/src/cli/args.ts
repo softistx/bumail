@@ -1,4 +1,4 @@
-import { type DnsArgs, resolveDns } from './dns-args';
+import { type DnsArgs, resolveDns } from './dns/args';
 import {
 	isNoun,
 	type ManageArgs,
