@@ -90,6 +90,32 @@ describe('jmap over HTTPS', () => {
 		);
 	});
 
+	test('authenticates a wrong method before its 405: a wrong password on it is a failure the limiter counts', async () => {
+		fixture = await startJmap();
+		const wrongMethod = (authorization: string) =>
+			fetch(`https://127.0.0.1:${fixture?.port('https')}/.well-known/jmap`, {
+				method: 'DELETE',
+				headers: { authorization },
+				tls: { rejectUnauthorized: false },
+			});
+		const right = await wrongMethod(basic(PASSWORD));
+		expect(right.status).toBe(405);
+		expect(right.headers.get('allow')).toBe('GET');
+		for (let i = 0; i < 10; i++) {
+			const refused = await wrongMethod(basic(`wrong ${i}`));
+			expect(refused.status).toBe(401);
+			expect(refused.headers.get('allow')).toBeNull();
+		}
+		expect(fixture.lines).toContain(
+			'https: login refused from 127.0.0.1: password',
+		);
+		const blocked = await fixture.session({ authorization: basic(PASSWORD) });
+		expect(blocked.status).toBe(401);
+		expect(fixture.lines).toContain(
+			'https: login refused from 127.0.0.1: blocked',
+		);
+	});
+
 	test('logs it at start, one line', async () => {
 		fixture = await startJmap();
 		const port = fixture.port('https');

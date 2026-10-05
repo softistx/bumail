@@ -106,7 +106,10 @@ describe('authentication', () => {
 					'Bearer realm="JMAP"',
 				);
 			}
-			const wrong = await h.fetch(path, { method });
+			const wrong = await h.fetch(path, {
+				method,
+				headers: { authorization: 'Bearer alice-token' },
+			});
 			expect(wrong.status).toBe(405);
 			expect(wrong.headers.get('allow')).toBe(allow);
 		}
