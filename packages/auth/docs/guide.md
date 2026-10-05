@@ -6,6 +6,7 @@
 - [Signing a message](#signing-a-message)
 - [Keys](#keys)
 - [Publishing the key](#publishing-the-key)
+- [Writing the DNS records](#writing-the-dns-records)
 - [Choosing a canonicalisation](#choosing-a-canonicalisation)
 - [Body lengths (`l=`)](#body-lengths-l)
 - [Checking SPF](#checking-spf)
@@ -265,12 +266,68 @@ console.log(`mail2026._domainkey.example.com TXT "v=DKIM1; k=rsa; p=${spki.toBas
 // For Ed25519: generateKey({ name: 'Ed25519' }, …), exportKey('raw', …), and k=ed25519.
 ```
 
+`dkimRecord({ publicKey: spki })` writes that value for you, checked: see
+[Writing the DNS records](#writing-the-dns-records).
+
 A 2048-bit key is longer than the 255 characters one TXT string can hold.
 Split it into several quoted strings in the zone: the DNS joins them, and
 `@bumail/dns` hands the joined text over. To retire a key, publish
 `v=DKIM1; p=` (empty). Mail signed with it then gives
 `permerror` "key revoked (empty p=)", instead of a lookup that might
 still find a cached key.
+
+## Writing the DNS records
+
+`spfRecord`, `dmarcRecord` and `dkimRecord` write the text of the three
+TXT records a sending domain publishes. Each is the inverse of the parser
+that reads it, and each validates, so a record that comes out is one that
+`checkSpf`, `checkDmarc` and `verifyDkim` read as written. They return the
+text only: `@bumail/dns`'s `formatZone` turns it into zone-file lines, with
+a long value split into strings.
+
+```ts
+import { dkimRecord, dmarcRecord, spfRecord } from '@bumail/auth';
+import { formatZone } from '@bumail/dns';
+
+const zone = formatZone([
+	{ name: 'example.com', type: 'TXT', value: spfRecord({ mx: true }) },
+	{ name: '_dmarc.example.com', type: 'TXT', value: dmarcRecord({ p: 'none', rua: 'postmaster@example.com' }) },
+	{ name: 'mail2026._domainkey.example.com', type: 'TXT', value: dkimRecord({ publicKey: spki }) },
+]);
+```
+
+**`spfRecord`** puts the mechanisms in a fixed order (`a`, `mx`, the
+`include:`s, the `ip4:`s, the `ip6:`s) and ends with `all`, `-all` unless
+you pass `~all`, `?all` or `+all`. An `ip4` or `ip6` entry is an address or
+a network (`192.0.2.0/24`), checked as the version it names. `a`, `mx` and
+each `include` cost a DNS lookup, and RFC 7208 §4.6.4 allows ten: a record
+over it is refused here, where a receiver would answer `permerror`. A
+domain that sends through a provider adds the provider's `include`.
+
+**`dmarcRecord`** needs `p` (`none`, `quarantine` or `reject`). `sp`,
+`adkim`, `aspf`, `pct`, `rua` and `ruf` are written when given, except at
+their defaults (`adkim=r`, `aspf=r`, `pct=100`), which are left out. A
+report destination is an address, written as `mailto:`, or a URI, with an
+optional `!10m` size; a comma, a semicolon or a space in it would end the
+tag, so it is refused. Several destinations are an array.
+
+```ts
+dmarcRecord({ p: 'none', rua: ['postmaster@example.com', 'https://reports.example/rua!10m'] });
+// 'v=DMARC1; p=none; rua=mailto:postmaster@example.com,https://reports.example/rua!10m'
+```
+
+A destination in another domain than the one that publishes the record
+only gets reports once that domain says it agrees (RFC 7489 §7.1): that is
+for the receiving domain to publish.
+
+**`dkimRecord`** takes the public key as base64 or as bytes: for RSA, the
+SubjectPublicKeyInfo `crypto.subtle.exportKey('spki', …)` gives; for
+Ed25519, the 32 raw bytes. `keyType` is `'rsa'` unless you say
+`'ed25519'`, and an Ed25519 key of another length is refused. It checks
+the base64, not the RSA structure: a key that is not an RSA key comes
+back from `verifyDkim` as `permerror` `key p= is not an rsa public key`.
+`testing: true` adds `t=y`, and an empty `publicKey` writes
+`v=DKIM1; p=`, a revoked key.
 
 ## Choosing a canonicalisation
 
