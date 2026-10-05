@@ -175,7 +175,8 @@ for linux/amd64 and linux/arm64 without pushing it. **Only the "Image" job of
 `<major>.<minor>` and `latest`, after a release that published
 `@bumail/server` (it reads `changesets/action`'s `published-packages`: a
 tag pushed with `GITHUB_TOKEN` triggers nothing), or by `workflow_dispatch`
-for a version already on npm. Nothing else may `docker push`.
+for a version already on npm, which pushes only `<version>` unless its
+`minor` and `latest` inputs say so — an older patch never moves `0.1` back. Nothing else may `docker push`.
 
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
 this section draws their arrows. A package that uses a sibling declares it by
