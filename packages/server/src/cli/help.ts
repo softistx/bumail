@@ -11,6 +11,23 @@ Commands:
                  outbound queue, and IMAP over TLS (ports.imaps, 993),
                  until SIGTERM or SIGINT
   check-config   check the configuration, print a summary, and exit
+  health         ask the running server's health check (GET /healthz on
+                 loopback) and exit 0 when it answers 200, 1 when not: for
+                 a container's HEALTHCHECK
+  init           write a starter configuration, make the directory, host
+                 the domains and generate their DKIM keys, then print the
+                 next steps; it refuses to replace a file unless --force:
+       --hostname <name>      the server's own name, the MX host (required)
+       --domain <domain>      a domain to host; repeat for more (required)
+       [--data <dir>]         where it keeps everything; default /data
+       [--acme-email <addr>]  the CA's contact for expiry notices
+       [--acme-staging]       Let's Encrypt's staging CA, for a first try
+       [--acme-directory <url>]  another ACME CA, a private or test one
+       [--behind-traefik]     JMAP as plain HTTP on 8081 for Traefik
+       [--proxy-protocol]     the mail ports read the PROXY protocol
+       [--trusted-proxy <cidr>]  the proxies' network, for either of those;
+                              repeat for more
+       [--force]              replace the configuration that is there
 
   domain add <domain>         host a domain
   domain list                 list the domains, with their users and aliases

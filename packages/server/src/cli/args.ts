@@ -1,3 +1,4 @@
+import { type HealthArgs, type InitArgs, resolveImage } from './init/args';
 import {
 	isNoun,
 	type ManageArgs,
@@ -22,7 +23,9 @@ export type Args =
 			/** `--config`, when given. */
 			readonly config: string | undefined;
 	  }
-	| ManageArgs;
+	| ManageArgs
+	| InitArgs
+	| HealthArgs;
 
 /**
  * An unknown option as a message names it: a long one without what
@@ -106,6 +109,8 @@ function readOptions(
  * word that does not read like one, or what follows an option's `=`.
  */
 export function parseArgs(argv: readonly string[]): Args {
+	const image = resolveImage(argv);
+	if (image !== undefined) return image;
 	const read = readOptions(argv);
 	if (!('words' in read)) return read;
 	const { words, options } = read;

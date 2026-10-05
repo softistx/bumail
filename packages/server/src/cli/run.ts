@@ -1,7 +1,9 @@
 import { readConfig } from '../config/read';
 import { ServerError, type ServerErrorCode } from '../errors';
 import { parseArgs } from './args';
+import { health } from './health';
 import { HELP } from './help';
+import { init } from './init';
 import { manage } from './manage';
 import type { Terminal } from './secret';
 import { serveUntilSignal } from './serve';
@@ -60,6 +62,13 @@ export async function run(argv: readonly string[], io: Io): Promise<number> {
 		if (args.kind === 'version') {
 			io.out(`${io.version}\n`);
 			return EXIT.ok;
+		}
+		if (args.kind === 'init') {
+			await init(args, io);
+			return EXIT.ok;
+		}
+		if (args.kind === 'health') {
+			return (await health(args, io)) ? EXIT.ok : EXIT.invalidConfig;
 		}
 		const config = await readConfig({
 			...(args.config === undefined ? {} : { path: args.config }),
