@@ -1,4 +1,4 @@
-import { is, take, unknownOption } from './option-syntax';
+import { is, optionName, take, unknownOption } from './option-syntax';
 import { usage, word } from './verbs';
 
 /** What `bumail init` and `bumail health` take: options with a value, and options without. */
@@ -63,6 +63,8 @@ export function tokenize(argv: readonly string[]): Tokens | undefined {
 			values.set(name, [...(values.get(name) ?? []), value]);
 		} else if (FLAGS.includes(arg)) {
 			flags.add(arg);
+		} else if (/^-+pass/i.test(arg)) {
+			throw usage(`${command} takes no ${optionName(arg)}`);
 		} else {
 			throw unknownOption(arg);
 		}

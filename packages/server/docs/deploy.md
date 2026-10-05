@@ -435,7 +435,7 @@ four minutes), after which the server exits 5 and Docker restarts it.
 With `restart: unless-stopped` and a CA that cannot be reached, it loops
 so: see `docker inspect --format '{{.RestartCount}}' <container>`, and the
 log lines `tls: the stored certificate is not used: expired` and
-`tls: obtaining … failed`.
+`tls: obtaining a certificate failed (try … of …)`.
 
 **Traefik versions.** Tested with Traefik v3.7.13 (the end-to-end test
 pins it). The TCP variant's `serversTransport` with `proxyProtocol` needs
