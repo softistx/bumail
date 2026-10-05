@@ -323,8 +323,10 @@ for the receiving domain to publish.
 **`dkimRecord`** takes the public key as base64 or as bytes: for RSA, the
 SubjectPublicKeyInfo `crypto.subtle.exportKey('spki', …)` gives; for
 Ed25519, the 32 raw bytes. `keyType` is `'rsa'` unless you say
-`'ed25519'`, and an Ed25519 key of another length is refused. It checks
-the base64, not the RSA structure: a key that is not an RSA key comes
+`'ed25519'`, and an Ed25519 key of another length is refused. For RSA it
+checks the structure shallowly: a DER SEQUENCE holding the rsaEncryption
+OID, so a random string, a private key or a bare PKCS #1 key is refused. It
+does not import the key: one that is well-shaped but no key still comes
 back from `verifyDkim` as `permerror` `key p= is not an rsa public key`.
 `testing: true` adds `t=y`, and an empty `publicKey` writes
 `v=DKIM1; p=`, a revoked key.
@@ -333,9 +335,14 @@ back from `verifyDkim` as `permerror` `key p= is not an rsa public key`.
 
 `sameSpfRecord`, `sameDmarcRecord` and `sameDkimRecord` say whether two
 texts are the same record **as the receiver reads it**, which is how to
-check that the DNS holds what you wrote: it may differ in white space,
-case, a leading `+`, default tags and CIDR lengths (`mx/32`), or be split
-into strings, and still be the same record.
+check that the DNS holds what you wrote. For SPF, white space, case, a
+leading `+` and default CIDR lengths (`mx/32`) do not matter. For DMARC,
+white space, the case of tag names and `s`/`r`, and default tags
+(`adkim=r`, `pct=100`) do not. For DKIM, `sameDkimRecord` ignores white
+space, an implied `k=rsa` and the order of tags, but **not case**: a key is
+base64, and `V=DKIM1` is not a key record. A record split into several
+strings compares the same only once the resolver joins the strings, as
+`@bumail/dns` does; the functions take the joined text.
 
 ```ts
 import { sameDkimRecord, sameDmarcRecord, sameSpfRecord } from '@bumail/auth';

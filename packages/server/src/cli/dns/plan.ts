@@ -1,5 +1,5 @@
 import { isIP } from 'node:net';
-import { dmarcRecord, spfRecord } from '@bumail/auth';
+import { AuthError, dmarcRecord, spfRecord } from '@bumail/auth';
 import type { ZoneRecord } from '@bumail/dns';
 import type { ServerConfig } from '../../config/types';
 import type { Directory } from '../../directory/directory';
@@ -151,6 +151,12 @@ function domainRecords(
 		});
 	}
 	const key = directory.dkim.get(domain);
+	if (key !== undefined && /;\s*p=$/.test(key.record)) {
+		throw new AuthError(
+			'INVALID_KEY',
+			`the stored DKIM key of ${domain} is empty; bumail dkim generate ${domain} --replace makes a new one`,
+		);
+	}
 	if (key === undefined) {
 		notes.push({
 			scope: domain,

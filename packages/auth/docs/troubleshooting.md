@@ -76,7 +76,7 @@ dmarcRecord({ p: 'quarantine', rua: ['postmaster@example.com'] });
 #### `AuthError: dkimRecord(): …`
 
 **When**: `dkimRecord` could not write the record: `publicKey is not
-base64`, `an ed25519 publicKey is 32 bytes, not …`, `keyType must be 'rsa'
+base64`, `an rsa publicKey is a DER SubjectPublicKeyInfo naming rsaEncryption`, `an ed25519 publicKey is 32 bytes, not …`, `keyType must be 'rsa'
 or 'ed25519', not …`, `publicKey must be a base64 string or bytes`.
 
 `dkimRecord(): options must be an object` is a call with no options, and
@@ -85,7 +85,7 @@ empty key given with `ed25519` or `testing`: a revoked record is just
 `v=DKIM1; p=`.
 
 **Fix**: pass the public key, not the private one: for RSA the
-SubjectPublicKeyInfo as base64 or bytes, for Ed25519 the 32 raw bytes
+SubjectPublicKeyInfo (not the bare PKCS #1 key, and not a private key) as base64 or bytes, for Ed25519 the 32 raw bytes
 (`crypto.subtle.exportKey('raw', …)`).
 
 ```ts

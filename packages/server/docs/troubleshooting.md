@@ -18,7 +18,8 @@ number, a scheme. A path is the key, dotted from the top
 problem repeats a URL or a secret, so a URL is named by its scheme.
 
 The command exits 1 for these (and for `bumail dns --check` finding a
-record [missing, different or doubled](#bumail-dns---check-missing-differs-duplicate-unavailable-unchecked)),
+record
+[missing, different or doubled](#bumail-dns---check-missing-differs-duplicate-unavailable-unchecked)),
 and 2 for [bad usage](#usage). The
 directory commands' own refusals are under
 [the directory commands](#the-directory-commands).
@@ -1127,8 +1128,10 @@ bumail dns example.com --ip 192.0.2.10
 
 **When**: `bumail dns` (exit code 4) found a record it could not write: the
 message ends with `@bumail/auth`'s or `@bumail/dns`'s own, such as
-`dkimRecord(): publicKey is not base64`. Only a damaged directory causes
-it, a stored DKIM key that is not base64, say.
+`dkimRecord(): publicKey is not base64`, `dkimRecord(): an rsa publicKey is
+a DER SubjectPublicKeyInfo naming rsaEncryption`, or `the stored DKIM key of
+… is empty; …`. Only a damaged directory causes it: a stored DKIM key that
+is empty, not base64, or not an RSA key.
 
 **Fix**: make the key again, which replaces the damaged one.
 
@@ -1152,10 +1155,14 @@ is all there is, and 0 for `unchecked` alone:
   and DKIM records are compared as parsed, so case and spacing do not
   differ, but an SPF record you extended on purpose does: replace it, or
   keep your version and read the exit code as yours to judge.
-- `duplicate`: two SPF records, or two DMARC records, stand at the name,
-  and every receiver answers `permerror` to either case, whichever is the
-  right one. Delete the extra: a domain has one SPF record, which holds
-  every `include:` it needs, and one DMARC record.
+- `duplicate`: two SPF records, two DMARC records or two DKIM key records
+  stand at the name. Receivers answer `permerror` to a doubled SPF or
+  DMARC record, whichever is right, and a DKIM verifier takes the first key
+  record, so a revoked `v=DKIM1; p=` ahead of the right one revokes it.
+  Delete the extra: a domain has one SPF record, which holds every
+  `include:` it needs, one DMARC record, and, per selector, one key (after
+  a key rotation, remove the old selector's record, not a record at the
+  new one).
 - `unavailable`: the DNS did not answer (`TEMPORARY` or `TIMEOUT`, and its
   message). Nothing is known about that record; run it again, and look at
   the machine's resolver.

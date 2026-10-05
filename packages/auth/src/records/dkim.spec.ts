@@ -6,6 +6,9 @@ import { signDkim } from '../dkim/sign';
 import { verifyDkim } from '../dkim/verify';
 import { dkimRecord } from './dkim';
 
+/** The shape of an RSA SubjectPublicKeyInfo, with a toy key: all the structural check reads. */
+const SPKI = 'MBQwDQYJKoZIhvcNAQEBBQADAwCquw==';
+
 describe('dkimRecord writes what verifyDkim reads', () => {
 	for (const [algorithm, keyType] of [
 		['rsa-sha256', 'rsa'],
@@ -32,17 +35,17 @@ describe('dkimRecord writes what verifyDkim reads', () => {
 	}
 
 	test('white space in a pasted key is dropped', () => {
-		expect(dkimRecord({ publicKey: 'QUJD\r\n REVG' })).toBe(
-			'v=DKIM1; k=rsa; p=QUJDREVG',
-		);
+		expect(
+			dkimRecord({ publicKey: `${SPKI.slice(0, 8)}\r\n ${SPKI.slice(8)}` }),
+		).toBe(`v=DKIM1; k=rsa; p=${SPKI}`);
 	});
 
 	test('testing adds t=y, which the parser reads', () => {
-		const text = dkimRecord({ publicKey: 'QUJD', testing: true });
-		expect(text).toBe('v=DKIM1; k=rsa; t=y; p=QUJD');
+		const text = dkimRecord({ publicKey: SPKI, testing: true });
+		expect(text).toBe(`v=DKIM1; k=rsa; t=y; p=${SPKI}`);
 		expect(parseKeyRecord(text)).toMatchObject({
 			type: 'rsa',
-			publicKey: 'QUJD',
+			publicKey: SPKI,
 			flags: ['y'],
 		});
 	});
@@ -59,6 +62,12 @@ describe('dkimRecord refuses', () => {
 		[{ publicKey: 'not base64!' }, 'publicKey is not base64'],
 		[{ publicKey: 'QUJDRA' }, 'publicKey is not base64'],
 		[{ publicKey: 'QUJD', keyType: 'ed25519' as const }, '32 bytes, not 3'],
+		[
+			{ publicKey: 'QUJD' },
+			'an rsa publicKey is a DER SubjectPublicKeyInfo naming rsaEncryption',
+		],
+		[{ publicKey: 'MAA=' }, 'an rsa publicKey is a DER'],
+		[{ publicKey: SPKI.replace('KoZI', 'KoZJ') }, 'an rsa publicKey is a DER'],
 		[{ publicKey: 'QUJD', keyType: 'dsa' as never }, "keyType must be 'rsa'"],
 		[{ publicKey: '', testing: true }, 'a revoked key'],
 		[{ publicKey: '', keyType: 'ed25519' as const }, 'a revoked key'],

@@ -322,9 +322,11 @@ Each record is one of:
 - `differs`: it has one, but not this one; `found` says what. A TXT record
   of another kind at the name, such as a site verification, is not a
   difference.
-- `duplicate`: two or more SPF records, or two or more DMARC records,
-  stand at the name. Every receiver answers `permerror` to that, whichever
-  is right, so it fails even when one matches.
+- `duplicate`: two or more SPF records, DMARC records or DKIM key records
+  stand at the name. SPF and DMARC receivers answer `permerror` to that,
+  whichever is right; a DKIM verifier takes the first key record, so a
+  revoked one ahead of the right one revokes it. It fails even when one
+  matches: during a key rotation, remove the old record.
 - `unavailable`: the DNS gave no answer (the reason is shown), so nothing
   is known about it; try again.
 - `unchecked`: not looked up, since `@bumail/dns` has no SRV lookup yet.
@@ -351,7 +353,8 @@ longer: run it again after a few minutes.
 `bumail dns` refuses what is not hosted: `the domain … is not hosted here;
 add it first` (exit 4), and with no domain at all, `no domain is hosted
 here; bumail domain add adds one`. A stored key it cannot write, which
-only a damaged directory holds, is `the DNS records cannot be written: …`.
+only a damaged directory holds (an empty one, one that is not base64 or
+not an RSA key), is `the DNS records cannot be written: …`.
 
 ### Exit codes
 

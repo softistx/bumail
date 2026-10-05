@@ -322,6 +322,17 @@ describe('bumail dns --check', () => {
 		expect(out).toContain('  duplicate   TXT  _dmarc.example.com');
 	});
 
+	test('two DKIM records at the selector are a duplicate: a verifier takes the first', async () => {
+		const { bumail, key } = await server();
+		const { code, out } = await bumail(CHECK, {
+			...published(key),
+			[key.name]: { txt: ['v=DKIM1; p=', key.record] },
+		});
+		expect(code).toBe(1);
+		expect(out).toContain(`  duplicate   TXT  ${key.name}`);
+		expect(out).toContain('found  v=DKIM1; p=\n');
+	});
+
 	test('when the DNS did not answer and nothing else is wrong, it exits 5', async () => {
 		const { bumail, key } = await server();
 		const { code, out } = await bumail(CHECK, {
@@ -467,18 +478,31 @@ describe('bumail dns --check', () => {
 });
 
 describe('bumail dns with a stored key it cannot write', () => {
-	test('is an error with a message, not a stack trace', async () => {
-		const { bumail, data } = await server();
-		const db = new Database(join(data, 'directory.sqlite'));
-		db.query("UPDATE dkim_keys SET public_key = 'not base64!'").run();
-		db.close();
-		const { code, out, err } = await bumail(['dns']);
-		expect(code).toBe(4);
-		expect(out).toBe('');
-		expect(err).toBe(
-			'bumail: the DNS records cannot be written: dkimRecord(): publicKey is not base64\n',
-		);
-	});
+	test.each([
+		['not base64!', 'dkimRecord(): publicKey is not base64'],
+		[
+			'QUJD',
+			'dkimRecord(): an rsa publicKey is a DER SubjectPublicKeyInfo naming rsaEncryption',
+		],
+		[
+			'',
+			'the stored DKIM key of example.com is empty; bumail dkim generate example.com --replace makes a new one',
+		],
+	])(
+		'%j is an error with a message, not a stack trace or a record',
+		async (stored, message) => {
+			const { bumail, data } = await server();
+			const db = new Database(join(data, 'directory.sqlite'));
+			db.query('UPDATE dkim_keys SET public_key = ?').run(stored);
+			db.close();
+			const { code, out, err } = await bumail(['dns']);
+			expect(code).toBe(4);
+			expect(out).toBe('');
+			expect(err).toBe(
+				`bumail: the DNS records cannot be written: ${message}\n`,
+			);
+		},
+	);
 });
 
 describe('bumail dns refuses', () => {

@@ -8,8 +8,9 @@ import type { Plan, Wanted } from './plan';
  * - `ok`: the record is there.
  * - `missing`: there is no such record.
  * - `differs`: there is one of its kind, but not this one; `found` has what is there.
- * - `duplicate`: there are several SPF or several DMARC records at the name, which every receiver
- *   answers with `permerror`, whichever is right; `found` has them.
+ * - `duplicate`: there are several SPF, DMARC or DKIM key records at the name: SPF and DMARC receivers
+ *   answer `permerror`, and a DKIM verifier takes the first, so a revoked one ahead of the right one
+ *   revokes it; `found` has them.
  * - `unavailable`: the DNS gave no answer (`detail` says why), so nothing is known.
  * - `unchecked`: not looked up, since `@bumail/dns` cannot (SRV, CAA).
  */
@@ -78,13 +79,13 @@ async function lookUp(
 			found,
 		};
 	}
-	const kind = kindOf(record.value) as TextKind;
+	const kind = kindOf(record.value);
+	if (kind === undefined) return { status: 'unchecked', found: [] };
 	const found = (await resolver.txt(record.name))
 		.map((r) => r.text.trim())
 		.filter((text) => kindOf(text) === kind);
 	if (found.length === 0) return { status: 'missing', found };
-	if (found.length > 1 && kind !== 'dkim')
-		return { status: 'duplicate', found };
+	if (found.length > 1) return { status: 'duplicate', found };
 	const there = found.some((text) => SAME[kind](text, record.value));
 	return { status: there ? 'ok' : 'differs', found };
 }
