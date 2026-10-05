@@ -1,6 +1,6 @@
 {
 	"name": "@bumail/server",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "The bumail mail server: the @bumail/* packages wired into one process, configured by one TOML file, run as the bumail command",
 	"license": "MIT",
 	"type": "module",
