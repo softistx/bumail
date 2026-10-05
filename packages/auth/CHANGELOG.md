@@ -1,5 +1,16 @@
 # @bumail/auth
 
+## 0.4.0
+
+### Minor Changes
+
+- [#74](https://github.com/softistx/bumail/pull/74) [`c33b1d2`](https://github.com/softistx/bumail/commit/c33b1d2d939e59c8539c09ba9e3d28e8f14452f9) Thanks [@SteveGT96](https://github.com/SteveGT96)! - `spfRecord`, `dmarcRecord` and `dkimRecord` write the TXT values an operator publishes, each the inverse of the matching parser: `spfRecord({ mx, a, include, ip4, ip6, all })` (`v=spf1 mx -all`, at most 10 DNS lookups), `dmarcRecord({ p, sp, rua, ruf, pct, adkim, aspf })` (an address becomes `mailto:`, a tag at its default is left out) and `dkimRecord({ publicKey, keyType, testing })` (`v=DKIM1; k=rsa; p=…`, an empty key is a revoked one). Each validates its input and throws `AuthError` `INVALID_OPTION` (`spfRecord(): …`); what it writes is read back by `checkSpf`, `checkDmarc` and `verifyDkim`. `sameSpfRecord`, `sameDmarcRecord` and `sameDkimRecord` compare two record texts as the receiver reads them (white space, case and default tags do not matter), for checking what the DNS holds against what you wrote.
+
+### Patch Changes
+
+- Updated dependencies [[`b1cfa8e`](https://github.com/softistx/bumail/commit/b1cfa8eaba6d412342c60127eaf29e1eb7150cb5)]:
+  - @bumail/dns@0.2.0
+
 ## 0.3.0
 
 ### Minor Changes
