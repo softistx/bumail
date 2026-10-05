@@ -73,6 +73,11 @@ and bounded. Each comes out once the store contract grows it.
 
 Merged, not yet published.
 
+- **`@alxia/core` 0.9** — the peer range moves on to `^0.9.0`. A
+  request with the wrong method and no credentials, or wrong ones, is a
+  401 where it was a 405: the `Allow` of a 405 names the routes' methods
+  to an authenticated client alone. Every other status, header and body is
+  unchanged.
 - **`@alxia/core` 0.7** — the peer range moves from `^0.3.1` to
   `^0.7.0`: to take this release, an app on `@alxia/core` 0.3 upgrades it
   with every other `@alxia/*` package it uses, and mounts the server with

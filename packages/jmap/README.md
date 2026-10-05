@@ -12,7 +12,7 @@ back-references, Mailbox, Email and Thread, and blob download and upload.
 bun add @bumail/jmap @alxia/core @bumail/store @bumail/mime
 ```
 
-`@alxia/core` (0.7.0 or later), `@bumail/store` and `@bumail/mime` are
+`@alxia/core` (0.9.0 or later), `@bumail/store` and `@bumail/mime` are
 peers: install the versions your app uses. `typescript` is an optional
 peer, for the types.
 

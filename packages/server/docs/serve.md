@@ -461,7 +461,10 @@ password, checked by the directory through the failure limiter IMAP and
 submission share, so ten failures from one client within 15 minutes
 block it, its right password included. A Bearer token is refused with a
 401: there are none. Basic is taken only over TLS; on a clear request it
-is refused with a 403 before the password is read.
+is refused with a 403 before the password is read. The method is checked
+after the credentials: a request with the wrong method gets the 401 until
+it authenticates, and a wrong password on it counts as a failure like any
+other; only an authenticated client gets the 405 and its `Allow`.
 
 By default (`jmap.mode = "https"`) it is HTTPS on `ports.https`, 443,
 with the certificate of `[tls]`, which a [renewal](#renewing-the-certificate)

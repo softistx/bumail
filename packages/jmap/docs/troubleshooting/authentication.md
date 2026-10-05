@@ -10,7 +10,8 @@ The request has no `Authorization` header, or one this server does not
 read: a scheme other than `Basic` and `Bearer`, a header longer than
 8 KiB, Basic whose value is not base64 of UTF-8 `user:password`, a Bearer
 token with characters RFC 6750 does not allow. The response carries both
-challenges in `WWW-Authenticate`.
+challenges in `WWW-Authenticate`. It comes before a 405: a request with the
+wrong method gets this 401 until it authenticates.
 
 ```sh
 curl -H 'Authorization: Bearer <token>' https://mail.example.com/.well-known/jmap
