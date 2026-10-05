@@ -174,3 +174,31 @@ jobs:
         run: bun run test
       - name: Verify the built artifacts load
         run: bun run verify:artifacts
+
+  docker:
+    # The server's image builds from a clean checkout: `docker build`, and
+    # nothing is pushed anywhere. Then the image answers, and runs the init of
+    # the deploy guide on a throwaway volume, and the compose files parse.
+    # The end-to-end test (`bun run docker:e2e`, with Traefik and a test CA)
+    # is run by hand, not here.
+    name: Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build --tag bumail:ci .
+      - name: The image answers, and init works on an empty volume
+        run: |
+          docker run --rm bumail:ci --version
+          docker run --rm --volume bumail-ci-data:/data bumail:ci init --hostname mail.example.com --domain example.com --acme-staging
+          docker run --rm --volume bumail-ci-data:/data bumail:ci check-config
+      - name: The compose files parse
+        working-directory: deploy
+        env:
+          BUMAIL_HOST: mail.example.com
+        run: |
+          docker compose --file compose.yaml config --quiet
+          docker compose --file compose.traefik.yaml config --quiet
+          docker compose --file compose.traefik-tcp.yaml config --quiet
