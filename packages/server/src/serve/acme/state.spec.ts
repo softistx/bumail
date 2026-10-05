@@ -122,7 +122,7 @@ describe('AcmeState', () => {
 		expect(state.readPrevious()).toEqual({ cert: 'c1', key: 'k1' });
 	});
 
-	test('removeStaleTemporaries deletes the temporaries of other processes only', () => {
+	test('removeStaleTemporaries deletes every leftover, whatever its pid, and keeps what is being written', () => {
 		const dir = tempDir();
 		const uuid = crypto.randomUUID();
 		const other = `key.pem.${process.pid + 1}.${uuid}.tmp`;
@@ -130,7 +130,27 @@ describe('AcmeState', () => {
 		for (const name of [other, own, 'notes.tmp', 'cert.pem'])
 			writeFileSync(join(dir, name), 'x');
 		new AcmeState(dir).removeStaleTemporaries();
-		expect(readdirSync(dir).sort()).toEqual(['cert.pem', own, 'notes.tmp']);
+		expect(readdirSync(dir).sort()).toEqual(['cert.pem', 'notes.tmp']);
 		new AcmeState(join(dir, 'missing')).removeStaleTemporaries();
+
+		// While the second temporary is made, the first is in flight.
+		let calls = 0;
+		let seen: string[] = [];
+		const holder: { state?: AcmeState } = {};
+		const state = new AcmeState(dir, () => {
+			calls++;
+			if (calls === 2) {
+				holder.state?.removeStaleTemporaries();
+				seen = readdirSync(dir).filter((n) => n.startsWith('key.pem.'));
+			}
+			return `${process.pid}.${crypto.randomUUID()}`;
+		});
+		holder.state = state;
+		state.writePair({ cert: 'c', key: 'k' });
+		expect(seen).toHaveLength(1);
+		expect(seen[0]).toStartWith('key.pem.');
+		expect(readdirSync(dir).filter((n) => n.endsWith('.tmp'))).toEqual([
+			'notes.tmp',
+		]);
 	});
 });

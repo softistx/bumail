@@ -16,7 +16,7 @@ import {
 import { join } from 'node:path';
 import type { TlsFiles } from '../tls';
 
-const STALE = /\.(\d+)\.[0-9a-f-]{36}\.tmp$/;
+const STALE = /\.\d+\.[0-9a-f-]{36}\.tmp$/;
 
 const FLAGS =
 	constants.O_CREAT |
@@ -39,6 +39,8 @@ const FLAGS =
 export class AcmeState {
 	readonly dir: string;
 	readonly #suffix: () => string;
+	/** The temporary files this process is writing now, which a sweep leaves alone. */
+	readonly #inflight = new Set<string>();
 
 	/** `suffix` makes the unique part of a temporary file's name; a spec gives its own. */
 	constructor(dir: string, suffix: () => string = randomSuffix) {
@@ -97,12 +99,14 @@ export class AcmeState {
 		} catch (error) {
 			for (const name of made) removeQuietly(name);
 			throw error;
+		} finally {
+			for (const name of made) this.#inflight.delete(name);
 		}
 	}
 
 	/**
-	 * Deletes the temporary files (`<file>.<pid>.<uuid>.tmp`) that another
-	 * process left behind when it stopped between creating and renaming one.
+	 * Deletes the temporary files (`<file>.<pid>.<uuid>.tmp`) that an
+	 * earlier run left behind when it stopped between creating and renaming one.
 	 */
 	removeStaleTemporaries(): void {
 		let names: string[];
@@ -112,9 +116,8 @@ export class AcmeState {
 			return;
 		}
 		for (const name of names) {
-			const match = STALE.exec(name);
-			if (match === null || match[1] === String(process.pid)) continue;
-			removeQuietly(join(this.dir, name));
+			const path = join(this.dir, name);
+			if (STALE.test(name) && !this.#inflight.has(path)) removeQuietly(path);
 		}
 	}
 
@@ -137,8 +140,9 @@ export class AcmeState {
 			chmodSync(this.dir, 0o700);
 		}
 		const temporary = `${path}.${this.#suffix()}.tmp`;
-		const fd = openSync(temporary, FLAGS, 0o600);
+		this.#inflight.add(temporary);
 		made?.push(temporary);
+		const fd = openSync(temporary, FLAGS, 0o600);
 		try {
 			writeSync(fd, text);
 			fchmodSync(fd, 0o600);
@@ -156,6 +160,8 @@ export class AcmeState {
 		} catch (error) {
 			for (const name of made) removeQuietly(name);
 			throw error;
+		} finally {
+			for (const name of made) this.#inflight.delete(name);
 		}
 		this.#syncDirectory();
 	}
