@@ -200,10 +200,13 @@ directory commands' own refusals are under
 - [`tls: using the stored certificate (…)`](#tls-using-the-stored-certificate-)
 - [`tls: no certificate stored in …`](#tls-no-certificate-stored-in-)
 - [`tls: the stored certificate is not used: …`](#tls-the-stored-certificate-is-not-used-)
+- [`tls: the stored certificate is not used: …; using the previous pair`](#tls-the-stored-certificate-is-not-used--using-the-previous-pair)
+- [`bumail: SIGHUP, the server has not started yet; nothing to reload`](#bumail-sighup-the-server-has-not-started-yet-nothing-to-reload)
 - [`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-)
 - [`tls: obtaining a certificate failed (try … of …): …`](#tls-obtaining-a-certificate-failed-try--of--)
 - [`tls: obtained (…)`](#tls-obtained-)
 - [`no certificate for … from … after … tries: …. Check that each name resolves to this host and that port 80 (ports.http) reaches it`](#no-certificate-for--from--after--tries--check-that-each-name-resolves-to-this-host-and-that-port-80-portshttp-reaches-it)
+- [`no certificate for … from …: the CA is rate limiting and asks to wait … before another try, longer than the … the tries left would wait: …. Start the server again after that`](#no-certificate-for--from--the-ca-is-rate-limiting-and-asks-to-wait--before-another-try-longer-than-the--the-tries-left-would-wait--start-the-server-again-after-that)
 - [`stopped while waiting for a certificate`](#stopped-while-waiting-for-a-certificate)
 - [`the certificate in … cannot be read (…)`](#the-certificate-in--cannot-be-read-)
 - [`acme: the CA fetched the challenge …...`](#acme-the-ca-fetched-the-challenge-)
@@ -1420,6 +1423,21 @@ cannot serve:
 **Fix**: nothing: the server waits for a new certificate, as under
 [`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-).
 
+### `tls: the stored certificate is not used: …; using the previous pair`
+
+Not a problem, but it says a renewal was cut short: the pair on the
+volume is not one (the new certificate was renamed in, its key not yet,
+as a crash or a kill between the two renames leaves it), so the server
+started with the pair before it, `cert.prev.pem` and `key.prev.pem`,
+which it put back as the current one. The `<reason>` is as in the table
+above. The renewal is made again within a few days' tries.
+
+### `bumail: SIGHUP, the server has not started yet; nothing to reload`
+
+Not a problem: a SIGHUP reached `bumail serve` while it waited for its
+first certificate (or started). There is nothing to reload yet and the
+wait goes on. Send it again once the server is serving.
+
 ### `tls: waiting for a certificate from …`
 
 **When**: at start, with no usable certificate. It is logged at once and
@@ -1433,8 +1451,8 @@ listeners are not up yet: port 80 and the health check are, and
 
 ### `tls: obtaining a certificate failed (try … of …): …`
 
-**When**: a try for the first certificate failed. The server tries 6
-times, 10 s, 30 s, 1, 2 and 5 minutes apart. The reason is the CA's or
+**When**: a try for the first certificate failed. The server tries 5
+times, 10 s, 30 s, 1 and 2 minutes apart. The reason is the CA's or
 the network's:
 
 | reason holds | what it means |
@@ -1442,12 +1460,25 @@ the network's:
 | `the authorization for "<name>" is "invalid": …:connection: … lookup <name> … no such host` | the name does not resolve: add its A or AAAA record, to this server's address |
 | `…:connection: … timeout`, `connection refused` | the CA's request to `http://<name>/.well-known/acme-challenge/…` did not reach the server: port 80 is closed, filtered, or routed elsewhere. Behind Traefik, see [ACME behind Traefik](serve.md#acme-behind-traefik) |
 | `…:unauthorized`, `…: Invalid response from …` | something else answered on port 80: a catch-all router, a redirect to HTTPS, another server |
-| `…rateLimited…` | the CA's limits: too many failures or certificates for the name. Wait, and try `directory = "staging"` meanwhile |
+| `…rateLimited…` | the CA's limits: too many failures or certificates for the name. The next wait is at least the CA's `Retry-After`; see [the rate-limit exit](#no-certificate-for--from--the-ca-is-rate-limiting-and-asks-to-wait--before-another-try-longer-than-the--the-tries-left-would-wait--start-the-server-again-after-that). Try `directory = "staging"` meanwhile |
 | `fetch failed`, `TLS`, `NETWORK_ERROR` | the CA's directory cannot be reached from this host, or its certificate is not trusted |
 | `newAccount(): …`, `…invalidContact`, `…unsupportedContact` | the CA refused `acme.email`: another address, or none |
 
-**Fix**: the cause in the table. After the sixth try the server exits;
+**Fix**: the cause in the table. After the fifth try the server exits;
 see [`no certificate for … from … after … tries: …`](#no-certificate-for--from--after--tries--check-that-each-name-resolves-to-this-host-and-that-port-80-portshttp-reaches-it).
+
+### `no certificate for … from …: the CA is rate limiting and asks to wait … before another try, longer than the … the tries left would wait: …. Start the server again after that`
+
+**When**: the first start, with no usable certificate, and the CA
+answered a rate limit whose `Retry-After` is longer than all the waits the
+server has left (10 s, 30 s, 1 and 2 minutes between tries). Retrying
+sooner would only spend more of the limit, so it exits 5 at once, having
+stopped what it started; the message names the CA's wait and the time
+left. After the colon is the CA's reason.
+
+**Fix**: start the server again after the wait named. Meanwhile
+`directory = "staging"` has far looser limits, for checking the
+configuration.
 
 ### `tls: obtained (…)`
 
@@ -1563,9 +1594,13 @@ reason, once, after `tls: not reloaded: `:
 | `tls.cert cannot be read (ENOENT)`, `tls.key cannot be read (…)` | a file is gone or not readable by the user the server runs as, as a swap is under way, or a mount is lost |
 | `tls.cert is not a PEM certificate`, `tls.key is not an unencrypted PEM private key` | not PEM, or an encrypted key |
 | `tls.cert expired on …`, `tls.cert is not valid until …` | the new certificate's dates |
-| `tls.cert does not name …` | it is for another host than `hostname` |
+| `tls.cert does not name …` | it is for another host than `hostname` (with ACME, also than any name of `acme.names`) |
 | `<listener>: …` | a listener refused the pair, and the others were put back on the old one |
 | `<listener>: …; <other> left on the new pair, the rollback failed` | a listener refused the pair and putting `<other>` back on the old one failed too: it serves the new pair, the rest the old. Send `SIGHUP` once the cause is fixed, or restart |
+
+With `tls.mode = "acme"` the reasons name the files by their paths in
+`acme.dir`, `<dir>/cert.pem` and `<dir>/key.pem`, where they say
+`tls.cert` and `tls.key`.
 
 **Why**: the server takes a pair only when it is a valid one for
 `hostname` (see [Renewing the certificate](serve.md#renewing-the-certificate)),

@@ -228,7 +228,7 @@ bind = "0.0.0.0"                   # the default: bind
 | `acme.email` | none | the account's contact, for the CA's expiry notices; an e-mail address. Left out, the CA is given none |
 | `acme.directory` | Let's Encrypt's production | the CA's directory URL, `https:`; `"staging"` is Let's Encrypt's staging directory (`https://acme-staging-v02.api.letsencrypt.org/directory`), whose certificates no client trusts and whose limits are generous, for a first try; any other `https:` URL is taken as is, a test CA's included |
 | `acme.names` | `[]` | extra DNS names the one certificate covers, besides `hostname`, which is always the first: fully qualified, no wildcard (HTTP-01 cannot prove one), a hundred at most with it. Each must resolve to this server |
-| `acme.dir` | `<data>/acme` | an absolute directory for the account key, the certificate's key and the certificate; created 0700, its files 0600 |
+| `acme.dir` | `<data>/acme` | an absolute directory for the account key, the certificate's key and the certificate; made 0700 when the server creates it (an existing directory keeps its mode), its files 0600; holds the previous pair too |
 | `acme.renewBeforeDays` | `30` | 1 to 365: renew once fewer days than this remain, or a third of the certificate's life if that is less |
 | `acme.bind` | `bind` | an IP address: where port 80 (`ports.http`) listens, so a proxy can reach it on the network it shares with the server |
 

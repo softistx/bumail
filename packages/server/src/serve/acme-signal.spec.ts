@@ -34,10 +34,18 @@ test('bumail serve with no certificate yet stops on SIGTERM while it waits, exit
 			throw new Error(`no "${text}" in:\n${out}`);
 		}
 	};
-	await until('tls: obtaining a certificate failed (try 1 of 6)');
+	await until('tls: obtaining a certificate failed (try 1 of 5)');
 	expect(out).toContain(
 		'tls: waiting for a certificate from https://localhost:1/dir',
 	);
+	// A SIGHUP while it waits is said and ignored; the wait goes on.
+	proc.kill('SIGHUP');
+	await until(
+		'bumail: SIGHUP, the server has not started yet; nothing to reload',
+	);
+	await Bun.sleep(100);
+	expect(proc.killed).toBe(false);
+	expect(proc.exitCode).toBeNull();
 	proc.kill('SIGTERM');
 	expect(await proc.exited).toBe(0);
 	out += decoder.decode((await reader.read()).value ?? new Uint8Array());

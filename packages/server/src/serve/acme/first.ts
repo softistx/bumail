@@ -2,7 +2,7 @@ import { ServerError } from '../../errors';
 import type { TlsFiles } from '../tls';
 import { describeCertificate, leafOf } from './certificate';
 import { issue } from './issue';
-import { type AcmeRun, pause, reasonOf } from './run';
+import { type AcmeRun, inWords, pause, reasonOf, retryAfterMs } from './run';
 
 /**
  * The first certificate, when none is stored: tries, waiting between the
@@ -11,7 +11,9 @@ import { type AcmeRun, pause, reasonOf } from './run';
  * `tls: obtaining a certificate failed (try n of m): <reason>` after each
  * failure, and `tls: obtained (<names>; expires <day>)` with the pair
  * written to the volume. After the last failure, or when `signal` aborts,
- * it throws `UNAVAILABLE`.
+ * it throws `UNAVAILABLE`. A rate limit's `Retry-After` lengthens the wait
+ * to it, and ends the tries at once when it is longer than all the waits
+ * left.
  */
 export async function firstCertificate(
 	run: AcmeRun,
@@ -35,7 +37,7 @@ export async function firstCertificate(
 					timeoutMs: options.timeoutMs,
 					signal,
 				});
-				await run.state.writePair(pair);
+				run.state.writePair(pair);
 				const leaf = leafOf(pair.cert);
 				log(
 					`tls: obtained (${leaf ? describeCertificate(leaf) : config.names.join(', ')})`,
@@ -58,7 +60,17 @@ export async function firstCertificate(
 						`no certificate for ${config.names.join(', ')} from ${config.directory} after ${tries} tries: ${reason}. Check that each name resolves to this host and that port 80 (ports.http) reaches it`,
 					);
 				}
-				const wait = options.startRetryMs[attempt - 1] ?? 0;
+				const left = options.startRetryMs
+					.slice(attempt - 1)
+					.reduce((sum, ms) => sum + ms, 0);
+				const asked = retryAfterMs(error);
+				if (asked > left) {
+					throw new ServerError(
+						'UNAVAILABLE',
+						`no certificate for ${config.names.join(', ')} from ${config.directory}: the CA is rate limiting and asks to wait ${inWords(asked)} before another try, longer than the ${inWords(left)} the tries left would wait: ${reason}. Start the server again after that`,
+					);
+				}
+				const wait = Math.max(options.startRetryMs[attempt - 1] ?? 0, asked);
 				if (!(await pause(wait, signal))) {
 					throw new ServerError(
 						'UNAVAILABLE',

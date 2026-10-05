@@ -1,10 +1,10 @@
-import type { X509Certificate } from 'node:crypto';
 import { Checker } from '../config/checker';
 import { readText } from '../config/files';
 import { checkTlsPair } from '../config/tls';
 import type { ServerConfig } from '../config/types';
 import type { Listener, Resources } from './listeners';
 import type { Log } from './log';
+import { relabel, subjectOf } from './subject';
 import type { TlsFiles } from './tls';
 
 /** A listener that takes a renewed pair, by the name its log lines use. */
@@ -31,6 +31,10 @@ export interface WatchOptions {
 	};
 	/** The server's name, which the certificate must carry. */
 	readonly hostname: string;
+	/** More names it must carry. */
+	readonly names?: readonly string[];
+	/** What the log calls the two files; default `tls.cert` and `tls.key`. */
+	readonly labels?: { readonly cert: string; readonly key: string };
 	/** The pair the listeners started with. */
 	readonly applied: TlsFiles;
 	readonly targets: readonly TlsTarget[];
@@ -55,23 +59,6 @@ export interface TlsWatch {
 	readonly applied: TlsFiles;
 	/** Looks no more; one under way finishes. */
 	stop(): void;
-}
-
-/**
- * How a certificate is named in the log: its subject on one line, or,
- * when it has none — Let's Encrypt's certificates have an empty subject
- * — its DNS names.
- */
-function subjectOf(certificate: X509Certificate): string {
-	const subject = certificate.subject as string | undefined;
-	if (subject !== undefined && subject !== '') {
-		return subject.split('\n').join(', ');
-	}
-	return (certificate.subjectAltName ?? '')
-		.split(',')
-		.map((entry) => entry.trim())
-		.filter((entry) => entry.startsWith('DNS:'))
-		.join(', ');
 }
 
 /**
@@ -167,12 +154,20 @@ class CertificateWatch implements TlsWatch {
 			hostname,
 			this.#options.now?.() ?? new Date(),
 		);
+		for (const name of this.#options.names ?? []) {
+			if (certificate && certificate.checkHost(name) === undefined) {
+				checker.add('tls.cert', `does not name ${name}`);
+			}
+		}
 		const unchanged = cert === this.#applied.cert && key === this.#applied.key;
 		if (unchanged) this.#failed = undefined;
 		if (checker.problems.length > 0 && !unchanged) {
-			const reason = checker.problems
-				.map(({ path, problem }) => `${path} ${problem}`)
-				.join('; ');
+			const reason = relabel(
+				checker.problems
+					.map(({ path, problem }) => `${path} ${problem}`)
+					.join('; '),
+				this.#options.labels,
+			);
 			return this.#refuse(reason, explicit);
 		}
 		if (certificate === undefined || cert === undefined || key === undefined) {

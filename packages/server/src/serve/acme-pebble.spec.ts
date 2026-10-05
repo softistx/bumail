@@ -174,6 +174,7 @@ describePebble('tls.mode = "acme"', (pebble) => {
 				now: () => (looks++ === 0 ? new Date(end - DAY) : new Date()),
 			},
 		});
+		const accountKey = readFileSync(join(dir, 'acme', 'account.key'), 'utf8');
 		const old = await fingerprints(f);
 		expect(new Set(Object.values(old))).toEqual(
 			new Set([fingerprintOf(before)]),
@@ -184,8 +185,19 @@ describePebble('tls.mode = "acme"', (pebble) => {
 		);
 		const after = readFileSync(join(dir, 'acme', 'cert.pem'), 'utf8');
 		expect(after).not.toBe(before);
-		expect(f.lines.some((line) => line.startsWith('tls: reloaded ('))).toBe(
-			true,
+		const ends = new Date(new X509Certificate(after).validTo)
+			.toISOString()
+			.slice(0, 10);
+		expect(f.lines).toContain(
+			`tls: reloaded (DNS:${A}, DNS:${B}, expires ${ends})`,
+		);
+		expect(f.lines).toContain(`tls: renewed (${A}, ${B}; expires ${ends})`);
+		// The account is the first issuance's: its key is reused.
+		expect(readFileSync(join(dir, 'acme', 'account.key'), 'utf8')).toBe(
+			accountKey,
+		);
+		expect(readFileSync(join(dir, 'acme', 'cert.prev.pem'), 'utf8')).toBe(
+			before,
 		);
 		expect(Object.values(await fingerprints(f))).toEqual(
 			Array(4).fill(fingerprintOf(after)),

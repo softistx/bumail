@@ -60,25 +60,42 @@ export class Acme {
 	stored(): TlsFiles | undefined {
 		const { log, config, state } = this.#run;
 		let pair: TlsFiles | undefined;
+		let previous: TlsFiles | undefined;
 		try {
 			pair = state.readPair();
+			previous = state.readPrevious();
 		} catch (error) {
 			throw new ServerError(
 				'UNAVAILABLE',
 				`the certificate in ${state.dir} cannot be read (${reasonOf(error)})`,
 			);
 		}
-		if (pair === undefined) {
-			log(`tls: no certificate stored in ${state.dir}`);
-			return undefined;
+		const problem =
+			pair === undefined
+				? undefined
+				: problemWith(pair, config.names, new Date());
+		if (pair !== undefined && problem === undefined) return this.#use(pair);
+		const why =
+			pair === undefined
+				? `no certificate stored in ${state.dir}`
+				: `the stored certificate is not used: ${problem}`;
+		if (
+			previous !== undefined &&
+			problemWith(previous, config.names, new Date()) === undefined
+		) {
+			// A crash between the two renames of a renewal leaves a pair that
+			// is not one; the pair before it is whole.
+			log(`tls: ${why}; using the previous pair`);
+			state.restorePrevious();
+			return this.#use(previous);
 		}
-		const problem = problemWith(pair, config.names, new Date());
-		if (problem !== undefined) {
-			log(`tls: the stored certificate is not used: ${problem}`);
-			return undefined;
-		}
+		log(`tls: ${why}`);
+		return undefined;
+	}
+
+	#use(pair: TlsFiles): TlsFiles {
 		const leaf = leafOf(pair.cert);
-		log(
+		this.#run.log(
 			`tls: using the stored certificate (${leaf ? describeCertificate(leaf) : ''})`,
 		);
 		this.#current = pair;
@@ -103,6 +120,8 @@ export class Acme {
 		const watch = watchTls({
 			files: { cert: state.certFile, key: state.keyFile, pollSeconds: 0 },
 			hostname: this.#config.hostname,
+			names: this.#run.config.names,
+			labels: { cert: state.certFile, key: state.keyFile },
 			applied: resources.tls,
 			targets: targetsOf(started),
 			held: heldOf(this.#config),

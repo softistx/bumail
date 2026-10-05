@@ -65,6 +65,9 @@ export function descriptionOf(
 	name: ListenerName,
 	config: ServerConfig,
 ): string {
+	if (name === 'health' && config.acme !== undefined) {
+		return 'health check, GET /healthz: 200 when every listener is up, a certificate is in use, and the directory and the store answer, else 503';
+	}
 	if (name !== 'https' || config.jmap.mode !== 'proxy')
 		return DESCRIPTION[name];
 	const { length } = config.jmap.trusted;

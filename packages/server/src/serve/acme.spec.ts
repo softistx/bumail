@@ -17,7 +17,7 @@ import {
 } from './acme.fixtures';
 
 const DAY = 86_400_000;
-const [A] = NAMES;
+const [A, B] = NAMES;
 
 let fixture: AcmeFixture | undefined;
 afterEach(async () => {
@@ -188,7 +188,7 @@ describe('tls.mode = "acme": SIGHUP', () => {
 		writeFileSync(join(dir, 'acme', 'key.pem'), pair.key);
 		await f.server.reloadTls();
 		expect(f.lines.at(-1)).toBe(
-			'tls: not reloaded: tls.key is not the key of tls.cert',
+			`tls: not reloaded: ${dir}/acme/key.pem is not the key of ${dir}/acme/cert.pem`,
 		);
 		expect(Object.values(await fingerprints(f))).toEqual(
 			Array(4).fill(fingerprintOf(renewed.cert)),
@@ -233,5 +233,101 @@ describe('tls.mode = "acme": the renewal window', () => {
 		expect(readFileSync(join(dir, 'acme', 'cert.pem'), 'utf8')).toBe(pair.cert);
 		expect(readFileSync(join(dir, 'acme', 'key.pem'), 'utf8')).toBe(pair.key);
 		expect(statSync(join(dir, 'acme', 'cert.pem')).isFile()).toBe(true);
+	});
+});
+
+describe('tls.mode = "acme": a crash between the two renames of a renewal', () => {
+	test('a pair that is not one falls back to the previous pair, and puts it back', async () => {
+		const { dir, pair: previous } = await stored([A]);
+		const other = await selfSigned([A]);
+		const state = join(dir, 'acme');
+		writeFileSync(join(state, 'cert.prev.pem'), previous.cert);
+		writeFileSync(join(state, 'key.prev.pem'), previous.key);
+		// The new certificate was renamed in, its key not yet.
+		writeFileSync(join(state, 'cert.pem'), other.cert);
+		const f = await start({ dir, acme: { fetch: refusing().fetch } });
+		expect(f.lines).toContain(
+			"tls: the stored certificate is not used: the key is not the certificate's; using the previous pair",
+		);
+		expect(Object.values(await fingerprints(f))).toEqual(
+			Array(4).fill(fingerprintOf(previous.cert)),
+		);
+		expect(readFileSync(join(state, 'cert.pem'), 'utf8')).toBe(previous.cert);
+		expect(readFileSync(join(state, 'key.pem'), 'utf8')).toBe(previous.key);
+	});
+});
+
+describe('tls.mode = "acme": SIGHUP checks every name', () => {
+	test('a pair that lacks one of acme.names is refused, naming the acme files', async () => {
+		const { dir } = await stored([A, B]);
+		const f = await start({
+			dir,
+			names: [B],
+			acme: { fetch: refusing().fetch },
+		});
+		const narrow = await selfSigned([A]);
+		writeFileSync(join(dir, 'acme', 'cert.pem'), narrow.cert);
+		writeFileSync(join(dir, 'acme', 'key.pem'), narrow.key);
+		await f.server.reloadTls();
+		expect(f.lines.at(-1)).toBe(
+			`tls: not reloaded: ${dir}/acme/cert.pem does not name ${B}`,
+		);
+	});
+});
+
+/** A CA that is rate limiting: every request answers 429 with this `Retry-After`, and notes when it was asked. */
+function limiting(retryAfter: number): { fetch: AcmeFetch; at: number[] } {
+	const at: number[] = [];
+	return {
+		at,
+		fetch: async () => {
+			at.push(Date.now());
+			return new Response(
+				JSON.stringify({
+					type: 'urn:ietf:params:acme:error:rateLimited',
+					detail: 'too many new orders',
+				}),
+				{
+					status: 429,
+					headers: {
+						'content-type': 'application/problem+json',
+						'retry-after': String(retryAfter),
+					},
+				},
+			);
+		},
+	};
+}
+
+describe('tls.mode = "acme": the CA rate limits', () => {
+	test('a Retry-After longer than every wait left ends the first start at once, naming the wait', async () => {
+		const ca = limiting(120);
+		const run = startAcme({
+			dir: (await stored(['other.bumail.test'])).dir,
+			acme: { fetch: ca.fetch, startRetryMs: [10, 10], waitingLogMs: 1000 },
+		});
+		const error = await run.started.catch((e: unknown) => e);
+		expect((error as ServerError).code).toBe('UNAVAILABLE');
+		expect((error as ServerError).message).toStartWith(
+			'no certificate for a.bumail.test from https://ca.example.invalid/dir: the CA is rate limiting and asks to wait 2 min before another try, longer than the 1 s the tries left would wait: ',
+		);
+		expect((error as ServerError).message).toEndWith(
+			'. Start the server again after that',
+		);
+		expect(ca.at).toHaveLength(1);
+	});
+
+	test('a shorter Retry-After lengthens the wait to it', async () => {
+		const ca = limiting(1);
+		const run = startAcme({
+			dir: (await stored(['other.bumail.test'])).dir,
+			acme: { fetch: ca.fetch, startRetryMs: [10, 10_000], waitingLogMs: 1000 },
+		});
+		const outcome = await Promise.race([
+			run.started.catch(() => 'ended'),
+			until(() => ca.at.length >= 2, 'a second try').then(() => 'tried'),
+		]);
+		expect(outcome).toBe('tried');
+		expect((ca.at[1] ?? 0) - (ca.at[0] ?? 0)).toBeGreaterThanOrEqual(950);
 	});
 });

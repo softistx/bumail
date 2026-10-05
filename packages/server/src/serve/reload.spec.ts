@@ -91,7 +91,7 @@ describe('watchTls', () => {
 	});
 
 	test('a pair that is not valid is refused, with the reason and no secret', async () => {
-		const s = await setup({ now: () => new Date('2026-10-04T00:00:00Z') });
+		const s = await setup({ now: () => new Date() });
 		const other = await selfSigned(['elsewhere.example.org']);
 		await s.write(other);
 		await s.watch.reload();

@@ -538,11 +538,18 @@ it: the CA fetches `http://<name>/.well-known/acme-challenge/<token>`.
 
 ### What is on the volume
 
-Under `acme.dir` (default `<data>/acme`, mode 0700): `account.key`, the
-CA account's key, made at the first start and kept; `key.pem` and
-`cert.pem`, the certificate's key and its chain. Every file is mode
-0600, written to a `.tmp` beside it and renamed over the old one, so a
-reader sees the old text or the new. A new key is made for each
+Under `acme.dir` (default `<data>/acme`): `account.key`, the CA
+account's key, made at the first start and kept; `key.pem` and
+`cert.pem`, the certificate's key and its chain; `key.prev.pem` and
+`cert.prev.pem`, the pair before them, once there has been a renewal.
+The directory is made 0700 when the server creates it; one that exists
+(`/data`, say) keeps the mode its owner gave it. Every file is mode
+0600, written whole to a temporary file beside it (a name nobody can
+guess, created exclusively and never through a symbolic link), synced,
+renamed over the old one, and the directory synced. A new pair is
+written in this order: both new files, then the old pair under the
+`.prev.` names, then both renames, so a crash at any moment leaves one
+whole pair under one of the two names. A new key is made for each
 certificate. There is no order state to keep: one attempt is one whole
 flow, and a stop in the middle of it starts the next attempt afresh.
 
@@ -553,25 +560,41 @@ flow, and a stop in the middle of it starts the next attempt afresh.
   `tls: using the stored certificate (<names>; expires <date>)`. One
   inside its renewal window is used too; the renewal replaces it soon
   after.
+- **A pair that is not one** (a crash between the two renames of a
+  renewal left the new certificate with the old key, say) falls back to
+  the previous pair when that one is valid: `tls: the stored certificate
+  is not used: <reason>; using the previous pair`. The previous pair is
+  put back as the current one, and the listeners start with it.
 - **None, or an unusable one** (not there, expired, another name, a key
-  that is not its own) means the TLS listeners cannot start, since none
+  that is not its own, and no valid previous pair) means the TLS listeners cannot start, since none
   can start without a pair. The server says why
   (`tls: no certificate stored in <dir>` or `tls: the stored
   certificate is not used: <reason>`), binds **port 80 and the health
   check**, and asks the CA, before it binds anything else. While it waits
   it logs `tls: waiting for a certificate from <directory>` at once and
   every 30 seconds, and the health check answers 503 with `"tls":"down"`.
-  It tries up to six times, waiting 10 s, 30 s, 1, 2 and 5 minutes
-  between, each failure logged as `tls: obtaining a certificate failed
-  (try <n> of 6): <reason>`. At the first success, `tls: obtained
+  It tries up to five times, waiting 10 s, 30 s, 1 and 2 minutes
+  between (Let's Encrypt allows five failed validations of a name an
+  hour), each failure logged as `tls: obtaining a certificate failed
+  (try <n> of 5): <reason>`. When the CA rate limits and says how long
+  to wait (`Retry-After`), the wait is at least that long; when it is
+  longer than all the waits left, the server stops trying at once, as
+  below. At the first success, `tls: obtained
   (<names>; expires <date>)`: the pair is on the volume, and the
   listeners start. A first start usually takes a few seconds.
 - **No certificate after the last try** exits 5 with `no certificate for
-  <names> from <directory> after 6 tries: <reason>. Check that each name
+  <names> from <directory> after 5 tries: <reason>. Check that each name
   resolves to this host and that port 80 (ports.http) reaches it`, having
-  stopped what it started. Under a supervisor that restarts it, each
-  restart is a new set of six tries: a CA limits how many failures it
-  takes for one name an hour, so try `directory = "staging"` first.
+  stopped what it started. A rate limit that asks for more than the
+  waits left exits 5 at once with `no certificate for <names> from
+  <directory>: the CA is rate limiting and asks to wait <wait> before
+  another try, longer than the <left> the tries left would wait:
+  <reason>. Start the server again after that`. Under a supervisor that
+  restarts it, each restart is a new set of five tries: a CA limits how
+  many failures it takes for one name an hour, so try `directory =
+  "staging"` first.
+- A **SIGHUP** while it waits is said and ignored: `bumail: SIGHUP, the
+  server has not started yet; nothing to reload`. The wait goes on.
 - A **SIGTERM** or **SIGINT** while it waits ends the wait and exits 0.
 
 What the first start of a fresh volume logs:
@@ -617,13 +640,17 @@ listener refusing the pair — keeps the old certificate (a pair a
 listener refused is written back over the new one), logs `tls: renewal
 failed: <reason>; the current certificate stays, trying again in <wait>`,
 and tries again after 10 minutes, then 30 minutes, then 1, 3 and 6 hours,
-the last wait repeating. The old certificate serves until it expires; the
+the last wait repeating, or after the CA's `Retry-After` when it rate
+limited and asked for longer. The old certificate serves until it expires; the
 health check turns 503 with `"tls":"down"` only then. Watch the log for
 `tls: renewal failed`.
 
 **SIGHUP** re-reads the pair on the volume and applies it if it changed
 (`tls: reloaded (…)`, or `tls: unchanged (…)`): a pair you put there
-yourself, say. It never starts a renewal.
+yourself, say. It takes the pair only when it names `hostname` and every
+name of `acme.names`; a refusal names the files by their paths in
+`acme.dir` (`<dir>/cert.pem does not name <name>`). It never starts a
+renewal.
 
 ### ACME behind Traefik
 
@@ -911,10 +938,11 @@ bumail: stopped
 | --- | --- |
 | `bumail: <listener> listening on <address>:<port>: …` | at start, one per listener |
 | `bumail: https listening on <address>:<port>: JMAP over HTTPS: Basic auth for the users of the directory` | at start; with `jmap.mode = "proxy"`, `JMAP over plain HTTP for 1 trusted proxy, which ends TLS: Basic auth …`, or `for <n> trusted proxies, which end TLS: …` |
-| `bumail: health listening on <address>:<port>: health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503` | at start |
+| `bumail: health listening on <address>:<port>: health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503` | at start; with `tls.mode = "acme"`: `…200 when every listener is up, a certificate is in use, and the directory and the store answer, else 503` |
 | `bumail: http listening on <address>:<port>: ACME HTTP-01 challenges on /.well-known/acme-challenge/, a redirect to HTTPS for GET /, 404 for the rest` | at start, with `tls.mode = "acme"` |
 | `tls: using the stored certificate (<names>; expires <date>)` | at start: the pair on the volume is valid and names every name |
 | `tls: no certificate stored in <dir>` | at start: none on the volume |
+| `tls: the stored certificate is not used: <reason>; using the previous pair` | at start: the current pair is not usable and `cert.prev.pem` with `key.prev.pem` is: it is put back as the current one |
 | `tls: the stored certificate is not used: <reason>` | at start: `the certificate is not a PEM chain`, `not valid yet`, `expired`, `it does not name <names>`, `the key is not the certificate's` or `the key is not an unencrypted PEM private key`; the server then waits for a new one |
 | `tls: waiting for a certificate from <directory>` | at start with no usable certificate, at once and every 30 seconds until it comes |
 | `tls: obtaining a certificate failed (try <n> of <m>): <reason>` | a try for the first certificate failed; the next follows after its wait |
@@ -957,6 +985,7 @@ bumail: stopped
 | `tls: not reloaded: <reason>; <listener> left on the new pair, the rollback failed` | a listener refused the pair and putting another back on the old one failed: it serves the new pair, the others the old |
 | `tls: not reloaded: <reason>` | a pair that changed cannot be taken — a file that cannot be read, not PEM, expired, naming another host, a key that is not the certificate's, or a listener that refused — and the old pair stays; once per distinct reason, or at each `SIGHUP` |
 | `tls: unchanged (<subject>, expires <date>)` | a `SIGHUP` found the files as the listeners already have them |
+| `bumail: SIGHUP, the server has not started yet; nothing to reload` | a SIGHUP while `serve` waits for its first certificate: ignored, the wait goes on |
 | `bumail: SIGHUP, looking for a renewed certificate` | the signal; one of the three lines above follows. With ACME it reads the pair on the volume and never renews |
 | `bumail: SIGTERM, stopping`, `bumail: stopped` | the stop |
 | `bumail: the mail store did not close cleanly: …`, `bumail: the queue did not close cleanly: …` | during the stop: a store's close failed; the directory is closed anyway, and it exits 0 |

@@ -30,7 +30,7 @@ async function accountKey(state: AcmeState): Promise<CryptoKeyPair> {
 	const stored = state.readAccountKey();
 	if (stored !== undefined) return await importKeyPairPem(stored);
 	const pair = await generateKeyPair('P-256');
-	await state.writeAccountKey(await exportPrivateKeyPem(pair.privateKey));
+	state.writeAccountKey(await exportPrivateKeyPem(pair.privateKey));
 	return pair;
 }
 
