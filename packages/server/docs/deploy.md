@@ -114,6 +114,7 @@ holds the `bumail` program and no configuration, key or certificate.
 release tag, add the build override to `.env` and build:
 
 ```sh
+VERSION=0.1.0   # the same release as above
 git clone --branch "@bumail/server@$VERSION" https://github.com/softistx/bumail
 cd bumail/deploy
 cp .env.example .env
@@ -161,7 +162,8 @@ next steps:
   3. start the server:       bumail serve
 ```
 
-The steps it prints name `bumail …`: in Docker each one is
+The steps it prints name `bumail …` (with the `--config` it was given,
+when it was given one): in Docker each one is
 `docker compose run --rm bumail …` (steps 4 and 6 below), and the server
 is started by step 5.
 
@@ -256,7 +258,7 @@ docker compose ps
 
 ```text
 NAME              IMAGE                         COMMAND                  SERVICE   CREATED         STATUS                   PORTS
-bumail-bumail-1   ghcr.io/softistx/bumail:0.1   "/usr/local/bin/buma…"   bumail    7 seconds ago   Up 6 seconds (healthy)   0.0.0.0:25->25/tcp, 0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp, 0.0.0.0:465->465/tcp, 0.0.0.0:587->587/tcp, 0.0.0.0:993->993/tcp
+bumail-bumail-1   ghcr.io/softistx/bumail:0.1   "/usr/local/bin/buma…"   bumail    7 seconds ago   Up 6 seconds (healthy)   0.0.0.0:25->25/tcp, [::]:25->25/tcp, 0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp, 0.0.0.0:465->465/tcp, [::]:465->465/tcp, 0.0.0.0:587->587/tcp, [::]:587->587/tcp, 0.0.0.0:993->993/tcp, [::]:993->993/tcp
 ```
 
 `healthy` is what to look for; `starting` lasts until the certificate is

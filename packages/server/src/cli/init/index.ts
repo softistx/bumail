@@ -125,9 +125,12 @@ export async function init(args: InitArgs, io: Io): Promise<void> {
 	);
 }
 
-/** `word` as a shell would read it back: bare when it is safe, else quoted. */
+/**
+ * `word` as a shell would read it back: bare when it is safe, else quoted.
+ * A leading `=` is quoted too: zsh expands `=name` to a command's path.
+ */
 function shellWord(word: string): string {
-	return /^[\w@%+=:,./-]+$/.test(word)
+	return /^[\w@%+:,./-][\w@%+=:,./-]*$/.test(word)
 		? word
 		: `'${word.replaceAll("'", `'\\''`)}'`;
 }

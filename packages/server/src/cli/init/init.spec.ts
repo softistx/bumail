@@ -249,9 +249,11 @@ describe('bumail init', () => {
 			config,
 		]);
 		expect(code).toBe(0);
-		expect(out).toContain(
-			`bumail --config '${config.replace("'", `'\\''`)}' serve`,
-		);
+		// A shell reads the printed step back as the path that was given.
+		const step = out.split('\n').find((line) => line.endsWith(' serve'));
+		const word = step?.slice(step.indexOf('--config ') + 9, -' serve'.length);
+		const echoed = Bun.spawnSync(['sh', '-c', `printf %s ${word}`]);
+		expect(echoed.stdout.toString()).toBe(config);
 	});
 
 	test('refuses to overwrite an existing file, and leaves it as it was', async () => {
