@@ -13,12 +13,10 @@ name: bumail
 
 services:
   bumail:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    # Built here by default; a published image instead:
-    #   image: ghcr.io/softistx/bumail:<version>
-    image: ${BUMAIL_IMAGE:-bumail:local}
+    # The published image, by BUMAIL_VERSION in .env: a version (0.1.0), a minor
+    # (0.1, the default: it follows the patches) or latest. To build it from
+    # this checkout instead, add compose.build.yaml to COMPOSE_FILE.
+    image: ghcr.io/softistx/bumail:${BUMAIL_VERSION:-0.1}
     restart: unless-stopped
     stop_grace_period: 30s
     # The log goes to standard output: keep Docker from filling the disk with it.

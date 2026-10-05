@@ -28,8 +28,8 @@ No dates. Each entry says what someone running or embedding the server gets.
   SMTP, IMAP and JMAP alike. Domains, accounts, aliases and DKIM keys
   managed by the command; a health check. It consumes alxia's published
   packages, not a link to its working tree, so bumail's CI never depends
-  on another repository's checkout. In progress, and private until it
-  is complete: its configuration — one TOML file, checked whole by
+  on another repository's checkout. On npm as 0.1.0 and as the image
+  `ghcr.io/softistx/bumail`, for linux/amd64 and linux/arm64: its configuration — one TOML file, checked whole by
   `bumail check-config`, the environment overriding URLs and secrets
   only — is merged, and so is its directory of domains, users and
   aliases (argon2id passwords, aliases to local users only), managed by
@@ -72,7 +72,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   submission and IMAP exist, a real mail client (Thunderbird, Apple Mail)
   logs in, sends and reads through bumail itself.
 - **The DNS records a domain needs, MTA-STS and TLS-RPT** — `bumail dns`
-  (merged, not released) already prints each domain's MX, SPF, DKIM,
+  (in @bumail/server 0.1.0) already prints each domain's MX, SPF, DKIM,
   DMARC and autoconfig SRV records, as a BIND zone file or as JSON, each
   value written by `@bumail/auth` (`spfRecord`, `dmarcRecord`,
   `dkimRecord`) and the zone by `@bumail/dns` (`formatZone`), and checks

@@ -40,7 +40,7 @@ running it behind Traefik, upgrades, backups, logs and the firewall.
 ## Choose a variant
 
 The three compose files in [`deploy/`](https://github.com/softistx/bumail/tree/develop/deploy)
-each build the same image and differ in who owns the ports:
+each run the same image and differ in who owns the ports:
 
 | file | who owns the ports | pick it when |
 | --- | --- | --- |
@@ -81,25 +81,53 @@ The other records (MX, SPF, DKIM, DMARC) wait for step 6, when the server
 can print them. The A record must be there now: the CA looks up
 `mail.example.com` when it validates the certificate.
 
-### 2. Clone and build
+### 2. Fetch the deploy files and the image
+
+The compose files are in the repository, at the tag of the release you
+install. A sparse clone takes only `deploy/`:
 
 ```sh
-git clone https://github.com/softistx/bumail
+git clone --depth 1 --branch '@bumail/server@0.1.0' --filter=blob:none --sparse \
+  https://github.com/softistx/bumail
+cd bumail
+git sparse-checkout set deploy
+cd deploy
+cp .env.example .env
+docker compose pull
+```
+
+```text
+ bumail Pulling
+ bumail Pulled
+```
+
+The image is `ghcr.io/softistx/bumail`, for linux/amd64 and linux/arm64,
+tagged with each release (`0.1.0`), with its minor (`0.1`, which follows
+the patches) and `latest`. The compose files pull `0.1` unless
+`BUMAIL_VERSION` in `.env` says otherwise. Nothing is baked in: the image
+holds the `bumail` program and no configuration, key or certificate.
+
+**To build the image yourself** instead, from a clone at the same
+release tag, add the build override to `.env` and build:
+
+```sh
+git clone --branch '@bumail/server@0.1.0' https://github.com/softistx/bumail
 cd bumail/deploy
 cp .env.example .env
+echo 'COMPOSE_FILE=compose.yaml:compose.build.yaml' >> .env   # the later line wins
 docker compose build
 ```
 
 ```text
  => [build 4/4] RUN bun install --frozen-lockfile && bun run build && …
  => exporting to image
- => => naming to docker.io/library/bumail:local
+ => => naming to ghcr.io/softistx/bumail:0.1
 ```
 
-Nothing is pulled and nothing is baked in: the image holds the
-`bumail` program and no configuration, key or certificate. The image is
-not published yet; once it is, set `BUMAIL_IMAGE=ghcr.io/softistx/bumail:<version>`
-in `.env` and run `docker compose pull` instead of the build.
+The build carries the published image's name, so `up` uses it and pulls
+nothing; `docker compose pull` and the line removed from `COMPOSE_FILE`
+go back to the published one. For a Traefik variant, name its file
+instead of `compose.yaml`.
 
 `.env` is read by every `docker compose` command run from `deploy/`.
 Set `BUMAIL_HOST` there to your server's name, even in the standalone
@@ -521,15 +549,17 @@ Everything the server keeps is on the volume, so an upgrade replaces the
 image and nothing else:
 
 ```sh
-cd bumail
-git pull
-cd deploy
-docker compose build
+cd bumail/deploy
+docker compose pull
 docker compose up -d
 ```
 
-(With a published image, `docker compose pull` instead of the pull and
-the build.) Compose recreates the container on the new image: it gets
+With `BUMAIL_VERSION=0.1` (the default) this takes the newest patch of
+that minor. For a new minor or major, read its release notes, set
+`BUMAIL_VERSION` in `.env` and fetch the deploy files of that tag too
+(`git fetch --depth 1 origin tag '@bumail/server@<version>'`, then
+`git checkout` it). If you build the image yourself, `git pull` and
+`docker compose build` instead of the pull. Compose recreates the container on the new image: it gets
 `SIGTERM`, drains for up to 15 seconds (`stop_grace_period` allows 30),
 and starts on the same volume; the certificate on the volume is used at
 once, with no call to the CA. Mail that arrives meanwhile is retried by

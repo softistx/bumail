@@ -88,7 +88,9 @@ function composeEnv(
 		COMPOSE_FILE: '',
 		TRAEFIK_NETWORK: network,
 		BUMAIL_HOST: HOST,
-		BUMAIL_IMAGE: image,
+		// The compose files pull ghcr.io/softistx/bumail:$BUMAIL_VERSION; this run
+		// builds that name locally, so nothing is pulled.
+		BUMAIL_VERSION: image.slice(image.lastIndexOf(':') + 1),
 		E2E_DIR: work,
 		E2E_NETWORK: network,
 		E2E_IP_TRAEFIK: ips.traefik,
@@ -108,7 +110,7 @@ export function createContext(report: Report): Context {
 	const prefix = `172.29.${20 + Math.floor(Math.random() * 200)}`;
 	const network = `bumail-e2e-proxy-${suffix}`;
 	const project = `bumail-e2e-docker-${suffix}`;
-	const image = `bumail:e2e-docker-${suffix}`;
+	const image = `ghcr.io/softistx/bumail:e2e-docker-${suffix}`;
 	const work = mkdtempSync(join(tmpdir(), 'bumail-e2e-'));
 	const ips = {
 		traefik: `${prefix}.200`,

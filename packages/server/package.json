@@ -1,7 +1,6 @@
 {
 	"name": "@bumail/server",
 	"version": "0.0.0",
-	"private": true,
 	"description": "The bumail mail server: the @bumail/* packages wired into one process, configured by one TOML file, run as the bumail command",
 	"license": "MIT",
 	"type": "module",
@@ -29,6 +28,9 @@
 		"type": "git",
 		"url": "git+https://github.com/softistx/bumail.git",
 		"directory": "packages/server"
+	},
+	"engines": {
+		"bun": ">=1.4.2"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org",

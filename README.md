@@ -24,8 +24,8 @@ does, and which package does it.
 | [`@bumail/store`](./packages/store) | where a mail server keeps its mail: a contract, a memory store, a `bun:sqlite` store on disk and a PostgreSQL store for several instances |
 
 All nine are on npm. The server app that wires them together,
-[`@bumail/server`](./packages/server), is private until it is complete:
-so far it reads and checks its configuration (`bumail check-config`),
+[`@bumail/server`](./packages/server), is on npm too, and as the Docker image
+`ghcr.io/softistx/bumail`: it reads and checks its configuration (`bumail check-config`),
 manages its domains, users, aliases and DKIM keys (`bumail domain`,
 `user`, `alias` and `dkim`), and, with `bumail serve`, receives mail on
 port 25, sends its users' mail from 465 and 587 (AUTH only after TLS,

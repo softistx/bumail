@@ -57,7 +57,7 @@ them one by one.
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | published |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap) and [`@bumail/jmap`](../packages/jmap) | published |
 | TLS certificates | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives and client published; the server uses it |
-| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration, its directory of domains, users, aliases and DKIM keys, receiving mail on 25, sending it from 465 and 587 through the queue, and serving it over IMAP on 993 and JMAP on 443, with certificates from files or ACME and a health check |
+| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | published on npm and as a Docker image: its configuration, its directory of domains, users, aliases and DKIM keys, receiving mail on 25, sending it from 465 and 587 through the queue, and serving it over IMAP on 993 and JMAP on 443, with certificates from files or ACME and a health check |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
 
@@ -421,9 +421,10 @@ It is **never an open relay**: mail for a domain it does not host is taken
 only from an authenticated session. And **AUTH only after TLS**: no
 password crosses the network in clear, over SMTP, IMAP or JMAP.
 
-**In bumail.** It is in progress, as
+**In bumail.** It is
 [`@bumail/server`](../packages/server), built on alxia, whose
-`@alxia/core` is on npm. Private until it is complete, it has so far
+`@alxia/core` is on npm, and published on npm and as the image
+`ghcr.io/softistx/bumail`. It has
 its configuration, one TOML file which `bumail check-config` checks
 whole; its directory of domains, users, aliases and DKIM keys, which
 `bumail domain`, `bumail user`, `bumail alias` and `bumail dkim`

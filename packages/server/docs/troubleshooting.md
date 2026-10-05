@@ -294,6 +294,8 @@ directory commands' own refusals are under
 - [`Failed to listen at …: EACCES`, in the container](#failed-to-listen-at--eacces-in-the-container)
 - [`OCI runtime exec failed: … "sh": executable file not found in $PATH`](#oci-runtime-exec-failed--sh-executable-file-not-found-in-path)
 - [`bumail: standard input is not a terminal …`, from `docker compose run`](#bumail-standard-input-is-not-a-terminal--from-docker-compose-run)
+- [`docker compose pull`: `denied` or `manifest unknown`](#docker-compose-pull-denied-or-manifest-unknown)
+- [`env: bun: No such file or directory`, from `npx` or a global install](#env-bun-no-such-file-or-directory-from-npx-or-a-global-install)
 - [`tls: obtaining a certificate failed …: fetch failed`, with a private or test CA](#tls-obtaining-a-certificate-failed--fetch-failed-with-a-private-or-test-ca)
 - [`bumail: login refused from …`, always the proxy's address](#bumail-login-refused-from--always-the-proxys-address)
 
@@ -2444,6 +2446,52 @@ printf '%s\n' "$PASSWORD" | docker compose run --rm -T bumail user add alice@exa
 ```
 
 or `--password-file` on a file of the volume or a Docker secret.
+
+### `docker compose pull`: `denied` or `manifest unknown`
+
+**When**: `docker compose pull` (or `up`, with no local image) prints
+`Error response from daemon: … denied` or `manifest unknown` for
+`ghcr.io/softistx/bumail:…`.
+
+**Why**: `manifest unknown` means the tag does not exist: the
+`BUMAIL_VERSION` in `.env` names a version that was never released (or
+`0.1` before any `0.1.x`). `denied` means the registry refuses an
+anonymous pull: a stale `docker login ghcr.io` with an expired token
+makes it refuse a public image too.
+
+**Fix**: pick a tag from the
+[package's page](https://github.com/softistx/bumail/pkgs/container/bumail)
+(`0.1.0`, `0.1`, `latest`) and set it in `.env`:
+
+```sh
+BUMAIL_VERSION=0.1.0
+docker logout ghcr.io
+docker compose pull
+```
+
+Or build the image from the checkout instead, with
+`COMPOSE_FILE=compose.yaml:compose.build.yaml` in `.env` and
+`docker compose build`.
+
+### `env: bun: No such file or directory`, from `npx` or a global install
+
+**When**: `npx @bumail/server …`, or the `bumail` command of a global
+`npm install -g @bumail/server`, prints `env: bun: No such file or
+directory` (or `bun: command not found`).
+
+**Why**: the command's first line is `#!/usr/bin/env bun`. The server
+uses `bun:sqlite` and `Bun.password`, which only Bun has, so Node cannot
+run it, and the host has no `bun` on its `PATH`.
+
+**Fix**: install Bun 1.4.2 or later, then run it with Bun:
+
+```sh
+curl -fsSL https://bun.sh/install | bash
+bunx @bumail/server --version
+```
+
+or take the [Docker image](deploy.md), which holds the program and needs
+neither.
 
 ### `tls: obtaining a certificate failed …: fetch failed`, with a private or test CA
 

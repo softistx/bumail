@@ -18,7 +18,7 @@ below lists only what has landed.
 | `@bumail/queue` | the outbound queue: every recipient's state, delivery by domain through `@bumail/smtp/client` (MX, a smarthost, per domain), retries with back-off, DSNs (RFC 3464), the `QueueStore` contract with an atomic claim and leases, its memory store as `@bumail/queue/memory`, its `bun:sqlite` store as `@bumail/queue/sqlite`, its PostgreSQL store on `Bun.sql` as `@bumail/queue/postgres` and its Redis store on `Bun.redis` as `@bumail/queue/redis` | `@bumail/smtp`, `@bumail/mime` |
 | `@bumail/auth` | DKIM signing and verifying (RFC 6376, RFC 8463) through Web Crypto, SPF checking (RFC 7208), DMARC (RFC 7489) on an embedded Public Suffix List snapshot, and the `Authentication-Results` header (RFC 8601), and writers for the SPF, DMARC and DKIM records, each the inverse of its parser | `@bumail/dns`, `@bumail/mime` |
 | `@bumail/jmap` | a JMAP server (RFC 8620 core, RFC 8621 mail) as an alxia app to mount: the session, the API with back-references, Mailbox, Email and Thread, blob download and upload, serving any `MailStore`; Basic only over HTTPS; an OpenAPI 3.1 document of its routes, shipped as `@bumail/jmap/openapi.json` and kept in step with them by a spec | `@alxia/core` (from npm), `@bumail/store`, `@bumail/mime` |
-| `@bumail/server` | the server app, **private** until it is complete (`"private": true`, so neither changesets nor `scripts/publish.ts` touch it): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, its directory of domains, users, aliases and DKIM keys (a `bun:sqlite` file in WAL mode, argon2id passwords, a capped verify, a per-client failure limiter, aliases to local users only), and the `bumail` command (`check-config`, `domain`, `user`, `alias`, `dkim`, `dns` — the MX, SPF, DKIM, DMARC and SRV records every hosted domain needs, as a zone file or JSON, and `--check` of them against the live DNS — and `serve`: MX on 25 with no AUTH, SPF, DKIM and DMARC, delivery into the store; submission on 465 and 587, AUTH only after TLS, a user sending as itself or its aliases, DKIM-signed; the outbound queue, by MX or a smarthost, DSNs to the local sender's mailbox; IMAP on 993, JMAP on 443 — HTTPS from files, or plain HTTP for trusted reverse proxies, the client from `X-Forwarded-For` only from them — a health check on loopback, the PROXY protocol on the mail ports from trusted proxies, a certificate from files, reloaded when the files change or on SIGHUP, or from an ACME CA — kept on the volume, obtained by HTTP-01 on port 80 before the TLS listeners start when none is stored, renewed by a timer and applied through that same reload — a clean stop on SIGTERM) | `@bumail/store`, `@bumail/smtp`, `@bumail/imap`, `@bumail/jmap`, `@bumail/queue`, `@bumail/auth`, `@bumail/dns`, `@bumail/acme`; it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
+| `@bumail/server` | the server app, public on npm and as the image `ghcr.io/softistx/bumail` (a `bin`, `bumail`, that needs Bun: the `#!/usr/bin/env bun` line, `engines.bun`): its TOML configuration read and checked whole by `readConfig`, the environment overriding URLs and secrets only, its directory of domains, users, aliases and DKIM keys (a `bun:sqlite` file in WAL mode, argon2id passwords, a capped verify, a per-client failure limiter, aliases to local users only), and the `bumail` command (`check-config`, `domain`, `user`, `alias`, `dkim`, `dns` — the MX, SPF, DKIM, DMARC and SRV records every hosted domain needs, as a zone file or JSON, and `--check` of them against the live DNS — and `serve`: MX on 25 with no AUTH, SPF, DKIM and DMARC, delivery into the store; submission on 465 and 587, AUTH only after TLS, a user sending as itself or its aliases, DKIM-signed; the outbound queue, by MX or a smarthost, DSNs to the local sender's mailbox; IMAP on 993, JMAP on 443 — HTTPS from files, or plain HTTP for trusted reverse proxies, the client from `X-Forwarded-For` only from them — a health check on loopback, the PROXY protocol on the mail ports from trusted proxies, a certificate from files, reloaded when the files change or on SIGHUP, or from an ACME CA — kept on the volume, obtained by HTTP-01 on port 80 before the TLS listeners start when none is stored, renewed by a timer and applied through that same reload — a clean stop on SIGTERM) | `@bumail/store`, `@bumail/smtp`, `@bumail/imap`, `@bumail/jmap`, `@bumail/queue`, `@bumail/auth`, `@bumail/dns`, `@bumail/acme`; it peers on each package it wires, as `workspace:^` (and `@alxia/core` from npm), from the slice that first imports it |
 | `@bumail/acme` | an ACME client (RFC 8555) on `fetch` and Web Crypto: `AcmeClient` (directory, nonces with the `badNonce` retry, account, orders, authorizations, challenges, finalize, the PEM chain; `https:` only, answers bounded, numbers clamped), `obtainCertificate` for the whole HTTP-01 flow, `http01Responder` for `Bun.serve`; and its primitives: a PKCS #10 CSR for DNS names on its own DER writer, the flattened JWS (ES256, RS256), the JWK thumbprint, key authorizations, P-256 and RSA keys as PKCS #8 PEM | — |
 
 Its skeleton is `softistx/alxia`'s, itself `softistx/nxgt-http`'s: the Bun
@@ -143,7 +143,7 @@ imap            → store, mime
 queue           → smtp, mime (its specs use dns, as a devDependency)
 acme            (standalone)
 jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam and @alxia/openapi-routes as devDependencies)
-server          → store, smtp, imap, jmap (with @alxia/core from npm), queue, auth, dns, acme, and each package it wires as a slice first imports it; a private app, never a peer of any package
+server          → store, smtp, imap, jmap (with @alxia/core from npm), queue, auth, dns, acme, and each package it wires as a slice first imports it; an app, never a peer of any package
 ```
 
 `examples/demo` is an app, not a package: a private workspace that wires
@@ -164,9 +164,19 @@ end-to-end test's own files (`deploy/test/`). `bun run docker:e2e`
 (`scripts/docker-e2e.ts`, its protocol clients in `scripts/docker-e2e/`)
 builds the image and runs the deploy guide against a Traefik v3, Pebble
 and a test DNS under the compose project `bumail-e2e-docker`, on high
-ports of 127.0.0.1; it removes everything it made. CI's "Docker" job
-builds the image without pushing it. The image is not pushed to any
-registry; nothing here may `docker push`.
+ports of 127.0.0.1; it removes everything it made. It builds the image
+under the name the compose files pull, `ghcr.io/softistx/bumail:e2e-docker-<id>`
+(its `BUMAIL_VERSION`), so nothing is pulled; `deploy/compose.build.yaml`
+is the same build for a user. The Dockerfile builds every stage on the
+build machine and cross-compiles the binary (`bun build --target`), so a
+multi-platform build runs no emulation. CI's "Docker" job builds the image
+for linux/amd64 and linux/arm64 without pushing it. **Only the "Image" job of
+`release.yml` pushes it**, as `ghcr.io/softistx/bumail:<version>`,
+`<major>.<minor>` and `latest`, after a release that published
+`@bumail/server` (it reads `changesets/action`'s `published-packages`: a
+tag pushed with `GITHUB_TOKEN` triggers nothing), or by `workflow_dispatch`
+for a version already on npm, which pushes only `<version>` unless its
+`minor` and `latest` inputs say so — an older patch never moves `0.1` back. Nothing else may `docker push`.
 
 What is planned is in [docs/roadmap.md](./docs/roadmap.md); as packages land,
 this section draws their arrows. A package that uses a sibling declares it by
@@ -244,6 +254,10 @@ a package's first included. So:
   agent never merges, approves or edits a "Version packages" PR;
 - **the first publish of any `@bumail/*` package needs the owner's explicit
   answer**, every time, and nothing is published without their OK;
+- the release workflow's "Image" job then pushes the server's image; a new
+  GHCR package starts **private**, and the owner makes it public once, by
+  hand, in the package's settings (and links it to the repository, which
+  the `org.opencontainers.image.source` label does by itself);
 - releases are batched: weekdays, at 18:00 Eastern or later.
 
 Registry configuration lives in `bunfig.toml`, never in `.npmrc`; publishing
