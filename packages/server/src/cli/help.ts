@@ -14,8 +14,8 @@ Commands:
   health         ask the running server's health check (GET /healthz on
                  loopback) and exit 0 when it answers 200, 1 when not: for
                  a container's HEALTHCHECK
-       [--tls-pending]        ... also 0 while it waits for its first
-                              certificate (tls pending, not expired), so
+       [--tls-pending]        ... also 0 for tls pending: no pair
+                              served yet (an expired stored one too), so
                               Traefik routes the CA's challenge to it
   init           write a starter configuration, make the directory, host
                  the domains and generate their DKIM keys, then print the

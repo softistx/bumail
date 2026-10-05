@@ -7,7 +7,9 @@
  * ports of 127.0.0.1, then runs the deploy guide's steps against each
  * deploy file. The phases are in `docker-e2e/`:
  *
- *   setup       the context (names, addresses and ports unique to this run), the image, the infrastructure
+ *   context     names, addresses and ports unique to this run
+ *   compose     docker compose and docker run, on this run's project and network
+ *   infrastructure  the image, the network, Pebble, the test DNS and Traefik
  *   standalone  `compose.yaml`: bumail binds 80 itself; `bumail dns`, and `dns --check` in part
  *   traefik     `compose.traefik.yaml`: init, the certificate through the challenge route, the mail ports, JMAP, health
  *   tcp         `compose.traefik-tcp.yaml`: TCP routers, PROXY protocol v2, the real client address
@@ -20,11 +22,8 @@
  *   bun run docker:e2e       (from the repository root)
  */
 import { Report } from './docker-e2e/check';
-import {
-	createContext,
-	prepare,
-	startInfrastructure,
-} from './docker-e2e/setup';
+import { createContext } from './docker-e2e/context';
+import { prepare, startInfrastructure } from './docker-e2e/infrastructure';
 import { standalone } from './docker-e2e/standalone';
 import { tcpVariant } from './docker-e2e/tcp';
 import { teardown } from './docker-e2e/teardown';

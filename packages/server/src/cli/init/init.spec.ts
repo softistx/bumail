@@ -358,12 +358,17 @@ describe('bumail init', () => {
 			],
 			[[...BASE, '--frobnicate'], 'unknown option --frobnicate'],
 			[[...BASE, 'extra'], 'unexpected argument extra'],
+			// An option that looks like a password is refused, never repeated.
+			[[...BASE, '-pSecret123'], 'unknown option -p…'],
+			[[...BASE, '--password=Secret123'], 'a password is never taken'],
+			[[...BASE, '-xSecret123'], 'unknown option -x…'],
 			[['health', '--force'], 'health takes no --force'],
 		];
 		for (const [argv, message] of cases) {
 			const { code, err } = await bumail(argv);
 			expect(err).toStartWith(`bumail: ${message}`);
 			expect(err).toEndWith('; see bumail --help\n');
+			expect(err).not.toContain('Secret123');
 			expect(code).toBe(2);
 		}
 	});

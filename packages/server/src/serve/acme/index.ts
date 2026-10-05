@@ -46,9 +46,9 @@ export class Acme {
 
 	/**
 	 * `up` while a certificate that has not expired is in use; `pending`
-	 * while the first one is awaited and no pair has been served yet (the
-	 * bounded first-start tries, after which the server exits); `down` past
-	 * the end of the last one served.
+	 * while this process has served no pair yet, an expired stored one
+	 * included (the bounded first-start tries, after which the server
+	 * exits); `down` past the end of the last one served.
 	 */
 	get tls(): 'up' | 'pending' | 'down' {
 		if (this.#current === undefined) return 'pending';

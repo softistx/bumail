@@ -363,7 +363,7 @@ const authenticate = smtpAuthenticate(directory); // @bumail/smtp's authenticate
 | --- | --- |
 | `bumail check-config` | check the configuration, print a summary; exits 0, or 1 |
 | `bumail init` | write a starter `bumail.toml` from `--hostname`, `--domain` (repeatable), `--acme-email`, `--acme-staging`, `--acme-directory`, `--behind-traefik`, `--proxy-protocol`, `--trusted-proxy` (repeatable), `--data` and `--force`; make the directory, host the domains, generate their DKIM keys, print the next steps; refuses to replace a file without `--force` (exit 4) |
-| `bumail health` | ask the server's loopback `/healthz`; exits 0 for a 200, 1 otherwise; `--tls-pending` also counts a server waiting for its first certificate (for a container's `HEALTHCHECK`) |
+| `bumail health` | ask the server's loopback `/healthz`; exits 0 for a 200, 1 otherwise; `--tls-pending` also counts a server that has served no certificate yet (for a container's `HEALTHCHECK`) |
 | `bumail serve` | check the configuration, then run the server until SIGTERM or SIGINT (SIGHUP looks for a renewed certificate); exits 0 once stopped, 5 for a port or a file it cannot use, or for no certificate from the ACME CA |
 | `bumail domain add\|list\|remove` | the domains the server hosts |
 | `bumail user add\|list\|passwd\|disable\|enable\|remove` | the users; `--password-stdin`, `--password-file`, `remove --purge`; `list [<domain>]` |

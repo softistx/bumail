@@ -2352,10 +2352,19 @@ runs, on `ports.health` at `health.bind` (loopback by default), and exits
 `bumail health --tls-pending` also exits 0 (`ok (waiting for a
 certificate)`) for a 503 that is only `"tls":"pending"`: the server waits for its
 **first** certificate, and its port-80 listener, the directory and the
-store answer. An expired certificate is `"tls":"down"`, and stays
+store answer. `pending` means this process has served no pair yet, so a
+stored pair that has expired (rejected at start) is `pending` too.
+`"tls":"down"` is a pair that was served and has since expired, and stays
 unhealthy with the flag. A first certificate that never comes keeps the
 container healthy only during the bounded first-start tries (five, about
 four minutes), after which the server exits 5 and the container restarts.
+
+With `restart: unless-stopped` and a CA that cannot be reached, the
+container loops: healthy for each start's tries, then exit 5, then a
+restart. See it in `docker inspect --format '{{.RestartCount}}'
+<container>`, and in the log lines `tls: the stored certificate is not
+used: expired` and `tls: obtaining … failed`: the cause is the CA's,
+not the health check's.
 
 ### `… returned 404`: the challenge behind Traefik
 

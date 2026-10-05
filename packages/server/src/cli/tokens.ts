@@ -1,3 +1,4 @@
+import { is, take, unknownOption } from './option-syntax';
 import { usage, word } from './verbs';
 
 /** What `bumail init` and `bumail health` take: options with a value, and options without. */
@@ -36,10 +37,6 @@ function commandOf(argv: readonly string[]): string | undefined {
 	return undefined;
 }
 
-/** Whether `arg` is `name` or `name=value`. */
-const is = (arg: string, name: string) =>
-	arg === name || arg.startsWith(`${name}=`);
-
 /**
  * `argv` split into options and flags when its command is `init` or
  * `health`; `undefined` for any other command. Only the shape is checked
@@ -61,16 +58,13 @@ export function tokenize(argv: readonly string[]): Tokens | undefined {
 		if (!arg.startsWith('-')) throw usage(`unexpected argument ${word(arg)}`);
 		const name = Object.keys(VALUED).find((key) => is(arg, key));
 		if (name !== undefined) {
-			const value = arg === name ? argv[i + 1] : arg.slice(name.length + 1);
-			if (value === undefined || value === '') {
-				throw usage(`${name} needs ${VALUED[name]}`);
-			}
-			if (arg === name) i++;
+			let value: string;
+			[value, i] = take(argv, i, name, VALUED[name] ?? 'a value');
 			values.set(name, [...(values.get(name) ?? []), value]);
 		} else if (FLAGS.includes(arg)) {
 			flags.add(arg);
 		} else {
-			throw usage(`unknown option ${arg.split('=')[0]?.slice(0, 20) ?? ''}`);
+			throw unknownOption(arg);
 		}
 	}
 	return { command, values, flags };

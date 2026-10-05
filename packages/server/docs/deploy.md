@@ -426,11 +426,16 @@ first start waits for its certificate while the CA must reach port 80
 through Traefik: without it the challenge gets a 404 and the first
 certificate never comes. The flag accepts one thing only: the health
 check's `"tls":"pending"`, the first-start wait with port 80, the
-directory and the store answering. An expired certificate (`"tls":"down"`)
-or any other fault is unhealthy. A first certificate that never comes
-keeps the container healthy only during the bounded first-start tries
-(five, about four minutes), after which the server exits 5 and Docker
-restarts it.
+directory and the store answering. `pending` means this process has
+served no pair yet, so an expired stored pair, rejected at start, is
+`pending` too; `"tls":"down"` (a pair served, then expired) and any other
+fault are unhealthy. A first certificate that never comes keeps the
+container healthy only during the bounded first-start tries (five, about
+four minutes), after which the server exits 5 and Docker restarts it.
+With `restart: unless-stopped` and a CA that cannot be reached, it loops
+so: see `docker inspect --format '{{.RestartCount}}' <container>`, and the
+log lines `tls: the stored certificate is not used: expired` and
+`tls: obtaining … failed`.
 
 **Traefik versions.** Tested with Traefik v3.7.13 (the end-to-end test
 pins it). The TCP variant's `serversTransport` with `proxyProtocol` needs

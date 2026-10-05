@@ -1,4 +1,5 @@
-import { CLIENT_IMAGE, type Context, HOST, inNetwork, ROOT } from './setup';
+import { inNetwork } from './compose';
+import { CLIENT_IMAGE, type Context, HOST, ROOT } from './context';
 
 /** Runs `client.ts` in a container at the client address of this run; answers its JSON line. */
 export async function client(

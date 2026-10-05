@@ -93,6 +93,29 @@ describe('bumail health', () => {
 	});
 });
 
+describe('bumail health options', () => {
+	test('never repeats a value that looks like a password', async () => {
+		for (const arg of ['-pSecret123', '-xSecret123', '--password=Secret123']) {
+			let err = '';
+			const code = await run(['health', arg], {
+				out: () => {},
+				err: (text) => {
+					err += text;
+				},
+				env: {},
+				version: '0.0.0',
+				terminal: {
+					stdin: async () => '',
+					isTTY: false,
+					prompt: async () => '',
+				},
+			});
+			expect(code).toBe(2);
+			expect(err).not.toContain('Secret123');
+		}
+	});
+});
+
 describe('bumail health --tls-pending', () => {
 	const waiting = {
 		status: 'unavailable',

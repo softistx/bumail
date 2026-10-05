@@ -774,8 +774,17 @@ anything else. The Docker image has it as its `HEALTHCHECK`, since it has
 no `curl`; `--tls-pending` also exits 0 for `"tls":"pending"`, a
 server waiting for its first certificate (with its port 80, the directory
 and the store answering), so Traefik routes the CA's challenge to it
-([deploy guide](deploy.md#behind-traefik)). It accepts `pending` only: an
-expired certificate (`"tls":"down"`) is unhealthy with it too.
+([deploy guide](deploy.md#behind-traefik)). It accepts `pending` only.
+`pending` means this process has served no pair yet, so a stored pair
+that has expired, which the server rejects at start (`tls: the stored
+certificate is not used: expired`), is `pending` too, in the same bounded
+wait. `"tls":"down"` is a pair that was served and has since expired, and
+is unhealthy even with the flag. With `restart: unless-stopped` and a CA
+that cannot be reached, the container therefore loops: each start is
+healthy for the bounded tries, then the server exits 5 and Docker
+restarts it. The loop shows in `docker inspect --format
+'{{.RestartCount}}'` and in the log lines `tls: the stored certificate is
+not used: expired` and `tls: obtaining … failed`.
 
 Looks that come together share one check, reused for about a
 second, so a flood of them costs the store one call. The log says when it turns unhealthy, and when it is well again, not at
