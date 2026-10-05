@@ -28,7 +28,7 @@ async function answer(
 	const { settings } = runtime;
 	const { limits } = settings;
 	// The route's `bodyLimit` (maxSizeRequest) bounds this read: past it,
-	// alxia stops reading and the route's `onRefusal` answers.
+	// alxia stops reading and the route's `refused` middleware answers.
 	const bytes = new Uint8Array(await request.arrayBuffer());
 	const json = parseJson(bytes, limits);
 	if (!json.ok) return refusal(json.refused);

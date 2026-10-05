@@ -51,7 +51,7 @@ export const server = jmap({
 
 export const app = alxia()
 	.get('/health', ({ reply }) => reply(200, 'ok'))
-	.use(server);
+	.plugin(server);
 
 if (import.meta.main) {
 	app.listen(port);

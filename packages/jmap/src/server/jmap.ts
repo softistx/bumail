@@ -1,4 +1,4 @@
-import { alxia, type BaseContext, type Refusal } from '@alxia/core';
+import { alxia, defineMiddleware, refusalOf, validate } from '@alxia/core';
 import { handleApi } from '../http/api';
 import {
 	type Authenticated,
@@ -27,40 +27,48 @@ function refuse(refusal: AuthRefusal) {
 }
 
 /**
- * What a route answers a request alxia refused before its handler, always
+ * The middleware that answers a request alxia refused on a route, always
  * as a problem: a body past its `bodyLimit` is the JMAP `limit` problem
  * naming the session's `limit`, which only a route with a `bodyLimit`
  * names; a path parameter that is not an Id names nothing, so it is the
  * route's `notFound`, a 404; any other part refused is `notRequest`. A
  * refusal before the body is read cancels it, so an upload refused for its
- * path is not left unread.
+ * path is not left unread. Given before the route's `validate`, it catches
+ * what `next()` rejects with; any other error, a client that hung up
+ * included, goes on to alxia's route boundary.
  */
 function refused(answers: {
 	readonly limit?: 'maxSizeRequest' | 'maxSizeUpload';
 	readonly notFound?: string;
 }) {
 	const what = answers.limit === 'maxSizeUpload' ? 'upload' : 'request';
-	return (refusal: Refusal, { request }: BaseContext) => {
-		if (refusal.kind === 'body_limit' && answers.limit !== undefined)
-			return limitProblem(
-				answers.limit,
-				`The ${what} is larger than ${refusal.limit} bytes`,
+	return defineMiddleware(async ({ request }, next) => {
+		try {
+			return await next();
+		} catch (error) {
+			const refusal = refusalOf(error);
+			if (refusal === undefined) throw error;
+			if (refusal.kind === 'body_limit' && answers.limit !== undefined)
+				return limitProblem(
+					answers.limit,
+					`The ${what} is larger than ${refusal.limit} bytes`,
+				);
+			// A body alxia did not read, or stopped reading: cancelled, and a body
+			// already read refuses the cancel, which is ignored.
+			request.body?.cancel().catch(() => undefined);
+			const part = refusal.kind === 'validation' ? refusal.part : 'body';
+			if (part === 'params' && answers.notFound !== undefined)
+				return jmapProblem(404, 'about:blank', answers.notFound);
+			// No route reaches this yet: each validates only its path parameters,
+			// a 404, sets a `bodyLimit` only with its `limit`, and the API reads
+			// its own body. It stays as the guard for a route that validates more.
+			return jmapProblem(
+				400,
+				'urn:ietf:params:jmap:error:notRequest',
+				`The request's ${part} are invalid`,
 			);
-		// A body alxia did not read, or stopped reading: cancelled, and a body
-		// already read refuses the cancel, which is ignored.
-		request.body?.cancel().catch(() => undefined);
-		const part = refusal.kind === 'validation' ? refusal.part : 'body';
-		if (part === 'params' && answers.notFound !== undefined)
-			return jmapProblem(404, 'about:blank', answers.notFound);
-		// No route reaches this yet: each validates only its path parameters,
-		// a 404, sets a `bodyLimit` only with its `limit`, and the API reads
-		// its own body. It stays as the guard for a route that validates more.
-		return jmapProblem(
-			400,
-			'urn:ietf:params:jmap:error:notRequest',
-			`The request's ${part} are invalid`,
-		);
-	};
+		}
+	});
 }
 
 /** What `jmap()` returns besides its routes. */
@@ -74,7 +82,7 @@ export interface JmapServer {
 }
 
 /**
- * A JMAP server (RFC 8620, RFC 8621) as an alxia app, to `use` in a host
+ * A JMAP server (RFC 8620, RFC 8621) as an alxia app, to `plugin` in a host
  * app: the session at `/.well-known/jmap`, and under `basePath` the API,
  * download and upload. Every route authenticates its request first; the
  * host's own routes are left alone.
@@ -97,28 +105,24 @@ export function jmap(options: JmapOptions) {
 					headers: { 'cache-control': 'no-store' },
 				}),
 			)
-			.onRefusal(refused({ limit: 'maxSizeRequest' }))
 			.post(
 				`${base}/api` as '/jmap/api',
 				{ bodyLimit: limits.maxSizeRequest },
+				refused({ limit: 'maxSizeRequest' }),
 				({ auth, request, reply }) => handleApi(runtime, auth, request, reply),
 			)
-			.onRefusal(refused({ notFound: BLOB_NOT_FOUND }))
 			.get(
 				`${base}/download/:accountId/:blobId/:name` as '/jmap/download/:accountId/:blobId/:name',
-				{ params: idParams(['accountId', 'blobId'], ['name']) },
+				refused({ notFound: BLOB_NOT_FOUND }),
+				validate({ params: idParams(['accountId', 'blobId'], ['name']) }),
 				({ auth, params, request, reply }) =>
 					handleDownload(runtime, auth, params, request, reply),
 			)
-			.onRefusal(
-				refused({ limit: 'maxSizeUpload', notFound: ACCOUNT_NOT_FOUND }),
-			)
 			.post(
 				`${base}/upload/:accountId` as '/jmap/upload/:accountId',
-				{
-					params: idParams(['accountId']),
-					bodyLimit: limits.maxSizeUpload,
-				},
+				{ bodyLimit: limits.maxSizeUpload },
+				refused({ limit: 'maxSizeUpload', notFound: ACCOUNT_NOT_FOUND }),
+				validate({ params: idParams(['accountId']) }),
 				({ auth, params, request, reply }) =>
 					handleUpload(runtime, auth, params.accountId, request, reply),
 			),

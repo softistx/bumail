@@ -142,7 +142,7 @@ auth            → dns, mime
 imap            → store, mime
 queue           → smtp, mime (its specs use dns, as a devDependency)
 acme            (standalone)
-jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam and @alxia/openapi-routes as devDependencies)
+jmap            → store, mime, @alxia/core (from npm; its specs use jmap-jam and @alxia/openapi as devDependencies)
 server          → store, smtp, imap, jmap (with @alxia/core from npm), queue, auth, dns, acme, and each package it wires as a slice first imports it; an app, never a peer of any package
 ```
 

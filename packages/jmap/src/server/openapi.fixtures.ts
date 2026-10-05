@@ -23,7 +23,7 @@ function serverPath(server: Json, values: Readonly<Record<string, string>>) {
 }
 
 /**
- * The document as the operations `@alxia/openapi-routes` checks: each with
+ * The document as the operations `@alxia/openapi` checks: each with
  * its method, its full path — the path-level server's path, such as the
  * `basePath` variable, in front, `{name}` as `:name` — and its operation id.
  */

@@ -42,14 +42,14 @@ const server = jmap({ store, origin: 'https://mail.example.com', basePath: '/mai
 
 const app = alxia()
 	.get('/health', ({ reply }) => reply(200, 'ok'))
-	.use(server)
-	.get('/admin', adminPage); // after use: still not authenticated by jmap
+	.plugin(server)
+	.get('/admin', adminPage); // after plugin: still not authenticated by jmap
 ```
 
 The authentication is a `derive` inside a group of the jmap app, so it
 applies to the jmap routes only: a route you declare before or after
-`use(server)` never sees it. `use` mounts the routes under the host's
-prefix, so `alxia({ prefix: '/api' }).use(server)` would serve the session
+`plugin(server)` never sees it. `plugin` mounts the routes under the host's
+prefix, so `alxia({ prefix: '/api' }).plugin(server)` would serve the session
 at `/api/.well-known/jmap`, where no client looks: mount it on an app
 without a prefix.
 
@@ -521,8 +521,8 @@ document describes as `ErrorResponse`, with every `type` the server sends.
 RFC 8620 and RFC 8621 define each method's arguments.
 
 **Kept in step.** `src/server/openapi.spec.ts` turns the document into the
-operations `@alxia/openapi-routes` reads — method, full path, and
-`schema.detail.operationId` — and runs its `matchesSpec` against a real
+operations `@alxia/openapi` reads — method, full path, and
+`schema.detail.operationId` — and runs its `matchesSpec`, with `strict: true`, against a real
 `jmap()` mounted in a host app, with the default `basePath` and another:
 a route added without a document entry fails it, and so does an entry
 with no route. It also checks that the document is OpenAPI 3.1 and that
