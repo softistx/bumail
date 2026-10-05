@@ -194,11 +194,20 @@ docker compose logs -f bumail
 ```text
 tls: no certificate stored in /data/acme
 tls: waiting for a certificate from https://acme-v02.api.letsencrypt.org/directory
-acme: the CA fetched the challenge Xe3k9QpA...
+acme: the CA fetched the challenge ayPPYrFl...
 tls: obtained (mail.example.com; expires <date>)
 bumail: serving mail.example.com
-bumail: mx listening on 0.0.0.0:25: …
+bumail: http listening on 0.0.0.0:80: ACME HTTP-01 challenges on /.well-known/acme-challenge/, a redirect to HTTPS for GET /, 404 for the rest
+bumail: health listening on 127.0.0.1:8080: health check, GET /healthz: 200 when every listener is up, a certificate is in use, and the directory and the store answer, else 503
+bumail: mx listening on 0.0.0.0:25: SMTP from other servers: STARTTLS offered, no AUTH, mail for hosted addresses only
+bumail: submissions listening on 0.0.0.0:465: submission over TLS from the first byte: AUTH required, then mail to anywhere
+bumail: submission listening on 0.0.0.0:587: submission with STARTTLS: AUTH only after TLS, then mail to anywhere
+bumail: imaps listening on 0.0.0.0:993: IMAP over TLS from the first byte
+bumail: https listening on 0.0.0.0:443: JMAP over HTTPS: Basic auth for the users of the directory
 ```
+
+These lines are from a real run of the end-to-end test (its CA, and
+`<date>` for what changes), so the names differ from yours.
 
 On a fresh volume the server first asks the CA for a certificate, which
 needs port 80 to reach it and the A record of step 1: that takes a few
@@ -209,9 +218,12 @@ docker compose ps
 ```
 
 ```text
-NAME              IMAGE         SERVICE   STATUS                    PORTS
-bumail-bumail-1   bumail:local  bumail    Up 40 seconds (healthy)   0.0.0.0:25->25/tcp, 0.0.0.0:80->80/tcp, …
+NAME                                    IMAGE               COMMAND                  SERVICE   CREATED         STATUS                   PORTS
+bumail-e2e-docker-standalone-bumail-1   bumail:e2e-docker   "/usr/local/bin/buma…"   bumail    7 seconds ago   Up 6 seconds (healthy)   127.0.0.1:12525->25/tcp, 127.0.0.1:12443->443/tcp, 127.0.0.1:12465->465/tcp, 127.0.0.1:12587->587/tcp, 127.0.0.1:12993->993/tcp
 ```
+
+(Also from the end-to-end test, which publishes on high ports of
+127.0.0.1; yours is `bumail-bumail-1` with `0.0.0.0:25->25/tcp`, and so on.)
 
 `docker compose run --rm bumail health` is the same check by hand
 (`ok`, exit 0). A certificate that does not come, and why, is
@@ -225,29 +237,63 @@ docker compose run --rm bumail dns --ip 203.0.113.10
 
 It prints a zone file of everything the domain needs: the host's A
 record, the MX, SPF and DMARC records, the DKIM key, and the SRV records
-that let a mail client configure itself. Paste them into your DNS host,
-wait a few minutes, then:
+that let a mail client configure itself. This is its real output from the
+end-to-end test (host `standalone.bumail.test`, domain `bumail.test`, a
+private address; only the key is cut with `…`):
+
+```text
+; DNS records for standalone.bumail.test, and the domains it hosts.
+; Publish them at your DNS host, then run bumail dns --check.
+
+; standalone.bumail.test (this server)
+standalone.bumail.test. IN A 172.29.77.150
+; optional: if the server has a public IPv6 address, bumail dns --ip6 <address> writes its AAAA record
+; the reverse DNS (PTR) of 172.29.77.150 should be standalone.bumail.test: it is set at your hosting provider, and many receivers refuse mail without it
+; the SRV records carry the ports the server listens on: behind Docker port mapping or a proxy, write the public ports instead
+
+; bumail.test
+bumail.test. IN MX 10 standalone.bumail.test.
+bumail.test. IN TXT "v=spf1 mx -all"
+bumail._domainkey.bumail.test. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzHIqdtSY7qVNV48o7zmlcyrFaQa2Z4BhVNrH3Lklz…"
+_dmarc.bumail.test. IN TXT "v=DMARC1; p=quarantine; adkim=s"
+_submissions._tcp.bumail.test. IN SRV 0 1 465 standalone.bumail.test.
+_imaps._tcp.bumail.test. IN SRV 0 1 993 standalone.bumail.test.
+_jmap._tcp.bumail.test. IN SRV 0 1 443 standalone.bumail.test.
+```
+
+Paste them into your DNS host, wait a few minutes, then:
 
 ```sh
 docker compose run --rm bumail dns --ip 203.0.113.10 --check
 ```
 
+It looks each record up and exits 0 when every one is there, 1 when one
+is missing, differs or is doubled, and 5 when the DNS gave no answer. The
+end-to-end test can only run this **partially**: its test DNS
+(`pebble-challtestsrv`) holds the host's A record and nothing else, so
+this real output shows the statuses, not a finished deployment:
+
 ```text
-mail.example.com
-  ok          A    mail.example.com  203.0.113.10
-  ok          PTR  203.0.113.10  mail.example.com
-example.com
-  ok          MX   example.com  10 mail.example.com
-  ok          TXT  example.com  v=spf1 mx -all
-  ok          TXT  bumail._domainkey.example.com  v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA…
-  ok          TXT  _dmarc.example.com  v=DMARC1; p=quarantine; adkim=s
-  …
+standalone.bumail.test
+  ok          A    standalone.bumail.test  172.29.77.150
+  missing     PTR  172.29.77.150  standalone.bumail.test
+bumail.test
+  unavailable MX   bumail.test  10 standalone.bumail.test
+                   The DNS could not answer MX bumail.test (ENOTIMP)
+  missing     TXT  bumail.test  v=spf1 mx -all
+  missing     TXT  bumail._domainkey.bumail.test  v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnisrrBtqSK…
+  missing     TXT  _dmarc.bumail.test  v=DMARC1; p=quarantine; adkim=s
+  unchecked   SRV  _submissions._tcp.bumail.test  1 465 standalone.bumail.test
+  unchecked   SRV  _imaps._tcp.bumail.test  1 993 standalone.bumail.test
+  unchecked   SRV  _jmap._tcp.bumail.test  1 443 standalone.bumail.test
+
+4 missing, 1 unavailable: bumail dns prints what to publish
 ```
 
-It exits 0 when every record is there, 1 when one is missing, differs or
-is doubled, and 5 when the DNS gave no answer. A `differs` PTR is the
-provider's to fix. See [the directory](directory.md#bumail-dns) for each
-record.
+On your own DNS, once the records are published, each line reads `ok`
+(the SRV lines stay `unchecked`: the DNS client cannot look them up yet).
+A `differs` or `missing` PTR is the hosting provider's to fix. See
+[the directory](directory.md#bumail-dns) for each record.
 
 ### 7. Send a test mail
 
