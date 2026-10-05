@@ -1128,7 +1128,7 @@ bumail dns example.com --ip 192.0.2.10
 #### `the stored DKIM key of … is empty; bumail dkim generate … --replace makes a new one`
 
 **When**: `bumail dkim show` or `bumail dns` (exit code 4) found a stored
-key with no public half. `bumail dns` words it `the DNS records cannot be
+key with no public half (empty, or only white space). `bumail dns` words it `the DNS records cannot be
 written: the stored DKIM key of … is empty; …`. Only a damaged directory
 holds one. It is refused rather than printed, since publishing it would
 publish a revoked key, and `bumail dns` would quarantine mail beside it.

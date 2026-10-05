@@ -41,9 +41,9 @@ interface KeyRow {
 const SELECTOR =
 	/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 
-/** The record of a stored key, or why it cannot be made: an empty key is no record to publish. */
+/** The record of a stored key, or why it cannot be made: an empty key (white space only, too) is no record to publish. */
 function recordOf(publicKey: string): { record: string; unusable?: string } {
-	if (publicKey === '') return { record: '', unusable: 'is empty' };
+	if (publicKey.trim() === '') return { record: '', unusable: 'is empty' };
 	try {
 		return { record: dkimRecord({ publicKey }) };
 	} catch (error) {

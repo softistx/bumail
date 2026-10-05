@@ -46,7 +46,7 @@ function domainsOf(directory: Directory, named: string | undefined): string[] {
 	return [domain];
 }
 
-/** A record `@bumail/auth` or `@bumail/dns` cannot write, such as a corrupt stored key, as an error with a message. */
+/** A record `@bumail/auth` or `@bumail/dns` cannot write, as an error with a message; a damaged stored key is refused before, by `unusableKey`. */
 function unwritable<T>(write: () => T): T {
 	try {
 		return write();

@@ -485,6 +485,7 @@ describe('a stored DKIM key that cannot be published', () => {
 			'cannot be used (dkimRecord(): an rsa publicKey is a DER SubjectPublicKeyInfo naming rsaEncryption)',
 		],
 		['', 'is empty'],
+		[' \n\t', 'is empty'],
 	];
 	const refusal = (why: string) =>
 		`the stored DKIM key of example.com ${why}; bumail dkim generate example.com --replace makes a new one`;
