@@ -5,12 +5,10 @@
 # Everything is published on 127.0.0.1 and on high ports, so no other
 # container on the machine is touched. Needs E2E_DIR (the folder holding the
 # test CA's certificate) set by the script.
-name: bumail-e2e-docker
-
 services:
   bumail:
     # The test DNS, so `bumail dns --check` looks the test names up there.
-    dns: [172.29.77.250]
+    dns: ['${E2E_IP_CHALLTESTSRV}']
     environment:
       # Pebble's CA is not a public one: bumail's ACME client (fetch) trusts it
       # through Bun's NODE_EXTRA_CA_CERTS.
@@ -19,26 +17,25 @@ services:
       - ${E2E_DIR}/minica.pem:/pebble/minica.pem:ro
 
   traefik:
-    image: traefik:v3
+    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
     command: ['--configFile=/etc/traefik/traefik.yml']
     environment:
       LEGO_CA_CERTIFICATES: /pebble/minica.pem
     ports:
-      - '127.0.0.1:18080:80'
-      - '127.0.0.1:18443:443'
-      - '127.0.0.1:13525:25'
-      - '127.0.0.1:13465:465'
-      - '127.0.0.1:13587:587'
-      - '127.0.0.1:13993:993'
+      - '127.0.0.1:${E2E_PORT_HTTPS}:443'
+      - '127.0.0.1:${E2E_PORT_SMTP}:25'
+      - '127.0.0.1:${E2E_PORT_SUBMISSIONS}:465'
+      - '127.0.0.1:${E2E_PORT_SUBMISSION}:587'
+      - '127.0.0.1:${E2E_PORT_IMAPS}:993'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./test/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ${E2E_DIR}/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic.yaml:/etc/traefik/dynamic/dynamic.yaml:ro
       - ${E2E_DIR}/minica.pem:/pebble/minica.pem:ro
       - traefik-acme:/acme
     networks:
       proxy:
-        ipv4_address: 172.29.77.200
+        ipv4_address: ${E2E_IP_TRAEFIK}
     depends_on: [pebble, challtestsrv]
 
   pebble:
@@ -58,10 +55,10 @@ services:
     # Pebble to ::1.
     command: ['-http01', '', '-https01', '', '-tlsalpn01', '', '-doh', '', '-dnsserver', ':53', '-defaultIPv6', '']
     ports:
-      - '127.0.0.1:18055:8055'
+      - '127.0.0.1:${E2E_PORT_CHALLTESTSRV}:8055'
     networks:
       proxy:
-        ipv4_address: 172.29.77.250
+        ipv4_address: ${E2E_IP_CHALLTESTSRV}
 
 volumes:
   traefik-acme:

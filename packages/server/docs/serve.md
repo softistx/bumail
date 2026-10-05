@@ -606,7 +606,7 @@ flow, and a stop in the middle of it starts the next attempt afresh.
   certificate is not used: <reason>`), binds **port 80 and the health
   check**, and asks the CA, before it binds anything else. While it waits
   it logs `tls: waiting for a certificate from <directory>` at once and
-  every 30 seconds, and the health check answers 503 with `"tls":"down"`.
+  every 30 seconds, and the health check answers 503 with `"tls":"pending"`.
   It tries up to five times, waiting 10 s, 30 s, 1 and 2 minutes
   between (Let's Encrypt allows five failed validations of a name an
   hour), each failure logged as `tls: obtaining a certificate failed
@@ -755,9 +755,11 @@ else: no address, no error, no secret.
 With the store down it is a 503, `"status":"unavailable"` and
 `"store":"failed"`. A listener turned off (port 0) is not listed. Any
 other path is a 404, any method but GET and HEAD a 405. With ACME the
-body also has `"tls":"up"`, or `"tls":"down"` while the first
-certificate is awaited and past the end of the last one, and `http` is
-among the listeners. During a stop it
+body also has `"tls":"up"`; `"tls":"pending"` while the first
+certificate is awaited, which lasts the bounded first-start tries, after
+which the server exits 5; or `"tls":"down"` past the end of the last
+certificate it served, whatever else is up; and `http` is among the
+listeners. During a stop it
 answers 503 until the health check itself is closed.
 
 ```yaml
@@ -769,9 +771,11 @@ healthcheck:
 `bumail health` is that check: it reads `ports.health` and `health.bind`
 from the configuration, asks `/healthz` and exits 0 for a 200, 1 for
 anything else. The Docker image has it as its `HEALTHCHECK`, since it has
-no `curl`; `--tls-pending` also exits 0 for a server waiting for its
-first certificate, so Traefik routes the CA's challenge to it
-([deploy guide](deploy.md#behind-traefik)).
+no `curl`; `--tls-pending` also exits 0 for `"tls":"pending"`, a
+server waiting for its first certificate (with its port 80, the directory
+and the store answering), so Traefik routes the CA's challenge to it
+([deploy guide](deploy.md#behind-traefik)). It accepts `pending` only: an
+expired certificate (`"tls":"down"`) is unhealthy with it too.
 
 Looks that come together share one check, reused for about a
 second, so a flood of them costs the store one call. The log says when it turns unhealthy, and when it is well again, not at

@@ -153,6 +153,44 @@ describe('bumail init', () => {
 		expect(statSync(config).isFile()).toBe(true);
 	});
 
+	test('writes the file readable by its owner alone', async () => {
+		const { data, config } = place();
+		await bumail([...BASE, '--data', data, '--config', config]);
+		expect(statSync(config).mode & 0o777).toBe(0o600);
+	});
+
+	test('warns, and still writes, when a trusted proxy is not a private range', async () => {
+		const { data, config } = place();
+		const wide = await bumail([
+			...BASE,
+			'--proxy-protocol',
+			'--trusted-proxy',
+			'203.0.113.0/24',
+			'--data',
+			data,
+			'--config',
+			config,
+		]);
+		expect(wide.code).toBe(0);
+		expect(wide.err).toContain(
+			'warning: --trusted-proxy names a range that is not private',
+		);
+		const quiet = place();
+		const private_ = await bumail([
+			...BASE,
+			'--proxy-protocol',
+			'--trusted-proxy',
+			'172.18.0.0/16',
+			'--trusted-proxy',
+			'fd00::/8',
+			'--data',
+			quiet.data,
+			'--config',
+			quiet.config,
+		]);
+		expect(private_.err).toBe('');
+	});
+
 	test('hosts several domains, each with its key', async () => {
 		const { data, config } = place();
 		const { code } = await bumail([

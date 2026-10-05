@@ -1,5 +1,5 @@
 import { type DnsArgs, resolveDns } from './dns/args';
-import { type HealthArgs, type InitArgs, resolveImage } from './init/args';
+import { type HealthArgs, type InitArgs, resolveImage } from './image-args';
 import {
 	isNoun,
 	type ManageArgs,

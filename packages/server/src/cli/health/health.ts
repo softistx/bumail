@@ -1,7 +1,7 @@
-import { readConfig } from '../config/read';
-import { ServerError } from '../errors';
-import type { HealthArgs } from './init/args';
-import type { Io } from './run';
+import { readConfig } from '../../config/read';
+import { ServerError } from '../../errors';
+import type { Io } from '../run';
+import type { HealthArgs } from './args';
 
 /** How long the health check may take to answer, in milliseconds. */
 const WAIT_MS = 5000;
@@ -29,7 +29,7 @@ function waitingForCertificate(status: number, body: string): boolean {
 			listeners?: Record<string, unknown>;
 		};
 		return (
-			report.tls === 'down' &&
+			report.tls === 'pending' &&
 			report.directory === 'ok' &&
 			report.store === 'ok' &&
 			report.listeners?.['http'] === 'up'

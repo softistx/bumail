@@ -163,7 +163,7 @@ outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example
 - **`tls.mode = "acme"`**, the default, keeps the certificate on the
   volume (`<data>/acme`): used at once when it is valid, else obtained
   from the CA by HTTP-01 on port 80 before any TLS listener starts, with
-  the health check saying `tls: down` meanwhile; renewed 30 days before
+  the health check saying `tls: pending` meanwhile; renewed 30 days before
   its end and applied to every listener together; the log says
   `tls: obtained (…)`, `tls: renewed (…)` or `tls: renewal failed: …`.
   Port 80 serves nothing but the challenges. `tls.mode = "files"` reads
@@ -205,7 +205,17 @@ docker compose up -d
 `bumail init` writes the starter `bumail.toml`, makes the directory, hosts
 the domains and generates their DKIM keys, then prints the next steps; it
 refuses to replace a file unless `--force`. `bumail health` asks the
-loopback `/healthz`, for the image's `HEALTHCHECK`. [Deploy with
+loopback `/healthz`, for the image's `HEALTHCHECK`:
+
+```sh
+docker compose exec bumail bumail health
+```
+
+```text
+ok
+```
+
+It exits 0 for a 200 and 1 otherwise. [Deploy with
 Docker](https://github.com/softistx/bumail/blob/develop/packages/server/docs/deploy.md)
 takes it from DNS to a test mail, with the Traefik variants (HTTP routers
 for JMAP and the ACME challenge, or TCP routers and the PROXY protocol for

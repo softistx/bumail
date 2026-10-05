@@ -1,4 +1,5 @@
-import { usage, word } from '../verbs';
+import { once, type Tokens } from '../tokens';
+import { usage } from '../verbs';
 
 /** `bumail init`: what to write, and where. */
 export interface InitArgs {
@@ -7,7 +8,7 @@ export interface InitArgs {
 	readonly hostname: string;
 	/** `data`, when not the default `/data`. */
 	readonly data: string | undefined;
-	/** The domains to host, the first one's `postmaster@` the default postmaster. */
+	/** The domains to host. */
 	readonly domains: readonly string[];
 	readonly acmeEmail: string | undefined;
 	readonly acmeStaging: boolean;
@@ -21,126 +22,48 @@ export interface InitArgs {
 	readonly force: boolean;
 }
 
-/** `bumail health`: asks the running server's health check. */
-export interface HealthArgs {
-	readonly kind: 'health';
-	readonly config: string | undefined;
-	/** A server still waiting for its certificate counts as healthy. */
-	readonly tlsPending: boolean;
-}
-
-/** The options of `init` that take a value, and what they take. */
-const VALUES: Readonly<Record<string, string>> = {
-	'--config': 'a file',
-	'--hostname': 'a host name',
-	'--data': 'a directory',
-	'--domain': 'a domain',
-	'--acme-email': 'an e-mail address',
-	'--acme-directory': 'an https: URL',
-	'--trusted-proxy': 'an address or a CIDR',
-};
-
-/** Whether `arg` is `name` or `name=value`. */
-const is = (arg: string, name: string) =>
-	arg === name || arg.startsWith(`${name}=`);
-
-/**
- * `init` or `health`, when `argv` has either as its command (the first
- * word, past `--config <file>`); `undefined` for any other command. Each
- * reads its own options and refuses the others.
- */
-export function resolveImage(
-	argv: readonly string[],
-): InitArgs | HealthArgs | undefined {
-	const words: string[] = [];
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i] ?? '';
-		if (arg === '--config') i++;
-		else if (!arg.startsWith('-')) words.push(arg);
-		if (words.length > 0) break;
-	}
-	const command = words[0];
-	if (command !== 'init' && command !== 'health') return undefined;
-	const values = new Map<string, string[]>();
-	const flags = new Set<string>();
-	let seen = false;
-	for (let i = 0; i < argv.length; i++) {
-		const arg = argv[i] ?? '';
-		if (!seen && arg === command) {
-			seen = true;
-			continue;
-		}
-		if (!arg.startsWith('-')) {
-			throw usage(`unexpected argument ${word(arg)}`);
-		}
-		const name = Object.keys(VALUES).find((key) => is(arg, key));
-		if (name !== undefined) {
-			const value = arg === name ? argv[i + 1] : arg.slice(name.length + 1);
-			if (value === undefined || value === '') {
-				throw usage(`${name} needs ${VALUES[name]}`);
-			}
-			if (arg === name) i++;
-			values.set(name, [...(values.get(name) ?? []), value]);
-		} else if (
-			[
-				'--acme-staging',
-				'--behind-traefik',
-				'--proxy-protocol',
-				'--force',
-				'--tls-pending',
-			].includes(arg)
-		) {
-			flags.add(arg);
-		} else {
-			throw usage(`unknown option ${arg.split('=')[0]?.slice(0, 20) ?? ''}`);
-		}
-	}
-	const once = (name: string): string | undefined => {
-		const found = values.get(name) ?? [];
-		if (found.length > 1) throw usage(`${name} is given twice`);
-		return found[0];
-	};
-	const config = once('--config');
-	if (command === 'health') {
-		const extra = [...values.keys(), ...flags].filter(
-			(n) => n !== '--config' && n !== '--tls-pending',
-		);
-		if (extra.length > 0) throw usage(`health takes no ${extra[0]}`);
-		return { kind: 'health', config, tlsPending: flags.has('--tls-pending') };
-	}
-	if (flags.has('--tls-pending')) throw usage('init takes no --tls-pending');
-	const hostname = once('--hostname');
-	if (hostname === undefined) throw usage('init needs --hostname');
-	const domains = values.get('--domain') ?? [];
-	if (domains.length === 0) throw usage('init needs at least one --domain');
-	if (flags.has('--acme-staging') && once('--acme-directory') !== undefined) {
-		throw usage('--acme-staging and --acme-directory are both given; give one');
-	}
-	const trustedProxies = values.get('--trusted-proxy') ?? [];
-	const behindTraefik = flags.has('--behind-traefik');
-	const proxyProtocol = flags.has('--proxy-protocol');
-	if (trustedProxies.length > 0 && !behindTraefik && !proxyProtocol) {
+/** The proxies' options: both variants need the network they trust, and it names no default. */
+function checkProxies(tokens: Tokens): void {
+	const trusted = tokens.values.get('--trusted-proxy') ?? [];
+	const traefik = tokens.flags.has('--behind-traefik');
+	const proxy = tokens.flags.has('--proxy-protocol');
+	if (trusted.length > 0 && !traefik && !proxy) {
 		throw usage(
 			'--trusted-proxy needs --behind-traefik or --proxy-protocol, which it names the proxies of',
 		);
 	}
-	if ((behindTraefik || proxyProtocol) && trustedProxies.length === 0) {
+	if ((traefik || proxy) && trusted.length === 0) {
 		throw usage(
-			`${behindTraefik ? '--behind-traefik' : '--proxy-protocol'} needs --trusted-proxy: the CIDR of the Docker network Traefik reaches bumail on`,
+			`${traefik ? '--behind-traefik' : '--proxy-protocol'} needs --trusted-proxy: the CIDR of the Docker network Traefik reaches bumail on`,
 		);
 	}
+}
+
+/** `init` takes everything but `--tls-pending`; `--hostname` and a `--domain` are required. */
+export function resolveInit(tokens: Tokens): InitArgs {
+	if (tokens.flags.has('--tls-pending'))
+		throw usage('init takes no --tls-pending');
+	const hostname = once(tokens, '--hostname');
+	if (hostname === undefined) throw usage('init needs --hostname');
+	const domains = tokens.values.get('--domain') ?? [];
+	if (domains.length === 0) throw usage('init needs at least one --domain');
+	const acmeDirectory = once(tokens, '--acme-directory');
+	if (tokens.flags.has('--acme-staging') && acmeDirectory !== undefined) {
+		throw usage('--acme-staging and --acme-directory are both given; give one');
+	}
+	checkProxies(tokens);
 	return {
 		kind: 'init',
-		config,
+		config: once(tokens, '--config'),
 		hostname,
-		data: once('--data'),
+		data: once(tokens, '--data'),
 		domains,
-		acmeEmail: once('--acme-email'),
-		acmeStaging: flags.has('--acme-staging'),
-		acmeDirectory: once('--acme-directory'),
-		behindTraefik,
-		proxyProtocol,
-		trustedProxies,
-		force: flags.has('--force'),
+		acmeEmail: once(tokens, '--acme-email'),
+		acmeStaging: tokens.flags.has('--acme-staging'),
+		acmeDirectory,
+		behindTraefik: tokens.flags.has('--behind-traefik'),
+		proxyProtocol: tokens.flags.has('--proxy-protocol'),
+		trustedProxies: tokens.values.get('--trusted-proxy') ?? [],
+		force: tokens.flags.has('--force'),
 	};
 }

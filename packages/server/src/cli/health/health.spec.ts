@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { tempDir } from '../config/config.fixtures';
-import { run } from './run';
+import { tempDir } from '../../config/config.fixtures';
+import { run } from '../run';
 
 const servers: { stop(force?: boolean): unknown }[] = [];
 afterEach(() => {
@@ -97,7 +97,7 @@ describe('bumail health --tls-pending', () => {
 	const waiting = {
 		status: 'unavailable',
 		listeners: { mx: 'down', http: 'up' },
-		tls: 'down',
+		tls: 'pending',
 		directory: 'ok',
 		store: 'ok',
 	};
@@ -150,6 +150,19 @@ describe('bumail health --tls-pending', () => {
 			(await ask({ ...waiting, listeners: { http: 'down' } }, 503, true)).code,
 		).toBe(1);
 		expect((await ask({ ...waiting, tls: 'up' }, 503, true)).code).toBe(1);
+		// The last certificate expired: `down`, with every listener up. That is an
+		// outage, not the first-start wait, even with the flag.
+		const expired = {
+			status: 'unavailable',
+			listeners: { mx: 'up', submissions: 'up', http: 'up', https: 'up' },
+			tls: 'down',
+			directory: 'ok',
+			store: 'ok',
+		};
+		expect((await ask(expired, 503, true)).code).toBe(1);
+		expect(
+			(await ask({ ...expired, listeners: { http: 'up' } }, 503, true)).code,
+		).toBe(1);
 		expect((await ask('not a report', 503, true)).code).toBe(1);
 	});
 });

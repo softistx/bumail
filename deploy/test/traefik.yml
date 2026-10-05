@@ -22,8 +22,8 @@ entryPoints:
 providers:
   docker:
     exposedByDefault: false
-    network: bumail-e2e-proxy
-    constraints: 'Label(`com.docker.compose.project`, `bumail-e2e-docker`)'
+    network: '@NETWORK@'
+    constraints: 'Label(`com.docker.compose.project`, `@PROJECT@`)'
   file:
     directory: /etc/traefik/dynamic
 certificatesResolvers:

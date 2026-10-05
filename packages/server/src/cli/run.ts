@@ -3,7 +3,7 @@ import { readConfig } from '../config/read';
 import { ServerError, type ServerErrorCode } from '../errors';
 import { parseArgs } from './args';
 import { dnsCommand } from './dns';
-import { health } from './health';
+import { health } from './health/health';
 import { HELP } from './help';
 import { init } from './init';
 import { manage } from './manage';

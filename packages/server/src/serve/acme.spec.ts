@@ -136,7 +136,7 @@ describe('tls.mode = "acme": a stored certificate', () => {
 });
 
 describe('tls.mode = "acme": waiting for a first certificate', () => {
-	test('port 80 and the health check are up, the health check says tls: down, the log says it is waiting, and a signal ends the wait', async () => {
+	test('port 80 and the health check are up, the health check says tls: pending, the log says it is waiting, and a signal ends the wait', async () => {
 		const dir = tempDir();
 		const abort = new AbortController();
 		const health = freePort();
@@ -159,7 +159,7 @@ describe('tls.mode = "acme": waiting for a first certificate', () => {
 		expect(report.status).toBe(503);
 		expect(await report.json()).toMatchObject({
 			status: 'unavailable',
-			tls: 'down',
+			tls: 'pending',
 			listeners: { mx: 'down', https: 'down', http: 'up' },
 		});
 		const home = await fetch(`http://127.0.0.1:${http}/`, {

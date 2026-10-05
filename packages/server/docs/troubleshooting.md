@@ -288,7 +288,7 @@ directory commands' own refusals are under
 
 - [`bumail: … exists; --force replaces it, and keeps the directory and its keys`](#bumail--exists---force-replaces-it-and-keeps-the-directory-and-its-keys)
 - [`bumail: init needs …`, `--behind-traefik needs --trusted-proxy …`](#bumail-init-needs--behind-traefik-needs---trusted-proxy-)
-- [`bumail: <file>:` and `  hostname: …`, from `init`](#bumail-file-and--hostname--from-init)
+- [`bumail: <file>:` and `hostname: …`, from `init`](#bumail-file-and-hostname--from-init)
 - [`bumail: unhealthy: …`, `bumail: the health check is turned off (ports.health = 0)`](#bumail-unhealthy--bumail-the-health-check-is-turned-off-portshealth--0)
 - [`… returned 404`: the challenge behind Traefik](#-returned-404-the-challenge-behind-traefik)
 - [`Failed to listen at …: EACCES`, in the container](#failed-to-listen-at--eacces-in-the-container)
@@ -1586,7 +1586,7 @@ wait goes on. Send it again once the server is serving.
 **When**: at start, with no usable certificate. It is logged at once and
 every 30 seconds while the server asks `<directory>` for one. The TLS
 listeners are not up yet: port 80 and the health check are, and
-`GET /healthz` answers 503 with `"tls":"down"`. See
+`GET /healthz` answers 503 with `"tls":"pending"`. See
 [the first start](serve.md#the-first-start).
 
 **Fix**: wait for `tls: obtained (…)`, or read the
@@ -1697,10 +1697,13 @@ window.
 ### The health check says `"tls":"down"`
 
 **When**: with `tls.mode = "acme"`, `GET /healthz` answers 503 and its
-body has `"tls":"down"`. At start it means no certificate has come yet
-([`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-));
-later, that the certificate in use has expired, because every renewal
-failed ([`tls: renewal failed: …`](#tls-renewal-failed-)).
+body has `"tls":"pending"` or `"tls":"down"`. `pending` is the first
+start: no certificate has come yet
+([`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-)),
+for the bounded tries, after which the server exits 5. `down` is that the
+certificate in use has expired, because every renewal failed
+([`tls: renewal failed: …`](#tls-renewal-failed-)); the listeners are up
+and the server is unhealthy until a certificate comes.
 
 ### `tls: reloaded (…)`
 
@@ -2306,10 +2309,14 @@ message ends `; see bumail --help` (exit code 2, nothing written):
 - `… is given twice` for an option that takes one value (`--hostname`,
   `--data`, `--acme-email`, `--acme-directory`, `--config`); only
   `--domain` and `--trusted-proxy` repeat.
+- A warning, not a refusal (`bumail: warning: --trusted-proxy names a
+  range that is not private or loopback …`): the file is written. A trusted
+  proxy is believed about the client's address, so list only the
+  proxy's network, such as the Docker network.
 - `init takes no --tls-pending`, and `health takes no …`: each command
   takes its own options.
 
-### `bumail: <file>:` and `  hostname: …`, from `init`
+### `bumail: <file>:` and `hostname: …`, from `init`
 
 **When**: the configuration `init` would write does not pass the checks
 of `check-config`, whose problems it prints under the file's name: a
@@ -2331,7 +2338,8 @@ runs, on `ports.health` at `health.bind` (loopback by default), and exits
 
 - `bumail: unhealthy: 503 {"status":"unavailable",…}` (exit 1): the server
   answered and says what is down: a listener, the directory, the store,
-  or `"tls":"down"` while it waits for a certificate
+  `"tls":"pending"` while it waits for its first certificate, or
+  `"tls":"down"` past the end of the last one
   ([the health check](serve.md#the-health-check)).
 - `bumail: unhealthy: http://127.0.0.1:8080/healthz did not answer; is
   bumail serve running?` (exit 1): nothing listens: the server is not
@@ -2342,9 +2350,12 @@ runs, on `ports.health` at `health.bind` (loopback by default), and exits
 - A configuration that does not load fails as `check-config` does, exit 1.
 
 `bumail health --tls-pending` also exits 0 (`ok (waiting for a
-certificate)`) for a 503 that is only this: the server waits for its first
-certificate, or is past the end of the last, and its port-80 listener, the
-directory and the store answer.
+certificate)`) for a 503 that is only `"tls":"pending"`: the server waits for its
+**first** certificate, and its port-80 listener, the directory and the
+store answer. An expired certificate is `"tls":"down"`, and stays
+unhealthy with the flag. A first certificate that never comes keeps the
+container healthy only during the bounded first-start tries (five, about
+four minutes), after which the server exits 5 and the container restarts.
 
 ### `… returned 404`: the challenge behind Traefik
 
@@ -2365,7 +2376,7 @@ starting)`.
 
 **Fix**: the health check in `compose.traefik.yaml` and
 `compose.traefik-tcp.yaml` is `bumail health --tls-pending`, which counts
-that wait as healthy. A compose file of your own needs the same in its
+that first-start wait (`"tls":"pending"`) as healthy, and nothing else. A compose file of your own needs the same in its
 `healthcheck:`, or none. Other causes of a 404 or a timeout on port 80
 (a redirect on the `web` entry point, a Traefik resolver on the HTTP
 challenge, a router of higher priority) are in
@@ -2446,15 +2457,18 @@ files). Do not use a CA you do not control for a real server.
 **Why**: the proxy does not send the PROXY protocol, or bumail does not
 read it, so the TCP peer is the client.
 
-**Fix**: three parts must agree. The TCP services carry the label
-`traefik.tcp.services.<name>.loadbalancer.serverstransport=bumail-proxy-v2@file`,
-and the file provider holds that transport with `proxyProtocol.version: 2`
-([deploy guide](deploy.md#behind-traefik-mail-ports-included-tcp-routers-and-the-proxy-protocol));
-and `[proxyProtocol] trusted` holds Traefik's address (`bumail init
---proxy-protocol --trusted-proxy <subnet>`). A peer that is **not** in
-`trusted` is served as itself, so the proxy's address was not in the
-list; one that is, and sends no header, is reset, so the connection is
-reset instead.
+**Fix**: three things must agree:
+
+- the TCP services carry the label
+  `traefik.tcp.services.<name>.loadbalancer.serverstransport=bumail-proxy-v2@file`;
+- the file provider holds that transport, with `proxyProtocol.version: 2`
+  ([deploy guide](deploy.md#behind-traefik-mail-ports-included-tcp-routers-and-the-proxy-protocol));
+- `[proxyProtocol] trusted` holds Traefik's address (`bumail init
+  --proxy-protocol --trusted-proxy <subnet>`).
+
+If Traefik's address is not in `trusted`, bumail serves it as itself and
+every log line names Traefik. If it is, and Traefik sends no header, the
+connection is reset instead.
 
 ## Usage
 

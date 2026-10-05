@@ -44,9 +44,15 @@ export class Acme {
 		return this.#run.challenge;
 	}
 
-	/** `up` while a certificate that has not expired is in use, `down` before the first and past the end of the last. */
-	get tls(): 'up' | 'down' {
-		const leaf = this.#current && leafOf(this.#current.cert);
+	/**
+	 * `up` while a certificate that has not expired is in use; `pending`
+	 * while the first one is awaited and no pair has been served yet (the
+	 * bounded first-start tries, after which the server exits); `down` past
+	 * the end of the last one served.
+	 */
+	get tls(): 'up' | 'pending' | 'down' {
+		if (this.#current === undefined) return 'pending';
+		const leaf = leafOf(this.#current.cert);
 		return leaf !== undefined && new Date(leaf.validTo) > new Date()
 			? 'up'
 			: 'down';

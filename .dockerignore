@@ -11,7 +11,7 @@ examples
 deploy
 *.md
 !packages/**/*.md
-.env
-.env.*
+**/.env
+**/.env.*
 *.log
 .DS_Store

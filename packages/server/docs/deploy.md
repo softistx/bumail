@@ -33,8 +33,9 @@ running it behind Traefik, upgrades, backups, logs and the firewall.
   it; the server then cannot deliver to other servers. Ask the provider
   to open it, or send through a relay with
   [`[smarthost]`](guide.md#smarthost) on 587 or 465.
-- Ports 25, 80, 443, 465, 587 and 993 free on the host, or Traefik in
-  front of some of them ([behind Traefik](#behind-traefik)).
+- **Ports 25, 80, 443, 465, 587 and 993 open inbound** to the host (the
+  provider's firewall; see [the firewall](#the-firewall)), and free on
+  it, or Traefik in front of some of them ([behind Traefik](#behind-traefik)).
 
 ## Choose a variant
 
@@ -129,9 +130,14 @@ next steps:
   3. start the server:       bumail serve
 ```
 
+The steps it prints name `bumail …`: in Docker each one is
+`docker compose run --rm bumail …` (steps 4 and 6 below), and the server
+is started by step 5.
+
 `init` wrote `bumail.toml`, made the directory of domains and users,
 and generated the domain's DKIM key, all on the `/data` volume. It accepts the ACME CA's terms of service on your behalf: read
-Let's Encrypt's before you run it. The file is short on purpose, and
+Let's Encrypt's before you run it. The file is written readable by its owner alone (mode 0600). `init` warns
+when a `--trusted-proxy` is not a private or loopback range. The file is short on purpose, and
 every key it leaves out has its default ([the guide](guide.md)):
 
 ```toml
@@ -225,8 +231,18 @@ bumail-e2e-docker-standalone-bumail-1   bumail:e2e-docker   "/usr/local/bin/buma
 (Also from the end-to-end test, which publishes on high ports of
 127.0.0.1; yours is `bumail-bumail-1` with `0.0.0.0:25->25/tcp`, and so on.)
 
-`docker compose run --rm bumail health` is the same check by hand
-(`ok`, exit 0). A certificate that does not come, and why, is
+The same check by hand, in the running container (a `run` would start a
+new one, where nothing listens):
+
+```sh
+docker compose exec bumail bumail health
+```
+
+```text
+ok
+```
+
+It exits 0 for `ok` and 1 for anything else, and prints why. A certificate that does not come, and why, is
 [in troubleshooting](troubleshooting.md#tls-and-acme).
 
 ### 6. Publish the DNS records and check them
@@ -351,10 +367,13 @@ TRAEFIK_CERT_RESOLVER=letsencrypt
 ```
 
 Step 3 adds the two flags that make JMAP plain HTTP for Traefik, and the
-network Traefik reaches bumail on, which JMAP trusts and nothing else:
+IPv4 subnet of the network Traefik reaches bumail on, which JMAP trusts
+and nothing else:
 
 ```sh
-SUBNET=$(docker network inspect proxy --format '{{(index .IPAM.Config 0).Subnet}}')
+TRAEFIK_NETWORK=proxy   # the value in .env
+SUBNET=$(docker network inspect "$TRAEFIK_NETWORK" \
+  --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -m1 '\.')
 docker compose run --rm bumail init \
   --hostname mail.example.com --domain example.com \
   --acme-email postmaster@example.com \
@@ -405,7 +424,21 @@ The container's health check here is `bumail health --tls-pending`,
 because Traefik routes only to a container Docker calls healthy, and a
 first start waits for its certificate while the CA must reach port 80
 through Traefik: without it the challenge gets a 404 and the first
-certificate never comes. Any fault but that wait is still unhealthy.
+certificate never comes. The flag accepts one thing only: the health
+check's `"tls":"pending"`, the first-start wait with port 80, the
+directory and the store answering. An expired certificate (`"tls":"down"`)
+or any other fault is unhealthy. A first certificate that never comes
+keeps the container healthy only during the bounded first-start tries
+(five, about four minutes), after which the server exits 5 and Docker
+restarts it.
+
+**Traefik versions.** Tested with Traefik v3.7.13 (the end-to-end test
+pins it). The TCP variant's `serversTransport` with `proxyProtocol` needs
+**v3.5.2 or later**: that is the first v3 release whose TCP
+`serversTransports` reference documents `proxyProtocol` (v3.5.1 and the
+v3.0 to v3.4 documentation set it on the service, as
+`loadBalancer.proxyProtocol`, and have no such transport option). The
+HTTP variant needs only Traefik v3 with the Docker provider.
 
 ## Behind Traefik, mail ports included: TCP routers and the PROXY protocol
 
