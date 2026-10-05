@@ -555,8 +555,10 @@ const imap = imapAuthenticate(directory, store, {
 ```
 
 `jmapAuthenticate(directory, store, ipOf)` is `@bumail/jmap`'s, given
-how to read the client's address from a request (`(request) =>
-server.requestIP(request)?.address ?? ''`); it refuses a Bearer token,
+how to read the client's address: `ipOf(request, client)` gets the
+`client` `@bumail/jmap` names, the host app's `ctx.ip` — behind its
+`trustProxy`, the forwarded client's — so `(_request, client) =>
+client?.ip ?? ''` is the usual one; it refuses a Bearer token,
 which v1 does not issue. Each adapter throws on `busy`, which each
 listener answers as a temporary failure (`454`, `NO [UNAVAILABLE]`,
 `503`).

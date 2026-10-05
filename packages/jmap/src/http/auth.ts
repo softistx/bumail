@@ -1,5 +1,5 @@
 import { JmapError } from '../errors';
-import type { JmapCredentials } from '../server/options';
+import type { JmapClient, JmapCredentials } from '../server/options';
 import type { Settings } from '../server/settings';
 import { cut } from '../shared/text';
 
@@ -65,13 +65,17 @@ export function credentialsOf(
 	};
 }
 
-function isSecure(settings: Settings, request: Request): boolean {
+function isSecure(
+	settings: Settings,
+	request: Request,
+	client: JmapClient,
+): boolean {
 	const { secure } = settings.options;
 	if (secure === undefined) return new URL(request.url).protocol === 'https:';
 	try {
-		return secure(request) === true;
+		return secure(request, client) === true;
 	} catch (error) {
-		settings.options.onError?.(error, { request });
+		settings.options.onError?.(error, { request, client });
 		return false;
 	}
 }
@@ -81,6 +85,7 @@ async function ask(
 	settings: Settings,
 	credentials: JmapCredentials,
 	request: Request,
+	client: JmapClient,
 ): Promise<unknown> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const timeout = new Promise<never>((_, reject) => {
@@ -98,7 +103,7 @@ async function ask(
 	try {
 		return await Promise.race([
 			Promise.resolve().then(() =>
-				settings.options.authenticate(credentials, request),
+				settings.options.authenticate(credentials, request, client),
 			),
 			timeout,
 		]);
@@ -107,25 +112,26 @@ async function ask(
 	}
 }
 
-/** Authenticates a request: the account it is served as, or why not. */
+/** Authenticates a request from `client`: the account it is served as, or why not. */
 export async function authenticate(
 	settings: Settings,
 	request: Request,
+	client: JmapClient,
 ): Promise<Authenticated | Refusal> {
 	const credentials = credentialsOf(request.headers.get('authorization'));
 	if (credentials === undefined) return REQUIRED;
 	if (
 		credentials.scheme === 'basic' &&
 		settings.options.allowInsecureBasic !== true &&
-		!isSecure(settings, request)
+		!isSecure(settings, request, client)
 	) {
 		return CLEAR;
 	}
 	const onError = (error: unknown) =>
-		settings.options.onError?.(error, { request });
+		settings.options.onError?.(error, { request, client });
 	let answer: unknown;
 	try {
-		answer = await ask(settings, credentials, request);
+		answer = await ask(settings, credentials, request, client);
 	} catch (error) {
 		onError(error);
 		return UNAVAILABLE;

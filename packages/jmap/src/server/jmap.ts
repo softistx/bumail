@@ -1,4 +1,10 @@
-import { alxia, defineMiddleware, refusalOf, validate } from '@alxia/core';
+import {
+	alxia,
+	defineMiddleware,
+	originalUrl,
+	refusalOf,
+	validate,
+} from '@alxia/core';
 import { handleApi } from '../http/api';
 import {
 	type Authenticated,
@@ -85,7 +91,9 @@ export interface JmapServer {
  * A JMAP server (RFC 8620, RFC 8621) as an alxia app, to `plugin` in a host
  * app: the session at `/.well-known/jmap`, and under `basePath` the API,
  * download and upload. Every route authenticates its request first; the
- * host's own routes are left alone.
+ * host's own routes are left alone. The host's `ip` and `proxy` options
+ * say who a request is from: `authenticate`, `secure` and `onError` are
+ * told its `ctx.ip` and `originalUrl(ctx)`.
  */
 export function jmap(options: JmapOptions) {
 	const settings = settingsOf(options);
@@ -94,10 +102,11 @@ export function jmap(options: JmapOptions) {
 	const { limits } = settings;
 	const app = alxia().group((scope) =>
 		scope
-			.derive(async ({ request }) => {
-				const result = await authenticate(settings, request);
+			.derive(async (ctx) => {
+				const client = { ip: ctx.ip, url: originalUrl(ctx) };
+				const result = await authenticate(settings, ctx.request, client);
 				return 'accountId' in result
-					? { auth: result as Authenticated }
+					? { auth: result as Authenticated, client }
 					: refuse(result);
 			})
 			.get('/.well-known/jmap', ({ auth, reply }) =>
@@ -109,7 +118,8 @@ export function jmap(options: JmapOptions) {
 				`${base}/api` as '/jmap/api',
 				{ bodyLimit: limits.maxSizeRequest },
 				refused({ limit: 'maxSizeRequest' }),
-				({ auth, request, reply }) => handleApi(runtime, auth, request, reply),
+				({ auth, client, request, reply }) =>
+					handleApi(runtime, auth, client, request, reply),
 			)
 			.get(
 				`${base}/download/:accountId/:blobId/:name` as '/jmap/download/:accountId/:blobId/:name',

@@ -112,21 +112,32 @@ export function imapAuthenticate(
 	};
 }
 
+/** Who a JMAP request is from, as `@bumail/jmap` tells `authenticate`: its `JmapClient`, by shape. */
+export interface JmapLoginClient {
+	readonly ip: string | undefined;
+}
+
 /**
  * `@bumail/jmap`'s `authenticate`: as `imapAuthenticate`, for Basic
  * credentials; a Bearer token is refused, there being none in v1. The
- * client's address comes from `ipOf`, as the HTTP server knows it
- * (`server.requestIP(request)`).
+ * client's address comes from `ipOf`, given the request and the client
+ * jmap names (`ctx.ip`, behind the host's `trustProxy` the forwarded
+ * client's): `(_request, client) => client.ip`, or the HTTP server's
+ * own reading (`server.requestIP(request)`).
  */
 export function jmapAuthenticate(
 	directory: Authenticates,
 	store: MailStore,
-	ipOf: (request: Request) => string,
+	ipOf: (request: Request, client?: JmapLoginClient) => string,
 	options: AdapterOptions = {},
-): (credentials: JmapLogin, request: Request) => Promise<string | null> {
-	return async (credentials, request) => {
+): (
+	credentials: JmapLogin,
+	request: Request,
+	client?: JmapLoginClient,
+) => Promise<string | null> {
+	return async (credentials, request, client) => {
 		if (credentials.scheme !== 'basic') return null;
-		const ip = ipOf(request);
+		const ip = ipOf(request, client);
 		const result = await checkLogin(
 			directory,
 			credentials.username,

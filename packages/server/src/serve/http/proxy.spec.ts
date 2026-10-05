@@ -112,6 +112,12 @@ describe('jmap behind a proxy that ends TLS', () => {
 		);
 	});
 
+	test('counts a chain of proxies alone under the leftmost, the proxy that sent it', async () => {
+		fixture = await startJmap(PROXY_CONFIG);
+		await fixture.session(forwarded('::1', { authorization: basic('wrong') }));
+		expect(fixture.lines).toContain('https: login refused from ::1: password');
+	});
+
 	test('refuses Basic when the proxy does not say TLS ended', async () => {
 		fixture = await startJmap(PROXY_CONFIG);
 		const response = await fixture.session({
@@ -119,6 +125,20 @@ describe('jmap behind a proxy that ends TLS', () => {
 			'x-forwarded-for': '203.0.113.7',
 		});
 		expect(response.status).toBe(403);
+	});
+
+	test('reads the scheme the outermost trusted proxy wrote, on a chain where every proxy appends', async () => {
+		fixture = await startJmap(PROXY_CONFIG);
+		// client → ::1, which ends TLS → 127.0.0.1 → bumail, each appending.
+		const chain = (proto: string) =>
+			fixture?.session(
+				forwarded('203.0.113.7, ::1', { 'x-forwarded-proto': proto }),
+			);
+		expect((await chain('https, http'))?.status).toBe(200);
+		// The outermost proxy says the client spoke plain HTTP: Basic is refused.
+		expect((await chain('http, https'))?.status).toBe(403);
+		// What the client wrote, left of what the proxies did, is never read.
+		expect((await chain('http, https, http'))?.status).toBe(200);
 	});
 
 	test('ignores X-Forwarded-For and X-Forwarded-Proto from a peer that is not trusted', async () => {
@@ -143,8 +163,15 @@ describe('jmap behind a proxy that ends TLS', () => {
 			forwarded('203.0.113.7'),
 			{ 'x-forwarded-proto': 'https' },
 		]) {
-			expect((await fixture.session(headers)).status).toBe(403);
+			const response = await fixture.session(headers);
+			expect(response.status).toBe(403);
+			expect(await response.json()).toEqual({ error: 'untrusted_proxy' });
 		}
+		// Before routing: a path no route serves is refused the same way.
+		const other = await fetch(
+			`http://127.0.0.1:${fixture.port('https')}/nothing-here`,
+		);
+		expect(other.status).toBe(403);
 		expect(fixture.lines.join('\n')).not.toContain('login refused');
 	});
 

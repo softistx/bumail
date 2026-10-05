@@ -395,15 +395,24 @@ is the TCP peer. With `"proxy"`:
 
 - a request from a **trusted** peer: the client is the right-most
   `X-Forwarded-For` entry that is not itself a trusted proxy, and the
-  request counts as TLS when the right-most `X-Forwarded-Proto` is
-  `https`. What a client wrote to the left of the chain is never read
-  past that entry, so a spoofed `X-Forwarded-For` does not choose the
-  bucket. With no usable entry (none, only proxies, or one that is no IP
-  address) the client is the peer;
+  request counts as TLS when the `X-Forwarded-Proto` entry the
+  **outermost** trusted proxy wrote is `https`: as many places from the
+  right as the proxies the chain passed (the peer included), or the
+  leftmost when there are fewer, for a proxy that overwrote the header.
+  So a chain where every proxy appends (`https, http`: the edge ended
+  TLS, the inner proxy spoke HTTP to bumail) counts as TLS. What a
+  client wrote to the left of the chain is never read past that entry,
+  so a spoofed `X-Forwarded-For` does not choose the bucket. A chain of
+  trusted proxies alone is counted under its leftmost, the proxy that
+  sent the request; with no entry, or one that is no IP address (an
+  empty one included), the client is the peer. This is `@alxia/core`'s
+  `trustProxy` reading, with `jmap.trusted` as its `trusted`;
 - a request from a peer that is **not** trusted is answered **403**
-  before anything else is read: no header, no login, no route. Only the
-  proxies are served, so `X-Forwarded-For` and `X-Forwarded-Proto` from
-  anyone else count for nothing;
+  (`{"error":"untrusted_proxy"}`, `trustProxy`'s `untrusted:
+  'refuse-all'`) before anything else is read: no header, no login, no
+  route. Only the proxies are served, so `X-Forwarded-For` and
+  `X-Forwarded-Proto` from anyone else count for nothing. The health
+  check is its own listener, on loopback, and is not behind this;
 - an address is counted as one text, whichever listener it came to:
   RFC 5952's form, an IPv4-mapped address as its IPv4 address. So one
   client is one entry of the failure limiter across JMAP, IMAP and

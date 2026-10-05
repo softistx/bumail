@@ -255,7 +255,7 @@ directory commands' own refusals are under
 - [`https: error in a request from …: …`](#https-error-in-a-request-from--)
 - [`https: a request with no client address was refused`](#https-a-request-with-no-client-address-was-refused)
 - [`Basic authentication is refused on a clear connection: use HTTPS`](#basic-authentication-is-refused-on-a-clear-connection-use-https), the 403 of JMAP
-- [`forbidden`, the 403 of a peer `jmap.trusted` does not list](#forbidden-the-403-of-a-peer-jmaptrusted-does-not-list)
+- [`untrusted_proxy`, the 403 of a peer `jmap.trusted` does not list](#untrusted_proxy-the-403-of-a-peer-jmaptrusted-does-not-list)
 - [`https: login refused from …: blocked`, with the proxy's address](#https-login-refused-from--blocked-with-the-proxys-address)
 - [`health: unhealthy: …`](#health-unhealthy-), `health: healthy again`, and a 503 from `/healthz`
 - [`mx: error in a session from …: …`](#mx-error-in-a-session-from--), and `submissions:`, `submission:`, `imaps:`, `imap:`
@@ -1491,8 +1491,9 @@ itself goes on as usual.
 `jmapAuthenticate`, answered no address.
 
 **Fix**: pass the client's real address: for JMAP, `ipOf` as
-`(request) => server.requestIP(request)?.address ?? ''`; behind a
-proxy, the address the proxy reports. To log it elsewhere, give
+`(_request, client) => client?.ip ?? ''`, the host app's `ctx.ip`;
+behind a proxy, declare it with `trustProxy` on the host app, so
+`ctx.ip` is the address the proxy reports. To log it elsewhere, give
 `Directory.open` an `onUnlimited` callback.
 
 #### `maxVerifies must be an integer of 1 or more`
@@ -2038,16 +2039,22 @@ take for TLS, and is refused before the password is read.
 - **Direct** (`jmap.mode = "https"`): the client used `http:` on the
   HTTPS port, which Bun does not serve, or a test tool did. Use
   `https:`.
-- **Behind a proxy**: the proxy did not send `X-Forwarded-Proto:
-  https`. Check that it ends TLS and sets the header, as Traefik does.
-  A peer not in `jmap.trusted` never gets this far: see
-  [`forbidden`](#forbidden-the-403-of-a-peer-jmaptrusted-does-not-list).
+- **Behind a proxy**: the outermost trusted proxy did not write
+  `X-Forwarded-Proto: https`. Check that it ends TLS and sets the header,
+  as Traefik does. Behind two proxies that each append, the entry read is
+  the outer one's, as many places from the right as there are proxies:
+  list every proxy of the chain in `jmap.trusted`, or the inner one's
+  entry is read instead. A peer not in `jmap.trusted` never gets this
+  far: see
+  [`untrusted_proxy`](#untrusted_proxy-the-403-of-a-peer-jmaptrusted-does-not-list).
 
-### `forbidden`: the 403 of a peer `jmap.trusted` does not list
+### `untrusted_proxy`: the 403 of a peer `jmap.trusted` does not list
 
 With `jmap.mode = "proxy"`, every request is answered `403` with the
-body `forbidden` when its TCP peer is not in `jmap.trusted`: before any
-header, login or route is looked at, and not logged. Usually the proxy
+body `{"error":"untrusted_proxy"}` when its TCP peer is not in
+`jmap.trusted`: before any header, login or route is looked at, and not
+logged. (Releases on `@alxia/core` 0.9 or earlier answered `forbidden`,
+in plain text.) Usually the proxy
 connects from an address you did not list (another Docker network, or
 its container's address instead of the network's): put the address or
 CIDR it connects from in `trusted`. A client reaching the plain HTTP port
@@ -2059,7 +2066,9 @@ Every login behind the proxy is `blocked` after a few failures, from an
 address that is Traefik's: the proxy sends no `X-Forwarded-For`, or
 puts its own address last, an address `trusted` does not cover. Check
 the header Traefik sends, and that `trusted` lists every proxy of the
-chain; the logged `<ip>` is then each client's.
+chain; the logged `<ip>` is then each client's. A request whose chain
+names trusted proxies alone, such as a proxy's own check, is counted
+under the leftmost of them.
 
 ### `health: unhealthy: …`
 

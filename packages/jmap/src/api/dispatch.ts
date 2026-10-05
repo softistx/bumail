@@ -33,6 +33,7 @@ function errorOf(error: unknown, ctx: CallContext, method: string): Args {
 	}
 	ctx.settings.options.onError?.(error, {
 		request: ctx.request,
+		client: ctx.client,
 		accountId: ctx.accountId,
 		method,
 	});
