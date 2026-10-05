@@ -86,6 +86,36 @@ describe('authentication', () => {
 		}
 	});
 
+	test('a wrong method is a 401 before it is a 405: Allow is said to an authenticated client alone', async () => {
+		h = await harness();
+		const routes: [string, string, string][] = [
+			['/.well-known/jmap', 'DELETE', 'GET'],
+			['/jmap/api', 'GET', 'POST'],
+			[`/jmap/download/${h.alice.id}/b1/x.eml`, 'PUT', 'GET'],
+			[`/jmap/upload/${h.alice.id}`, 'GET', 'POST'],
+		];
+		for (const [path, method, allow] of routes) {
+			for (const authorization of ['', 'Bearer wrong']) {
+				const refused = await h.fetch(path, {
+					method,
+					headers: { authorization },
+				});
+				expect(refused.status).toBe(401);
+				expect(refused.headers.get('allow')).toBeNull();
+				expect(refused.headers.get('www-authenticate')).toContain(
+					'Bearer realm="JMAP"',
+				);
+			}
+			const wrong = await h.fetch(path, { method });
+			expect(wrong.status).toBe(405);
+			expect(wrong.headers.get('allow')).toBe(allow);
+		}
+		const nowhere = await h.fetch('/nowhere', {
+			headers: { authorization: '' },
+		});
+		expect(nowhere.status).toBe(404);
+	});
+
 	test('Basic is refused unread on a clear request, as imap and smtp refuse AUTH before TLS', async () => {
 		const seen: unknown[] = [];
 		h = await harness('memory', {

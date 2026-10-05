@@ -83,6 +83,10 @@ request, for its name, which the session calls `username`.
 | Basic on a clear request | 403 `Basic authentication is refused on a clear connection: use HTTPS`, `authenticate` not called |
 | `authenticate` throws, does not settle within `hookTimeout`, answers something other than an account id or `null`, or names an account the store does not have; or the store's `getAccount` throws | 503 `Temporary authentication failure`, with `Retry-After: 5`; `onError` is told |
 
+The authentication runs before the method is checked: a request with the
+wrong method gets the 401 above until its credentials are accepted, and
+only then the 405, whose `Allow` names the path's methods.
+
 Every 401 carries both challenges, `Basic realm="JMAP", charset="UTF-8"`
 and `Bearer realm="JMAP"`. Every refusal is an RFC 7807 problem
 (`application/problem+json`) of type `about:blank`.

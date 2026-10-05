@@ -155,4 +155,12 @@ property, but push is a later slice and nothing serves it yet. Poll with
 ## `405 {"error":"method_not_allowed"}`
 
 alxia's answer for a route asked with the wrong method: the API and
-uploads are `POST`, the session and downloads `GET` (and `HEAD`).
+uploads are `POST`, the session and downloads `GET` (and `HEAD`). Its
+`Allow` names the methods the path takes.
+
+Only an authenticated client gets it. A request with the wrong method and
+no credentials, or wrong ones, gets the
+[401](authentication.md#401-authentication-required) first, with no
+`Allow`, so a client cannot list the routes without logging in. A 405 you
+expected in a test or a probe that sends no `Authorization` is now that
+401: send the credentials to see the 405.
