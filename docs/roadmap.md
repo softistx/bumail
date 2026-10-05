@@ -72,7 +72,7 @@ No dates. Each entry says what someone running or embedding the server gets.
   submission and IMAP exist, a real mail client (Thunderbird, Apple Mail)
   logs in, sends and reads through bumail itself.
 - **The DNS records a domain needs, MTA-STS and TLS-RPT** — `bumail dns`
-  (merged, not released) already prints each domain's MX, SPF, DKIM,
+  (in @bumail/server 0.1.0) already prints each domain's MX, SPF, DKIM,
   DMARC and autoconfig SRV records, as a BIND zone file or as JSON, each
   value written by `@bumail/auth` (`spfRecord`, `dmarcRecord`,
   `dkimRecord`) and the zone by `@bumail/dns` (`formatZone`), and checks
