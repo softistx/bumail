@@ -2,16 +2,10 @@ import type { Resolver } from '@bumail/dns';
 import type { ServerConfig } from '../config/types';
 import { directoryFile } from '../directory/database';
 import { Directory } from '../directory/directory';
-import { ServerError } from '../errors';
 import { type OpenedStore, openStore } from '../store/open';
-import {
-	bindOf,
-	createListener,
-	LISTENERS,
-	type Listener,
-	type ListenerName,
-	type Resources,
-} from './listeners';
+import { Acme, type AcmeOptions, NO_PAIR } from './acme';
+import { type Bound, bindAll } from './bind';
+import type { ListenerName } from './listeners';
 import type { Log } from './log';
 import {
 	type OpenedQueueStore,
@@ -25,7 +19,8 @@ import { logStart, warnPostmaster } from './start-log';
 import { closeResources, stopper } from './stop';
 import { readTls } from './tls';
 
-export { LATER, type ListenerName } from './listeners';
+export type { AcmeOptions } from './acme';
+export type { ListenerName } from './listeners';
 
 /** Seconds a stop waits for SMTP sessions to end, by default. */
 export const DEFAULT_DRAIN_SECONDS = 10;
@@ -45,6 +40,14 @@ export interface ServeOptions {
 	readonly drainSeconds?: number;
 	/** The queue's network, for specs: the port of MX hosts, a CA to trust, how often it looks. */
 	readonly outbound?: OutboundOptions;
+	/** With `tls.mode = "acme"`, for specs: the CA's `fetch`, the clock and the timings. */
+	readonly acme?: AcmeOptions;
+	/**
+	 * Aborts the wait for a first certificate (`tls.mode = "acme"` with
+	 * none stored): `serve` then rejects with `UNAVAILABLE`, having stopped
+	 * what it started. Moot once the listeners are up: `stop` ends those.
+	 */
+	readonly signal?: AbortSignal;
 }
 
 /** A listener bound. */
@@ -66,9 +69,11 @@ export interface RunningServer {
 	 */
 	stop(options?: { readonly force?: boolean }): Promise<void>;
 	/**
-	 * Looks at `tls.cert` and `tls.key` now — as `bumail serve` does on
-	 * SIGHUP — and switches every TLS listener to a renewed pair, if there
-	 * is one; logs what it found. Resolves once it looked, whatever it found.
+	 * Looks at `tls.cert` and `tls.key` now — with `tls.mode = "acme"`, at
+	 * the pair stored on the volume — as `bumail serve` does on SIGHUP,
+	 * and switches every TLS listener to a renewed pair, if there is one;
+	 * logs what it found. It never starts a renewal. Resolves once it
+	 * looked, whatever it found.
 	 */
 	reloadTls(): Promise<void>;
 }
@@ -76,15 +81,6 @@ export interface RunningServer {
 const defaultLog: Log = (line) => {
 	process.stdout.write(`${line}\n`);
 };
-
-/** Bun's reason for a bind that failed, with its code when the message leaves it out. */
-function bindReason(error: unknown): string {
-	const message = error instanceof Error ? error.message : String(error);
-	const code = (error as { code?: unknown } | undefined)?.code;
-	return typeof code === 'string' && !message.includes(code)
-		? `${message}: ${code}`
-		: message;
-}
 
 /** The directory, the store and the queue's, opened; those opened closed again when one fails. */
 async function openResources(config: ServerConfig): Promise<{
@@ -106,47 +102,16 @@ async function openResources(config: ServerConfig): Promise<{
 	}
 }
 
-/** Binds each listener of `resources` whose port is not 0; on a failure, stops those bound and throws `UNAVAILABLE`. */
-async function bindListeners(
-	resources: Resources,
-	options: ServeOptions,
-): Promise<{ started: Listener[]; listening: Listening[] }> {
-	const { config } = resources;
-	const started: Listener[] = [];
-	const listening: Listening[] = [];
-	for (const name of LISTENERS) {
-		const configured = config.ports[name];
-		if (configured === 0) continue;
-		const port = options.port?.(name, configured) ?? configured;
-		const listener = createListener(name, resources);
-		try {
-			const bound = await listener.server.listen({
-				port,
-				hostname: bindOf(name, config),
-			});
-			resources.up.add(name);
-			listening.push({ name, ...bound });
-		} catch (error) {
-			for (const { server } of started) server.stop(true);
-			throw new ServerError(
-				'UNAVAILABLE',
-				`${name} cannot listen on ${bindOf(name, config)}:${port} (${bindReason(error)})`,
-			);
-		}
-		started.push(listener);
-		if (listener.kind === 'imap') resources.imaps.push(listener.server);
-	}
-	return { started, listening };
-}
-
 /**
- * Runs the server for `config`: reads the certificate (`tls.mode =
- * "files"`; `"acme"` is `NOT_IMPLEMENTED`), opens the spool, the
- * directory, the mail store and the queue, starts each listener whose
- * port is not 0 — `mx`, `submissions`, `submission`, `imaps`, `imap` —
- * logging one line each, then the queue's worker. The other ports
- * are logged as arriving later, and bound to nothing. What cannot be
- * opened or bound is `ServerError('UNAVAILABLE')`, with whatever was
+ * Runs the server for `config`: takes the certificate (`tls.mode =
+ * "files"`: read from the files; `"acme"`: the pair stored on the volume,
+ * or, when there is none, bound port 80 and the health check first, then
+ * obtained from the CA before any TLS listener starts), opens the spool,
+ * the directory, the mail store and the queue, starts each listener whose
+ * port is not 0 — `mx`, `submissions`, `submission`, `imaps`, `imap`,
+ * `https`, and `http` with ACME — logging one line each, then the
+ * queue's worker. What cannot be opened or bound, or a certificate that
+ * does not come, is `ServerError('UNAVAILABLE')`, with whatever was
  * started stopped again.
  */
 export async function serve(
@@ -154,7 +119,13 @@ export async function serve(
 	options: ServeOptions = {},
 ): Promise<RunningServer> {
 	const log = options.log ?? defaultLog;
-	const tls = readTls(config.tls);
+	const acme =
+		config.acme === undefined
+			? undefined
+			: new Acme(config, options.acme ?? {}, log);
+	const stored = acme?.stored();
+	const tls =
+		config.tls.mode === 'files' ? readTls(config.tls) : (stored ?? NO_PAIR);
 	const spool = Spool.open(config.data, config.inbound.spoolBytes, { log });
 	let directory: Directory;
 	let opened: OpenedStore;
@@ -166,15 +137,21 @@ export async function serve(
 		throw error;
 	}
 	const { resources, storeCalls } = assemble(
-		{ config, directory, opened, queueStore, tls, spool, log },
+		{ config, directory, opened, queueStore, tls, acme, spool, log },
 		options,
 	);
 	const { queue, describe } = resources;
 
-	let bound: Awaited<ReturnType<typeof bindListeners>>;
+	const bound: Bound = { started: [], listening: [] };
 	try {
-		bound = await bindListeners(resources, options);
+		await bindAll(
+			resources,
+			options,
+			bound,
+			stored === undefined ? acme : undefined,
+		);
 	} catch (error) {
+		for (const { server } of bound.started) server.stop(true);
 		await closeResources({ opened, directory, queueStore }, log, describe);
 		spool.close();
 		throw error;
@@ -185,7 +162,9 @@ export async function serve(
 		log(`bumail: the spool folder ${path} is kept: ${reason}`);
 	}
 	warnPostmaster(config, directory, log);
-	const tlsWatch = watchCertificate(resources, bound.started);
+	const tlsWatch =
+		acme?.watch(resources, bound.started) ??
+		watchCertificate(resources, bound.started);
 
 	return {
 		listening: bound.listening,

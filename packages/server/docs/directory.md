@@ -369,7 +369,7 @@ not an RSA key), is
 | 4 | the directory refused: not an address or a domain, a `dns` domain that is not hosted, a password refused (too short, too long, typed differently twice, its file unreadable), a name already taken, not found, still in use, a DKIM selector that is no DNS name |
 | 5 | the directory or the mail store cannot be opened or used; for `dns --check`, the DNS gave no answer and no record is wrong; for `serve`, also the queue, a port it cannot bind, the certificate or the spool directory |
 
-(3 is `serve`'s, for `tls.mode = "acme"`.) Errors go to standard error
+(3 is reserved: no command returns it.) Errors go to standard error
 as `bumail: <message>`. Standard error also carries the password
 prompts; standard output carries only what a command reports (`added
 the user …`, a listing), and `serve`'s log.

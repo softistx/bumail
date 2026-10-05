@@ -4,6 +4,7 @@ import { checkTlsPair } from '../config/tls';
 import type { ServerConfig } from '../config/types';
 import type { Listener, Resources } from './listeners';
 import type { Log } from './log';
+import { relabel, subjectOf } from './subject';
 import type { TlsFiles } from './tls';
 
 /** A listener that takes a renewed pair, by the name its log lines use. */
@@ -30,6 +31,10 @@ export interface WatchOptions {
 	};
 	/** The server's name, which the certificate must carry. */
 	readonly hostname: string;
+	/** More names it must carry. */
+	readonly names?: readonly string[];
+	/** What the log calls the two files; default `tls.cert` and `tls.key`. */
+	readonly labels?: { readonly cert: string; readonly key: string };
 	/** The pair the listeners started with. */
 	readonly applied: TlsFiles;
 	readonly targets: readonly TlsTarget[];
@@ -50,12 +55,11 @@ export interface TlsWatch {
 	 * under way.
 	 */
 	reload(): Promise<void>;
+	/** The pair every listener uses now. */
+	readonly applied: TlsFiles;
 	/** Looks no more; one under way finishes. */
 	stop(): void;
 }
-
-/** How a certificate is named in the log: its subject, on one line. */
-const subjectOf = (subject: string) => subject.split('\n').join(', ');
 
 /**
  * Watches `tls.cert` and `tls.key` for a renewed pair, every `pollSeconds`
@@ -93,6 +97,10 @@ class CertificateWatch implements TlsWatch {
 				? setInterval(() => void this.#run(false), pollSeconds * 1000)
 				: undefined;
 		this.#timer?.unref();
+	}
+
+	get applied(): TlsFiles {
+		return this.#applied;
 	}
 
 	reload(): Promise<void> {
@@ -146,19 +154,27 @@ class CertificateWatch implements TlsWatch {
 			hostname,
 			this.#options.now?.() ?? new Date(),
 		);
+		for (const name of this.#options.names ?? []) {
+			if (certificate && certificate.checkHost(name) === undefined) {
+				checker.add('tls.cert', `does not name ${name}`);
+			}
+		}
 		const unchanged = cert === this.#applied.cert && key === this.#applied.key;
 		if (unchanged) this.#failed = undefined;
 		if (checker.problems.length > 0 && !unchanged) {
-			const reason = checker.problems
-				.map(({ path, problem }) => `${path} ${problem}`)
-				.join('; ');
+			const reason = relabel(
+				checker.problems
+					.map(({ path, problem }) => `${path} ${problem}`)
+					.join('; '),
+				this.#options.labels,
+			);
 			return this.#refuse(reason, explicit);
 		}
 		if (certificate === undefined || cert === undefined || key === undefined) {
 			return;
 		}
 		const expires = new Date(certificate.validTo).toISOString().slice(0, 10);
-		const named = `${subjectOf(certificate.subject)}, expires ${expires}`;
+		const named = `${subjectOf(certificate)}, expires ${expires}`;
 		if (unchanged) {
 			if (explicit) log(`tls: unchanged (${named})`);
 			return;
@@ -200,7 +216,7 @@ class CertificateWatch implements TlsWatch {
 }
 
 /** The TLS listeners that cannot take a renewed pair while running. */
-function heldOf(config: ServerConfig): string[] {
+export function heldOf(config: ServerConfig): string[] {
 	const held =
 		config.ports.https !== 0 &&
 		config.jmap.mode === 'https' &&

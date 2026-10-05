@@ -56,8 +56,8 @@ them one by one.
 | [Storage](#storage) | Accounts, mailboxes, messages, flags | [`@bumail/store`](../packages/store) | published (memory, SQLite, PostgreSQL) |
 | [Queue and delivery](#queue-and-outbound-delivery) | Sends mail out, retries, bounces | [`@bumail/smtp/client`](../packages/smtp) and [`@bumail/queue`](../packages/queue) | published |
 | [Mailbox access](#mailbox-access-imap-and-jmap) | Lets clients read mail | [`@bumail/imap`](../packages/imap) and [`@bumail/jmap`](../packages/jmap) | published |
-| TLS certificates | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives published (0.1.0); the client merged |
-| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration, its directory of domains, users, aliases and DKIM keys, receiving mail on 25, sending it from 465 and 587 through the queue, and serving it over IMAP on 993 and JMAP on 443, with a health check |
+| TLS certificates | Obtains and renews the server's certificates from a CA, through ACME | [`@bumail/acme`](../packages/acme) | primitives and client published; the server uses it |
+| [The server app](#the-server-app) | Wires everything together, in one process or one Docker image | `@bumail/server`, an app on alxia | in progress: its configuration, its directory of domains, users, aliases and DKIM keys, receiving mail on 25, sending it from 465 and 587 through the queue, and serving it over IMAP on 993 and JMAP on 443, with certificates from files or ACME and a health check |
 
 The [roadmap](roadmap.md) holds the order, and the reasons for it.
 
@@ -431,14 +431,15 @@ manage. It **receives mail**: `bumail serve` takes mail for the
 directory's addresses on port 25, with no AUTH there, checks SPF, DKIM
 and DMARC, delivers into the store, and serves it over IMAP on 993 and
 over JMAP on 443 (HTTPS, or plain HTTP behind a reverse proxy that ends
-TLS, such as Traefik), with a certificate from files, a health check on
+TLS, such as Traefik), with a certificate from files or from an ACME CA
+(`@bumail/acme`, HTTP-01 on port 80, renewed by the server itself), a health check on
 loopback (`GET /healthz`) and the PROXY protocol on the mail ports from
 proxies it is told to trust. And it **sends mail**: its users submit
 on 465 and 587, AUTH only after TLS, as themselves or their aliases;
 each message is DKIM-signed with its domain's key (`bumail dkim
 generate`), delivered straight to local mailboxes, and queued for other
 domains, which the queue reaches by MX or a smarthost, a DSN coming
-back to the sender's own mailbox. ACME comes next. Then **a
+back to the sender's own mailbox. Then **a
 Docker image, all in one**: the server app with ports 25, 465, 587,
 993, 443 and 80, and one volume for the mail, the queue and the
 certificates. It holds the server only; any JMAP or IMAP client

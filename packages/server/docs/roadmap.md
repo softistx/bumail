@@ -61,14 +61,26 @@ npm yet.
   JSON. `--check` looks each up in the DNS, parsed as the receivers read them,
   and exits 1 while one is missing, differs or is doubled (5 when the DNS
   gave no answer).
+- **Certificates from ACME** (merged, not published): `tls.mode =
+  "acme"`, the default, obtains the certificate from Let's Encrypt (or
+  any ACME CA, its staging directory by a word) by HTTP-01 on port 80,
+  with a key of ECDSA P-256 made for each certificate, through
+  `@bumail/acme`. It covers the hostname and any extra names, and lives
+  on the volume (`<data>/acme`, files 0600, written atomically). A valid
+  certificate there is used at once; with none, port 80 and the health
+  check start first, the server asks the CA with bounded retries (and
+  exits with the reason when none comes), and only then starts the TLS
+  listeners. A timer renews it 30 days before its end (or a third of its
+  life, if less), with backoff on failure, and applies it through the
+  reload above, so every listener switches together; SIGHUP reads the
+  stored pair and never renews. Port 80 serves only the challenges, so
+  behind Traefik one router rule sends `/.well-known/acme-challenge/` to
+  it while Traefik keeps its own certificates for HTTPS.
 
 ## Next
 
 In this order, each its own step:
 
-- **Certificates from ACME** (HTTP-01 on port 80, ECDSA P-256 keys),
-  through the separate `@bumail/acme` package; the reload under Now is
-  what applies a renewal.
 - **A Docker image**, and a compose file with Traefik: the server, its
   ports and one volume for everything it keeps, the mail ports through
   Traefik's TCP routers, JMAP through its HTTP router.
