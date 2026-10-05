@@ -7,7 +7,6 @@ import { tempDir } from '../config/config.fixtures';
 import { ServerError } from '../errors';
 import { Directory } from './directory';
 import { seededDirectory } from './directory.fixtures';
-import { zoneLine } from './dkim';
 
 const opened: Directory[] = [];
 afterEach(() => {
@@ -121,16 +120,5 @@ describe('the DKIM keys', () => {
 		await d.dkim.generate('example.net');
 		d.domains.remove('example.net');
 		expect(d.dkim.list()).toEqual([]);
-	});
-
-	test('zoneLine splits the record into TXT strings of 255 bytes at most', async () => {
-		const d = await directory();
-		const key = await d.dkim.generate('example.com');
-		const line = zoneLine(key);
-		expect(line).toStartWith('bumail._domainkey.example.com. IN TXT "v=DKIM1;');
-		const strings = [...line.matchAll(/"([^"]*)"/g)].map((m) => m[1] ?? '');
-		expect(strings.length).toBe(2);
-		for (const part of strings) expect(part.length).toBeLessThanOrEqual(255);
-		expect(strings.join('')).toBe(key.record);
 	});
 });

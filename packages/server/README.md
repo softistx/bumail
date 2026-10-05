@@ -7,7 +7,8 @@ configured by one TOML file, run as the `bumail` command.
 is built here one step at a time, and published once it is complete. Today
 it reads and checks its configuration (`bumail check-config`), manages
 its directory of domains, users, aliases and DKIM keys (`bumail domain`,
-`bumail user`, `bumail alias`, `bumail dkim`), **receives mail** for its users
+`bumail user`, `bumail alias`, `bumail dkim`), prints the DNS records
+its domains need and checks them (`bumail dns`), **receives mail** for its users
 on port 25, **sends mail** for them from 465 and 587, DKIM-signed,
 through its queue, and serves it over IMAP on 993 and over JMAP on 443,
 with a certificate from files or obtained and renewed from an ACME CA,
@@ -278,6 +279,30 @@ as a zone file line:
 The private key is kept in the directory's file (0600) and never
 printed; removing a domain removes its key.
 
+## DNS
+
+```sh
+bumail dns --ip 192.0.2.10                  # every hosted domain, as a zone file
+bumail dns example.com --ip 192.0.2.10 --check   # look each record up; exit 0 when all are there
+bumail dns --json                           # the same, for a script
+```
+
+```text
+example.com. IN MX 10 mail.example.com.
+example.com. IN TXT "v=spf1 mx -all"
+bumail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0B…" "…"
+_dmarc.example.com. IN TXT "v=DMARC1; p=quarantine; adkim=s; rua=mailto:postmaster@example.com"
+_submissions._tcp.example.com. IN SRV 0 1 465 mail.example.com.
+```
+
+The MX, SPF, DKIM, DMARC and autoconfig SRV records of each domain, and
+the host name's A and AAAA from `--ip` and `--ip6` (the server cannot
+know its own public address). DMARC starts at `quarantine` with strict
+DKIM alignment (`none` until the domain has a key), and the zone file
+imports as it is at most DNS hosts. After publishing, `--check` exits 1
+until every record is there, and 5 when the DNS did not answer. See
+[the directory guide](https://github.com/softistx/bumail/blob/develop/packages/server/docs/directory.md#bumail-dns).
+
 ## From code
 
 ```ts
@@ -355,7 +380,7 @@ be used 5.
 | `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `AcmeOptions`, `OutboundOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`, `reloadTls()` (look at the certificate files, or with ACME the stored pair, now, as SIGHUP does; never a renewal); the types around them; `OutboundOptions` is `mxPort`, `ca`, `pollInterval`, `send`, and `AcmeOptions` is `fetch`, `now` and the timings, for a test |
 | `DEFAULT_DRAIN_SECONDS` | 10, the seconds a stop waits for SMTP sessions |
 | `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, cacheSeconds?, onUnlimited?, limiter? })`: `domains`, `users`, `aliases`, `dkim`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |
-| `DkimKeys`, `DkimKeyEntry`, `DkimSigningKey`, `DEFAULT_SELECTOR`, `DKIM_KEY_BITS`, `zoneLine(key)` | the directory's DKIM keys: `generate(domain, { selector?, replace? })`, `get`, `list`, `remove`, `signingKey` (for the server); what they answer (`domain`, `selector`, `name`, `record`, `created`); `'bumail'`, 2048; the record as a zone file line |
+| `DkimKeys`, `DkimKeyEntry`, `DkimSigningKey`, `DEFAULT_SELECTOR`, `DKIM_KEY_BITS` | the directory's DKIM keys: `generate(domain, { selector?, replace? })`, `get`, `list`, `remove`, `signingKey` (for the server); what they answer (`domain`, `selector`, `name`, `record`, `created`); `'bumail'`, 2048 |
 | `Domains`, `Users`, `Aliases` | the types of its three parts: `add`, `get`, `list`, `remove`, and `has` (domains), `setPassword`, `setDisabled`, `require`, `checkAddable`, `checkRemovable` (users; none hands out a hash), `targets` (aliases) |
 | `DomainEntry`, `UserEntry`, `AliasEntry` | what they answer |
 | `AuthResult`, `AuthFailure`, `AuthenticatorOptions`, `DirectoryOptions` | `authenticate`'s answer, its reasons (`blocked`, `malformed`, `unknown`, `password`, `disabled`, `busy`), and the options |

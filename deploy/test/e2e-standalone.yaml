@@ -5,6 +5,7 @@ name: bumail-e2e-docker-standalone
 
 services:
   bumail:
+    dns: [172.29.77.250]
     environment:
       NODE_EXTRA_CA_CERTS: /pebble/minica.pem
     volumes:

@@ -28,6 +28,14 @@ export type {
 	SpfCheck,
 } from './dmarc/result';
 export { AuthError, type AuthErrorCode } from './errors';
+export { type DkimRecordOptions, dkimRecord } from './records/dkim';
+export { type DmarcRecordOptions, dmarcRecord } from './records/dmarc';
+export {
+	sameDkimRecord,
+	sameDmarcRecord,
+	sameSpfRecord,
+} from './records/same';
+export { type SpfRecordOptions, spfRecord } from './records/spf';
 export {
 	type AuthenticationResultsInput,
 	formatAuthenticationResults,

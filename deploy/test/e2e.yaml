@@ -9,6 +9,8 @@ name: bumail-e2e-docker
 
 services:
   bumail:
+    # The test DNS, so `bumail dns --check` looks the test names up there.
+    dns: [172.29.77.250]
     environment:
       # Pebble's CA is not a public one: bumail's ACME client (fetch) trusts it
       # through Bun's NODE_EXTRA_CA_CERTS.
@@ -41,7 +43,7 @@ services:
 
   pebble:
     image: ghcr.io/letsencrypt/pebble:2.10.1
-    command: ['-config', '/test/config/e2e.json', '-strict=false', '-dnsserver', 'challtestsrv:8053']
+    command: ['-config', '/test/config/e2e.json', '-strict=false', '-dnsserver', 'challtestsrv:53']
     environment:
       PEBBLE_VA_NOSLEEP: '1'
     volumes:
@@ -54,10 +56,12 @@ services:
     # Only the DNS and its management API: the challenges are answered by
     # bumail and Traefik themselves. No default IPv6 answer: it would send
     # Pebble to ::1.
-    command: ['-http01', '', '-https01', '', '-tlsalpn01', '', '-doh', '', '-defaultIPv6', '']
+    command: ['-http01', '', '-https01', '', '-tlsalpn01', '', '-doh', '', '-dnsserver', ':53', '-defaultIPv6', '']
     ports:
       - '127.0.0.1:18055:8055'
-    networks: [proxy]
+    networks:
+      proxy:
+        ipv4_address: 172.29.77.250
 
 volumes:
   traefik-acme:

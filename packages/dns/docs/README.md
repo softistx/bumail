@@ -5,6 +5,6 @@ long one.
 
 | Page | Read it when |
 | --- | --- |
-| [Guide](guide.md) | looking names up, choosing what to do with each error, writing specs against a fixture, caching, or answering the interface yourself |
+| [Guide](guide.md) | looking names up, choosing what to do with each error, writing specs against a fixture, writing a zone file, caching, or answering the interface yourself |
 | [Troubleshooting](troubleshooting.md) | a resolver threw a `DnsError` |
 | [Roadmap](roadmap.md) | wondering what is coming, and what is not planned |

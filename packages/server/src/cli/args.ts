@@ -1,3 +1,4 @@
+import { type DnsArgs, resolveDns } from './dns/args';
 import { type HealthArgs, type InitArgs, resolveImage } from './init/args';
 import {
 	isNoun,
@@ -25,7 +26,8 @@ export type Args =
 	  }
 	| ManageArgs
 	| InitArgs
-	| HealthArgs;
+	| HealthArgs
+	| DnsArgs;
 
 /**
  * An unknown option as a message names it: a long one without what
@@ -39,6 +41,13 @@ function optionName(arg: string): string {
 	return eq === -1 ? arg : arg.slice(0, eq);
 }
 
+/** What an option that takes a value takes, for the message that it was given none. */
+const NEEDS: Readonly<Record<string, string>> = {
+	'--selector': 'a selector',
+	'--ip': 'an IPv4 address',
+	'--ip6': 'an IPv6 address',
+};
+
 /** `argv` split into its words and its options; `help` or `version` when asked. */
 function readOptions(
 	argv: readonly string[],
@@ -51,15 +60,17 @@ function readOptions(
 		purge: false,
 		selector: undefined,
 		replace: false,
+		ip: undefined,
+		ip6: undefined,
+		json: false,
+		check: false,
 	};
 	/** The value of `--name value` or `--name=value`, and the index past it. */
 	const take = (i: number, name: string): [string, number] => {
 		const arg = argv[i] ?? '';
 		const value = arg === name ? argv[i + 1] : arg.slice(name.length + 1);
 		if (value === undefined || value === '') {
-			throw usage(
-				`${name} needs ${name === '--selector' ? 'a selector' : 'a file'}`,
-			);
+			throw usage(`${name} needs ${NEEDS[name] ?? 'a file'}`);
 		}
 		return [value, arg === name ? i + 1 : i];
 	};
@@ -89,6 +100,16 @@ function readOptions(
 			[options.selector, i] = take(i, '--selector');
 		} else if (arg === '--replace') {
 			options.replace = true;
+		} else if (arg === '--json') {
+			options.json = true;
+		} else if (arg === '--check') {
+			options.check = true;
+		} else if (arg === '--ip' || arg.startsWith('--ip=')) {
+			if (options.ip !== undefined) throw usage('--ip is given twice');
+			[options.ip, i] = take(i, '--ip');
+		} else if (arg === '--ip6' || arg.startsWith('--ip6=')) {
+			if (options.ip6 !== undefined) throw usage('--ip6 is given twice');
+			[options.ip6, i] = take(i, '--ip6');
 		} else if (/^-+pass/i.test(arg)) {
 			throw usage(
 				'a password is never taken from the command line: use --password-stdin or --password-file, or type it at the prompt',
@@ -126,6 +147,7 @@ export function parseArgs(argv: readonly string[]): Args {
 			config: options.config,
 		};
 	}
+	if (first === 'dns') return resolveDns(rest, options);
 	if (!isNoun(first)) throw usage(`unknown command ${word(first)}`);
 	return resolveManage(first, rest, options);
 }

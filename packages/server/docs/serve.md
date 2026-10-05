@@ -15,6 +15,7 @@ from files, or obtained and renewed from an ACME CA; see the
 - [Sending mail on 465 and 587](#sending-mail-on-465-and-587)
 - [The queue](#the-queue)
 - [DKIM signing](#dkim-signing)
+- [Checking your DNS](#checking-your-dns)
 - [Reading mail over IMAP](#reading-mail-over-imap)
 - [JMAP over HTTPS](#jmap-over-https)
 - [Behind Traefik](#behind-traefik)
@@ -386,7 +387,8 @@ as a zone file line:
   bumail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0B…" "…"
 ```
 
-Publish the record at your DNS host: the name and the value, or the
+Publish the record at your DNS host (`bumail dns` prints it with the
+others, and [checks it](#checking-your-dns)): the name and the value, or the
 zone file line, whose value is split into strings of 255 bytes at most,
 as TXT records must be. Mail is signed from the next message on — no
 restart — so publish it soon after: until then, receivers find no key
@@ -408,6 +410,31 @@ published a few days, for mail signed with it still on its way:
 ```sh
 bumail dkim generate example.com --selector s2 --replace
 ```
+
+## Checking your DNS
+
+A server nobody can find, or whose mail receivers distrust, is the usual
+way a deployment fails, and it is all DNS. `bumail dns` prints what
+to publish and checks that you did:
+
+```sh
+bumail domain add example.com
+bumail user add alice@example.com
+bumail dkim generate example.com
+bumail dns example.com --ip 192.0.2.10          # copy these into your DNS host
+bumail dns example.com --ip 192.0.2.10 --check  # a few minutes later: exits 0 when all is there
+bumail serve
+```
+
+The records are the MX, the host name's A and AAAA, SPF, the DKIM key,
+DMARC and the autoconfig SRV records; [the directory page](directory.md#bumail-dns)
+has the output, what each is for, and why DMARC starts at `quarantine`.
+Run `--check` again after any change, and from a machine that is not the
+server: a DNS answer can differ from outside. Two things it cannot do:
+the reverse DNS (PTR) of the server's address is set at your hosting
+provider, and many receivers refuse mail without one that matches the
+host name; and port 25 outbound is blocked by some providers, which no
+DNS record fixes.
 
 ## Reading mail over IMAP
 
@@ -546,7 +573,11 @@ The directory is made 0700 when the server creates it; one that exists
 (`/data`, say) keeps the mode its owner gave it. Every file is mode
 0600, written whole to a temporary file beside it (a name nobody can
 guess, created exclusively and never through a symbolic link), synced,
-renamed over the old one, and the directory synced. A new pair is
+renamed over the old one, and the directory synced; a temporary file
+left by a write that failed is removed at once, and one left by an
+earlier process is removed at the next start (only the server's own
+temporaries: `<file>.<pid>.<uuid>.tmp` for its five files, so other
+files in a shared directory are left alone). A new pair is
 written in this order: both new files, then the old pair under the
 `.prev.` names, then both renames, so a crash at any moment leaves one
 whole pair under one of the two names. A new key is made for each
@@ -561,13 +592,16 @@ flow, and a stop in the middle of it starts the next attempt afresh.
   inside its renewal window is used too; the renewal replaces it soon
   after.
 - **A pair that is not one** (a crash between the two renames of a
-  renewal left the new certificate with the old key, say) falls back to
+  renewal left the new key with the old certificate, say) falls back to
   the previous pair when that one is valid: `tls: the stored certificate
-  is not used: <reason>; using the previous pair`. The previous pair is
-  put back as the current one, and the listeners start with it.
+  is not used: <reason>; using the previous pair`. So does a volume with
+  no current pair at all, as `tls: no certificate stored in <dir>; using
+  the previous pair`. The previous pair is put back as the current one,
+  and the listeners start with it. A previous pair that is expired,
+  names another host or lacks a file is not used.
 - **None, or an unusable one** (not there, expired, another name, a key
-  that is not its own, and no valid previous pair) means the TLS listeners cannot start, since none
-  can start without a pair. The server says why
+  that is not its own, and no valid previous pair) means the TLS
+  listeners cannot start, since none can start without a pair. The server says why
   (`tls: no certificate stored in <dir>` or `tls: the stored
   certificate is not used: <reason>`), binds **port 80 and the health
   check**, and asks the CA, before it binds anything else. While it waits
@@ -949,6 +983,7 @@ bumail: stopped
 | `bumail: http listening on <address>:<port>: ACME HTTP-01 challenges on /.well-known/acme-challenge/, a redirect to HTTPS for GET /, 404 for the rest` | at start, with `tls.mode = "acme"` |
 | `tls: using the stored certificate (<names>; expires <date>)` | at start: the pair on the volume is valid and names every name |
 | `tls: no certificate stored in <dir>` | at start: none on the volume |
+| `tls: no certificate stored in <dir>; using the previous pair` | at start: there is no current pair and `cert.prev.pem` with `key.prev.pem` is usable: it is put back as the current one |
 | `tls: the stored certificate is not used: <reason>; using the previous pair` | at start: the current pair is not usable and `cert.prev.pem` with `key.prev.pem` is: it is put back as the current one |
 | `tls: the stored certificate is not used: <reason>` | at start: `the certificate is not a PEM chain`, `not valid yet`, `expired`, `it does not name <names>`, `the key is not the certificate's` or `the key is not an unencrypted PEM private key`; the server then waits for a new one |
 | `tls: waiting for a certificate from <directory>` | at start with no usable certificate, at once and every 30 seconds until it comes |

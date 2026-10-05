@@ -51,6 +51,15 @@ private until it is complete: nothing here is on npm yet.
   goes to every TLS listener (25 and 587, 465, 993 and 143, and JMAP's
   HTTPS) for new connections, open sessions untouched; one that is not
   keeps the old pair and logs why, once.
+- **The DNS records a domain needs, and a check of them** (merged, not
+  published): `bumail dns` prints, for every hosted domain or one, the MX,
+  SPF (`v=spf1 mx -all`), DKIM, DMARC (`quarantine` once the domain has a DKIM key, strict DKIM
+  alignment) and
+  autoconfig SRV records (RFC 6186, RFC 8620), and the host name's A and
+  AAAA from `--ip` and `--ip6`, as a zone file DNS hosts import, or as
+  JSON. `--check` looks each up in the DNS, parsed as the receivers read them,
+  and exits 1 while one is missing, differs or is doubled (5 when the DNS
+  gave no answer).
 - **Certificates from ACME** (merged, not published): `tls.mode =
   "acme"`, the default, obtains the certificate from Let's Encrypt (or
   any ACME CA, its staging directory by a word) by HTTP-01 on port 80,
@@ -82,13 +91,17 @@ private until it is complete: nothing here is on npm yet.
 
 ## Next
 
-In this order, each its own step:
-
-- **The DNS records a domain needs**, written by `bumail dns`: MX, SPF,
-  DKIM and DMARC, as a zone file or plain records.
+Nothing is queued ahead of what is under Later.
 
 ## Later
 
+- **MTA-STS and TLS-RPT in `bumail dns`**: the `_mta-sts` and `_smtp._tls`
+  TXT records, with the policy file the server would serve over HTTPS at
+  `mta-sts.<domain>`.
+- **SRV and CAA in `bumail dns --check`**, once `@bumail/dns` can look them
+  up; they are listed as `unchecked` until then.
+- **`bumail dns` with a policy of your own**: `--dmarc <policy>`
+  and an SPF `include` for a provider, instead of editing the output.
 - **A `421` to SMTP clients still connected when the server stops**, as
   RFC 5321 §3.8 suggests, rather than a plain hang-up; it needs a
   stop with a reply in `@bumail/smtp`.

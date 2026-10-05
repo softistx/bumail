@@ -376,6 +376,61 @@ try {
 		loneHealth.trim() === 'ok',
 		loneHealth.trim(),
 	);
+	const zone = await alone(
+		'exec',
+		'-T',
+		'bumail',
+		'/usr/local/bin/bumail',
+		'dns',
+		'--ip',
+		STANDALONE_IP,
+	);
+	const zoneText = `${zone.stdout}`;
+	console.log(`---- bumail dns --ip ${STANDALONE_IP}\n${zoneText}----`);
+	check(
+		'standalone: bumail dns prints the zone (A, MX, SPF, DKIM, DMARC)',
+		zone.exitCode === 0 &&
+			zoneText.includes(`${STANDALONE_HOST}. IN A ${STANDALONE_IP}`) &&
+			zoneText.includes(`${DOMAIN}. IN MX 10 ${STANDALONE_HOST}.`) &&
+			zoneText.includes('bumail._domainkey'),
+		'',
+	);
+	// The test DNS holds the host's A record only, so this is a partial check: the A record is found, the PTR and the domain's records are not.
+	const dnsCheck = await alone(
+		'exec',
+		'-T',
+		'bumail',
+		'/usr/local/bin/bumail',
+		'dns',
+		'--ip',
+		STANDALONE_IP,
+		'--check',
+	);
+	const dnsCheckText = `${dnsCheck.stdout}${dnsCheck.stderr}`;
+	console.log(
+		`---- bumail dns --ip ${STANDALONE_IP} --check (exit ${dnsCheck.exitCode})\n${dnsCheckText}----`,
+	);
+	check(
+		'standalone: bumail dns --check finds the A record the test DNS holds and reports the PTR and the TXT records missing (partial; the DNS has no MX answer: unavailable; exit 1)',
+		dnsCheck.exitCode === 1 &&
+			/ok\s+A\s+standalone\.bumail\.test/.test(dnsCheckText) &&
+			/missing\s+TXT\s+_dmarc/.test(dnsCheckText) &&
+			/missing\s+PTR/.test(dnsCheckText),
+		'',
+	);
+	console.log(
+		`---- the standalone log\n${(
+			await text(alone('logs', '--no-color', '--no-log-prefix', 'bumail'))
+		)
+			.split('\n')
+			.filter((l) => /^(tls|acme|bumail): /.test(l))
+			.slice(0, 12)
+			.join('\n')}\n----`,
+	);
+	await until('the standalone container to report healthy', 120, async () =>
+		(await text(alone('ps'))).includes('(healthy)'),
+	);
+	console.log(`---- docker compose ps\n${await text(alone('ps'))}----`);
 	await alone('down', '--volumes', '--timeout', '30');
 
 	console.log('== 1: init and a user (the guide, steps 3 and 4)');

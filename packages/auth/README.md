@@ -160,6 +160,29 @@ and private sections both. Pass `organizationalDomain` to use your own;
 `spf=` and `dmarc=`, folded at 78 columns. Leave out what you did not
 check; with nothing, it writes `none`.
 
+## Write the records
+
+The TXT values to publish, written so that the parsers above read them
+back as given. Each validates its input and throws `AuthError`
+`INVALID_OPTION` for a value it cannot write.
+
+```ts
+import { dkimRecord, dmarcRecord, spfRecord } from '@bumail/auth';
+
+spfRecord({ mx: true }); // 'v=spf1 mx -all' at example.com
+spfRecord({ mx: true, include: ['_spf.relay.example'], ip4: ['192.0.2.0/24'], all: '~all' });
+
+dmarcRecord({ p: 'quarantine', adkim: 's', aspf: 's', rua: 'postmaster@example.com' });
+// 'v=DMARC1; p=quarantine; adkim=s; aspf=s; rua=mailto:postmaster@example.com' at _dmarc.example.com
+
+dkimRecord({ publicKey: spkiBase64 }); // 'v=DKIM1; k=rsa; p=MIIBIjAN…' at <selector>._domainkey.example.com
+dkimRecord({ publicKey: raw32Bytes, keyType: 'ed25519' }); // k=ed25519
+```
+
+`@bumail/dns`'s `formatZone` turns them into zone-file lines, and
+`sameSpfRecord`, `sameDmarcRecord` and `sameDkimRecord` compare a record with
+what the DNS holds, as the receiver reads both.
+
 ## Traps
 
 ### DKIM
@@ -284,13 +307,20 @@ check; with nothing, it writes `none`.
 | `DmarcUri` | `uri`, `maxSize` (bytes, from `!10m`) |
 | `organizationalDomain(domain)` | the organizational domain (RFC 7489 §3.2) from the embedded Public Suffix List, in A-labels; `undefined` for a public suffix or a name that cannot be looked up |
 | `PSL_VERSION` | the `VERSION` of the embedded Public Suffix List snapshot, such as `2026-10-01_23-02-52_UTC`, for logs |
+| `spfRecord(options)` | the SPF record's text: `v=spf1`, then `a`, `mx`, `include:`, `ip4:`, `ip6:` and `all` (default `-all`); at most 10 DNS lookups |
+| `SpfRecordOptions` | `mx`, `a`, `include`, `ip4`, `ip6` (arrays), `all` (`'-all' \| '~all' \| '?all' \| '+all'`) |
+| `dmarcRecord(options)` | the DMARC record's text, tags at their default left out, an address as `mailto:` |
+| `DmarcRecordOptions` | `p` (required), `sp`, `rua`, `ruf` (an address or URI, or an array), `pct`, `adkim`, `aspf` |
+| `dkimRecord(options)` | the DKIM key record's text: `v=DKIM1; k=rsa; p=…`; an empty key is a revoked one |
+| `DkimRecordOptions` | `publicKey` (base64 or bytes; required), `keyType` (`'rsa'` default, or `'ed25519'`), `testing` (`t=y`) |
+| `sameSpfRecord(a, b)`, `sameDmarcRecord(a, b)`, `sameDkimRecord(a, b)` | whether two texts are the same record as the receiver reads it: white space, case, default tags and `+` do not matter; `false` for text that is not a record |
 | `formatAuthenticationResults(authservId, results)` | the `Authentication-Results` field (RFC 8601), folded, CRLF included |
 | `AuthenticationResultsInput` | `dkim` (`DkimResult[]`), `spf` (`SpfCheck`), `dmarc` (`DmarcResult`), each optional |
 | `AuthError`, `AuthErrorCode` | thrown for an option or input, an `ip`, a message to sign or a key: `INVALID_OPTION`, `INVALID_MESSAGE`, `INVALID_KEY`; `cause` holds a wrapped error |
 
 ## Documentation
 
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/guide.md): verifying, results, signing, keys, limits, SPF, DMARC, `Authentication-Results` and specs
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/guide.md): verifying, results, signing, keys, writing the DNS records, limits, SPF, DMARC, `Authentication-Results` and specs
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/troubleshooting.md): every error and every result reason
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/auth/docs/roadmap.md)
 

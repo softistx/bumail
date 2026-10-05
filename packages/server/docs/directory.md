@@ -4,14 +4,15 @@ The directory says who the server serves: the **domains** it receives
 mail for, the **users** who log in and have a mailbox, and the
 **aliases** that deliver an address to users, and each domain's
 **DKIM key**. `bumail domain`, `bumail user`, `bumail alias` and
-`bumail dkim` manage it; the server reads it at every login
+`bumail dkim` manage it, and `bumail dns` prints the DNS records
+its domains need; the server reads it at every login
 and every recipient. When a command refuses something,
 [troubleshooting](troubleshooting.md#the-directory-commands) has an
 entry for each message.
 
 - [Where it is](#where-it-is)
 - [Addresses, and their case](#addresses-and-their-case)
-- [The commands](#the-commands): [`domain`](#bumail-domain), [`user`](#bumail-user), [`alias`](#bumail-alias), [`dkim`](#bumail-dkim), [exit codes](#exit-codes)
+- [The commands](#the-commands): [`domain`](#bumail-domain), [`user`](#bumail-user), [`alias`](#bumail-alias), [`dkim`](#bumail-dkim), [`dns`](#bumail-dns), [exit codes](#exit-codes)
 - [Passwords](#passwords)
 - [Logins](#logins): the verify cap, unknown users, the failure limiter
 - [Mailboxes in the store](#mailboxes-in-the-store), and removing a user
@@ -190,15 +191,183 @@ of letters, digits and hyphens. Removing a domain removes its key.
 [Running the server](serve.md#dkim-signing) has how to publish the
 record and change keys.
 
+### `bumail dns`
+
+The DNS records the server's domains need, so a deployment is a paste
+into your DNS host and one check. It reads the directory and the
+configuration, and sends nothing but the queries of `--check`.
+
+```sh
+bumail dns --ip 192.0.2.10 --ip6 2001:db8::10    # every hosted domain
+bumail dns example.com --ip 192.0.2.10           # one domain
+bumail dns --json                                # for a script or an API
+bumail dns example.com --check --ip 192.0.2.10   # look each record up in the DNS
+```
+
+```text
+; DNS records for mail.example.com, and the domains it hosts.
+; Publish them at your DNS host, then run bumail dns --check.
+
+; mail.example.com (this server)
+mail.example.com. IN A 192.0.2.10
+mail.example.com. IN AAAA 2001:db8::10
+; optional: mail.example.com. IN CAA 0 issue "letsencrypt.org"
+; the reverse DNS (PTR) of 192.0.2.10 should be mail.example.com: it is set at your hosting provider, and many receivers refuse mail without it
+; the reverse DNS (PTR) of 2001:db8::10 should be mail.example.com: it is set at your hosting provider, and many receivers refuse mail without it
+; the SRV records carry the ports the server listens on: behind Docker port mapping or a proxy, write the public ports instead
+
+; example.com
+example.com. IN MX 10 mail.example.com.
+example.com. IN TXT "v=spf1 mx -all"
+bumail._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA…" "…"
+_dmarc.example.com. IN TXT "v=DMARC1; p=quarantine; adkim=s; rua=mailto:postmaster@example.com"
+_submissions._tcp.example.com. IN SRV 0 1 465 mail.example.com.
+_imaps._tcp.example.com. IN SRV 0 1 993 mail.example.com.
+_jmap._tcp.example.com. IN SRV 0 1 443 mail.example.com.
+
+; example.org
+example.org. IN MX 10 mail.example.com.
+example.org. IN TXT "v=spf1 mx -all"
+_dmarc.example.org. IN TXT "v=DMARC1; p=none; adkim=s"
+_submissions._tcp.example.org. IN SRV 0 1 465 mail.example.com.
+_imaps._tcp.example.org. IN SRV 0 1 993 mail.example.com.
+_jmap._tcp.example.org. IN SRV 0 1 443 mail.example.com.
+; no DKIM key yet: bumail dkim generate example.org makes one, and bumail dns prints its record; until then DMARC is p=none, so nothing is quarantined for lack of a signature
+```
+
+The output is a BIND zone file (names absolute, long TXT values split
+into strings of 255 bytes), which Cloudflare, Route 53 and most DNS hosts
+import as it is; what the server cannot decide is a comment. What it
+holds, per domain:
+
+| record | what it is | why |
+| --- | --- | --- |
+| `MX 10 <hostname>` | the server's `hostname` | mail for the domain comes here |
+| `TXT v=spf1 mx -all` | the domain's MX hosts may send for it, nobody else | the server sends from the host its MX names |
+| `TXT bumail._domainkey` | the key of `bumail dkim generate`, under its selector | mail is signed with it; with no key, a comment says to make one |
+| `TXT _dmarc` | `v=DMARC1; p=quarantine; adkim=s`, and `rua=mailto:postmaster@<domain>` only when the directory has that address; `p=none` while the domain has no DKIM key | see below |
+| `SRV _submissions._tcp`, `_imaps._tcp`, `_jmap._tcp` | the submission, IMAP and JMAP ports, for clients that configure themselves from the domain (RFC 6186, RFC 8620 §2.2) | one for each port that is on; JMAP's points to `jmap.origin`'s host and port |
+
+And for the server's host name, once: its **A** and **AAAA** records. The
+server cannot know its public address, so they are written from `--ip`
+and `--ip6`; without them, a comment reminds you (the IPv6 one is
+optional). An **optional CAA** line, commented out, appears with
+`tls.mode = "acme"` and Let's Encrypt's directory: it lets only that CA
+issue the host name's certificate, and is yours to uncomment. Two more
+comments remind you of what no record says: with `--ip`, the **reverse DNS
+(PTR)** of the address should be the host name, which only your hosting
+provider can set and many receivers insist on; and the **SRV records carry
+the ports the server listens on**, so behind Docker port mapping or a
+proxy, write the public ports instead. An IP address as `jmap.origin`
+cannot be an SRV target, so the `_jmap._tcp` record is left out, with a
+comment.
+
+**The DMARC default is `quarantine`, with strict DKIM alignment.**
+`p=none` protects no one, and `p=reject` loses real mail while a record is
+still wrong, so `quarantine` is the safe place to stand: mail that fails
+goes to a spam folder, not away. `adkim=s` is safe because the server
+signs with `d=` the From domain, so its own mail always aligns. SPF
+alignment stays relaxed (`aspf` is left out): the envelope sender of a
+message need not be the From domain itself, a bounce address in a
+subdomain for one, and relaxed accepts that. While a domain has **no DKIM
+key** the record says `p=none`, since nothing is signed and a policy that
+quarantines on a missing signature would be wrong; the comment under it
+says to run `bumail dkim generate`, after which `bumail dns` prints
+`quarantine`. The `rua=` address is written only when `postmaster@<domain>`
+is a user or an alias, so that reports go to a mailbox that exists. They
+are XML from the receivers, arrive as ordinary mail in that mailbox, and
+the server does not read them for you. With a `[smarthost]`, the SPF
+record needs its provider's `include:` added, and the output says so in a
+comment.
+
+Not written yet: MTA-STS and TLS-RPT; see the [roadmap](roadmap.md).
+
+**`--json`** prints the same as one JSON object, for a script or a DNS
+provider's API: `hostname`, `domains`, `records` (each with `scope`,
+`purpose`, `optional`, `name`, `type`, `value` and, for MX and SRV,
+`priority`; names without the trailing dot) and `notes` (`scope` and
+`message`: what is left to do by hand). With `--check` it adds `checks`,
+one per record looked up: the record's fields as above (without
+`optional`), and `status`, `found` (what the DNS holds there, as the
+record would be written; `[]` when nothing) and, for `unavailable`,
+`detail` (why); and `ok`, `true` only when `--check` would exit 0.
+
+**`--check`** looks each record up in the DNS, through `@bumail/dns`, and
+reports instead of printing the zone:
+
+```text
+mail.example.com
+  ok          A    mail.example.com  192.0.2.10
+  differs     PTR  192.0.2.10  mail.example.com
+                   found  static.provider.example
+example.com
+  ok          MX   example.com  10 mail.example.com
+  duplicate   TXT  example.com  v=spf1 mx -all
+                   found  v=spf1 a -all
+                   found  v=spf1 mx -all
+  missing     TXT  bumail._domainkey.example.com  v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvI11IEUngA…
+  differs     TXT  _dmarc.example.com  v=DMARC1; p=quarantine; adkim=s; rua=mailto:postmaster@example.com
+                   found  v=DMARC1; p=none
+  unchecked   SRV  _submissions._tcp.example.com  1 465 mail.example.com
+  unchecked   SRV  _imaps._tcp.example.com  1 993 mail.example.com
+  unchecked   SRV  _jmap._tcp.example.com  1 443 mail.example.com
+
+1 missing, 2 differs, 1 duplicate: bumail dns prints what to publish
+```
+
+Each record is one of:
+
+- `ok`: it is there.
+- `missing`: the DNS has no record of its kind at the name.
+- `differs`: it has one, but not this one; `found` says what. A TXT record
+  of another kind at the name, such as a site verification, is not a
+  difference.
+- `duplicate`: two or more SPF records, DMARC records or DKIM key records
+  stand at the name. SPF and DMARC receivers answer `permerror` to that,
+  whichever is right; a DKIM verifier takes the first key record, so a
+  revoked one ahead of the right one revokes it. It fails even when one
+  matches: during a key rotation, remove the old record.
+- `unavailable`: the DNS gave no answer (the reason is shown), so nothing
+  is known about it; try again.
+- `unchecked`: not looked up, since `@bumail/dns` has no SRV lookup yet.
+  An optional record is never looked up.
+
+SPF, DMARC and DKIM records are compared **as parsed**, as `@bumail/auth`
+reads them: white space, case (`V=SPF1`), a leading `+`, a default tag
+(`adkim=r`, `k=rsa`) and a value split into several strings do not
+matter, but an added `include:`, a different policy or another key do. So
+an SPF record you extended on purpose shows as `differs`: that is the
+report working. An MX is `ok` when its exchange and preference are among
+the answers, in any case and with or without a trailing dot, and the
+reverse DNS (PTR) of `--ip` and `--ip6` must name the host name.
+
+The exit code is **0 when every record is there**, **1 when any is
+missing, differs or is doubled**, and **5 when the only trouble is a DNS
+that did not answer**, so `bumail dns --check` can gate a deploy and a
+retry can tell a wrong record from a flaky resolver. Without `--ip`, the
+host name only has to resolve to some address, and no PTR is looked up;
+`--ip` and `--ip6` also require that address. Answers can lag the change
+you made by the record's TTL, and a resolver may cache a negative answer
+longer: run it again after a few minutes.
+
+`bumail dns` refuses what is not hosted: `the domain … is not hosted here;
+add it first` (exit 4), and with no domain at all, `no domain is hosted
+here; bumail domain add adds one`. A stored key it cannot write, which
+only a damaged directory holds (an empty one, one that is not base64 or
+not an RSA key), is
+`the DNS records cannot be written: the stored DKIM key of … is empty`
+(or `cannot be used`). `bumail dkim show` refuses it the same way, and
+`bumail dkim generate <domain> --replace` mends it.
+
 ### Exit codes
 
 | code | when |
 | --- | --- |
 | 0 | done |
-| 1 | the configuration is invalid ([its problems](troubleshooting.md)) |
+| 1 | the configuration is invalid ([its problems](troubleshooting.md)); for `dns --check`, a record is missing, differs or is doubled |
 | 2 | bad usage: an unknown command or option, an operand missing or too many, no way to read the password |
-| 4 | the directory refused: not an address or a domain, a password refused (too short, too long, typed differently twice, its file unreadable), a name already taken, not found, still in use, a DKIM selector that is no DNS name |
-| 5 | the directory or the mail store cannot be opened or used; for `serve`, also the queue, a port it cannot bind, the certificate or the spool directory |
+| 4 | the directory refused: not an address or a domain, a `dns` domain that is not hosted, a password refused (too short, too long, typed differently twice, its file unreadable), a name already taken, not found, still in use, a DKIM selector that is no DNS name |
+| 5 | the directory or the mail store cannot be opened or used; for `dns --check`, the DNS gave no answer and no record is wrong; for `serve`, also the queue, a port it cannot bind, the certificate or the spool directory |
 
 (3 is reserved: no command returns it.) Errors go to standard error
 as `bumail: <message>`. Standard error also carries the password
