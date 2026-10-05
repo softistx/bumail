@@ -301,6 +301,58 @@ await cached.a('example.com');
 ms += 301_000; // past the fixture's TTL of 300 seconds: the next query asks again
 ```
 
+## Writing a zone file
+
+A resolver reads the DNS; `formatZone` writes what to put in it. It takes
+`ZoneRecord`s and gives BIND zone-file text, one line per record, ending
+in a newline. The line is `name [ttl] IN TYPE data`.
+
+```ts
+import { formatZone } from '@bumail/dns';
+
+const zone = formatZone([
+	{ name: 'mail.example.com', type: 'A', ttl: 3600, value: '192.0.2.10' },
+	{ name: 'example.com', type: 'MX', priority: 10, value: 'mail.example.com' },
+	{ name: 'example.com', type: 'CAA', value: '0 issue letsencrypt.org' },
+]);
+// mail.example.com. 3600 IN A 192.0.2.10
+// example.com. IN MX 10 mail.example.com.
+// example.com. IN CAA 0 issue "letsencrypt.org"
+```
+
+What each `value` holds:
+
+| type | `value` | `priority` |
+| --- | --- | --- |
+| `A`, `AAAA` | the address | not allowed |
+| `MX` | the host name; `.` for a null MX (RFC 7505) | the preference, required |
+| `CNAME`, `NS`, `PTR` | the host name | not allowed |
+| `SRV` | `<weight> <port> <target>`, such as `1 993 mail.example.com` | the priority, required |
+| `CAA` | `<flags> <tag> <value>`, such as `0 issue letsencrypt.org` | not allowed |
+| `TXT` | the text, unescaped, of any length | not allowed |
+
+**Names are always absolute.** `example.com` is written `example.com.`; a
+name is lowercased, an IDN is written in its A-labels (`normalizeName`'s
+rules), and one that is not a host name is `INVALID_NAME`. There is no
+`@` and no origin. A host name in a value (an MX's exchange, an SRV's
+target) is written the same way.
+
+**A TXT value is split for you.** One character-string is 255 bytes at
+most (RFC 1035 §3.3), and a 2048-bit DKIM key is longer, so the value
+comes out as several quoted strings, cut at 255 UTF-8 bytes and never in
+the middle of a character. A resolver joins them back: what `txt()`
+answers is the value you gave. `"` and `\` are escaped, and a control
+character is written `\DDD`.
+
+```ts
+formatZone([{ name: 'k._domainkey.example.com', type: 'TXT', value: `v=DKIM1; k=rsa; p=${'A'.repeat(400)}` }]);
+// k._domainkey.example.com. IN TXT "v=DKIM1; k=rsa; p=AAAA…" "AAAA…"
+```
+
+A record it cannot write throws a `DnsError` naming it by its index:
+`INVALID_NAME` for a name, `INVALID_OPTION` for the rest. Nothing is
+written for the records before it.
+
 ## Answering the interface yourself
 
 A resolver of your own implements `Resolver` and keeps its promises:

@@ -93,6 +93,31 @@ const dns = cachedResolver(nodeResolver(), {
 A cached answer comes back with the TTL it has left. Two identical queries
 made at once share one query, and its answer or its error.
 
+## Writing a zone file
+
+`formatZone` is the other direction: the records you must publish, as
+BIND zone-file lines, which Cloudflare, Route 53 and most DNS hosts
+import as they are.
+
+```ts
+import { formatZone } from '@bumail/dns';
+
+formatZone([
+	{ name: 'example.com', type: 'MX', priority: 10, value: 'mail.example.com' },
+	{ name: 'example.com', type: 'TXT', ttl: 3600, value: 'v=spf1 mx -all' },
+	{ name: '_imaps._tcp.example.com', type: 'SRV', priority: 0, value: '1 993 mail.example.com' },
+]);
+// example.com. IN MX 10 mail.example.com.
+// example.com. 3600 IN TXT "v=spf1 mx -all"
+// _imaps._tcp.example.com. IN SRV 0 1 993 mail.example.com.
+```
+
+Names are absolute and get their trailing dot. A TXT value over 255 bytes
+is split into several quoted strings, which a resolver joins back, with
+quotes and backslashes escaped. It writes `A`, `AAAA`, `MX`, `TXT`,
+`SRV`, `CAA`, `CNAME`, `NS` and `PTR`; anything it cannot hold is a
+`DnsError`.
+
 ## Traps
 
 - **MX, TXT and PTR carry an assumed TTL.** `node:dns` reports the TTL of
@@ -128,11 +153,12 @@ made at once share one query, and its answer or its error.
 | `fixtureResolver(records)`, `FixtureResolver`, `FixtureRecords`, `FixtureName`, `FixtureError` | a `Resolver` answering from a plain object, for specs; `queries` lists what it was asked |
 | `DnsError`, `DnsErrorCode`, `isTemporary(error)` | `NOT_FOUND`, `TEMPORARY`, `TIMEOUT`, `INVALID_NAME`, `INVALID_OPTION`; whether retrying later could help |
 | `isNullMx(records)` | whether an MX answer is a null MX (RFC 7505) |
+| `formatZone(records)`, `ZoneRecord`, `ZoneRecordType` | records (`name`, `type`, `ttl?`, `value`, `priority?`) as BIND zone-file lines, names absolute, long TXT values split into strings of 255 bytes; `INVALID_NAME` or `INVALID_OPTION` for a record it cannot write |
 | `normalizeName(name)` | a name as it is queried: lowercase, no trailing dot, A-labels; `INVALID_NAME` otherwise |
 
 ## Documentation
 
 - [Index](https://github.com/softistx/bumail/blob/develop/packages/dns/docs/README.md): the pages below, and when to read each.
-- [Guide](https://github.com/softistx/bumail/blob/develop/packages/dns/docs/guide.md): the interface, `node:dns`, the fixture, the cache, and what SPF, DKIM, DMARC and the SMTP client make of each answer.
+- [Guide](https://github.com/softistx/bumail/blob/develop/packages/dns/docs/guide.md): the interface, `node:dns`, the fixture, writing a zone file, the cache, and what SPF, DKIM, DMARC and the SMTP client make of each answer.
 - [Troubleshooting](https://github.com/softistx/bumail/blob/develop/packages/dns/docs/troubleshooting.md): every `DnsError`, and what to do about it.
 - [Roadmap](https://github.com/softistx/bumail/blob/develop/packages/dns/docs/roadmap.md): what is coming, and what is not planned.

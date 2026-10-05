@@ -6,7 +6,9 @@ number on it.
 
 ## Now
 
-Nothing in progress.
+- **`formatZone`** (next release): the records to publish as BIND
+  zone-file lines, names absolute, TXT values split into strings of 255
+  bytes.
 
 ## Next
 
@@ -30,6 +32,11 @@ Nothing in progress.
   sender's local part (`%{l}` for `bob+news@`, SRS and BATV addresses).
 - **Real TTLs for MX, TXT and PTR**, if `node:dns` comes to report them, or
   through a small DNS client of our own over UDP and TCP.
+- **SRV and CAA lookups** on `Resolver`, so a tool that checks the DNS
+  against what it should hold (`bumail dns --check`) can verify the
+  autoconfig and CAA records `formatZone` writes. A new method on the
+  interface is a change for every resolver of one's own, so it waits for
+  a reason to make one.
 - **TLSA and other records** MTA-STS and DANE-adjacent policies read, when
   a package needs them.
 
