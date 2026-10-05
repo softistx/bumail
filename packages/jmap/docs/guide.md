@@ -475,8 +475,9 @@ wrong outside the client's control:
 | what a store call threw, with `method` | during a method | `serverFail` for that call |
 
 A client that hangs up while sending an API or upload body is not an
-error: `onError` is not told, alxia logs nothing, and the host app's
-`onResponse` sees a 499 with no body.
+error: `onError` is not told, alxia logs nothing, and a middleware of the
+host app that settles `next()` (`settle(ctx, next())`) sees a 499 with no
+body.
 
 ## The OpenAPI document
 

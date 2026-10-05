@@ -205,7 +205,7 @@ Its `info.version` is the version of the document, not of the package.
 
 | export | |
 | --- | --- |
-| `jmap(options)` | the server: an alxia app to `use`, with `notify(accountId)`; throws a `JmapError` (`INVALID_OPTION`) on a bad option |
+| `jmap(options)` | the server: an alxia app to mount with `plugin`, with `notify(accountId)`; throws a `JmapError` (`INVALID_OPTION`) on a bad option |
 | `JmapServer` | `notify(accountId)`: reserved for push, a no-op today |
 | `JmapOptions` | `store`, `authenticate`, `origin`, `basePath`, `limits`, `hookTimeout`, `allowInsecureBasic`, `secure`, `onError` |
 | `JmapLimits` | the limits above |

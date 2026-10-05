@@ -74,10 +74,10 @@ and bounded. Each comes out once the store contract grows it.
 Merged, not yet published.
 
 - **`@alxia/core` 0.7** — the peer range moves from `^0.3.1` to
-  `^0.7.0`: an app on `@alxia/core` 0.3 upgrades it, and every other
-  `@alxia/*` package, alongside this release, and mounts the server with
-  `plugin(jmap(…))` rather than `use(jmap(…))`. The server's routes,
-  statuses and bodies are unchanged.
+  `^0.7.0`: to take this release, an app on `@alxia/core` 0.3 upgrades it
+  with every other `@alxia/*` package it uses, and mounts the server with
+  `plugin(jmap(…))` where it wrote `use(jmap(…))`. The server's routes,
+  statuses, headers and bodies are unchanged.
 - **`@alxia/core` 0.3.1** — the peer range moves from `^0.3.0` to
   `^0.3.1`, whose `parseRange` answers a range of an empty file as RFC
   9110 does: the server no longer works around it. Downloads answer as
