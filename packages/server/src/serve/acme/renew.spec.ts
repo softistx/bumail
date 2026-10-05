@@ -88,6 +88,9 @@ describe('a renewal', () => {
 		);
 		await attempt(ctx);
 		expect(state.readPair()).toEqual(old);
+		// The refused pair must not become what a restart falls back to.
+		expect(state.readPrevious()).toEqual(old);
+		expect(state.readPrevious()).not.toEqual(next);
 		expect(told).toEqual([]);
 		expect(lines).toEqual([
 			'tls: renewal failed: the listeners did not take the new certificate; see the line above; the current certificate stays, trying again in 10 min',

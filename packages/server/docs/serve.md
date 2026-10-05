@@ -546,7 +546,11 @@ The directory is made 0700 when the server creates it; one that exists
 (`/data`, say) keeps the mode its owner gave it. Every file is mode
 0600, written whole to a temporary file beside it (a name nobody can
 guess, created exclusively and never through a symbolic link), synced,
-renamed over the old one, and the directory synced. A new pair is
+renamed over the old one, and the directory synced; a temporary file
+left by a write that failed is removed at once, and one left by an
+earlier process is removed at the next start (only the server's own
+temporaries: `<file>.<pid>.<uuid>.tmp` for its five files, so other
+files in a shared directory are left alone). A new pair is
 written in this order: both new files, then the old pair under the
 `.prev.` names, then both renames, so a crash at any moment leaves one
 whole pair under one of the two names. A new key is made for each
@@ -561,13 +565,16 @@ flow, and a stop in the middle of it starts the next attempt afresh.
   inside its renewal window is used too; the renewal replaces it soon
   after.
 - **A pair that is not one** (a crash between the two renames of a
-  renewal left the new certificate with the old key, say) falls back to
+  renewal left the new key with the old certificate, say) falls back to
   the previous pair when that one is valid: `tls: the stored certificate
-  is not used: <reason>; using the previous pair`. The previous pair is
-  put back as the current one, and the listeners start with it.
+  is not used: <reason>; using the previous pair`. So does a volume with
+  no current pair at all, as `tls: no certificate stored in <dir>; using
+  the previous pair`. The previous pair is put back as the current one,
+  and the listeners start with it. A previous pair that is expired,
+  names another host or lacks a file is not used.
 - **None, or an unusable one** (not there, expired, another name, a key
-  that is not its own, and no valid previous pair) means the TLS listeners cannot start, since none
-  can start without a pair. The server says why
+  that is not its own, and no valid previous pair) means the TLS
+  listeners cannot start, since none can start without a pair. The server says why
   (`tls: no certificate stored in <dir>` or `tls: the stored
   certificate is not used: <reason>`), binds **port 80 and the health
   check**, and asks the CA, before it binds anything else. While it waits
@@ -942,6 +949,7 @@ bumail: stopped
 | `bumail: http listening on <address>:<port>: ACME HTTP-01 challenges on /.well-known/acme-challenge/, a redirect to HTTPS for GET /, 404 for the rest` | at start, with `tls.mode = "acme"` |
 | `tls: using the stored certificate (<names>; expires <date>)` | at start: the pair on the volume is valid and names every name |
 | `tls: no certificate stored in <dir>` | at start: none on the volume |
+| `tls: no certificate stored in <dir>; using the previous pair` | at start: there is no current pair and `cert.prev.pem` with `key.prev.pem` is usable: it is put back as the current one |
 | `tls: the stored certificate is not used: <reason>; using the previous pair` | at start: the current pair is not usable and `cert.prev.pem` with `key.prev.pem` is: it is put back as the current one |
 | `tls: the stored certificate is not used: <reason>` | at start: `the certificate is not a PEM chain`, `not valid yet`, `expired`, `it does not name <names>`, `the key is not the certificate's` or `the key is not an unencrypted PEM private key`; the server then waits for a new one |
 | `tls: waiting for a certificate from <directory>` | at start with no usable certificate, at once and every 30 seconds until it comes |

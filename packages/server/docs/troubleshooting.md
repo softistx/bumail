@@ -201,6 +201,7 @@ directory commands' own refusals are under
 - [`tls: no certificate stored in …`](#tls-no-certificate-stored-in-)
 - [`tls: the stored certificate is not used: …`](#tls-the-stored-certificate-is-not-used-)
 - [`tls: the stored certificate is not used: …; using the previous pair`](#tls-the-stored-certificate-is-not-used--using-the-previous-pair)
+- [`tls: no certificate stored in …; using the previous pair`](#tls-no-certificate-stored-in--using-the-previous-pair)
 - [`bumail: SIGHUP, the server has not started yet; nothing to reload`](#bumail-sighup-the-server-has-not-started-yet-nothing-to-reload)
 - [`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-)
 - [`tls: obtaining a certificate failed (try … of …): …`](#tls-obtaining-a-certificate-failed-try--of--)
@@ -1430,7 +1431,18 @@ volume is not one (the new certificate was renamed in, its key not yet,
 as a crash or a kill between the two renames leaves it), so the server
 started with the pair before it, `cert.prev.pem` and `key.prev.pem`,
 which it put back as the current one. The `<reason>` is as in the table
-above. The renewal is made again within a few days' tries.
+above. The renewal is made again: its retries wait 10 minutes to 6 hours.
+
+### `tls: no certificate stored in …; using the previous pair`
+
+Not a problem, but something removed the current pair: `cert.pem` or
+`key.pem` is gone (a file removed by hand, or a volume restored in
+part), so the server started with the pair before it, `cert.prev.pem`
+and `key.prev.pem`, which it put back as the current one. A previous pair
+that is expired, names another host or lacks a file is not used, and the
+server waits for a new certificate as under
+[`tls: no certificate stored in …`](#tls-no-certificate-stored-in-). The
+renewal is made again: its retries wait 10 minutes to 6 hours.
 
 ### `bumail: SIGHUP, the server has not started yet; nothing to reload`
 

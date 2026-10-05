@@ -62,6 +62,7 @@ export class Acme {
 		let pair: TlsFiles | undefined;
 		let previous: TlsFiles | undefined;
 		try {
+			state.removeStaleTemporaries();
 			pair = state.readPair();
 			previous = state.readPrevious();
 		} catch (error) {

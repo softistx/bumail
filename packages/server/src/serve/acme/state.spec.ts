@@ -3,6 +3,7 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	rmSync,
 	statSync,
 	symlinkSync,
 	writeFileSync,
@@ -97,5 +98,65 @@ describe('AcmeState', () => {
 		mkdirSync(join(dir, 'cert.pem'));
 		writeFileSync(join(dir, 'key.pem'), 'k');
 		expect(() => new AcmeState(dir).readPair()).toThrow();
+	});
+
+	test('a failed writePair leaves no temporary file behind', () => {
+		const dir = tempDir();
+		const state = new AcmeState(dir);
+		state.writePair({ cert: 'c1', key: 'k1' });
+		// A directory where the previous key goes makes the rename fail.
+		mkdirSync(join(dir, 'key.prev.pem'));
+		writeFileSync(join(dir, 'key.prev.pem', 'x'), 'x');
+		expect(() => state.writePair({ cert: 'c2', key: 'k2' })).toThrow();
+		expect(readdirSync(dir).filter((n) => n.endsWith('.tmp'))).toEqual([]);
+		expect(state.readPair()).toEqual({ cert: 'c1', key: 'k1' });
+	});
+
+	test('keepPrevious leaves the previous pair as it was', () => {
+		const state = new AcmeState(tempDir());
+		state.writePair({ cert: 'c1', key: 'k1' });
+		state.writePair({ cert: 'c2', key: 'k2' });
+		state.writePair({ cert: 'c1', key: 'k1' }, { keepPrevious: true });
+		expect(state.readPair()).toEqual({ cert: 'c1', key: 'k1' });
+		expect(state.readPrevious()).toEqual({ cert: 'c1', key: 'k1' });
+		state.writePair({ cert: 'c3', key: 'k3' }, { keepPrevious: true });
+		expect(state.readPrevious()).toEqual({ cert: 'c1', key: 'k1' });
+	});
+
+	test('removeStaleTemporaries deletes every leftover, whatever its pid, and keeps what is being written', () => {
+		const dir = tempDir();
+		const uuid = crypto.randomUUID();
+		const other = `key.pem.${process.pid + 1}.${uuid}.tmp`;
+		const own = `key.pem.${process.pid}.${uuid}.tmp`;
+		const foreign = `backup.sql.42.${uuid}.tmp`;
+		const dashes = `key.pem.7.${'-'.repeat(36)}.tmp`;
+		for (const name of [other, own, foreign, dashes, 'notes.tmp', 'cert.pem'])
+			writeFileSync(join(dir, name), 'x');
+		new AcmeState(dir).removeStaleTemporaries();
+		expect(readdirSync(dir).sort()).toEqual(
+			['cert.pem', dashes, foreign, 'notes.tmp'].sort(),
+		);
+		new AcmeState(join(dir, 'missing')).removeStaleTemporaries();
+		for (const name of [foreign, dashes]) rmSync(join(dir, name));
+
+		// While the second temporary is made, the first is in flight.
+		let calls = 0;
+		let seen: string[] = [];
+		const holder: { state?: AcmeState } = {};
+		const state = new AcmeState(dir, () => {
+			calls++;
+			if (calls === 2) {
+				holder.state?.removeStaleTemporaries();
+				seen = readdirSync(dir).filter((n) => n.startsWith('key.pem.'));
+			}
+			return `${process.pid}.${crypto.randomUUID()}`;
+		});
+		holder.state = state;
+		state.writePair({ cert: 'c', key: 'k' });
+		expect(seen).toHaveLength(1);
+		expect(seen[0]).toStartWith('key.pem.');
+		expect(readdirSync(dir).filter((n) => n.endsWith('.tmp'))).toEqual([
+			'notes.tmp',
+		]);
 	});
 });

@@ -64,7 +64,7 @@ export async function attempt(ctx: RenewalContext): Promise<void> {
 		run.state.writePair(pair);
 		await watch.reload();
 		if (watch.applied.cert !== pair.cert) {
-			run.state.writePair(old);
+			run.state.writePair(old, { keepPrevious: true });
 			throw new Error(
 				'the listeners did not take the new certificate; see the line above',
 			);

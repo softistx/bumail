@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { X509Certificate } from 'node:crypto';
-import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import {
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type { AcmeFetch } from '@bumail/acme';
 import { selfSigned } from '../config/certificates.fixtures';
@@ -254,6 +260,70 @@ describe('tls.mode = "acme": a crash between the two renames of a renewal', () =
 		);
 		expect(readFileSync(join(state, 'cert.pem'), 'utf8')).toBe(previous.cert);
 		expect(readFileSync(join(state, 'key.pem'), 'utf8')).toBe(previous.key);
+	});
+});
+
+describe('tls.mode = "acme": a previous pair that cannot be used', () => {
+	/** Starts with no current pair and the previous files `plant` writes; answers the log. */
+	async function refused(
+		plant: (state: string) => Promise<void>,
+	): Promise<string[]> {
+		const dir = tempDir();
+		const state = join(dir, 'acme');
+		mkdirSync(state);
+		await plant(state);
+		const run = startAcme({
+			dir,
+			acme: { fetch: refusing().fetch, startRetryMs: [], waitingLogMs: 1000 },
+		});
+		await run.started.catch(() => {});
+		expect(readdirSync(state).sort()).not.toContain('cert.pem');
+		return run.lines;
+	}
+
+	const plantPrevious = (
+		state: string,
+		pair: { cert: string; key: string },
+	): void => {
+		writeFileSync(join(state, 'cert.prev.pem'), pair.cert);
+		writeFileSync(join(state, 'key.prev.pem'), pair.key);
+	};
+
+	test('an expired one is refused', async () => {
+		const lines = await refused(async (state) =>
+			plantPrevious(
+				state,
+				await selfSigned([A], {
+					notBefore: new Date(Date.now() - 3 * DAY),
+					notAfter: new Date(Date.now() - DAY),
+				}),
+			),
+		);
+		expect(lines.some((line) => line.endsWith('using the previous pair'))).toBe(
+			false,
+		);
+		expect(lines.some((line) => line.startsWith('tls: no certificate'))).toBe(
+			true,
+		);
+	});
+
+	test('one that names another host is refused', async () => {
+		const lines = await refused(async (state) =>
+			plantPrevious(state, await selfSigned(['other.bumail.test'])),
+		);
+		expect(lines.some((line) => line.endsWith('using the previous pair'))).toBe(
+			false,
+		);
+	});
+
+	test('one with a file missing is refused', async () => {
+		const lines = await refused(async (state) => {
+			const pair = await selfSigned([A]);
+			writeFileSync(join(state, 'cert.prev.pem'), pair.cert);
+		});
+		expect(lines.some((line) => line.endsWith('using the previous pair'))).toBe(
+			false,
+		);
 	});
 });
 
