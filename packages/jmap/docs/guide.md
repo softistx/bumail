@@ -108,9 +108,11 @@ alxia({ proxy: trustProxy({ trusted: ['10.0.0.0/8'], untrusted: 'refuse-all' }) 
 
 The scheme is only as good as the edge: the outermost proxy must set or
 overwrite `X-Forwarded-Proto`, as Traefik does, or a client's own entry
-stands where its should. Without `secure`, the default reads the request's own URL, not
-`client.url`: `trustProxy` alone does not lift the refusal of Basic, so
-set `secure` as above. `untrusted: 'refuse-all'` answers 403 every connection that is no
+stands where the edge's should. Without `secure`, the default reads the
+request's own URL, not `client.url`: `trustProxy` alone does not lift
+the refusal of Basic, so set `secure` as above.
+
+`untrusted: 'refuse-all'` answers 403 every connection that is no
 trusted proxy, before any route; leave it out to serve direct clients
 too, whose `client` is then the connection's. `authenticate` gets the
 same `client` as its third argument, and `onError`'s context as
