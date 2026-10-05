@@ -51,11 +51,10 @@ npm, and its image is `ghcr.io/softistx/bumail`.
   goes to every TLS listener (25 and 587, 465, 993 and 143, and JMAP's
   HTTPS) for new connections, open sessions untouched; one that is not
   keeps the old pair and logs why, once.
-- **The DNS records a domain needs, and a check of them** (merged, not
-  published): `bumail dns` prints, for every hosted domain or one, the MX,
-  SPF (`v=spf1 mx -all`), DKIM, DMARC (`quarantine` once the domain has a DKIM key, strict DKIM
-  alignment) and
-  autoconfig SRV records (RFC 6186, RFC 8620), and the host name's A and
+- **The DNS records a domain needs, and a check of them** (shipped in
+  0.1.0): `bumail dns` prints, for every hosted domain or one, the MX,
+  SPF (`v=spf1 mx -all`), DKIM, DMARC (`quarantine` once the domain has a
+  DKIM key, strict DKIM alignment) and autoconfig SRV records (RFC 6186, RFC 8620), and the host name's A and
   AAAA from `--ip` and `--ip6`, as a zone file DNS hosts import, or as
   JSON. `--check` looks each up in the DNS, parsed as the receivers read them,
   and exits 1 while one is missing, differs or is doubled (5 when the DNS

@@ -394,7 +394,7 @@ const authenticate = smtpAuthenticate(directory); // @bumail/smtp's authenticate
 | `bumail user add\|list\|passwd\|disable\|enable\|remove` | the users; `--password-stdin`, `--password-file`, `remove --purge`; `list [<domain>]` |
 | `bumail alias add\|list\|remove` | the aliases, to local users only; `list [<domain>]` |
 | `bumail dkim generate\|show\|list\|remove` | the DKIM keys, one per domain; `generate --selector <name>`, `--replace` |
-| `bumail dns [<domain>]` | the MX, SPF, DKIM, DMARC and SRV records every hosted domain needs, as a zone file; `--ip`, `--ip6` add the host's A and AAAA, `--json` writes JSON, `--check` looks them up in the DNS (exit 1 when one is missing, differs or is doubled, 5 when the DNS gave no answer) |
+| `bumail dns [<domain>]` | the MX, SPF, DKIM, DMARC and autoconfig SRV records every hosted domain needs, as a zone file; `--ip`, `--ip6` add the host name's A and AAAA records, `--json` writes JSON, `--check` looks them up in the DNS (exit 1 when one is missing, differs or is doubled, 5 when the DNS gave no answer) |
 | `--config <file>`, `--config=<file>` | the file; default `$BUMAIL_CONFIG`, then `/data/bumail.toml` |
 | `-h`, `--help` | print the usage |
 | `-v`, `--version` | print the version |
