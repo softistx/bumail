@@ -1,11 +1,8 @@
+import { checkAcme } from './acme';
 import type { Checker } from './checker';
 import { fromDir } from './files';
 import { checkTlsFiles } from './tls';
 import type { AcmeConfig, PortsConfig, TlsConfig } from './types';
-import { checkHttpsUrl } from './urls';
-
-/** Let's Encrypt's production directory (RFC 8555 §7.1.1). */
-export const LETS_ENCRYPT = 'https://acme-v02.api.letsencrypt.org/directory';
 
 /** Seconds between two looks at the certificate files, by default. */
 export const DEFAULT_POLL_SECONDS = 30;
@@ -13,20 +10,22 @@ export const DEFAULT_POLL_SECONDS = 30;
 /** The longest wait between two looks: a day. */
 const MAX_POLL_SECONDS = 86_400;
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export interface CertificatesContext {
 	/** The configuration file's directory, which relative paths start from. */
 	readonly dir: string;
 	/** `undefined` when it is missing or invalid, so no certificate is checked against it. */
 	readonly hostname: string | undefined;
 	readonly ports: PortsConfig;
+	/** `data`, which the ACME state's default directory is under. */
+	readonly data: string;
+	/** The top-level `bind`, which the challenge listener's default is. */
+	readonly bind: string;
 	readonly now: Date;
 }
 
 /**
  * `[tls]` and `[acme]`. With `mode = "acme"`, the default, `[acme]` needs
- * an e-mail and `acceptTerms = true`, and `ports.http` must be on for
+ * `acceptTerms = true` (`checkAcme`), and `ports.http` must be on for
  * HTTP-01; `cert`, `key` and `pollSeconds` are refused. With `mode =
  * "files"`, both files are checked (`checkTlsFiles`), `pollSeconds` is how
  * often `serve` looks for a renewed pair (0: never), and `[acme]` is
@@ -93,34 +92,5 @@ export function checkCertificates(
 			'is 0, but tls.mode "acme" answers its HTTP-01 challenges there',
 		);
 	}
-	return { tls: { mode }, acme: checkAcme(checker, rawAcme) };
-}
-
-function checkAcme(checker: Checker, raw: unknown): AcmeConfig {
-	const acme = checker.table(raw, 'acme', [
-		'email',
-		'acceptTerms',
-		'directory',
-	]);
-	const email = checker.string(acme, 'email', 'acme');
-	if (email === undefined && acme?.['email'] === undefined) {
-		checker.add('acme.email', 'is required with tls.mode "acme"');
-	} else if (email !== undefined && !EMAIL.test(email)) {
-		checker.add('acme.email', 'must be an e-mail address');
-	}
-	const accepted = checker.boolean(acme, 'acceptTerms', 'acme');
-	// Not a boolean is already recorded; false and absent are refused here.
-	if (accepted === false || acme?.['acceptTerms'] === undefined) {
-		checker.add(
-			'acme.acceptTerms',
-			"must be true: the CA's terms of service, read and accepted",
-		);
-	}
-	const directoryValue = checker.string(acme, 'directory', 'acme');
-	const directory =
-		directoryValue === undefined
-			? LETS_ENCRYPT
-			: (checkHttpsUrl(checker, directoryValue, 'acme.directory', false) ??
-				LETS_ENCRYPT);
-	return { email: email ?? '', acceptTerms: true, directory };
+	return { tls: { mode }, acme: checkAcme(checker, rawAcme, context) };
 }

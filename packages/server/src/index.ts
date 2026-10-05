@@ -81,6 +81,7 @@ export {
 export type { Log } from './serve/log';
 export type { OutboundOptions } from './serve/outbound';
 export {
+	type AcmeOptions,
 	DEFAULT_DRAIN_SECONDS,
 	type ListenerName,
 	type Listening,
@@ -88,7 +89,6 @@ export {
 	type ServeOptions,
 	serve,
 } from './serve/serve';
-export { ACME_LATER } from './serve/tls';
 export {
 	MAILBOXES,
 	provisionAccount,

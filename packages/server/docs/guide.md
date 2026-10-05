@@ -95,7 +95,7 @@ exits 1. No problem repeats a URL or a secret.
 | 0 | valid (`check-config`), stopped cleanly (`serve`), or `-h`/`--help`, `-v`/`--version` |
 | 1 | the configuration has problems, or cannot be read |
 | 2 | bad usage: an unknown command or option |
-| 3 | `serve`: the configuration is valid, but asks for what arrives later (`tls.mode = "acme"`) |
+| 3 | reserved: no command returns it |
 | 5 | `serve`: a port, the certificate, the spool, the directory, the store or the queue cannot be used |
 
 ## Top-level keys
@@ -119,7 +119,7 @@ bind = "0.0.0.0"
 Each listener's port, a whole number from 0 to 65535 (`25.5` is refused;
 TOML's `25.0` reads as 25); `0` turns it off. Two listeners never share
 a port. `bumail serve` runs `mx`, `submissions`, `submission`, `imaps`,
-`imap`, `https` and `health` today, and logs `http` as arriving later;
+`imap`, `https` and `health` today, and `http` with `tls.mode = "acme"`;
 [running the server](serve.md#the-listeners) says what each does.
 
 | key | default | listener |
@@ -130,7 +130,7 @@ a port. `bumail serve` runs `mx`, `submissions`, `submission`, `imaps`,
 | `imaps` | 993 | IMAP over implicit TLS |
 | `imap` | 0 | IMAP with STARTTLS; off unless you turn it on |
 | `https` | 443 | JMAP: HTTPS from the certificate files, or, with `jmap.mode = "proxy"`, plain HTTP for a proxy that ends TLS, on the port you set |
-| `http` | 80 | ACME's HTTP-01 challenges; needed with `tls.mode = "acme"` |
+| `http` | 80 | ACME's HTTP-01 challenges, answered with `tls.mode = "acme"` only (never 0 there; bound to `acme.bind`); with `"files"` nothing listens on it |
 | `health` | 8080 | the health check, on loopback unless `[health]` says otherwise |
 
 ## `[store]`, `[queue]`, `[directory]`
@@ -209,9 +209,13 @@ TLS, IMAP and HTTPS alike.
 mode = "acme"   # the default
 
 [acme]
-email = "postmaster@example.com"
 acceptTerms = true
+email = "postmaster@example.com"   # optional
 directory = "https://acme-v02.api.letsencrypt.org/directory"   # the default
+names = ["imap.example.com"]       # more names; hostname is always one
+dir = "/data/acme"                 # the default: <data>/acme
+renewBeforeDays = 30               # the default
+bind = "0.0.0.0"                   # the default: bind
 ```
 
 | key | default | |
@@ -220,15 +224,21 @@ directory = "https://acme-v02.api.letsencrypt.org/directory"   # the default
 | `tls.cert` | required with `"files"` | the certificate chain, PEM, leaf first |
 | `tls.key` | required with `"files"` | its private key, PEM, unencrypted |
 | `tls.pollSeconds` | `30` | with `"files"`: seconds between two looks at the files for a renewed pair, 0 to 86400; 0 looks only on SIGHUP; refused with `"acme"` |
-| `acme.email` | required with `"acme"` | the account's contact, for the CA's expiry notices |
 | `acme.acceptTerms` | required with `"acme"` | must be `true`: you have read the CA's terms of service and accept them |
-| `acme.directory` | Let's Encrypt | the CA's directory URL, `https:` |
+| `acme.email` | none | the account's contact, for the CA's expiry notices; an e-mail address. Left out, the CA is given none |
+| `acme.directory` | Let's Encrypt's production | the CA's directory URL, `https:`; `"staging"` is Let's Encrypt's staging directory (`https://acme-staging-v02.api.letsencrypt.org/directory`), whose certificates no client trusts and whose limits are generous, for a first try; any other `https:` URL is taken as is, a test CA's included |
+| `acme.names` | `[]` | extra DNS names the one certificate covers, besides `hostname`, which is always the first: fully qualified, no wildcard (HTTP-01 cannot prove one), a hundred at most with it. Each must resolve to this server |
+| `acme.dir` | `<data>/acme` | an absolute directory for the account key, the certificate's key and the certificate; made 0700 when the server creates it (an existing directory keeps its mode), its files 0600; holds the previous pair too |
+| `acme.renewBeforeDays` | `30` | 1 to 365: renew once fewer days than this remain, or a third of the certificate's life if that is less |
+| `acme.bind` | `bind` | an IP address: where port 80 (`ports.http`) listens, so a proxy can reach it on the network it shares with the server |
 
-`bumail serve` takes `"files"` only for now, and exits 3 with `"acme"`,
-which `check-config` still takes. The files are read at start, and read
-again every `tls.pollSeconds` and on SIGHUP: a renewed pair that is valid
-takes effect on every TLS listener without a restart, and the old pair
-stays when it is not
+With `"acme"`, `bumail serve` reads the pair on `acme.dir` and uses it, or
+waits for a first certificate from the CA, and renews it before its end
+([Certificates from ACME](serve.md#certificates-from-acme)); SIGHUP reads
+the stored pair again, and never renews. With `"files"` the files are
+read at start, and read again every `tls.pollSeconds` and on SIGHUP: a
+renewed pair that is valid takes effect on every TLS listener without a
+restart, and the old pair stays when it is not
 ([Renewing the certificate](serve.md#renewing-the-certificate)).
 `tls.pollSeconds` is only for `"files"`: with `"acme"`, it is refused.
 
@@ -240,8 +250,9 @@ key = "/etc/bumail/privkey.pem"
 pollSeconds = 60   # the default is 30; 0: only on SIGHUP
 ```
 
-With `"acme"`, certificates come by HTTP-01 on `ports.http`, so it must
-not be 0, and port 80 must reach the server from the Internet. `cert`
+With `"acme"`, certificates come by HTTP-01 on `ports.http` (80), so it
+must not be 0, and port 80 must reach the server from the Internet or
+from a proxy that routes `/.well-known/acme-challenge/` to it. `cert`
 and `key` are refused there, and `[acme]` is refused with `"files"`.
 
 With `"files"`, `check-config` reads both files and checks that:

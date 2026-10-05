@@ -34,6 +34,7 @@ const OPEN: Record<ListenerName, (port: number) => Promise<Peer>> = {
 	submissions: implicitPeer,
 	imaps: implicitPeer,
 	https: implicitPeer,
+	http: implicitPeer,
 	health: implicitPeer,
 };
 const TLS: ListenerName[] = [

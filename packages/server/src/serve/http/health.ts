@@ -19,6 +19,8 @@ export interface HealthContext {
 	readonly expected: readonly string[];
 	/** The names of the listeners bound and not stopping. */
 	readonly up: ReadonlySet<string>;
+	/** With `tls.mode = "acme"`: whether a certificate is in use. */
+	tls?(): 'up' | 'down';
 	readonly log: Log;
 }
 
@@ -26,6 +28,8 @@ export interface HealthContext {
 export interface HealthReport {
 	readonly status: 'ok' | 'unavailable';
 	readonly listeners: Record<string, 'up' | 'down'>;
+	/** Only with `tls.mode = "acme"`: `down` until the first certificate arrives, and past the end of the last. */
+	readonly tls?: 'up' | 'down';
 	readonly directory: 'ok' | 'failed';
 	readonly store: 'ok' | 'failed';
 }
@@ -58,13 +62,16 @@ export async function report(ctx: HealthContext): Promise<HealthReport> {
 	for (const name of ctx.expected) {
 		listeners[name] = ctx.up.has(name) ? 'up' : 'down';
 	}
+	const tls = ctx.tls?.();
 	const healthy =
+		tls !== 'down' &&
 		directory === 'ok' &&
 		store === 'ok' &&
 		Object.values(listeners).every((state) => state === 'up');
 	return {
 		status: healthy ? 'ok' : 'unavailable',
 		listeners,
+		...(tls === undefined ? {} : { tls }),
 		directory,
 		store,
 	};
@@ -75,6 +82,7 @@ function failing(health: HealthReport): string[] {
 	const parts = Object.entries(health.listeners)
 		.filter(([, state]) => state === 'down')
 		.map(([name]) => name);
+	if (health.tls === 'down') parts.push('tls');
 	if (health.directory === 'failed') parts.push('directory');
 	if (health.store === 'failed') parts.push('store');
 	return parts;

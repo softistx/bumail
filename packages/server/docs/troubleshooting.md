@@ -7,7 +7,7 @@ problem of a configuration at once, as a `ServerError` whose `code` is
 ```text
 bumail: /data/bumail.toml:
   ports.submission: 465 is also ports.submissions
-  acme.email: is required with tls.mode "acme"
+  acme.acceptTerms: must be true: the CA's terms of service, read and accepted
 ```
 
 Each line is `path: problem`, and each problem has an entry below,
@@ -80,9 +80,17 @@ directory commands' own refusals are under
 - [`tls.cert: is not valid until …`](#tlscert-is-not-valid-until-)
 - [`tls.cert: does not name …`](#tlscert-does-not-name-), with `(it names …)` when it names any
 - [`tls.key: is not the key of tls.cert`](#tlskey-is-not-the-key-of-tlscert)
-- [`acme.email: is required with tls.mode "acme"`](#acmeemail-is-required-with-tlsmode-acme)
 - [`acme.email: must be an e-mail address`](#acmeemail-must-be-an-e-mail-address)
 - [`acme.acceptTerms: must be true: the CA's terms of service, read and accepted`](#acmeacceptterms-must-be-true-the-cas-terms-of-service-read-and-accepted)
+- [`acme.directory: must be a string`](#acmedirectory-must-be-a-string), and `acme.email: must be a string, not …`
+- [`acme.names: must be an array of DNS names`](#acmenames-must-be-an-array-of-dns-names)
+- [`acme.names[…]: must be a string`](#acmenames-must-be-a-string)
+- [`acme.names[…]: is a wildcard, which HTTP-01 cannot prove`](#acmenames-is-a-wildcard-which-http-01-cannot-prove)
+- [`acme.names[…]: must be a fully qualified domain name, such as imap.example.com`](#acmenames-must-be-a-fully-qualified-domain-name-such-as-imapexamplecom)
+- [`acme.names: are more than the 100 a certificate holds`](#acmenames-are-more-than-the-100-a-certificate-holds)
+- [`acme.dir: must be an absolute path`](#acmedir-must-be-an-absolute-path)
+- [`acme.renewBeforeDays: must be an integer from 1 to 365`](#acmerenewbeforedays-must-be-an-integer-from-1-to-365)
+- [`acme.bind: must be an IPv4 or IPv6 address`](#acmebind-must-be-an-ipv4-or-ipv6-address)
 
 **Smarthost and routes**
 
@@ -187,9 +195,24 @@ directory commands' own refusals are under
 - [`maxVerifies must be an integer of 1 or more`](#maxverifies-must-be-an-integer-of-1-or-more)
 - [`the directory URL must be sqlite: and a path`](#the-directory-url-must-be-sqlite-and-a-path)
 
-**Serving** (`bumail serve`: exit code 3 or 5; the replies other servers get; the log)
+**Serving** (`bumail serve`: exit code 5; the replies other servers get; the log)
 
-- [`acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`](#acme-mode-arrives-in-a-later-slice-set-tlsmode--files-with-cert-and-key-for-now)
+- [`tls: using the stored certificate (…)`](#tls-using-the-stored-certificate-)
+- [`tls: no certificate stored in …`](#tls-no-certificate-stored-in-)
+- [`tls: the stored certificate is not used: …`](#tls-the-stored-certificate-is-not-used-)
+- [`tls: the stored certificate is not used: …; using the previous pair`](#tls-the-stored-certificate-is-not-used--using-the-previous-pair)
+- [`bumail: SIGHUP, the server has not started yet; nothing to reload`](#bumail-sighup-the-server-has-not-started-yet-nothing-to-reload)
+- [`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-)
+- [`tls: obtaining a certificate failed (try … of …): …`](#tls-obtaining-a-certificate-failed-try--of--)
+- [`tls: obtained (…)`](#tls-obtained-)
+- [`no certificate for … from … after … tries: …. Check that each name resolves to this host and that port 80 (ports.http) reaches it`](#no-certificate-for--from--after--tries--check-that-each-name-resolves-to-this-host-and-that-port-80-portshttp-reaches-it)
+- [`no certificate for … from …: the CA is rate limiting and asks to wait … before another try, longer than the … the tries left would wait: …. Start the server again after that`](#no-certificate-for--from--the-ca-is-rate-limiting-and-asks-to-wait--before-another-try-longer-than-the--the-tries-left-would-wait--start-the-server-again-after-that)
+- [`stopped while waiting for a certificate`](#stopped-while-waiting-for-a-certificate)
+- [`the certificate in … cannot be read (…)`](#the-certificate-in--cannot-be-read-)
+- [`acme: the CA fetched the challenge …...`](#acme-the-ca-fetched-the-challenge-)
+- [`tls: renewed (…)`](#tls-renewed-)
+- [`tls: renewal failed: …`](#tls-renewal-failed-)
+- [The health check says `"tls":"down"`](#the-health-check-says-tlsdown)
 - [`… cannot listen on …:… (…)`](#-cannot-listen-on--)
 - [`tls: reloaded (…)`](#tls-reloaded-)
 - [`tls: reloaded (…); https keeps the old certificate until restart`](#tls-reloaded--https-keeps-the-old-certificate-until-restart)
@@ -644,16 +667,6 @@ key of the previous certificate, after a renewal.
 
 **Fix**: the key generated with this certificate's request.
 
-### `acme.email: is required with tls.mode "acme"`
-
-**Fix**:
-
-```toml
-[acme]
-email = "postmaster@example.com"
-acceptTerms = true
-```
-
 ### `acme.email: must be an e-mail address`
 
 **Fix**: an address with a local part, an `@` and a domain.
@@ -667,6 +680,74 @@ terms; bumail does not accept them for you.
 
 **Fix**: read the CA's terms (Let's Encrypt's are linked from its
 directory), then set `acceptTerms = true`.
+
+### `acme.directory: must be a string`
+
+**When**: `acme.directory` is not text. Also `acme.email: must be a
+string, not …`.
+
+**Fix**: a URL in quotes, or `"staging"`:
+
+```toml
+[acme]
+directory = "staging"
+```
+
+### `acme.names: must be an array of DNS names`
+
+**Fix**: a list, even of one name:
+
+```toml
+[acme]
+names = ["imap.example.com"]
+```
+
+### `acme.names[…]: must be a string`
+
+**When**: an entry of `acme.names` is not text; `[…]` is its place in the
+list, from 0.
+
+### `acme.names[…]: is a wildcard, which HTTP-01 cannot prove`
+
+**Why**: a CA validates `*.example.com` only by DNS-01, which bumail
+does not do yet.
+
+**Fix**: list each name the certificate must cover.
+
+### `acme.names[…]: must be a fully qualified domain name, such as imap.example.com`
+
+**When**: an entry has fewer than two labels (`mail`), an invalid label,
+or is an IP address, which a CA gives no certificate by name.
+
+**Fix**: the DNS name, in letters, digits and inner hyphens; a trailing
+dot is dropped, and case is ignored.
+
+### `acme.names: are more than the 100 a certificate holds`
+
+**Why**: `hostname` and `acme.names` together are one certificate's
+names, at most 100.
+
+**Fix**: fewer names, or two servers.
+
+### `acme.dir: must be an absolute path`
+
+**Fix**: an absolute directory on the volume, or leave it out for
+`<data>/acme`:
+
+```toml
+[acme]
+dir = "/data/acme"
+```
+
+### `acme.renewBeforeDays: must be an integer from 1 to 365`
+
+**Fix**: a whole number of days. The server renews when fewer remain,
+or at a third of the certificate's life if that is sooner.
+
+### `acme.bind: must be an IPv4 or IPv6 address`
+
+**Fix**: the address port 80 binds to: `0.0.0.0`, `::`, or the address
+of the network a proxy reaches the server on. Left out, it is `bind`.
 
 ### `…: the scheme "…:" is not https:`
 
@@ -1299,31 +1380,184 @@ more` (from `new FailureLimiter`, with `maxPending`), and
 
 ## Serving
 
-`bumail serve` exits 3 for what arrives in a later release, 5 for
-what it cannot open or bind, and 1 for a configuration `check-config`
-refuses. What it does is in [running the server](serve.md). It also
+`bumail serve` exits 5 for what it cannot open or bind, or for a
+certificate that does not come, and 1 for a configuration `check-config`
+refuses. Exit 3 (`NOT_IMPLEMENTED`) is reserved: nothing raises it
+now. What it does is in [running the server](serve.md). It also
 prints the directory's and the store's own messages, such as
 [`the mail store is in use by another process, such as the running server`](#the-mail-store-is-in-use-by-another-process-such-as-the-running-server):
 see [the directory and the store](#the-directory-and-the-store), exit
 code 5.
 
-### `acme mode arrives in a later slice: set tls.mode = "files", with cert and key, for now`
+### `tls: using the stored certificate (…)`
 
-`bumail serve` with `tls.mode = "acme"`, the default. `check-config`
-takes it, so a file written for ACME stays valid, but the server does
-not obtain certificates yet. Exit code 3.
+Not a problem: at start, with `tls.mode = "acme"`, the pair on the
+volume (`acme.dir`) is valid and names `hostname` and every `acme.names`,
+so every TLS listener started with it, and the CA was not asked. In
+brackets, its names and the day it ends. One inside its renewal window
+is used too; a renewal follows within about a minute.
 
-Get a certificate another way (certbot, your provider) and point the
-server at it:
+### `tls: no certificate stored in …`
 
-```toml
-[tls]
-mode = "files"
-cert = "/etc/bumail/fullchain.pem"
-key = "/etc/bumail/privkey.pem"
-```
+Not a problem on a first start: `acme.dir` holds no `cert.pem` and
+`key.pem`. The server asks the CA for a certificate before it starts the
+TLS listeners, as [Certificates from ACME](serve.md#the-first-start)
+says. On a start that is not the first, the volume was not mounted or
+the directory changed: the server will ask the CA again, which counts
+against Let's Encrypt's limit on identical certificates (5 a week).
 
-Remove `[acme]`, which `"files"` refuses.
+### `tls: the stored certificate is not used: …`
+
+**When**: at start, with `tls.mode = "acme"`, the pair on the volume
+cannot serve:
+
+| reason | what it means |
+| --- | --- |
+| `the certificate is not a PEM chain` | `cert.pem` is empty or damaged |
+| `not valid yet` | the certificate starts later than this machine's clock: check the clock |
+| `expired` | it ended while the server was stopped |
+| `it does not name <names>` | `hostname` or `acme.names` changed since it was issued |
+| `the key is not the certificate's` | `key.pem` is another certificate's: a stop between the two writes of a renewal, or files copied by hand |
+| `the key is not an unencrypted PEM private key` | `key.pem` is damaged |
+
+**Fix**: nothing: the server waits for a new certificate, as under
+[`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-).
+
+### `tls: the stored certificate is not used: …; using the previous pair`
+
+Not a problem, but it says a renewal was cut short: the pair on the
+volume is not one (the new certificate was renamed in, its key not yet,
+as a crash or a kill between the two renames leaves it), so the server
+started with the pair before it, `cert.prev.pem` and `key.prev.pem`,
+which it put back as the current one. The `<reason>` is as in the table
+above. The renewal is made again within a few days' tries.
+
+### `bumail: SIGHUP, the server has not started yet; nothing to reload`
+
+Not a problem: a SIGHUP reached `bumail serve` while it waited for its
+first certificate (or started). There is nothing to reload yet and the
+wait goes on. Send it again once the server is serving.
+
+### `tls: waiting for a certificate from …`
+
+**When**: at start, with no usable certificate. It is logged at once and
+every 30 seconds while the server asks `<directory>` for one. The TLS
+listeners are not up yet: port 80 and the health check are, and
+`GET /healthz` answers 503 with `"tls":"down"`. See
+[the first start](serve.md#the-first-start).
+
+**Fix**: wait for `tls: obtained (…)`, or read the
+`tls: obtaining a certificate failed` lines between.
+
+### `tls: obtaining a certificate failed (try … of …): …`
+
+**When**: a try for the first certificate failed. The server tries 5
+times, 10 s, 30 s, 1 and 2 minutes apart. The reason is the CA's or
+the network's:
+
+| reason holds | what it means |
+| --- | --- |
+| `the authorization for "<name>" is "invalid": …:connection: … lookup <name> … no such host` | the name does not resolve: add its A or AAAA record, to this server's address |
+| `…:connection: … timeout`, `connection refused` | the CA's request to `http://<name>/.well-known/acme-challenge/…` did not reach the server: port 80 is closed, filtered, or routed elsewhere. Behind Traefik, see [ACME behind Traefik](serve.md#acme-behind-traefik) |
+| `…:unauthorized`, `…: Invalid response from …` | something else answered on port 80: a catch-all router, a redirect to HTTPS, another server |
+| `…rateLimited…` | the CA's limits: too many failures or certificates for the name. The next wait is at least the CA's `Retry-After`; see [the rate-limit exit](#no-certificate-for--from--the-ca-is-rate-limiting-and-asks-to-wait--before-another-try-longer-than-the--the-tries-left-would-wait--start-the-server-again-after-that). Try `directory = "staging"` meanwhile |
+| `fetch failed`, `TLS`, `NETWORK_ERROR` | the CA's directory cannot be reached from this host, or its certificate is not trusted |
+| `newAccount(): …`, `…invalidContact`, `…unsupportedContact` | the CA refused `acme.email`: another address, or none |
+
+**Fix**: the cause in the table. After the fifth try the server exits;
+see [`no certificate for … from … after … tries: …`](#no-certificate-for--from--after--tries--check-that-each-name-resolves-to-this-host-and-that-port-80-portshttp-reaches-it).
+
+### `no certificate for … from …: the CA is rate limiting and asks to wait … before another try, longer than the … the tries left would wait: …. Start the server again after that`
+
+**When**: the first start, with no usable certificate, and the CA
+answered a rate limit whose `Retry-After` is longer than all the waits the
+server has left (10 s, 30 s, 1 and 2 minutes between tries). Retrying
+sooner would only spend more of the limit, so it exits 5 at once, having
+stopped what it started; the message names the CA's wait and the time
+left. After the colon is the CA's reason.
+
+**Fix**: start the server again after the wait named. Meanwhile
+`directory = "staging"` has far looser limits, for checking the
+configuration.
+
+### `tls: obtained (…)`
+
+Not a problem: the first certificate came, and was written to the
+volume; the TLS listeners start. In brackets, its names and the day it
+ends.
+
+### `no certificate for … from … after … tries: …. Check that each name resolves to this host and that port 80 (ports.http) reaches it`
+
+**When**: `bumail serve` with `tls.mode = "acme"` and no usable
+certificate: the last of its tries failed, and the server exits 5, with
+what it opened closed again. After the colon is the last try's reason,
+as in
+[`tls: obtaining a certificate failed`](#tls-obtaining-a-certificate-failed-try--of--).
+
+**Fix**: the cause in that table, then start again. A supervisor that
+restarts the server repeats the tries each time: against Let's
+Encrypt's production CA that spends its failure limits, so set
+`directory = "staging"` until a start gets through, then remove it (and
+the staging certificate in `acme.dir`).
+
+### `stopped while waiting for a certificate`
+
+**When**: `serve` was given a `signal` (from code) and it aborted while
+the server waited for its first certificate; the error is
+`UNAVAILABLE`. `bumail serve` itself answers SIGTERM and SIGINT in that
+wait by stopping and exiting 0, without this message.
+
+### `the certificate in … cannot be read (…)`
+
+**When**: at start with `tls.mode = "acme"`, `cert.pem` or `key.pem` in
+`acme.dir` exists but cannot be read (`EACCES`, `EISDIR`). Exit code 5.
+
+**Fix**: the server's user must own `acme.dir`, which it makes 0700; fix
+its owner on the volume.
+
+### `acme: the CA fetched the challenge …...`
+
+Not a problem: the CA fetched a token's key authorization on port 80,
+as HTTP-01 does. The log has the first 8 characters of the token, once
+per token however many requests follow. A challenge with no such line,
+and an authorization that failed, never reached the server: see
+[`tls: obtaining a certificate failed`](#tls-obtaining-a-certificate-failed-try--of--).
+
+### `tls: renewed (…)`
+
+Not a problem: a renewal succeeded, was written to the volume, and every
+TLS listener switched to it, for new connections. In brackets, its names
+and the day it ends. The `tls: reloaded (…)` line before it is the
+switch itself.
+
+### `tls: renewal failed: …`
+
+**When**: the server tried to renew the certificate and could not. The
+line ends with `; the current certificate stays, trying again in <wait>`:
+10 minutes, then 30 minutes, then 1, 3 and 6 hours, the last repeating.
+The reason is as in
+[`tls: obtaining a certificate failed`](#tls-obtaining-a-certificate-failed-try--of--),
+or `the listeners did not take the new certificate; see the line above`
+when a listener refused the new pair (the line above is
+[`tls: not reloaded: …`](#tls-not-reloaded-); the old pair is written
+back to the volume).
+
+**Why it matters**: nothing breaks yet. The old certificate serves until
+it ends, then the health check turns 503 with `"tls":"down"` and mail
+clients and servers start refusing it. A renewal begins 30 days before
+(`acme.renewBeforeDays`), so there are weeks of tries.
+
+**Fix**: the cause; the next try takes it. A restart looks again within
+about a minute, and tries at once when the certificate is inside its
+window.
+
+### The health check says `"tls":"down"`
+
+**When**: with `tls.mode = "acme"`, `GET /healthz` answers 503 and its
+body has `"tls":"down"`. At start it means no certificate has come yet
+([`tls: waiting for a certificate from …`](#tls-waiting-for-a-certificate-from-));
+later, that the certificate in use has expired, because every renewal
+failed ([`tls: renewal failed: …`](#tls-renewal-failed-)).
 
 ### `tls: reloaded (…)`
 
@@ -1360,9 +1594,13 @@ reason, once, after `tls: not reloaded: `:
 | `tls.cert cannot be read (ENOENT)`, `tls.key cannot be read (…)` | a file is gone or not readable by the user the server runs as, as a swap is under way, or a mount is lost |
 | `tls.cert is not a PEM certificate`, `tls.key is not an unencrypted PEM private key` | not PEM, or an encrypted key |
 | `tls.cert expired on …`, `tls.cert is not valid until …` | the new certificate's dates |
-| `tls.cert does not name …` | it is for another host than `hostname` |
+| `tls.cert does not name …` | it is for another host than `hostname` (with ACME, also than any name of `acme.names`) |
 | `<listener>: …` | a listener refused the pair, and the others were put back on the old one |
 | `<listener>: …; <other> left on the new pair, the rollback failed` | a listener refused the pair and putting `<other>` back on the old one failed too: it serves the new pair, the rest the old. Send `SIGHUP` once the cause is fixed, or restart |
+
+With `tls.mode = "acme"` the reasons name the files by their paths in
+`acme.dir`, `<dir>/cert.pem` and `<dir>/key.pem`, where they say
+`tls.cert` and `tls.key`.
 
 **Why**: the server takes a pair only when it is a valid one for
 `hostname` (see [Renewing the certificate](serve.md#renewing-the-certificate)),
@@ -1395,18 +1633,19 @@ takes the new one at the next start.
 
 ### `… cannot listen on …:… (…)`
 
-A listener (`mx`, `submissions`, `submission`, `imaps`, `imap`, `https`
-or `health`) could not bind its port; the reason is Bun's. Exit code 5,
+A listener (`mx`, `submissions`, `submission`, `imaps`, `imap`, `https`,
+`http` or `health`) could not bind its port; the reason is Bun's. Exit code 5,
 with what was opened closed again.
 
 - `Failed to listen at …: EADDRINUSE`: another process holds the port —
   another mail server, or a `bumail serve` already running. Stop it, or
   move this listener (`[ports]`).
-- `EACCES`: ports under 1024 need privileges. Run as root in a
+- `EACCES`: ports under 1024 need privileges (`http` is port 80:
+  behind a proxy, set `ports.http` above 1024). Run as root in a
   container, or give Bun the capability:
   `setcap cap_net_bind_service=+ep "$(command -v bun)"`.
-- `EADDRNOTAVAIL`: `bind` (`jmap.bind` for `https`, `health.bind` for
-  `health`) is an address this host does not have.
+- `EADDRNOTAVAIL`: `bind` (`jmap.bind` for `https`, `acme.bind` for
+  `http`, `health.bind` for `health`) is an address this host does not have.
 
 ### `behind a proxy, a client's address is known only on a TCP socket: bind to an IP address, not a unix socket`
 

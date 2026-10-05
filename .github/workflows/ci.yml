@@ -57,7 +57,7 @@ jobs:
           --health-timeout 5s
           --health-retries 30
       # Pebble, Let's Encrypt's ACME test server, for `@bumail/acme`'s
-      # client specs: skipped elsewhere without BUMAIL_TEST_PEBBLE_URL,
+      # client specs and `@bumail/server`'s ACME specs: skipped elsewhere without BUMAIL_TEST_PEBBLE_URL,
       # failed here. It validates HTTP-01 for real: each name the specs
       # order resolves, inside the container, to the runner (host-gateway),
       # where the specs answer on port 5002. Its image has no shell for a

@@ -95,12 +95,20 @@ export type TlsConfig =
 
 /** Certificates from an ACME directory (RFC 8555), by HTTP-01 on `ports.http`. */
 export interface AcmeConfig {
-	/** The account's contact. */
-	readonly email: string;
+	/** The account's contact; `undefined`: none given to the CA. */
+	readonly email: string | undefined;
 	/** Must be `true`: the CA's terms of service, accepted. */
 	readonly acceptTerms: true;
-	/** Default Let's Encrypt's production directory. */
+	/** Default Let's Encrypt's production directory; `staging` is its staging one. */
 	readonly directory: string;
+	/** The names the certificate covers: `hostname` first, then the extra `names`, lowercase, none twice. */
+	readonly names: readonly string[];
+	/** Where the account key, the current key and certificate are kept. Default `<data>/acme`. */
+	readonly dir: string;
+	/** Renew once fewer than this many days remain (or a third of the lifetime, if less). Default 30. */
+	readonly renewBeforeDays: number;
+	/** The address the challenge listener (`ports.http`) binds to. Default `bind`. */
+	readonly bind: string;
 }
 
 /** How a smarthost connection is encrypted, as `@bumail/smtp/client` takes it. */

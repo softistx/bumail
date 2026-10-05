@@ -4,8 +4,9 @@
 port 25, takes mail from its own users on 465 and 587 and sends it on,
 DKIM-signed, through its queue, and serves mail to clients over IMAP on
 port 993 and over JMAP on 443, and answers a health check on loopback. It
-runs directly on the Internet, or behind Traefik. Certificates from ACME
-come in a later release; see the [roadmap](roadmap.md).
+runs directly on the Internet, or behind Traefik. Its certificate is read
+from files, or obtained and renewed from an ACME CA; see the
+[roadmap](roadmap.md) for what comes next.
 
 - [Starting](#starting)
 - [The listeners](#the-listeners)
@@ -17,6 +18,7 @@ come in a later release; see the [roadmap](roadmap.md).
 - [Reading mail over IMAP](#reading-mail-over-imap)
 - [JMAP over HTTPS](#jmap-over-https)
 - [Behind Traefik](#behind-traefik)
+- [Certificates from ACME](#certificates-from-acme)
 - [The health check](#the-health-check)
 - [Behind a TCP proxy: the PROXY protocol](#behind-a-tcp-proxy-the-proxy-protocol)
 - [Stopping](#stopping)
@@ -32,11 +34,11 @@ bumail serve --config /data/bumail.toml
 It reads and checks the configuration whole, as `check-config` does,
 and stops at the first thing it cannot do:
 
-1. reads the certificate and its key (`tls.mode = "files"`).
-   `tls.mode = "acme"` is the **default**, and `check-config` takes it,
-   but `serve` exits 3 with it until ACME arrives in a later release: a
-   minimal configuration needs `tls.mode = "files"`, with `cert` and
-   `key`, for now;
+1. takes the certificate: with `tls.mode = "files"`, reads the certificate
+   and its key; with `tls.mode = "acme"` (the **default**), reads the pair
+   kept on the volume, and, when there is none that is usable, obtains
+   one before any TLS listener starts
+   ([Certificates from ACME](#certificates-from-acme));
 2. creates its spool folder, `<data>/spool/<pid>-<random>`, where
    messages wait while they are checked, readable by the server alone,
    with an `owner` file written before the folder takes its name. The
@@ -52,8 +54,9 @@ and stops at the first thing it cannot do:
    NTP. An entry whose age cannot be read, or that cannot be removed, is
    kept and logged: `bumail: the spool folder … is kept: …`;
 3. opens the directory, the mail store and the queue (`queue.url`);
-4. binds each listener whose port is not 0, the health check last,
-   then starts the queue's worker.
+4. binds each listener whose port is not 0 (port 80 only with
+   `tls.mode = "acme"`), the health check last, then starts the queue's
+   worker.
 
 A port it cannot bind (another process holds it, or port 25, 443 or 993 needs
 privileges the process lacks) exits 5, with what was opened closed again.
@@ -85,7 +88,8 @@ heartbeat goes on — even two containers that both run as pid 1 under
 one hostname.
 
 The certificate is looked at again while the server runs: after renewing
-it, [nothing needs a restart](#renewing-the-certificate).
+it, [nothing needs a restart](#renewing-the-certificate); with ACME, the
+server renews it itself.
 
 ## The listeners
 
@@ -97,14 +101,13 @@ it, [nothing needs a restart](#renewing-the-certificate).
 | 993 | `ports.imaps` | IMAP over TLS from the first byte, for the users of the directory |
 | 143 | `ports.imap` | IMAP with STARTTLS; LOGIN and AUTHENTICATE are refused until TLS is on. Off unless you set it |
 | 443 | `ports.https` | JMAP over HTTPS, Basic auth for the directory's users; or, with `jmap.mode = "proxy"`, plain HTTP for a proxy that ends TLS, on the port you set |
+| 80 | `ports.http` | ACME's HTTP-01 challenges, with `tls.mode = "acme"` only: nothing else is served ([Certificates from ACME](#certificates-from-acme)) |
 | 8080 | `ports.health` | `GET /healthz`, on loopback by default |
 
 Every mail listener binds to `bind` (default `0.0.0.0`); JMAP to
 `jmap.bind` (default `bind`); the health check to `health.bind`
-(default `127.0.0.1`). `ports.http`, for ACME's HTTP-01 challenges, is
-bound to nothing: its listener arrives in a later release, and the log
-says so at start. Leave it as it is, or set it to 0 to silence that
-line.
+(default `127.0.0.1`); the challenge listener to `acme.bind` (default
+`bind`).
 
 A renewed certificate reaches all the TLS listeners without a restart:
 see [Renewing the certificate](#renewing-the-certificate).
@@ -508,6 +511,195 @@ routers with [the PROXY protocol](#behind-a-tcp-proxy-the-proxy-protocol).
 A mail client's JMAP discovery needs `https://mail.example.com/.well-known/jmap`
 on the public name, which the router above serves.
 
+## Certificates from ACME
+
+With `tls.mode = "acme"`, the default, the server gets its certificate
+from an ACME CA (RFC 8555), Let's Encrypt unless `acme.directory` says
+otherwise, proves it holds its names by HTTP-01 on `ports.http`, and
+renews the certificate by itself. One certificate covers `hostname` and
+every name of `acme.names`, and serves SMTP's STARTTLS and implicit TLS,
+IMAP and JMAP's HTTPS alike. The keys are in
+[the guide](guide.md#tls-and-acme).
+
+```toml
+hostname = "mail.example.com"
+
+[acme]
+acceptTerms = true                   # required: the CA's terms, read and accepted
+email = "postmaster@example.com"     # optional: where the CA writes about expiry
+# directory = "staging"              # Let's Encrypt's staging CA, for a first try
+# names = ["imap.example.com"]       # more names on the same certificate
+```
+
+Port 80 must reach the server from the Internet (or from a proxy, see
+[behind Traefik](#acme-behind-traefik)), and each name must resolve to
+it: the CA fetches `http://<name>/.well-known/acme-challenge/<token>`.
+`check-config` refuses `ports.http = 0` with ACME.
+
+### What is on the volume
+
+Under `acme.dir` (default `<data>/acme`): `account.key`, the CA
+account's key, made at the first start and kept; `key.pem` and
+`cert.pem`, the certificate's key and its chain; `key.prev.pem` and
+`cert.prev.pem`, the pair before them, once there has been a renewal.
+The directory is made 0700 when the server creates it; one that exists
+(`/data`, say) keeps the mode its owner gave it. Every file is mode
+0600, written whole to a temporary file beside it (a name nobody can
+guess, created exclusively and never through a symbolic link), synced,
+renamed over the old one, and the directory synced. A new pair is
+written in this order: both new files, then the old pair under the
+`.prev.` names, then both renames, so a crash at any moment leaves one
+whole pair under one of the two names. A new key is made for each
+certificate. There is no order state to keep: one attempt is one whole
+flow, and a stop in the middle of it starts the next attempt afresh.
+
+### The first start
+
+- **A certificate on the volume**, valid now and naming every name, is
+  used at once by every TLS listener, with no call to the CA:
+  `tls: using the stored certificate (<names>; expires <date>)`. One
+  inside its renewal window is used too; the renewal replaces it soon
+  after.
+- **A pair that is not one** (a crash between the two renames of a
+  renewal left the new certificate with the old key, say) falls back to
+  the previous pair when that one is valid: `tls: the stored certificate
+  is not used: <reason>; using the previous pair`. The previous pair is
+  put back as the current one, and the listeners start with it.
+- **None, or an unusable one** (not there, expired, another name, a key
+  that is not its own, and no valid previous pair) means the TLS listeners cannot start, since none
+  can start without a pair. The server says why
+  (`tls: no certificate stored in <dir>` or `tls: the stored
+  certificate is not used: <reason>`), binds **port 80 and the health
+  check**, and asks the CA, before it binds anything else. While it waits
+  it logs `tls: waiting for a certificate from <directory>` at once and
+  every 30 seconds, and the health check answers 503 with `"tls":"down"`.
+  It tries up to five times, waiting 10 s, 30 s, 1 and 2 minutes
+  between (Let's Encrypt allows five failed validations of a name an
+  hour), each failure logged as `tls: obtaining a certificate failed
+  (try <n> of 5): <reason>`. When the CA rate limits and says how long
+  to wait (`Retry-After`), the wait is at least that long; when it is
+  longer than all the waits left, the server stops trying at once, as
+  below. At the first success, `tls: obtained
+  (<names>; expires <date>)`: the pair is on the volume, and the
+  listeners start. A first start usually takes a few seconds.
+- **No certificate after the last try** exits 5 with `no certificate for
+  <names> from <directory> after 5 tries: <reason>. Check that each name
+  resolves to this host and that port 80 (ports.http) reaches it`, having
+  stopped what it started. A rate limit that asks for more than the
+  waits left exits 5 at once with `no certificate for <names> from
+  <directory>: the CA is rate limiting and asks to wait <wait> before
+  another try, longer than the <left> the tries left would wait:
+  <reason>. Start the server again after that`. Under a supervisor that
+  restarts it, each restart is a new set of five tries: a CA limits how
+  many failures it takes for one name an hour, so try `directory =
+  "staging"` first.
+- A **SIGHUP** while it waits is said and ignored: `bumail: SIGHUP, the
+  server has not started yet; nothing to reload`. The wait goes on.
+- A **SIGTERM** or **SIGINT** while it waits ends the wait and exits 0.
+
+What the first start of a fresh volume logs:
+
+```text
+tls: no certificate stored in /data/acme
+tls: waiting for a certificate from https://acme-v02.api.letsencrypt.org/directory
+acme: the CA fetched the challenge Xe3k9QpA...
+tls: obtained (mail.example.com; expires <date>)
+bumail: serving mail.example.com
+bumail: mx listening on 0.0.0.0:25: …
+```
+
+### Port 80
+
+The listener answers `GET` and `HEAD` of `/.well-known/acme-challenge/<token>`
+with the key authorization of a token being validated, and only of
+those, through `@bumail/acme`'s `http01Responder`; a token it does not
+hold is 404. A `GET /` is a `301` to `https://<hostname>/`, with the
+`hostname` of the configuration: the `Host` header, the query and the
+rest of the request never reach the `Location`, so it is no open
+redirect. Everything else, any other path or method, is a 404. The log
+has one line for the first request of each token,
+`acme: the CA fetched the challenge <first 8 characters>...`, never one
+per request.
+
+### Renewal
+
+Twice a day, plus up to an hour at random, the server reads the end of
+the certificate in use (and about a minute after the start, so a
+certificate stored inside its window is renewed at once). When fewer than
+`acme.renewBeforeDays` days (30) remain, or a third of the certificate's
+life if that is less — Let's Encrypt's six-day certificates are renewed
+two days before their end — it obtains a new one, writes it to the
+volume, and applies it with the same reload the certificate files get
+([Renewing the certificate](#renewing-the-certificate)): every TLS
+listener switches to it, or none does, and sessions already open are not
+dropped. It logs `tls: reloaded (…)` from the reload, then `tls: renewed
+(<names>; expires <date>)`.
+
+A failure of any kind — the CA unreachable, a challenge that failed, a
+listener refusing the pair — keeps the old certificate (a pair a
+listener refused is written back over the new one), logs `tls: renewal
+failed: <reason>; the current certificate stays, trying again in <wait>`,
+and tries again after 10 minutes, then 30 minutes, then 1, 3 and 6 hours,
+the last wait repeating, or after the CA's `Retry-After` when it rate
+limited and asked for longer. The old certificate serves until it expires; the
+health check turns 503 with `"tls":"down"` only then. Watch the log for
+`tls: renewal failed`.
+
+**SIGHUP** re-reads the pair on the volume and applies it if it changed
+(`tls: reloaded (…)`, or `tls: unchanged (…)`): a pair you put there
+yourself, say. It takes the pair only when it names `hostname` and every
+name of `acme.names`; a refusal names the files by their paths in
+`acme.dir` (`<dir>/cert.pem does not name <name>`). It never starts a
+renewal.
+
+### ACME behind Traefik
+
+Behind Traefik, Traefik keeps its own certificates for HTTPS (and JMAP
+runs in [proxy mode](#behind-traefik)); bumail's certificate is for the
+mail ports it serves itself, and it needs the CA to reach port 80. Route
+the challenge path, and only it, to bumail:
+
+```toml
+hostname = "mail.example.com"
+
+[ports]
+http = 8082          # unpublished: Traefik reaches it on the shared network
+
+[acme]
+acceptTerms = true
+```
+
+```yaml
+services:
+  bumail:
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.bumail-acme.rule=Host(`mail.example.com`) && PathPrefix(`/.well-known/acme-challenge/`)
+      - traefik.http.routers.bumail-acme.entrypoints=web
+      - traefik.http.routers.bumail-acme.priority=10000
+      - traefik.http.routers.bumail-acme.service=bumail-acme
+      - traefik.http.services.bumail-acme.loadbalancer.server.port=8082
+    networks: [proxy]
+```
+
+`web` is Traefik's entry point on port 80. The `priority` is above the
+default, which is the length of a rule, so no catch-all router of that
+entry point takes the challenge first. Two things go wrong otherwise:
+
+- **A redirect to HTTPS on the entry point itself** (`entryPoints.web.http.redirections`)
+  is applied before any router: the CA is sent to 443, where JMAP answers
+  it 404. Do the redirect with a middleware on a low-priority catch-all
+  router instead, so the challenge router above wins.
+- **Traefik's own ACME with the HTTP challenge** for the same name
+  answers that path itself, ahead of every router. Give Traefik's
+  certificate resolver the TLS or DNS challenge, or let it hold other
+  names, so that only bumail answers `/.well-known/acme-challenge/` for
+  `mail.example.com`.
+
+The mail ports are not Traefik's here: see
+[the TCP proxy](#behind-a-tcp-proxy-the-proxy-protocol) for them.
+
 ## The health check
 
 `GET /healthz` on `ports.health` (8080), bound to `health.bind`
@@ -515,6 +707,7 @@ on the public name, which the router above serves.
 container). It answers **200** when
 
 - every listener configured is up (bound, and not stopping),
+- with `tls.mode = "acme"`, a certificate that has not expired is in use,
 - the directory answers a lookup, and
 - the mail store answers one, within 3 seconds,
 
@@ -527,7 +720,10 @@ else: no address, no error, no secret.
 
 With the store down it is a 503, `"status":"unavailable"` and
 `"store":"failed"`. A listener turned off (port 0) is not listed. Any
-other path is a 404, any method but GET and HEAD a 405. During a stop it
+other path is a 404, any method but GET and HEAD a 405. With ACME the
+body also has `"tls":"up"`, or `"tls":"down"` while the first
+certificate is awaited and past the end of the last one, and `http` is
+among the listeners. During a stop it
 answers 503 until the health check itself is closed.
 
 ```yaml
@@ -665,8 +861,10 @@ restart the server after a renewal. Behind a proxy (`jmap.mode =
 "proxy"`) JMAP is plain HTTP, never swapped and never shared, whatever
 `reloadTls` says. The mail ports never use `SO_REUSEPORT`.
 
-With `tls.mode = "acme"` (which `serve` does not take yet) the certificate
-will come from the server itself.
+With `tls.mode = "acme"` the pair is the one on the volume, and the
+server makes the renewed pair itself
+([Certificates from ACME](#certificates-from-acme)): the same reload
+applies it, and `SIGHUP` reads the stored pair without renewing.
 
 ## Stopping
 
@@ -724,7 +922,6 @@ bumail: submission listening on 0.0.0.0:587: submission with STARTTLS: AUTH only
 bumail: imaps listening on 0.0.0.0:993: IMAP over TLS from the first byte
 bumail: https listening on 0.0.0.0:443: JMAP over HTTPS: Basic auth for the users of the directory
 bumail: health listening on 127.0.0.1:8080: health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503
-bumail: http (port 80) arrives in a later slice; not listening
 mx: 1kq2f… from 192.0.2.10 <joe@example.org> delivered to alice@example.com (spf=pass dkim=pass dmarc=pass)
 mx: 1kq2g… from 203.0.113.5 <ceo@example.net> refused by DMARC (spf=fail dkim=none dmarc=fail)
 submissions: 7cd1a… from alice@example.com <alice@example.com> delivered to bob@example.com; queued as 0f3e… for joe@example.org
@@ -741,8 +938,18 @@ bumail: stopped
 | --- | --- |
 | `bumail: <listener> listening on <address>:<port>: …` | at start, one per listener |
 | `bumail: https listening on <address>:<port>: JMAP over HTTPS: Basic auth for the users of the directory` | at start; with `jmap.mode = "proxy"`, `JMAP over plain HTTP for 1 trusted proxy, which ends TLS: Basic auth …`, or `for <n> trusted proxies, which end TLS: …` |
-| `bumail: health listening on <address>:<port>: health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503` | at start |
-| `bumail: <name> (port <n>) arrives in a later slice; not listening` | at start, for each later port not 0: `http` |
+| `bumail: health listening on <address>:<port>: health check, GET /healthz: 200 when every listener is up and the directory and the store answer, else 503` | at start; with `tls.mode = "acme"`: `…200 when every listener is up, a certificate is in use, and the directory and the store answer, else 503` |
+| `bumail: http listening on <address>:<port>: ACME HTTP-01 challenges on /.well-known/acme-challenge/, a redirect to HTTPS for GET /, 404 for the rest` | at start, with `tls.mode = "acme"` |
+| `tls: using the stored certificate (<names>; expires <date>)` | at start: the pair on the volume is valid and names every name |
+| `tls: no certificate stored in <dir>` | at start: none on the volume |
+| `tls: the stored certificate is not used: <reason>; using the previous pair` | at start: the current pair is not usable and `cert.prev.pem` with `key.prev.pem` is: it is put back as the current one |
+| `tls: the stored certificate is not used: <reason>` | at start: `the certificate is not a PEM chain`, `not valid yet`, `expired`, `it does not name <names>`, `the key is not the certificate's` or `the key is not an unencrypted PEM private key`; the server then waits for a new one |
+| `tls: waiting for a certificate from <directory>` | at start with no usable certificate, at once and every 30 seconds until it comes |
+| `tls: obtaining a certificate failed (try <n> of <m>): <reason>` | a try for the first certificate failed; the next follows after its wait |
+| `tls: obtained (<names>; expires <date>)` | the first certificate came and is on the volume |
+| `acme: the CA fetched the challenge <token start>...` | the CA fetched a token's key authorization on port 80, once per token |
+| `tls: renewed (<names>; expires <date>)` | a renewal succeeded and every listener switched to it |
+| `tls: renewal failed: <reason>; the current certificate stays, trying again in <wait>` | a renewal failed: the old certificate stays, and it is tried again after the wait |
 | `https: login refused from <ip>: <reason>` | a JMAP login refused: `password`, `unknown`, `disabled`, `blocked`, `malformed` or `busy`; the 401 is all the client gets. `<ip>` is the client's, behind a proxy |
 | `https: error in a request from <ip>: …` | the store or the directory failed during a JMAP request: the client got a 503 or a `serverFail` |
 | `https: a request with no client address was refused` | a JMAP request whose peer has no address: answered 500, never counted in the limiter's one bucket |
@@ -778,7 +985,8 @@ bumail: stopped
 | `tls: not reloaded: <reason>; <listener> left on the new pair, the rollback failed` | a listener refused the pair and putting another back on the old one failed: it serves the new pair, the others the old |
 | `tls: not reloaded: <reason>` | a pair that changed cannot be taken — a file that cannot be read, not PEM, expired, naming another host, a key that is not the certificate's, or a listener that refused — and the old pair stays; once per distinct reason, or at each `SIGHUP` |
 | `tls: unchanged (<subject>, expires <date>)` | a `SIGHUP` found the files as the listeners already have them |
-| `bumail: SIGHUP, looking for a renewed certificate` | the signal; one of the three lines above follows |
+| `bumail: SIGHUP, the server has not started yet; nothing to reload` | a SIGHUP while `serve` waits for its first certificate: ignored, the wait goes on |
+| `bumail: SIGHUP, looking for a renewed certificate` | the signal; one of the three lines above follows. With ACME it reads the pair on the volume and never renews |
 | `bumail: SIGTERM, stopping`, `bumail: stopped` | the stop |
 | `bumail: the mail store did not close cleanly: …`, `bumail: the queue did not close cleanly: …` | during the stop: a store's close failed; the directory is closed anyway, and it exits 0 |
 | `bumail: the queue did not stop cleanly: …` | during the stop: the queue's store failed as the queue gave back its claims; they lapse with their leases |
@@ -811,5 +1019,9 @@ lookups. `outbound` is for a test too: `mxPort` (the port MX hosts
 listen on, 25 by default), `ca` (a certificate a smarthost or a route's
 host may present, PEM), `pollInterval` (milliseconds between the
 queue's looks, 5000) and `send` (what delivers to another server,
-`sendMail` of `@bumail/smtp/client`). `stop({ force: true })` skips the
-waits.
+`sendMail` of `@bumail/smtp/client`). `acme` is for a test too, with
+`tls.mode = "acme"`: `fetch` (the CA's calls, to trust a test CA's root),
+`now`, and the timings (`checkMs`, `jitterMs`, `retryMs`, `startRetryMs`,
+`waitingLogMs`, `pollMs`, `timeoutMs`). `signal` aborts the wait for a
+first certificate: `serve` then rejects with `UNAVAILABLE`, having
+stopped what it started. `stop({ force: true })` skips the waits.

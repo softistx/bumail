@@ -279,7 +279,6 @@ describe('the problems of a configuration', () => {
 			await problemsOf('hostname = "mail.example.com"\n[ports]\nhttp = 0'),
 		).toEqual([
 			'ports.http: is 0, but tls.mode "acme" answers its HTTP-01 challenges there',
-			'acme.email: is required with tls.mode "acme"',
 			"acme.acceptTerms: must be true: the CA's terms of service, read and accepted",
 		]);
 		expect(
@@ -326,7 +325,7 @@ describe('the problems of a configuration', () => {
 		const error = await errorOf('relay = true\n[ports]\nmx = -1\n');
 		expect(error.code).toBe('INVALID_CONFIG');
 		expect(error.message).toMatch(
-			/^\/.*\/bumail\.toml:\n {2}relay: not an option: bumail never relays without AUTH\n {2}hostname: is required \(or set BUMAIL_HOSTNAME\)\n {2}ports\.mx: must be an integer from 0 to 65535\n {2}acme\.email: is required with tls\.mode "acme"\n {2}acme\.acceptTerms: must be true: the CA's terms of service, read and accepted$/,
+			/^\/.*\/bumail\.toml:\n {2}relay: not an option: bumail never relays without AUTH\n {2}hostname: is required \(or set BUMAIL_HOSTNAME\)\n {2}ports\.mx: must be an integer from 0 to 65535\n {2}acme\.acceptTerms: must be true: the CA's terms of service, read and accepted$/,
 		);
 	});
 });

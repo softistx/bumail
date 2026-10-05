@@ -31,7 +31,8 @@ manages its domains, users, aliases and DKIM keys (`bumail domain`,
 port 25, sends its users' mail from 465 and 587 (AUTH only after TLS,
 DKIM-signed) through its queue, by MX or a smarthost, and serves the
 mailboxes over IMAP on 993 and over JMAP on 443 (HTTPS, or plain HTTP
-behind a reverse proxy such as Traefik that ends TLS), with a health
+behind a reverse proxy such as Traefik that ends TLS), with a certificate
+from files or from an ACME CA (`@bumail/acme`, renewed by the server), a health
 check (`GET /healthz`) on loopback and the PROXY protocol, from proxies
 you list, on the mail ports. What comes — the rest of the server app, a blob
 store and a Docker image that runs it — in what order and why, is in

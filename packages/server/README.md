@@ -10,20 +10,22 @@ its directory of domains, users, aliases and DKIM keys (`bumail domain`,
 `bumail user`, `bumail alias`, `bumail dkim`), **receives mail** for its users
 on port 25, **sends mail** for them from 465 and 587, DKIM-signed,
 through its queue, and serves it over IMAP on 993 and over JMAP on 443,
-with a certificate from files, directly or behind Traefik, and answers a
-health check on loopback. ACME comes next; see the
-[roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md).
+with a certificate from files or obtained and renewed from an ACME CA,
+directly or behind Traefik, and answers a health check on loopback. See
+the
+[roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md)
+for what comes next.
 
 **Bun only**, like every `@bumail/*` package: it runs on Bun 1.4.2 or
 later. It peers on the packages it wires: `@bumail/store`,
 `@bumail/smtp`, `@bumail/imap`, `@bumail/jmap` (with `@alxia/core`),
-`@bumail/queue`, `@bumail/auth` and `@bumail/dns`.
+`@bumail/queue`, `@bumail/auth`, `@bumail/dns` and `@bumail/acme`.
 
 ## The configuration
 
 One TOML file, `/data/bumail.toml` unless `--config` or `BUMAIL_CONFIG`
 names another. Only `hostname` is required; with the default
-`tls.mode = "acme"`, so is `[acme]`'s e-mail and its `acceptTerms`.
+`tls.mode = "acme"`, so is `[acme]`'s `acceptTerms`.
 
 ```toml
 hostname = "mail.example.com"
@@ -36,7 +38,7 @@ submissions = 465
 submission = 587
 imaps = 993
 https = 443
-http = 80                  # ACME's HTTP-01 challenges
+http = 80                  # ACME's HTTP-01 challenges, with tls.mode = "acme"
 health = 8080              # on loopback, GET /healthz
 
 [store]
@@ -46,12 +48,13 @@ url = "sqlite:/data/mail"  # or postgres://…?sslmode=require
 url = "sqlite:/data/queue" # or postgres://…, or rediss://…
 
 [tls]
-mode = "acme"              # the default, which check-config takes; serve exits 3 with it
-                           # for now: use "files", with cert and key (see Serving)
+mode = "acme"              # the default; or "files", with cert and key
 
 [acme]
-email = "postmaster@example.com"
 acceptTerms = true
+email = "postmaster@example.com"   # optional
+# directory = "staging"            # Let's Encrypt's staging CA
+# names = ["imap.example.com"]     # more names on the one certificate
 
 [jmap]                     # behind Traefik: mode = "proxy", origin and trusted
 origin = "https://mail.example.com"
@@ -151,14 +154,19 @@ outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example
 - **IMAP on 993** logs users in through the directory, its failure
   limiter counting each client's IP. Port 143 (`ports.imap`) is off; on,
   it refuses logins until STARTTLS.
-- **A renewed certificate is taken without a restart.** The files of
+- **A renewed certificate is taken without a restart** (`"files"`). The files of
   `tls.cert` and `tls.key` are looked at every `tls.pollSeconds` (30) and
   on SIGHUP; a valid pair goes to every TLS listener for new connections,
   open sessions untouched, and the log says `tls: reloaded (…)` or
   `tls: not reloaded: …`, once.
-- **`tls.mode = "files"` only, for now.** `"acme"` is the default, so
-  a minimal configuration makes `serve` exit 3 until ACME arrives: set
-  `tls.mode = "files"`, with `cert` and `key`.
+- **`tls.mode = "acme"`**, the default, keeps the certificate on the
+  volume (`<data>/acme`): used at once when it is valid, else obtained
+  from the CA by HTTP-01 on port 80 before any TLS listener starts, with
+  the health check saying `tls: down` meanwhile; renewed 30 days before
+  its end and applied to every listener together; the log says
+  `tls: obtained (…)`, `tls: renewed (…)` or `tls: renewal failed: …`.
+  Port 80 serves nothing but the challenges. `tls.mode = "files"` reads
+  `tls.cert` and `tls.key` instead.
 - **SIGTERM or SIGINT** stops it cleanly: no new connection, SMTP
   sessions given 10 seconds to finish, the queue's deliveries under way
   5 more, what it claimed and did not begin given back, then the queue
@@ -174,8 +182,7 @@ outbound: 0f3e… <alice@example.com> delivered to joe@example.org by mx.example
 - **`[proxyProtocol]`** makes the SMTP and IMAP listeners read the
   PROXY protocol from the proxies it lists.
 
-Port 80 (ACME's challenges) is logged as arriving later and bound to
-nothing. [Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md)
+[Running the server](https://github.com/softistx/bumail/blob/develop/packages/server/docs/serve.md)
 has every listener, the log and the stop in detail.
 
 ## The directory
@@ -295,7 +302,7 @@ const authenticate = smtpAuthenticate(directory); // @bumail/smtp's authenticate
 | | |
 | --- | --- |
 | `bumail check-config` | check the configuration, print a summary; exits 0, or 1 |
-| `bumail serve` | check the configuration, then run the server until SIGTERM or SIGINT (SIGHUP looks for a renewed certificate); exits 0 once stopped, 3 for `tls.mode = "acme"`, 5 for a port or a file it cannot use |
+| `bumail serve` | check the configuration, then run the server until SIGTERM or SIGINT (SIGHUP looks for a renewed certificate); exits 0 once stopped, 5 for a port or a file it cannot use, or for no certificate from the ACME CA |
 | `bumail domain add\|list\|remove` | the domains the server hosts |
 | `bumail user add\|list\|passwd\|disable\|enable\|remove` | the users; `--password-stdin`, `--password-file`, `remove --purge`; `list [<domain>]` |
 | `bumail alias add\|list\|remove` | the aliases, to local users only; `list [<domain>]` |
@@ -316,10 +323,10 @@ be used 5.
 | `readConfig(options?)` | reads, checks and fills in the configuration: `path`, `env` (default `process.env`), `now` (for the certificate's validity) |
 | `configPath(options?)` | the file `readConfig` reads: `path`, else `BUMAIL_CONFIG`, else `DEFAULT_CONFIG_PATH` |
 | `DEFAULT_CONFIG_PATH` | `/data/bumail.toml` |
-| `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`, `NOT_IMPLEMENTED`) and, for a configuration, its `problems` |
-| `serve(config, options?)` | runs the server: `mx`, `submissions`, `submission`, `imaps`, `imap`, `https` and `health` for the ports not 0, and the queue; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds`, `outbound` |
-| `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `OutboundOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`, `reloadTls()` (look at the certificate files now, as SIGHUP does); the types around them; `OutboundOptions` is `mxPort`, `ca`, `pollInterval`, `send`, for a test |
-| `DEFAULT_DRAIN_SECONDS`, `ACME_LATER` | 10, the seconds a stop waits for SMTP sessions; what `serve` says of `tls.mode = "acme"` |
+| `ServerError` | thrown with a `code` (`INVALID_CONFIG`, `USAGE`, `INVALID`, `NOT_FOUND`, `ALREADY_EXISTS`, `IN_USE`, `UNAVAILABLE`, and `NOT_IMPLEMENTED`, reserved: nothing raises it now) and, for a configuration, its `problems` |
+| `serve(config, options?)` | runs the server: `mx`, `submissions`, `submission`, `imaps`, `imap`, `https` and `health` for the ports not 0, `http` with ACME, and the queue; answers a `RunningServer`. `options`: `log`, `resolver` (a `@bumail/dns` `Resolver`), `port(listener, configured)` (0 for a free port), `drainSeconds`, `outbound`, `acme` (a test's CA `fetch`, clock and timings), `signal` (ends the wait for a first certificate) |
+| `RunningServer`, `Listening`, `ListenerName`, `ServeOptions`, `AcmeOptions`, `OutboundOptions`, `Log` | `listening` (`name`, `hostname`, `port`), `stop({ force? })`, `reloadTls()` (look at the certificate files, or with ACME the stored pair, now, as SIGHUP does; never a renewal); the types around them; `OutboundOptions` is `mxPort`, `ca`, `pollInterval`, `send`, and `AcmeOptions` is `fetch`, `now` and the timings, for a test |
+| `DEFAULT_DRAIN_SECONDS` | 10, the seconds a stop waits for SMTP sessions |
 | `Directory` | `Directory.open({ file, maxVerifies?, maxQueuedVerifies?, cacheSeconds?, onUnlimited?, limiter? })`: `domains`, `users`, `aliases`, `dkim`, `authenticate(login, password, ip)`, `resolve(address)`, `limiter`, `close()` |
 | `DkimKeys`, `DkimKeyEntry`, `DkimSigningKey`, `DEFAULT_SELECTOR`, `DKIM_KEY_BITS`, `zoneLine(key)` | the directory's DKIM keys: `generate(domain, { selector?, replace? })`, `get`, `list`, `remove`, `signingKey` (for the server); what they answer (`domain`, `selector`, `name`, `record`, `created`); `'bumail'`, 2048; the record as a zone file line |
 | `Domains`, `Users`, `Aliases` | the types of its three parts: `add`, `get`, `list`, `remove`, and `has` (domains), `setPassword`, `setDisabled`, `require`, `checkAddable`, `checkRemovable` (users; none hands out a hash), `targets` (aliases) |

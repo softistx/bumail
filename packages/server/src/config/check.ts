@@ -73,6 +73,8 @@ export function checkConfig(
 		dir: context.dir,
 		hostname,
 		ports,
+		data,
+		bind: bindValue ?? '0.0.0.0',
 		now: context.now,
 	});
 	const smarthost = checkSmarthost(
