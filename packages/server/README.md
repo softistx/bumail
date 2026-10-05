@@ -3,9 +3,7 @@
 The bumail mail server: the `@bumail/*` packages wired into one process,
 configured by one TOML file, run as the `bumail` command.
 
-**In progress, and private for now.** This package is not on npm yet: it
-is built here one step at a time, and published once it is complete. Today
-it reads and checks its configuration (`bumail check-config`), manages
+It reads and checks its configuration (`bumail check-config`), manages
 its directory of domains, users, aliases and DKIM keys (`bumail domain`,
 `bumail user`, `bumail alias`, `bumail dkim`), prints the DNS records
 its domains need and checks them (`bumail dns`), **receives mail** for its users
@@ -16,6 +14,33 @@ directly or behind Traefik, and answers a health check on loopback. It runs as a
 the
 [roadmap](https://github.com/softistx/bumail/blob/develop/packages/server/docs/roadmap.md)
 for what comes next.
+
+## Install
+
+**With Docker** (nothing else needed): the image is
+`ghcr.io/softistx/bumail`, for linux/amd64 and linux/arm64, tagged with
+each release (`0.1.0`), its minor (`0.1`) and `latest`:
+
+```sh
+docker pull ghcr.io/softistx/bumail:0.1
+docker run --rm -v bumail-data:/data ghcr.io/softistx/bumail:0.1 --version
+```
+
+The [deploy guide](https://github.com/softistx/bumail/blob/develop/packages/server/docs/deploy.md)
+takes it from DNS to a test mail with the compose files in `deploy/`.
+
+**With npm**, for the `bumail` command on a host with
+[Bun](https://bun.sh) 1.4.2 or later (the command runs on Bun, not
+Node, because it uses `bun:sqlite` and `Bun.password`):
+
+```sh
+bunx @bumail/server --version          # run it without installing
+bun add -g @bumail/server              # or install the command
+bumail check-config --config ./bumail.toml
+```
+
+Both fetch the `@bumail/*` packages it peers on, which Bun installs
+for you.
 
 **Bun only**, like every `@bumail/*` package: it runs on Bun 1.4.2 or
 later. It peers on the packages it wires: `@bumail/store`,
@@ -191,9 +216,9 @@ has every listener, the log and the stop in detail.
 One image holds the whole stack, and one volume, `/data`, holds the
 configuration, the SQLite directory with its DKIM keys, the mail, the queue
 and the ACME state: nothing is baked into the image. The compose files in
-[`deploy/`](https://github.com/softistx/bumail/tree/develop/deploy) build
-it from the repository's `Dockerfile` (nothing is pulled), standalone or
-behind Traefik:
+[`deploy/`](https://github.com/softistx/bumail/tree/develop/deploy) pull
+it (or build it from the repository's `Dockerfile`, with `compose.build.yaml`),
+standalone or behind Traefik:
 
 ```sh
 cd deploy && cp .env.example .env

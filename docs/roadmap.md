@@ -28,8 +28,8 @@ No dates. Each entry says what someone running or embedding the server gets.
   SMTP, IMAP and JMAP alike. Domains, accounts, aliases and DKIM keys
   managed by the command; a health check. It consumes alxia's published
   packages, not a link to its working tree, so bumail's CI never depends
-  on another repository's checkout. In progress, and private until it
-  is complete: its configuration — one TOML file, checked whole by
+  on another repository's checkout. On npm as 0.1.0 and as the image
+  `ghcr.io/softistx/bumail`, for linux/amd64 and linux/arm64: its configuration — one TOML file, checked whole by
   `bumail check-config`, the environment overriding URLs and secrets
   only — is merged, and so is its directory of domains, users and
   aliases (argon2id passwords, aliases to local users only), managed by
