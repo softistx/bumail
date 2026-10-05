@@ -177,7 +177,7 @@ jobs:
 
   docker:
     # The server's image builds from a clean checkout: `docker build`, and
-    # nothing is pushed anywhere. Then the image answers, and runs the init of
+    # nothing is pushed anywhere (the release workflow pushes it). Then the image answers, and runs the init of
     # the deploy guide on a throwaway volume, and the compose files parse.
     # The end-to-end test (`bun run docker:e2e`, with Traefik and a test CA)
     # is run by hand, not here.
@@ -189,6 +189,13 @@ jobs:
         uses: actions/checkout@v4
       - name: Build the image
         run: docker build --tag bumail:ci .
+      # The release pushes both architectures: prove here that each one builds.
+      # Bun cross-compiles the arm64 binary on the runner, so no emulation is
+      # involved and it takes seconds.
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build for amd64 and arm64
+        run: docker buildx build --platform linux/amd64,linux/arm64 --output type=cacheonly .
       - name: The image answers, and init works on an empty volume
         run: |
           docker run --rm bumail:ci --version

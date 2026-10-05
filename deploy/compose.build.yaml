@@ -1,0 +1,16 @@
+# Laid over one of the compose files to build the image from this checkout
+# instead of pulling the published one:
+#
+#   COMPOSE_FILE=compose.yaml:compose.build.yaml     (in .env)
+#   docker compose build
+#
+# The build is tagged with the same name as the published image, so `up` uses it
+# and pulls nothing. Remove the line from COMPOSE_FILE, and run
+# `docker compose pull`, to go back to the published one.
+name: bumail
+
+services:
+  bumail:
+    build:
+      context: ..
+      dockerfile: Dockerfile
