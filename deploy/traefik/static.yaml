@@ -1,0 +1,13 @@
+# Added to Traefik's STATIC configuration (traefik.yml) for
+# compose.traefik-tcp.yaml: one entry point for each mail port, beside the
+# `web` (80) and `websecure` (443) ones it already has. Traefik's own container
+# publishes these ports on the host.
+entryPoints:
+  smtp:
+    address: ':25'
+  submissions:
+    address: ':465'
+  submission:
+    address: ':587'
+  imaps:
+    address: ':993'
