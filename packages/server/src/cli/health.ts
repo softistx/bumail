@@ -14,10 +14,39 @@ function target(bind: string): string {
 }
 
 /**
+ * Whether a 503 is only a server waiting for its certificate: the TLS
+ * listeners cannot start without one, so everything but the challenge
+ * listener (`http`) is down, but that one answers, and so do the
+ * directory and the store.
+ */
+function waitingForCertificate(status: number, body: string): boolean {
+	if (status !== 503) return false;
+	try {
+		const report = JSON.parse(body) as {
+			tls?: unknown;
+			directory?: unknown;
+			store?: unknown;
+			listeners?: Record<string, unknown>;
+		};
+		return (
+			report.tls === 'down' &&
+			report.directory === 'ok' &&
+			report.store === 'ok' &&
+			report.listeners?.['http'] === 'up'
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
  * `bumail health`: asks `GET /healthz` of the server this configuration
  * runs, on `ports.health` at `health.bind`, and answers whether it said
  * 200 — for a Docker `HEALTHCHECK`, where the image has no curl. Prints
- * `ok` or why not, never more than the check's own body.
+ * `ok` or why not, never more than the check's own body. With
+ * `--tls-pending`, a server that is waiting for its first certificate (or
+ * past the end of its last) counts as well, since it answers the CA's
+ * challenge: a proxy that routes only to healthy containers needs that.
  */
 export async function health(args: HealthArgs, io: Io): Promise<boolean> {
 	const config = await readConfig({
@@ -36,6 +65,10 @@ export async function health(args: HealthArgs, io: Io): Promise<boolean> {
 		const body = (await response.text()).slice(0, 500);
 		if (response.ok) {
 			io.out('ok\n');
+			return true;
+		}
+		if (args.tlsPending && waitingForCertificate(response.status, body)) {
+			io.out('ok (waiting for a certificate)\n');
 			return true;
 		}
 		io.err(`bumail: unhealthy: ${response.status} ${body}\n`);

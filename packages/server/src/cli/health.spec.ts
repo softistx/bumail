@@ -92,3 +92,64 @@ describe('bumail health', () => {
 		expect(bad.code).toBe(1);
 	});
 });
+
+describe('bumail health --tls-pending', () => {
+	const waiting = {
+		status: 'unavailable',
+		listeners: { mx: 'down', http: 'up' },
+		tls: 'down',
+		directory: 'ok',
+		store: 'ok',
+	};
+
+	async function ask(body: unknown, status: number, flag: boolean) {
+		const server = Bun.serve({
+			hostname: '127.0.0.1',
+			port: 0,
+			fetch: () => Response.json(body, { status }),
+		});
+		servers.push(server);
+		const path = await config(server.port ?? 0);
+		let out = '';
+		let err = '';
+		const code = await run(
+			['health', '--config', path, ...(flag ? ['--tls-pending'] : [])],
+			{
+				out: (text) => {
+					out += text;
+				},
+				err: (text) => {
+					err += text;
+				},
+				env: {},
+				version: '0.0.0',
+				terminal: {
+					stdin: async () => '',
+					isTTY: false,
+					prompt: async () => '',
+				},
+			},
+		);
+		return { code, out, err };
+	}
+
+	test('takes a server waiting for its certificate as well, and only with the flag', async () => {
+		expect(await ask(waiting, 503, true)).toEqual({
+			code: 0,
+			out: 'ok (waiting for a certificate)\n',
+			err: '',
+		});
+		expect((await ask(waiting, 503, false)).code).toBe(1);
+	});
+
+	test('does not take a server whose store failed, or whose challenge listener is down', async () => {
+		expect((await ask({ ...waiting, store: 'failed' }, 503, true)).code).toBe(
+			1,
+		);
+		expect(
+			(await ask({ ...waiting, listeners: { http: 'down' } }, 503, true)).code,
+		).toBe(1);
+		expect((await ask({ ...waiting, tls: 'up' }, 503, true)).code).toBe(1);
+		expect((await ask('not a report', 503, true)).code).toBe(1);
+	});
+});

@@ -25,6 +25,8 @@ export interface InitArgs {
 export interface HealthArgs {
 	readonly kind: 'health';
 	readonly config: string | undefined;
+	/** A server still waiting for its certificate counts as healthy. */
+	readonly tlsPending: boolean;
 }
 
 /** The options of `init` that take a value, and what they take. */
@@ -85,6 +87,7 @@ export function resolveImage(
 				'--behind-traefik',
 				'--proxy-protocol',
 				'--force',
+				'--tls-pending',
 			].includes(arg)
 		) {
 			flags.add(arg);
@@ -99,10 +102,13 @@ export function resolveImage(
 	};
 	const config = once('--config');
 	if (command === 'health') {
-		const extra = [...values.keys(), ...flags].filter((n) => n !== '--config');
+		const extra = [...values.keys(), ...flags].filter(
+			(n) => n !== '--config' && n !== '--tls-pending',
+		);
 		if (extra.length > 0) throw usage(`health takes no ${extra[0]}`);
-		return { kind: 'health', config };
+		return { kind: 'health', config, tlsPending: flags.has('--tls-pending') };
 	}
+	if (flags.has('--tls-pending')) throw usage('init takes no --tls-pending');
 	const hostname = once('--hostname');
 	if (hostname === undefined) throw usage('init needs --hostname');
 	const domains = values.get('--domain') ?? [];
