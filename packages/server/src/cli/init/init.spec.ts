@@ -134,8 +134,12 @@ describe('bumail init', () => {
 			expect(out).toContain(`wrote ${config}\n`);
 			expect(out).toContain('added the domain example.com');
 			expect(out).toContain('generated an RSA-2048 DKIM key for example.com');
-			expect(out).toContain('bumail user add alice@example.com');
-			expect(out).toContain('bumail dns');
+			// The next steps name the file init wrote.
+			expect(out).toContain(
+				`bumail --config ${config} user add alice@example.com`,
+			);
+			expect(out).toContain(`bumail --config ${config} dns --check`);
+			expect(out).toContain(`bumail --config ${config} serve`);
 			// Nothing is left beside it.
 			expect(
 				readdirSync(data).filter((f) => f.startsWith('.bumail-init')),
@@ -225,11 +229,31 @@ describe('bumail init', () => {
 
 	test('takes the file from BUMAIL_CONFIG when --config is not given', async () => {
 		const { data, config } = place();
-		const { code } = await bumail([...BASE, '--data', data], {
+		const { code, out } = await bumail([...BASE, '--data', data], {
 			BUMAIL_CONFIG: config,
 		});
 		expect(code).toBe(0);
 		expect(existsSync(config)).toBe(true);
+		// The environment still names the file, so the steps need no --config.
+		expect(out).toContain('  3. start the server:       bumail serve\n');
+	});
+
+	test('quotes a --config path the shell would split in the next steps', async () => {
+		const { data } = place();
+		const config = join(data, "it's mine", 'bumail.toml');
+		const { code, out } = await bumail([
+			...BASE,
+			'--data',
+			data,
+			'--config',
+			config,
+		]);
+		expect(code).toBe(0);
+		// A shell reads the printed step back as the path that was given.
+		const step = out.split('\n').find((line) => line.endsWith(' serve'));
+		const word = step?.slice(step.indexOf('--config ') + 9, -' serve'.length);
+		const echoed = Bun.spawnSync(['sh', '-c', `printf %s ${word}`]);
+		expect(echoed.stdout.toString()).toBe(config);
 	});
 
 	test('refuses to overwrite an existing file, and leaves it as it was', async () => {
