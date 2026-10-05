@@ -7,12 +7,16 @@ import {
 	fsyncSync,
 	mkdirSync,
 	openSync,
+	readdirSync,
 	readFileSync,
 	renameSync,
+	unlinkSync,
 	writeSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import type { TlsFiles } from '../tls';
+
+const STALE = /\.(\d+)\.[0-9a-f-]{36}\.tmp$/;
 
 const FLAGS =
 	constants.O_CREAT |
@@ -69,18 +73,49 @@ export class AcmeState {
 		return pairOf(this.#prev('cert.pem'), this.#prev('key.pem'));
 	}
 
-	/** Makes `pair` the current one, keeping the one it replaces as the previous. */
-	writePair(pair: TlsFiles): void {
-		const next = {
-			key: this.#temporary(this.keyFile, pair.key),
-			cert: this.#temporary(this.certFile, pair.cert),
-		};
-		const old = this.readPair();
-		if (old !== undefined) this.#write(this.#prev('key.pem'), old.key);
-		if (old !== undefined) this.#write(this.#prev('cert.pem'), old.cert);
-		renameSync(next.key, this.keyFile);
-		renameSync(next.cert, this.certFile);
-		this.#syncDirectory();
+	/**
+	 * Makes `pair` the current one. By default the pair it replaces becomes
+	 * the previous one; `keepPrevious: true` leaves the `.prev.` files as
+	 * they are, for putting an old pair back without making the one it
+	 * replaces the pair a restart would restore.
+	 */
+	writePair(pair: TlsFiles, options: { keepPrevious?: boolean } = {}): void {
+		const made: string[] = [];
+		try {
+			const next = {
+				key: this.#temporary(this.keyFile, pair.key, made),
+				cert: this.#temporary(this.certFile, pair.cert, made),
+			};
+			const old = this.readPair();
+			if (old !== undefined && options.keepPrevious !== true) {
+				this.#write(this.#prev('key.pem'), old.key);
+				this.#write(this.#prev('cert.pem'), old.cert);
+			}
+			renameSync(next.key, this.keyFile);
+			renameSync(next.cert, this.certFile);
+			this.#syncDirectory();
+		} catch (error) {
+			for (const name of made) removeQuietly(name);
+			throw error;
+		}
+	}
+
+	/**
+	 * Deletes the temporary files (`<file>.<pid>.<uuid>.tmp`) that another
+	 * process left behind when it stopped between creating and renaming one.
+	 */
+	removeStaleTemporaries(): void {
+		let names: string[];
+		try {
+			names = readdirSync(this.dir);
+		} catch {
+			return;
+		}
+		for (const name of names) {
+			const match = STALE.exec(name);
+			if (match === null || match[1] === String(process.pid)) continue;
+			removeQuietly(join(this.dir, name));
+		}
 	}
 
 	/** Makes the previous pair the current one again, as it is. */
@@ -96,13 +131,14 @@ export class AcmeState {
 	}
 
 	/** Writes `text` to a new temporary file beside `path`; answers its name. */
-	#temporary(path: string, text: string): string {
+	#temporary(path: string, text: string, made?: string[]): string {
 		if (!existsSync(this.dir)) {
 			mkdirSync(this.dir, { recursive: true, mode: 0o700 });
 			chmodSync(this.dir, 0o700);
 		}
 		const temporary = `${path}.${this.#suffix()}.tmp`;
 		const fd = openSync(temporary, FLAGS, 0o600);
+		made?.push(temporary);
 		try {
 			writeSync(fd, text);
 			fchmodSync(fd, 0o600);
@@ -114,7 +150,13 @@ export class AcmeState {
 	}
 
 	#write(path: string, text: string): void {
-		renameSync(this.#temporary(path, text), path);
+		const made: string[] = [];
+		try {
+			renameSync(this.#temporary(path, text, made), path);
+		} catch (error) {
+			for (const name of made) removeQuietly(name);
+			throw error;
+		}
 		this.#syncDirectory();
 	}
 
@@ -125,6 +167,14 @@ export class AcmeState {
 		} finally {
 			closeSync(fd);
 		}
+	}
+}
+
+function removeQuietly(path: string): void {
+	try {
+		unlinkSync(path);
+	} catch {
+		// Already gone, or not ours to remove; the original error matters more.
 	}
 }
 

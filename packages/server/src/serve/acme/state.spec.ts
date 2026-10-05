@@ -98,4 +98,39 @@ describe('AcmeState', () => {
 		writeFileSync(join(dir, 'key.pem'), 'k');
 		expect(() => new AcmeState(dir).readPair()).toThrow();
 	});
+
+	test('a failed writePair leaves no temporary file behind', () => {
+		const dir = tempDir();
+		const state = new AcmeState(dir);
+		state.writePair({ cert: 'c1', key: 'k1' });
+		// A directory where the previous key goes makes the rename fail.
+		mkdirSync(join(dir, 'key.prev.pem'));
+		writeFileSync(join(dir, 'key.prev.pem', 'x'), 'x');
+		expect(() => state.writePair({ cert: 'c2', key: 'k2' })).toThrow();
+		expect(readdirSync(dir).filter((n) => n.endsWith('.tmp'))).toEqual([]);
+		expect(state.readPair()).toEqual({ cert: 'c1', key: 'k1' });
+	});
+
+	test('keepPrevious leaves the previous pair as it was', () => {
+		const state = new AcmeState(tempDir());
+		state.writePair({ cert: 'c1', key: 'k1' });
+		state.writePair({ cert: 'c2', key: 'k2' });
+		state.writePair({ cert: 'c1', key: 'k1' }, { keepPrevious: true });
+		expect(state.readPair()).toEqual({ cert: 'c1', key: 'k1' });
+		expect(state.readPrevious()).toEqual({ cert: 'c1', key: 'k1' });
+		state.writePair({ cert: 'c3', key: 'k3' }, { keepPrevious: true });
+		expect(state.readPrevious()).toEqual({ cert: 'c1', key: 'k1' });
+	});
+
+	test('removeStaleTemporaries deletes the temporaries of other processes only', () => {
+		const dir = tempDir();
+		const uuid = crypto.randomUUID();
+		const other = `key.pem.${process.pid + 1}.${uuid}.tmp`;
+		const own = `key.pem.${process.pid}.${uuid}.tmp`;
+		for (const name of [other, own, 'notes.tmp', 'cert.pem'])
+			writeFileSync(join(dir, name), 'x');
+		new AcmeState(dir).removeStaleTemporaries();
+		expect(readdirSync(dir).sort()).toEqual(['cert.pem', own, 'notes.tmp']);
+		new AcmeState(join(dir, 'missing')).removeStaleTemporaries();
+	});
 });
