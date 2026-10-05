@@ -173,8 +173,8 @@ directory commands' own refusals are under
 *`bumail dns`*
 
 - [`no domain is hosted here; bumail domain add adds one`](#no-domain-is-hosted-here-bumail-domain-add-adds-one)
-- [`the stored DKIM key of … is empty; …`](#the-stored-dkim-key-of--is-empty-bumail-dkim-generate---replace-makes-a-new-one)
-- [`the stored DKIM key of … cannot be used (…); …`](#the-stored-dkim-key-of--cannot-be-used--bumail-dkim-generate---replace-makes-a-new-one)
+- [`the stored DKIM key of … is empty; …`](#the-stored-dkim-key-of--is-empty-bumail-dkim-generate----replace-makes-a-new-one)
+- [`the stored DKIM key of … cannot be used (…); …`](#the-stored-dkim-key-of--cannot-be-used--bumail-dkim-generate----replace-makes-a-new-one)
 - [`missing`, `differs`, `duplicate`, `unavailable` and `unchecked`, in `bumail dns --check`](#bumail-dns---check-missing-differs-duplicate-unavailable-unchecked)
 - [`; its A record is the server's public IPv4 address …` and the other comments](#bumail-dns-the-comments-in-its-output)
 
@@ -287,7 +287,7 @@ directory commands' own refusals are under
 **The image and the deploy** (the `init` and `health` commands, and what goes wrong running the image)
 
 - [`bumail: … exists; --force replaces it, and keeps the directory and its keys`](#bumail--exists---force-replaces-it-and-keeps-the-directory-and-its-keys)
-- [`bumail: init needs …`, `--behind-traefik needs --trusted-proxy …`](#bumail-init-needs--behind-traefik-needs---trusted-proxy-)
+- [`bumail: init needs …`, `--behind-traefik needs --trusted-proxy …`](#bumail-init-needs----behind-traefik-needs---trusted-proxy-)
 - [`bumail: <file>:` and `hostname: …`, from `init`](#bumail-file-and-hostname--from-init)
 - [`bumail: unhealthy: …`, `bumail: the health check is turned off (ports.health = 0)`](#bumail-unhealthy--bumail-the-health-check-is-turned-off-portshealth--0)
 - [`… returned 404`: the challenge behind Traefik](#-returned-404-the-challenge-behind-traefik)
@@ -2301,8 +2301,8 @@ message ends `; see bumail --help` (exit code 2, nothing written):
 - `--behind-traefik needs --trusted-proxy: the CIDR of the Docker network
   Traefik reaches bumail on`, and the same for `--proxy-protocol`: the
   proxies whose word about the client is believed are never a default.
-  `docker network inspect <network> --format '{{(index .IPAM.Config 0).Subnet}}'`
-  names the subnet.
+  `docker network inspect <network> --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -m1 '\.'`
+  names its IPv4 subnet.
 - `--trusted-proxy needs --behind-traefik or --proxy-protocol, which it
   names the proxies of`
 - `--acme-staging and --acme-directory are both given; give one`
