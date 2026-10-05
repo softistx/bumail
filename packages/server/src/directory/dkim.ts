@@ -1,5 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { dkimRecord } from '@bumail/auth';
+import { AuthError, dkimRecord } from '@bumail/auth';
 import { ServerError } from '../errors';
 import { checkDomain, domainOf } from './address';
 import { immediate } from './database';
@@ -20,6 +20,8 @@ export interface DkimKeyEntry {
 	/** The TXT record to publish there: `v=DKIM1; k=rsa; p=…`. */
 	readonly record: string;
 	readonly created: Date;
+	/** Why the stored key cannot be published, for a damaged directory: it is empty, or not an RSA public key. `record` is `''` then. */
+	readonly unusable?: string;
 }
 
 /** What signing needs: the selector and the private key, PKCS #8 PEM. */
@@ -39,14 +41,35 @@ interface KeyRow {
 const SELECTOR =
 	/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 
+/** The record of a stored key, or why it cannot be made: an empty key is no record to publish. */
+function recordOf(publicKey: string): { record: string; unusable?: string } {
+	if (publicKey === '') return { record: '', unusable: 'is empty' };
+	try {
+		return { record: dkimRecord({ publicKey }) };
+	} catch (error) {
+		if (!(error instanceof AuthError)) throw error;
+		return { record: '', unusable: `cannot be used (${error.message})` };
+	}
+}
+
 function entry(row: KeyRow): DkimKeyEntry {
 	return {
 		domain: row.domain,
 		selector: row.selector,
 		name: `${row.selector}._domainkey.${row.domain}`,
-		record: dkimRecord({ publicKey: row.public_key }),
+		...recordOf(row.public_key),
 		created: new Date(row.created),
 	};
+}
+
+/** The refusal for a key whose record cannot be published, or `undefined` for a usable key. */
+export function unusableKey(key: DkimKeyEntry): ServerError | undefined {
+	return key.unusable === undefined
+		? undefined
+		: new ServerError(
+				'INVALID',
+				`the stored DKIM key of ${key.domain} ${key.unusable}; bumail dkim generate ${key.domain} --replace makes a new one`,
+			);
 }
 
 function pem(der: ArrayBuffer): string {

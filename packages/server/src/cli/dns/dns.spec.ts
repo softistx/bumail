@@ -477,30 +477,62 @@ describe('bumail dns --check', () => {
 	});
 });
 
-describe('bumail dns with a stored key it cannot write', () => {
-	test.each([
-		['not base64!', 'dkimRecord(): publicKey is not base64'],
+describe('a stored DKIM key that cannot be published', () => {
+	const CASES: [string, string][] = [
+		['not base64!', 'cannot be used (dkimRecord(): publicKey is not base64)'],
 		[
 			'QUJD',
-			'dkimRecord(): an rsa publicKey is a DER SubjectPublicKeyInfo naming rsaEncryption',
+			'cannot be used (dkimRecord(): an rsa publicKey is a DER SubjectPublicKeyInfo naming rsaEncryption)',
 		],
-		[
-			'',
-			'the stored DKIM key of example.com is empty; bumail dkim generate example.com --replace makes a new one',
-		],
-	])(
-		'%j is an error with a message, not a stack trace or a record',
-		async (stored, message) => {
-			const { bumail, data } = await server();
-			const db = new Database(join(data, 'directory.sqlite'));
-			db.query('UPDATE dkim_keys SET public_key = ?').run(stored);
-			db.close();
-			const { code, out, err } = await bumail(['dns']);
+		['', 'is empty'],
+	];
+	const refusal = (why: string) =>
+		`the stored DKIM key of example.com ${why}; bumail dkim generate example.com --replace makes a new one`;
+
+	async function damaged(stored: string) {
+		const it = await server();
+		const db = new Database(join(it.data, 'directory.sqlite'));
+		db.query('UPDATE dkim_keys SET public_key = ?').run(stored);
+		db.close();
+		return it.bumail;
+	}
+
+	test.each(CASES)(
+		'dns refuses %j, with a message and no record',
+		async (stored, why) => {
+			const { code, out, err } = await (await damaged(stored))(['dns']);
 			expect(code).toBe(4);
 			expect(out).toBe('');
 			expect(err).toBe(
-				`bumail: the DNS records cannot be written: ${message}\n`,
+				`bumail: the DNS records cannot be written: ${refusal(why)}\n`,
 			);
+		},
+	);
+
+	test.each(CASES)(
+		'dkim show refuses %j, and says to replace it',
+		async (stored, why) => {
+			const { code, out, err } = await (await damaged(stored))([
+				'dkim',
+				'show',
+				'example.com',
+			]);
+			expect(code).toBe(4);
+			expect(out).toBe('');
+			expect(err).toBe(`bumail: ${refusal(why)}\n`);
+		},
+	);
+
+	test.each(CASES)(
+		'dkim list still lists the domain with %j',
+		async (stored) => {
+			const { code, out, err } = await (await damaged(stored))([
+				'dkim',
+				'list',
+			]);
+			expect(err).toBe('');
+			expect(code).toBe(0);
+			expect(out).toBe('example.com  selector bumail\n');
 		},
 	);
 });

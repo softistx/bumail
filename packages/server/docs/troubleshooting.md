@@ -165,7 +165,8 @@ directory commands' own refusals are under
 *`bumail dns`*
 
 - [`no domain is hosted here; bumail domain add adds one`](#no-domain-is-hosted-here-bumail-domain-add-adds-one)
-- [`the DNS records cannot be written: …`](#the-dns-records-cannot-be-written-)
+- [`the stored DKIM key of … is empty; …`](#the-stored-dkim-key-of--is-empty-bumail-dkim-generate---replace-makes-a-new-one)
+- [`the stored DKIM key of … cannot be used (…); …`](#the-stored-dkim-key-of--cannot-be-used--bumail-dkim-generate---replace-makes-a-new-one)
 - [`missing`, `differs`, `duplicate`, `unavailable` and `unchecked`, in `bumail dns --check`](#bumail-dns---check-missing-differs-duplicate-unavailable-unchecked)
 - [`; its A record is the server's public IPv4 address …` and the other comments](#bumail-dns-the-comments-in-its-output)
 
@@ -1124,20 +1125,32 @@ bumail domain add example.com
 bumail dns example.com --ip 192.0.2.10
 ```
 
-#### `the DNS records cannot be written: …`
+#### `the stored DKIM key of … is empty; bumail dkim generate … --replace makes a new one`
 
-**When**: `bumail dns` (exit code 4) found a record it could not write: the
-message ends with `@bumail/auth`'s or `@bumail/dns`'s own, such as
-`dkimRecord(): publicKey is not base64`, `dkimRecord(): an rsa publicKey is
-a DER SubjectPublicKeyInfo naming rsaEncryption`, or `the stored DKIM key of
-… is empty; …`. Only a damaged directory causes it: a stored DKIM key that
-is empty, not base64, or not an RSA key.
+**When**: `bumail dkim show` or `bumail dns` (exit code 4) found a stored
+key with no public half. `bumail dns` words it `the DNS records cannot be
+written: the stored DKIM key of … is empty; …`. Only a damaged directory
+holds one. It is refused rather than printed, since publishing it would
+publish a revoked key, and `bumail dns` would quarantine mail beside it.
+`bumail dkim list` still lists the domain.
 
 **Fix**: make the key again, which replaces the damaged one.
 
 ```sh
 bumail dkim generate example.com --replace
 ```
+
+#### `the stored DKIM key of … cannot be used (…); bumail dkim generate … --replace makes a new one`
+
+**When**: the same commands found a stored public key that is not an RSA
+SubjectPublicKeyInfo: the part in parentheses is `@bumail/auth`'s reason,
+`dkimRecord(): publicKey is not base64` or `dkimRecord(): an rsa publicKey
+is a DER SubjectPublicKeyInfo naming rsaEncryption`. `bumail dns` prefixes
+it with `the DNS records cannot be written: `. Only a damaged directory
+causes it. `bumail dkim list` still lists the domain, since it builds no
+record.
+
+**Fix**: as above, `bumail dkim generate example.com --replace`.
 
 #### `bumail dns --check`: `missing`, `differs`, `duplicate`, `unavailable`, `unchecked`
 

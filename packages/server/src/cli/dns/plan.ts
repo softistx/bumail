@@ -1,8 +1,10 @@
 import { isIP } from 'node:net';
-import { AuthError, dmarcRecord, spfRecord } from '@bumail/auth';
+import { dmarcRecord, spfRecord } from '@bumail/auth';
 import type { ZoneRecord } from '@bumail/dns';
 import type { ServerConfig } from '../../config/types';
 import type { Directory } from '../../directory/directory';
+import { unusableKey } from '../../directory/dkim';
+import { ServerError } from '../../errors';
 
 /** What a record is for. */
 export type Purpose = 'host' | 'mx' | 'spf' | 'dkim' | 'dmarc' | 'srv' | 'caa';
@@ -151,10 +153,11 @@ function domainRecords(
 		});
 	}
 	const key = directory.dkim.get(domain);
-	if (key !== undefined && /;\s*p=$/.test(key.record)) {
-		throw new AuthError(
-			'INVALID_KEY',
-			`the stored DKIM key of ${domain} is empty; bumail dkim generate ${domain} --replace makes a new one`,
+	const unusable = key === undefined ? undefined : unusableKey(key);
+	if (unusable !== undefined) {
+		throw new ServerError(
+			'INVALID',
+			`the DNS records cannot be written: ${unusable.message}`,
 		);
 	}
 	if (key === undefined) {

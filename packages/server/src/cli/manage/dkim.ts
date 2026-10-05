@@ -1,6 +1,6 @@
 import { formatZone } from '@bumail/dns';
 import { checkDomain } from '../../directory/address';
-import { DKIM_KEY_BITS } from '../../directory/dkim';
+import { DKIM_KEY_BITS, unusableKey } from '../../directory/dkim';
 import { ServerError } from '../../errors';
 import { type Handler, table } from './shared';
 
@@ -36,6 +36,8 @@ export const dkim: Handler = async (args, directory, _, { out }) => {
 			`the domain ${checkDomain(domain)} has no DKIM key; bumail dkim generate makes one`,
 		);
 	}
+	const damaged = unusableKey(key);
+	if (damaged !== undefined) throw damaged;
 	if (args.verb === 'generate') {
 		out(
 			`generated an RSA-${DKIM_KEY_BITS} DKIM key for ${key.domain}, selector ${key.selector}; mail from ${key.domain} is signed with it from now on\n`,

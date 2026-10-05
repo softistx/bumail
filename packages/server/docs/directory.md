@@ -354,7 +354,10 @@ longer: run it again after a few minutes.
 add it first` (exit 4), and with no domain at all, `no domain is hosted
 here; bumail domain add adds one`. A stored key it cannot write, which
 only a damaged directory holds (an empty one, one that is not base64 or
-not an RSA key), is `the DNS records cannot be written: …`.
+not an RSA key), is
+`the DNS records cannot be written: the stored DKIM key of … is empty`
+(or `cannot be used`). `bumail dkim show` refuses it the same way, and
+`bumail dkim generate <domain> --replace` mends it.
 
 ### Exit codes
 
