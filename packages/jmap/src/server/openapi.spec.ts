@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { alxia } from '@alxia/core';
-import { matchesSpec } from '@alxia/openapi-routes';
+import { matchesSpec } from '@alxia/openapi';
 import { type Harness, harness, MAIL, ORIGIN, SIMPLE } from './app.fixtures';
 import {
 	operationsOf,
@@ -13,8 +13,15 @@ import { mismatches, schemasOf, unknownKeywords } from './schema.fixtures';
 const document = await readDocument();
 const deref = (ref: string) => resolve(document, ref);
 
-/** The host's own route, which the document does not describe. */
-const host = { exclude: (route: { path: string }) => route.path === '/health' };
+/**
+ * Both ways: every operation has its route and, `strict`, every route its
+ * operation, but for the host's own route, which the document does not
+ * describe.
+ */
+const host = {
+	strict: true,
+	exclude: (route: { path: string }) => route.path === '/health',
+};
 
 /** An object of the document, through its `$ref`. */
 const followed = (value: any) =>
@@ -125,11 +132,11 @@ describe('the document and the routes', () => {
 	test('a route the document does not describe fails', async () => {
 		h = await harness();
 		const grown = alxia()
-			.use(h.server)
+			.plugin(h.server)
 			.get('/jmap/eventsource', ({ reply }) => reply(200, ''));
-		expect(() => matchesSpec(grown, operationsOf(document))).toThrow(
-			/GET \/jmap\/eventsource/,
-		);
+		expect(() =>
+			matchesSpec(grown, operationsOf(document), { strict: true }),
+		).toThrow(/GET \/jmap\/eventsource/);
 	});
 
 	test('an operation no route serves fails', async () => {

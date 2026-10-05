@@ -9,8 +9,8 @@ type Params<Name extends string> = { readonly [Key in Name]: string };
 /**
  * The schema of a route's path parameters: those named in `ids` must be
  * RFC 8620 §1.2 Ids, those in `rest` any text. A parameter it refuses is a
- * `validation` refusal of the `params`, which the route's `onRefusal`
- * answers.
+ * `validation` refusal of the `params`, which the route's `refused`
+ * middleware answers.
  */
 export function idParams<
 	const Id extends string,

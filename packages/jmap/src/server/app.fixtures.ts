@@ -169,7 +169,7 @@ export async function harness(
 		...overrides,
 	});
 	const host = alxia()
-		.use(server)
+		.plugin(server)
 		.get('/health', ({ reply }) => reply(200, 'ok'));
 	const add = (
 		content: string,

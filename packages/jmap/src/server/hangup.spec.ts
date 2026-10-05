@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from 'bun:test';
 import { connect } from 'node:net';
-import { alxia } from '@alxia/core';
+import { alxia, settle } from '@alxia/core';
 import { MemoryMailStore } from '@bumail/store';
 import { jmap } from './jmap';
 
@@ -30,13 +30,15 @@ test('a client that hangs up mid-body is a bodyless 499, with no onError and not
 	const responses: { status: number; body: string }[] = [];
 	const log = spyOn(console, 'error');
 	const app = alxia()
-		.onResponse(async (response) => {
+		.use(async (ctx, next) => {
+			const response = await settle(ctx, next());
 			responses.push({
 				status: response.status,
 				body: await response.clone().text(),
 			});
+			return response;
 		})
-		.use(
+		.plugin(
 			jmap({
 				store,
 				origin: 'http://mail',

@@ -25,7 +25,7 @@ async function store(
 ): Promise<AnyReply> {
 	const { limits } = runtime.settings;
 	// The route's `bodyLimit` (maxSizeUpload) bounds this read: past it,
-	// alxia stops reading and the route's `onRefusal` answers.
+	// alxia stops reading and the route's `refused` middleware answers.
 	const bytes = new Uint8Array(await request.arrayBuffer());
 	const type = typeOf(request);
 	const upload = runtime.uploads.add(auth.accountId, bytes, type);

@@ -12,13 +12,13 @@ back-references, Mailbox, Email and Thread, and blob download and upload.
 bun add @bumail/jmap @alxia/core @bumail/store @bumail/mime
 ```
 
-`@alxia/core` (0.3.1 or later), `@bumail/store` and `@bumail/mime` are
+`@alxia/core` (0.7.0 or later), `@bumail/store` and `@bumail/mime` are
 peers: install the versions your app uses. `typescript` is an optional
 peer, for the types.
 
 ## Mounting it in an alxia app
 
-`jmap(options)` returns an alxia app. `use` it in yours: it adds
+`jmap(options)` returns an alxia app. Mount it in yours with `plugin`: it adds
 `GET /.well-known/jmap` (the session) and, under `basePath` (`/jmap` by
 default), `POST /jmap/api`, `GET /jmap/download/:accountId/:blobId/:name`
 and `POST /jmap/upload/:accountId`. Each of its routes authenticates the
@@ -49,7 +49,7 @@ const server = jmap({
 
 const app = alxia()
 	.get('/health', ({ reply }) => reply(200, 'ok')) // not authenticated
-	.use(server);
+	.plugin(server);
 
 app.listen(8080);
 ```
@@ -205,7 +205,7 @@ Its `info.version` is the version of the document, not of the package.
 
 | export | |
 | --- | --- |
-| `jmap(options)` | the server: an alxia app to `use`, with `notify(accountId)`; throws a `JmapError` (`INVALID_OPTION`) on a bad option |
+| `jmap(options)` | the server: an alxia app to mount with `plugin`, with `notify(accountId)`; throws a `JmapError` (`INVALID_OPTION`) on a bad option |
 | `JmapServer` | `notify(accountId)`: reserved for push, a no-op today |
 | `JmapOptions` | `store`, `authenticate`, `origin`, `basePath`, `limits`, `hookTimeout`, `allowInsecureBasic`, `secure`, `onError` |
 | `JmapLimits` | the limits above |

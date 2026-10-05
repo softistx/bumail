@@ -26,12 +26,12 @@ export interface JmapContext {
 export const NO_CLIENT_ADDRESS =
 	"behind a proxy, a client's address is known only on a TCP socket: bind to an IP address, not a unix socket";
 
-/** The header the client is carried in, from `fetch` to the hooks; never read from the network. */
+/** The header the client is carried in, from `fetch` to the middlewares; never read from the network. */
 const CLIENT_HEADER = 'x-bumail-client';
 
 /**
  * `request` with `client` set in `CLIENT_HEADER`, whatever the sender
- * put there: alxia hands its hooks a copy of a request that has a body,
+ * put there: alxia hands its middlewares a copy of a request that has a body,
  * so what is known of the request travels in the request itself.
  */
 function stamped(request: Request, client: Client): Request {
