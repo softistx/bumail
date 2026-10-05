@@ -43,8 +43,8 @@ bumail check-config --config ./bumail.toml
 
 Outside the image, give `init` a `--data` folder you can write, as an
 absolute path: its default, `/data`, is the image's volume. The next
-steps `init` prints leave out `--config`, so `export
-BUMAIL_CONFIG="$PWD/bumail.toml"` first, or add `--config` to each.
+steps `init` prints carry the same `--config`; with
+`export BUMAIL_CONFIG="$PWD/bumail.toml"` no command needs it.
 
 Both fetch the `@bumail/*` packages it peers on, which Bun installs
 for you.

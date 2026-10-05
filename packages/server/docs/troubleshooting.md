@@ -2457,7 +2457,8 @@ or `--password-file` on a file of the volume or a Docker secret.
 `BUMAIL_VERSION` in `.env` names a version that was never released (or
 `0.1` before any `0.1.x`). `denied` means the registry refuses an
 anonymous pull: a stale `docker login ghcr.io` with an expired token
-makes it refuse a public image too.
+makes it refuse a public image too, and a package not yet made public on
+GitHub refuses everyone outside the organisation.
 
 **Fix**: pick a tag from the
 [package's page](https://github.com/softistx/bumail/pkgs/container/bumail)

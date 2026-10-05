@@ -107,15 +107,27 @@ export async function init(args: InitArgs, io: Io): Promise<void> {
 		rmSync(temporary, { force: true });
 	}
 	const [first = ''] = domains;
+	// The steps reach the file init wrote: with the --config it was given.
+	const bumail =
+		args.config === undefined
+			? 'bumail'
+			: `bumail --config ${shellWord(args.config)}`;
 	io.out(
 		[
 			'',
 			'next steps:',
-			`  1. add a user:             bumail user add alice@${first}`,
-			"  2. print the DNS records:  bumail dns --ip <this host's IPv4 address>",
-			'     publish them, then:     bumail dns --check',
-			'  3. start the server:       bumail serve',
+			`  1. add a user:             ${bumail} user add alice@${first}`,
+			`  2. print the DNS records:  ${bumail} dns --ip <this host's IPv4 address>`,
+			`     publish them, then:     ${bumail} dns --check`,
+			`  3. start the server:       ${bumail} serve`,
 			'',
 		].join('\n'),
 	);
+}
+
+/** `word` as a shell would read it back: bare when it is safe, else quoted. */
+function shellWord(word: string): string {
+	return /^[\w@%+=:,./-]+$/.test(word)
+		? word
+		: `'${word.replaceAll("'", `'\\''`)}'`;
 }

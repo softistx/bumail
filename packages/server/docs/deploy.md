@@ -84,10 +84,13 @@ can print them. The A record must be there now: the CA looks up
 ### 2. Fetch the deploy files and the image
 
 The compose files are in the repository, at the tag of the release you
-install. A sparse clone takes only `deploy/`:
+install: set `VERSION` to it, the newest on the
+[releases page](https://github.com/softistx/bumail/releases) (a tag named
+`@bumail/server@<version>`). A sparse clone takes only `deploy/`:
 
 ```sh
-git clone --depth 1 --branch '@bumail/server@0.1.0' --filter=blob:none --sparse \
+VERSION=0.1.0   # the release you install
+git clone --depth 1 --branch "@bumail/server@$VERSION" --filter=blob:none --sparse \
   https://github.com/softistx/bumail
 cd bumail
 git sparse-checkout set deploy
@@ -111,7 +114,7 @@ holds the `bumail` program and no configuration, key or certificate.
 release tag, add the build override to `.env` and build:
 
 ```sh
-git clone --branch '@bumail/server@0.1.0' https://github.com/softistx/bumail
+git clone --branch "@bumail/server@$VERSION" https://github.com/softistx/bumail
 cd bumail/deploy
 cp .env.example .env
 echo 'COMPOSE_FILE=compose.yaml:compose.build.yaml' >> .env   # the later line wins
@@ -252,12 +255,12 @@ docker compose ps
 ```
 
 ```text
-NAME                                    IMAGE               COMMAND                  SERVICE   CREATED         STATUS                   PORTS
-bumail-e2e-docker-standalone-bumail-1   bumail:e2e-docker   "/usr/local/bin/buma…"   bumail    7 seconds ago   Up 6 seconds (healthy)   127.0.0.1:12525->25/tcp, 127.0.0.1:12443->443/tcp, 127.0.0.1:12465->465/tcp, 127.0.0.1:12587->587/tcp, 127.0.0.1:12993->993/tcp
+NAME              IMAGE                         COMMAND                  SERVICE   CREATED         STATUS                   PORTS
+bumail-bumail-1   ghcr.io/softistx/bumail:0.1   "/usr/local/bin/buma…"   bumail    7 seconds ago   Up 6 seconds (healthy)   0.0.0.0:25->25/tcp, 0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp, 0.0.0.0:465->465/tcp, 0.0.0.0:587->587/tcp, 0.0.0.0:993->993/tcp
 ```
 
-(Also from the end-to-end test, which publishes on high ports of
-127.0.0.1; yours is `bumail-bumail-1` with `0.0.0.0:25->25/tcp`, and so on.)
+`healthy` is what to look for; `starting` lasts until the certificate is
+there and every port is bound.
 
 The same check by hand, in the running container (a `run` would start a
 new one, where nothing listens):
