@@ -20,6 +20,11 @@ on:
         description: 'The @bumail/server version whose image to push, for example 0.1.0'
         required: true
         type: string
+      minor:
+        description: 'Also move its <major>.<minor> tag (only for the newest patch of that minor; a release does so on its own)'
+        required: false
+        type: boolean
+        default: false
       latest:
         description: 'Also tag it latest (a release does so on its own)'
         required: false
@@ -30,10 +35,8 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-  packages: write
+# Each job asks for what it needs, and no more.
+permissions: {}
 
 jobs:
   release:
@@ -51,6 +54,9 @@ jobs:
     # on, and the concurrency group above never cancels one under way — this
     # only stops a run that has hung.
     timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       # The version of @bumail/server this run published, or empty.
       server-version: ${{ steps.server.outputs.version }}
@@ -82,13 +88,14 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       # The tag the action pushes is pushed with GITHUB_TOKEN, which triggers no
       # workflow, so the image cannot hang off a tag push: the "image" job below
-      # reads this output instead. `publishedPackages` is a JSON array of
-      # { name, version }, and `published` is 'true' only when a package went out.
+      # reads this output instead. `published-packages` (v2 names its outputs in
+      # kebab-case) is a JSON array of { name, version }, and `published` is
+      # 'true' only when a package went out.
       - name: Was @bumail/server published?
         id: server
         env:
           PUBLISHED: ${{ steps.changesets.outputs.published }}
-          PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          PACKAGES: ${{ steps.changesets.outputs.published-packages }}
         run: |
           version=""
           if [ "$PUBLISHED" = "true" ]; then
@@ -113,10 +120,17 @@ jobs:
     # (bun build --target) and runs nothing of the image's platform, so there
     # is no QEMU step and the build takes about as long as a single-arch one.
     timeout-minutes: 30
+    # Reads the sources and pushes the image; BuildKit's provenance and SBOM
+    # are attestations pushed with it, and need no other permission.
+    permissions:
+      contents: read
+      packages: write
     env:
       # Never taken from the event inside a script: through the environment.
       VERSION: ${{ needs.release.outputs.server-version || inputs.version }}
       LATEST: ${{ github.event_name == 'push' || inputs.latest }}
+      # A manual run for an older patch must not move 0.1 back to it.
+      MINOR: ${{ github.event_name == 'push' || inputs.minor }}
     steps:
       - name: The version is one npm has
         run: |
@@ -141,7 +155,7 @@ jobs:
           tags="$image:$VERSION"
           # A prerelease gets its own tag only: never 0.2, never latest.
           if ! [[ "$VERSION" == *-* ]]; then
-            tags="$tags,$image:${VERSION%.*}"
+            if [ "$MINOR" = true ]; then tags="$tags,$image:${VERSION%.*}"; fi
             if [ "$LATEST" = true ]; then tags="$tags,$image:latest"; fi
           fi
           {

@@ -22,7 +22,9 @@ RUN mkdir /manifests \
 # ---- build: install, build every package, compile the server --------------
 # Always on the build machine's own platform, whatever the image's: Bun
 # cross-compiles the executable for TARGETARCH (--target below), so a
-# multi-platform build never runs Bun under emulation.
+# multi-platform build never runs Bun under emulation. For a target other
+# than the build machine's, `--compile --target` downloads that platform's
+# Bun 1.4.2 runtime at build time: pinned by version, not by this digest.
 FROM --platform=$BUILDPLATFORM oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS build
 ARG TARGETARCH
 WORKDIR /src

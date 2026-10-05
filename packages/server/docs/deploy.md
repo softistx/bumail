@@ -107,11 +107,11 @@ the patches) and `latest`. The compose files pull `0.1` unless
 `BUMAIL_VERSION` in `.env` says otherwise. Nothing is baked in: the image
 holds the `bumail` program and no configuration, key or certificate.
 
-**To build the image yourself** instead, from a full clone, add the
-build override to `.env` and build:
+**To build the image yourself** instead, from a clone at the same
+release tag, add the build override to `.env` and build:
 
 ```sh
-git clone https://github.com/softistx/bumail
+git clone --branch '@bumail/server@0.1.0' https://github.com/softistx/bumail
 cd bumail/deploy
 cp .env.example .env
 echo 'COMPOSE_FILE=compose.yaml:compose.build.yaml' >> .env   # the later line wins

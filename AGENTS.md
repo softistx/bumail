@@ -173,7 +173,7 @@ multi-platform build runs no emulation. CI's "Docker" job builds the image
 for linux/amd64 and linux/arm64 without pushing it. **Only the "Image" job of
 `release.yml` pushes it**, as `ghcr.io/softistx/bumail:<version>`,
 `<major>.<minor>` and `latest`, after a release that published
-`@bumail/server` (it reads `changesets/action`'s `publishedPackages`: a
+`@bumail/server` (it reads `changesets/action`'s `published-packages`: a
 tag pushed with `GITHUB_TOKEN` triggers nothing), or by `workflow_dispatch`
 for a version already on npm. Nothing else may `docker push`.
 

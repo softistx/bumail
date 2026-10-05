@@ -36,8 +36,13 @@ Node, because it uses `bun:sqlite` and `Bun.password`):
 ```sh
 bunx @bumail/server --version          # run it without installing
 bun add -g @bumail/server              # or install the command
+bumail --config ./bumail.toml init --data "$PWD/data" \
+  --hostname mail.example.com --domain example.com
 bumail check-config --config ./bumail.toml
 ```
+
+Outside the image, give `init` a `--data` folder you can write: its
+default, `/data`, is the image's volume.
 
 Both fetch the `@bumail/*` packages it peers on, which Bun installs
 for you.
