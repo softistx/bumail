@@ -1,5 +1,15 @@
 # @bumail/jmap
 
+## 0.4.0
+
+### Minor Changes
+
+- [#85](https://github.com/softistx/bumail/pull/85) [`6e68ec8`](https://github.com/softistx/bumail/commit/6e68ec8667c88eca458de679fa8157c744bd84d9) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The `@alxia/core` peer moves on to `^0.10.0`, which a `^0.9.0` does not accept: upgrade `@alxia/core` and every other `@alxia/*` package your app uses with it. `authenticate(credentials, request, client)` and `secure(request, client)` get a last argument, and `onError`'s context a `client`: `{ ip, url }`, the host app's `ctx.ip` and `originalUrl(ctx)`, exported as `JmapClient`. Behind `alxia({ proxy: trustProxy(…) })` they are what the trusted proxies said — the forwarded client's address, one text per address, and the scheme the outermost proxy wrote — so `secure: (_request, client) => client.url.protocol === 'https:'` replaces reading `X-Forwarded-Proto` yourself. Hooks written for the old arguments keep working, and every answer is unchanged; code that calls the hooks itself through `JmapOptions`, or builds an `ErrorContext`, now passes the `client` too.
+
+- [#83](https://github.com/softistx/bumail/pull/83) [`7f72784`](https://github.com/softistx/bumail/commit/7f727841f34553a595c47b37e3cf27a767eb070d) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The `@alxia/core` peer moves from `^0.3.1` to `^0.7.0`, which drops 0.3: an app on `@alxia/core` 0.3 upgrades it, with every other `@alxia/*` package it uses, to take this release, and mounts the server with `app.plugin(jmap(…))` where it wrote `app.use(jmap(…))`, since `use` takes middlewares alone from `@alxia/core` 0.5 on. The routes' refusals are answered by a middleware of each route instead of the `onRefusal` hooks 0.5 removed; the server's routes, statuses, headers and bodies are unchanged. The OpenAPI spec checks the routes with `@alxia/openapi`'s `matchesSpec` under `strict: true`, both ways as before.
+
+- [#84](https://github.com/softistx/bumail/pull/84) [`d218b39`](https://github.com/softistx/bumail/commit/d218b391f62bd3dc605c66bd1d6c8eac23ce5333) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The `@alxia/core` peer moves on to `^0.9.0`, which a `^0.7.0` does not accept: upgrade `@alxia/core` and every other `@alxia/*` package your app uses with it. A request with the wrong method and no credentials, or wrong ones, is now a 401 with both challenges where it was a 405: alxia 0.9 runs the jmap group's authentication before it answers a 405, so its `Allow` names a route's methods to an authenticated client alone. With credentials, the 405 and its `Allow` are unchanged, as is every other answer.
+
 ## 0.3.2
 
 ### Patch Changes
