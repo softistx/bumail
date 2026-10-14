@@ -10,10 +10,10 @@
 # See deploy/ and packages/server/docs/deploy.md.
 
 # ---- manifests: every package.json, so the install layer is cached --------
-# oven/bun:1.4.2, by digest. Built for the build machine, like the stage below:
+# oven/bun:1.4.3, by digest. Built for the build machine, like the stage below:
 # it only copies files, and no stage of the image runs a program of its platform,
 # so a multi-platform build needs no emulation at all.
-FROM --platform=$BUILDPLATFORM oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS manifests
+FROM --platform=$BUILDPLATFORM oven/bun@sha256:ec06c3b6cea04192ae6770c434f668ca41d343ad19fa6472216c7b48be39c598 AS manifests
 WORKDIR /src
 COPY . .
 RUN mkdir /manifests \
@@ -24,8 +24,8 @@ RUN mkdir /manifests \
 # cross-compiles the executable for TARGETARCH (--target below), so a
 # multi-platform build never runs Bun under emulation. For a target other
 # than the build machine's, `--compile --target` downloads that platform's
-# Bun 1.4.2 runtime at build time: pinned by version, not by this digest.
-FROM --platform=$BUILDPLATFORM oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS build
+# Bun 1.4.3 runtime at build time: pinned by version, not by this digest.
+FROM --platform=$BUILDPLATFORM oven/bun@sha256:ec06c3b6cea04192ae6770c434f668ca41d343ad19fa6472216c7b48be39c598 AS build
 ARG TARGETARCH
 WORKDIR /src
 # The install changes only when a manifest or the lockfile does.

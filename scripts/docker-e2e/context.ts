@@ -16,7 +16,7 @@ export const HOST = 'mail.bumail.test';
 export const STANDALONE_HOST = 'standalone.bumail.test';
 export const PEBBLE_DIRECTORY = 'https://pebble:14000/dir';
 export const CLIENT_IMAGE =
-	'oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895';
+	'oven/bun:1.4.3@sha256:ec06c3b6cea04192ae6770c434f668ca41d343ad19fa6472216c7b48be39c598';
 
 export interface Context {
 	readonly report: Report;

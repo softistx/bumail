@@ -229,7 +229,7 @@ each with a matching key in `exports`.
   artifacts. It resolves without a lockfile, so it is read, never required.
   The repository's scripts therefore stay off TypeScript's JS API, which
   TypeScript 7 does not export.
-- **Bun 1.4.2**, the version alxia and the nxgt suite pin.
+- **Bun 1.4.3**, the version alxia and the nxgt suite pin.
 
 ## TypeScript
 
@@ -238,6 +238,18 @@ each with a matching key in `exports`.
 `noUnusedLocals` and the rest. An app's own tsconfig may hold any of them,
 so the published declarations must compile under all of them. Only
 `scripts/`, copied from nxgt-http, relaxes two.
+
+**`bun check` is not the typecheck.** Measured on Bun 1.4.3 against `tsc`: on
+all 12 projects (the ten packages, `examples/demo`, `scripts`) both are green
+with 0 errors, and with 6 planted errors (strict options included) the error
+lines are identical, in about a twentieth of the time. `tsc` stays because
+`bun check` (1) type-checks with the TypeScript 6.0.3 embedded in Bun and
+ignores `node_modules/typescript`, so CI's "Newest peers" job, which
+typechecks against TypeScript 7, would lose that coverage; (2) is shadowed by
+the root `check` script (Biome), so it only runs from a directory whose
+`package.json` has no `check` script; (3) exits 1 where `tsc` exits 2 and adds
+a "Found N errors" line; (4) emits nothing, so declarations still need
+`tsc`. Revisit when Bun can check against the installed TypeScript.
 
 ## Releasing
 
