@@ -26,7 +26,7 @@ it is a private workspace (`examples/*`), outside the package builds,
 
 ## Run it
 
-From the repository root (Bun 1.4.2, `bun install` done, Docker for
+From the repository root (Bun 1.4.3, `bun install` done, Docker for
 Mailpit):
 
 ```sh

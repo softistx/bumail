@@ -505,7 +505,7 @@ These hold for every package. [AGENTS.md](../AGENTS.md) has the full rules.
 - **No runtime dependency.** A package needs only Bun, other `@bumail/*`
   packages, and the peers AGENTS.md allows (such as the S3 client a
   blob store will use).
-- **Bun only.** The repository is built and tested on Bun 1.4.2.
+- **Bun only.** The repository is built and tested on Bun 1.4.3.
 - **Never an open relay.** Relaying requires AUTH in every default and
   every test, and AUTH is offered only once the connection is encrypted.
 - **Hostile input is the normal case.**
