@@ -1,5 +1,16 @@
 # @bumail/server
 
+## 0.3.0
+
+### Minor Changes
+
+- [#87](https://github.com/softistx/bumail/pull/87) [`6125c5b`](https://github.com/softistx/bumail/commit/6125c5be426a12cdfb217bb6ce77155125e5c765) Thanks [@SteveGT96](https://github.com/SteveGT96)! - The `@alxia/core` peer moves on to `^0.14.3`, which a `^0.10.0` does not accept: upgrade `@alxia/core` with it. The server's behaviour is unchanged.
+
+### Patch Changes
+
+- Updated dependencies [[`6125c5b`](https://github.com/softistx/bumail/commit/6125c5be426a12cdfb217bb6ce77155125e5c765)]:
+  - @bumail/jmap@0.5.0
+
 ## 0.2.0
 
 ### Minor Changes
