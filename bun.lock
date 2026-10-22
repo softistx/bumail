@@ -89,15 +89,15 @@
       "name": "@bumail/jmap",
       "version": "0.4.0",
       "devDependencies": {
-        "@alxia/core": "^0.10.0",
-        "@alxia/openapi": "^0.6.4",
+        "@alxia/core": "^0.14.3",
+        "@alxia/openapi": "^0.6.9",
         "@bumail/mime": "workspace:^",
         "@bumail/store": "workspace:^",
         "@types/bun": "^1.4.2",
         "jmap-jam": "^0.13.8",
       },
       "peerDependencies": {
-        "@alxia/core": "^0.10.0",
+        "@alxia/core": "^0.14.3",
         "@bumail/mime": "workspace:^",
         "@bumail/store": "workspace:^",
         "typescript": "^6.0.3 || ^7.0.0",
@@ -144,7 +144,7 @@
         "bumail": "./dist/main.js",
       },
       "devDependencies": {
-        "@alxia/core": "^0.10.0",
+        "@alxia/core": "^0.14.3",
         "@bumail/acme": "workspace:^",
         "@bumail/auth": "workspace:^",
         "@bumail/dns": "workspace:^",
@@ -156,7 +156,7 @@
         "@types/bun": "^1.4.2",
       },
       "peerDependencies": {
-        "@alxia/core": "^0.10.0",
+        "@alxia/core": "^0.14.3",
         "@bumail/acme": "workspace:^",
         "@bumail/auth": "workspace:^",
         "@bumail/dns": "workspace:^",
@@ -205,9 +205,9 @@
     "typescript": "~6.0.3",
   },
   "packages": {
-    "@alxia/core": ["@alxia/core@0.10.0", "", { "peerDependencies": { "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-0fd4Yr/62mVdpvcAt3ZTl6eHQoiAAuG0siuXQLPcZ7DKBnfL1chSOplvK+Nfok0P74QnLZ3K54lQwlC2WdBpug=="],
+    "@alxia/core": ["@alxia/core@0.14.3", "", { "peerDependencies": { "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-Vr/PXSPCAH6eADXZbbt85gYva2EmVppZU6L2TaIefNEHtgFpmx/bHlB8/f7JNRH5C6l2+56RPYJcUaHp+7ynWA=="],
 
-    "@alxia/openapi": ["@alxia/openapi@0.6.4", "", { "peerDependencies": { "@alxia/core": "^0.10.0", "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-yf3ay+jny6Vv66NIK083uhiFz0G2rej7UhhqTgJqJN330VpEWSilSNiRBZS5ptN1IekasKZu+jnZzDc8Gku/1A=="],
+    "@alxia/openapi": ["@alxia/openapi@0.6.9", "", { "peerDependencies": { "@alxia/core": "^0.14.2", "typescript": "^6.0.3 || ^7.0.0" } }, "sha512-NPjNhbJF60QsRQpBaTnYN4RviJUvWd3ZWIzAAogmeVFlHQgmZYD7tWaS+J/yPTkjDfY1/EhEDbcmGogYYaMeyg=="],
 
     "@biomejs/biome": ["@biomejs/biome@2.5.15", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.5.15", "@biomejs/cli-darwin-x64": "2.5.15", "@biomejs/cli-linux-arm64": "2.5.15", "@biomejs/cli-linux-arm64-musl": "2.5.15", "@biomejs/cli-linux-x64": "2.5.15", "@biomejs/cli-linux-x64-musl": "2.5.15", "@biomejs/cli-win32-arm64": "2.5.15", "@biomejs/cli-win32-x64": "2.5.15" }, "bin": { "biome": "bin/biome" } }, "sha512-WZTW4slm/pdkh92K6t/3aEN++44JD1PQ7squ7RCMLI1flHGl43DVOIGXvCjHiZgBMO1V4uYxoFNtqrIA4qGuIQ=="],
 
